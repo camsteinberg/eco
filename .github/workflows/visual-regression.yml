@@ -1,0 +1,183 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Bos Computing LLC
+
+name: Visual Regression
+
+on:
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "19 9 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: visual-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "22"
+  PNPM_VERSION: "9.15.4"
+
+jobs:
+  changes:
+    name: Classify visual scope
+    runs-on: ubuntu-latest
+    outputs:
+      run_visual: ${{ steps.classify.outputs.run_visual }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Classify changed paths
+        id: classify
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" || "${{ github.event_name }}" == "schedule" ]]; then
+            files="__full__"
+          elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            files="$(git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}")"
+          else
+            files="$(git diff --name-only HEAD^ HEAD 2>/dev/null || git ls-files)"
+          fi
+
+          run_visual=false
+          if [[ "$files" == "__full__" || -z "$files" ]]; then
+            run_visual=true
+          fi
+
+          while IFS= read -r file; do
+            [[ -z "$file" ]] && continue
+            echo "changed: $file"
+            case "$file" in
+              package.json|pnpm-lock.yaml|packages/ui/*|apps/web/package.json|apps/web/e2e/visual/*|apps/web/public/*|apps/web/src/components/*|apps/web/src/hooks/*|apps/web/src/lib/*|apps/web/src/store/*|apps/web/src/stores/*|apps/web/app/*|apps/web/playwright*.ts|apps/web/*.config.*|apps/web/postcss.config.mjs|apps/web/next.config.*|apps/web/*.css|apps/web/src/*.css|apps/web/src/**/*.css)
+                run_visual=true
+                ;;
+            esac
+          done <<< "$files"
+
+          echo "run_visual=$run_visual" >> "$GITHUB_OUTPUT"
+          echo "run_visual=$run_visual"
+
+  visual-shard:
+    name: Visual regression shard (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    needs: changes
+    if: ${{ needs.changes.outputs.run_visual == 'true' }}
+    container:
+      image: mcr.microsoft.com/playwright:v1.58.2-noble
+      options: --user root
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: mobile
+            command: npx playwright test --config playwright.visual.config.ts --project=mobile
+          - name: tablet
+            command: npx playwright test --config playwright.visual.config.ts --project=tablet
+          - name: desktop-light
+            command: npx playwright test --config playwright.visual.config.ts --project=desktop e2e/visual/pages.spec.ts e2e/visual/authenticated.spec.ts
+          - name: desktop-dark
+            command: npx playwright test --config playwright.visual.config.ts --project=desktop e2e/visual/dark-mode.spec.ts
+
+    steps:
+      - name: Install git-lfs
+        run: |
+          apt-get update
+          apt-get install -y git-lfs
+
+      - uses: actions/checkout@v5
+        with:
+          lfs: true
+
+      - uses: pnpm/action-setup@v5
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build shared packages
+        run: pnpm --filter "@eco/ui" build
+
+      - name: Run visual regression shard
+        working-directory: apps/web
+        run: ${{ matrix.command }}
+
+      - name: Upload diff artifacts
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: visual-diff-${{ matrix.name }}
+          path: apps/web/test-results/
+          if-no-files-found: ignore
+          retention-days: 30
+
+  visual-test:
+    name: Visual regression tests
+    runs-on: ubuntu-latest
+    needs: [changes, visual-shard]
+    if: always()
+    steps:
+      - name: Comment PR with results
+        if: ${{ needs.changes.outputs.run_visual == 'true' && github.event_name == 'pull_request' }}
+        uses: actions/github-script@v8
+        continue-on-error: true
+        with:
+          script: |
+            const testResult = '${{ needs.visual-shard.result }}';
+            const runUrl = '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}';
+            const body = testResult === 'success'
+              ? '## Visual Regression: PASSED\n\nNo visual differences detected across visual shards (mobile, tablet, desktop-light, desktop-dark).'
+              : `## Visual Regression: CHANGES DETECTED\n\nVisual differences found. [Download the diff reports](${runUrl}) artifacts to review.\n\n> Reviewers: Download the \`visual-diff-*\` artifacts to inspect pixel-level diffs before approving.`;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const botComment = comments.find(c => c.body.includes('## Visual Regression:'));
+
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+      - name: Check visual regression result
+        run: |
+          set -euo pipefail
+          if [[ "${{ needs.changes.result }}" != "success" ]]; then
+            echo "::error::Visual scope classification failed with ${{ needs.changes.result }}."
+            exit 1
+          fi
+          if [[ "${{ needs.changes.outputs.run_visual }}" != "true" ]]; then
+            echo "Visual regression intentionally skipped for non-visual web changes."
+            exit 0
+          fi
+          if [[ "${{ needs.visual-shard.result }}" != "success" ]]; then
+            echo "::error::One or more visual regression shards failed."
+            exit 1
+          fi
+          echo "Visual regression shards passed."

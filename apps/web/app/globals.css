@@ -1,0 +1,690 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+/* Copyright (C) 2026 Bos Computing LLC */
+
+@import "tailwindcss";
+@import "../../../packages/ui/src/tokens/tokens.css";
+
+@source "../app";
+@source "../src";
+@source "../../../packages/ui/src";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme inline {
+  --color-surface: var(--eco-surface);
+  --color-surface-elevated: var(--eco-surface-elevated);
+  --color-surface-chat: var(--eco-surface-chat);
+  --color-primary: var(--eco-primary);
+  --color-primary-hover: var(--eco-primary-hover);
+  --color-primary-soft: var(--eco-primary-soft);
+  --color-on-primary: var(--eco-on-primary);
+  --color-text: var(--eco-text);
+  --color-text-secondary: var(--eco-text-secondary);
+  --color-text-muted: var(--eco-text-muted);
+  --color-accent: var(--eco-accent);
+  --color-accent-soft: var(--eco-accent-soft);
+  --color-mint: var(--eco-mint);
+  --color-coral: var(--eco-coral);
+  --color-amber: var(--eco-amber);
+  --color-sky: var(--eco-sky);
+  --color-border: var(--eco-border);
+  --color-border-muted: var(--eco-border-muted);
+  --color-danger: var(--eco-danger);
+  --color-danger-soft: var(--eco-danger-soft);
+  --color-success: var(--eco-success);
+  --color-success-soft: var(--eco-success-soft);
+  --color-warning: var(--eco-warning);
+  --color-warning-soft: var(--eco-warning-soft);
+  --color-error: var(--eco-error);
+  --color-error-soft: var(--eco-error-soft);
+  --color-info: var(--eco-info);
+  --color-info-soft: var(--eco-info-soft);
+
+  --spacing: 4px;
+
+  --radius-sm: var(--eco-radius-sm);
+  --radius-md: var(--eco-radius-md);
+  --radius-lg: var(--eco-radius-lg);
+  --radius-xl: var(--eco-radius-xl);
+  --radius-2xl: var(--eco-radius-2xl);
+  --radius-full: var(--eco-radius-full);
+  --radius-chat: 24px;
+
+  --font-display: var(--eco-font-display);
+  --font-body: var(--eco-font-body);
+  --font-mono: var(--eco-font-mono);
+
+  --shadow-sm: var(--eco-shadow-sm);
+  --shadow-md: var(--eco-shadow-md);
+  --shadow-lg: var(--eco-shadow-lg);
+  --shadow-xl: var(--eco-shadow-xl);
+}
+
+/* ── Legacy --color-* tokens are provided by tokens.css backward compatibility aliases.
+   No hardcoded overrides needed here — tokens.css is the single source of truth.
+   Components still referencing --color-* will resolve through those aliases. ── */
+
+/* ── Font Size ─────────────────────────────────────────────── */
+
+[data-font-size="compact"] { font-size: 14px; }
+[data-font-size="default"] { font-size: 16px; }
+[data-font-size="comfortable"] { font-size: 18px; }
+
+/* ── Base ──────────────────────────────────────────────────── */
+
+body {
+  background-color: var(--color-surface);
+  color: var(--color-text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html {
+  --eco-css-ready: 1;
+  color-scheme: light;
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+/* ── Calm scrollbars ─────────────────────────────────────────
+   Keep scroll affordances present without the default browser chrome
+   cutting through sidebar, settings, modal, and code surfaces. */
+.overflow-y-auto,
+.overflow-y-scroll,
+.overflow-auto,
+.overflow-scroll,
+.eco-scrollbar {
+  scrollbar-gutter: stable;
+}
+
+.overflow-y-auto,
+.overflow-x-auto,
+.overflow-y-scroll,
+.overflow-x-scroll,
+.overflow-auto,
+.overflow-scroll,
+.eco-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--eco-text-muted) 35%, transparent) transparent;
+}
+
+.overflow-y-auto::-webkit-scrollbar,
+.overflow-x-auto::-webkit-scrollbar,
+.overflow-y-scroll::-webkit-scrollbar,
+.overflow-x-scroll::-webkit-scrollbar,
+.overflow-auto::-webkit-scrollbar,
+.overflow-scroll::-webkit-scrollbar,
+.eco-scrollbar::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.overflow-y-auto::-webkit-scrollbar-track,
+.overflow-x-auto::-webkit-scrollbar-track,
+.overflow-y-scroll::-webkit-scrollbar-track,
+.overflow-x-scroll::-webkit-scrollbar-track,
+.overflow-auto::-webkit-scrollbar-track,
+.overflow-scroll::-webkit-scrollbar-track,
+.eco-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.overflow-y-auto::-webkit-scrollbar-thumb,
+.overflow-x-auto::-webkit-scrollbar-thumb,
+.overflow-y-scroll::-webkit-scrollbar-thumb,
+.overflow-x-scroll::-webkit-scrollbar-thumb,
+.overflow-auto::-webkit-scrollbar-thumb,
+.overflow-scroll::-webkit-scrollbar-thumb,
+.eco-scrollbar::-webkit-scrollbar-thumb {
+  min-height: 36px;
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+  background-color: color-mix(in srgb, var(--eco-text-muted) 26%, transparent);
+}
+
+.overflow-y-auto:hover::-webkit-scrollbar-thumb,
+.overflow-x-auto:hover::-webkit-scrollbar-thumb,
+.overflow-y-scroll:hover::-webkit-scrollbar-thumb,
+.overflow-x-scroll:hover::-webkit-scrollbar-thumb,
+.overflow-auto:hover::-webkit-scrollbar-thumb,
+.overflow-scroll:hover::-webkit-scrollbar-thumb,
+.eco-scrollbar:hover::-webkit-scrollbar-thumb {
+  background-color: color-mix(in srgb, var(--eco-text-muted) 42%, transparent);
+}
+
+.overflow-y-auto::-webkit-scrollbar-corner,
+.overflow-x-auto::-webkit-scrollbar-corner,
+.overflow-y-scroll::-webkit-scrollbar-corner,
+.overflow-x-scroll::-webkit-scrollbar-corner,
+.overflow-auto::-webkit-scrollbar-corner,
+.overflow-scroll::-webkit-scrollbar-corner,
+.eco-scrollbar::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Settings tab strip — slim horizontal scrollbar that doesn't overlay
+   the active-tab underline. Higher specificity (double class) to beat
+   the .overflow-x-auto global rule above. */
+.overflow-x-auto.eco-tabstrip-scrollbar,
+.eco-tabstrip-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--eco-text-muted) 22%, transparent) transparent;
+}
+
+.overflow-x-auto.eco-tabstrip-scrollbar::-webkit-scrollbar,
+.eco-tabstrip-scrollbar::-webkit-scrollbar {
+  width: 0;
+  height: 3px;
+}
+
+.overflow-x-auto.eco-tabstrip-scrollbar::-webkit-scrollbar-track,
+.eco-tabstrip-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.overflow-x-auto.eco-tabstrip-scrollbar::-webkit-scrollbar-thumb,
+.eco-tabstrip-scrollbar::-webkit-scrollbar-thumb {
+  min-height: 0;
+  border: 0;
+  border-radius: 999px;
+  background-color: color-mix(in srgb, var(--eco-text-muted) 20%, transparent);
+}
+
+.overflow-x-auto.eco-tabstrip-scrollbar:hover::-webkit-scrollbar-thumb,
+.eco-tabstrip-scrollbar:hover::-webkit-scrollbar-thumb {
+  background-color: color-mix(in srgb, var(--eco-text-muted) 35%, transparent);
+}
+
+/* Keyboard-only focus ring for all interactive elements */
+/* Wrapped in @layer base so Tailwind utilities can override per-element */
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+
+  /* Suppress outline for mouse/touch interactions */
+  :focus:not(:focus-visible) {
+    outline: none;
+  }
+
+}
+
+/* ── Interactive Cursor ──────────────────────────────────────
+   Intentionally OUTSIDE @layer so it beats Tailwind's preflight
+   (which sets cursor:default on buttons in @layer base).
+   Unlayered styles always win over any @layer in CSS cascade. */
+button,
+[role="button"],
+[role="tab"],
+[role="option"],
+[role="switch"],
+[role="radio"],
+[role="checkbox"],
+[role="menuitem"],
+[role="menuitemcheckbox"],
+[role="menuitemradio"],
+summary,
+a[href] {
+  cursor: pointer;
+}
+
+button:disabled,
+[aria-disabled="true"] {
+  cursor: not-allowed;
+}
+
+/* ── Grain Texture ─────────────────────────────────────────── */
+
+.grain {
+  position: relative;
+}
+
+.grain::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0.055;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  background-size: 128px 128px;
+}
+
+.dark .grain::after {
+  opacity: 0.075;
+}
+
+.grain-subtle {
+  position: relative;
+}
+
+.grain-subtle::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0.03;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  background-size: 128px 128px;
+}
+
+.dark .grain-subtle::after {
+  opacity: 0.04;
+}
+
+/* ── Scroll Reveal ─────────────────────────────────────────── */
+
+@keyframes scroll-reveal-fallback {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.scroll-reveal {
+  opacity: 0;
+  transform: translateY(24px);
+  transition: opacity 0.9s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.9s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: scroll-reveal-fallback 0.9s cubic-bezier(0.16, 1, 0.3, 1) 1s both;
+}
+
+.scroll-reveal.revealed {
+  opacity: 1;
+  transform: translateY(0) translateX(0);
+  animation: none;
+}
+
+/* Directional reveal variants */
+.scroll-reveal-left {
+  opacity: 0;
+  transform: translateX(-40px);
+  transition: opacity 0.9s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.9s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.scroll-reveal-right {
+  opacity: 0;
+  transform: translateX(40px);
+  transition: opacity 0.9s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.9s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.scroll-reveal-left.revealed,
+.scroll-reveal-right.revealed {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+/* ── Stagger Children ──────────────────────────────────────── */
+
+.stagger > * {
+  opacity: 0;
+  transform: translateY(16px);
+  transition: opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.stagger.revealed > *:nth-child(1) { transition-delay: 0ms; opacity: 1; transform: translateY(0); }
+.stagger.revealed > *:nth-child(2) { transition-delay: 80ms; opacity: 1; transform: translateY(0); }
+.stagger.revealed > *:nth-child(3) { transition-delay: 160ms; opacity: 1; transform: translateY(0); }
+.stagger.revealed > *:nth-child(4) { transition-delay: 240ms; opacity: 1; transform: translateY(0); }
+.stagger.revealed > *:nth-child(5) { transition-delay: 320ms; opacity: 1; transform: translateY(0); }
+.stagger.revealed > *:nth-child(6) { transition-delay: 400ms; opacity: 1; transform: translateY(0); }
+.stagger.revealed > *:nth-child(7) { transition-delay: 480ms; opacity: 1; transform: translateY(0); }
+.stagger.revealed > *:nth-child(8) { transition-delay: 560ms; opacity: 1; transform: translateY(0); }
+
+/* ── Parallax Animations ──────────────────────────────────── */
+
+@keyframes stream-shimmer {
+  0% { opacity: 0.6; }
+  50% { opacity: 1; }
+  100% { opacity: 0.6; }
+}
+
+@keyframes count-up-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.02); }
+}
+
+@keyframes water-ripple {
+  0% { transform: scale(0.8); opacity: 0.6; }
+  100% { transform: scale(2); opacity: 0; }
+}
+
+@keyframes droplet-breathe {
+  0%, 100% { transform: scale(1); opacity: 0.85; }
+  50% { transform: scale(1.04); opacity: 1; }
+}
+
+@keyframes leaf-sway {
+  0%, 100% { transform: rotate(0deg); }
+  33% { transform: rotate(3deg); }
+  66% { transform: rotate(-2deg); }
+}
+
+/* ── River Particle Animation ─────────────────────────── */
+
+@keyframes particle-drift {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0);
+  }
+  12% {
+    opacity: 1;
+  }
+  88% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--pdx, 0px), var(--pdy, 80px));
+  }
+}
+
+@keyframes float-gentle {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+
+@keyframes prompt-shimmer {
+  0% { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+@keyframes message-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ── Queue Pulse Animation ────────────────────────────────── */
+
+@keyframes queue-pulse {
+  0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
+  40% { opacity: 1; transform: scale(1); }
+}
+
+/* ── Slide-Out Delete Animation ────────────────────────────── */
+
+@keyframes slide-out-left {
+  to {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+}
+
+.slide-out-left {
+  animation: slide-out-left 200ms ease-out forwards;
+}
+
+/* ── Skeleton Shimmer ─────────────────────────────────────── */
+
+@keyframes skeleton-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--color-border) 25%,
+    var(--color-surface-raised) 50%,
+    var(--color-border) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s ease-in-out infinite;
+}
+
+/* ── Onboarding Tour Theme (driver.js) ────────────────────── */
+
+.eco-tour-popover {
+  background-color: var(--color-surface-raised) !important;
+  color: var(--color-text-primary) !important;
+  border: 1px solid var(--color-border) !important;
+  border-radius: 16px !important;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.08) !important;
+}
+
+.eco-tour-popover .driver-popover-title {
+  font-family: var(--font-serif, "Fraunces", serif) !important;
+  font-size: 1.125rem !important;
+  color: var(--color-text-primary) !important;
+}
+
+.eco-tour-popover .driver-popover-description {
+  font-size: 0.875rem !important;
+  line-height: 1.6 !important;
+  color: var(--color-text-secondary) !important;
+}
+
+.eco-tour-popover .driver-popover-next-btn,
+.eco-tour-popover .driver-popover-close-btn {
+  background-color: var(--color-primary) !important;
+  color: white !important;
+  border: none !important;
+  border-radius: 9999px !important;
+  padding: 6px 16px !important;
+  font-size: 0.8125rem !important;
+  font-weight: 500 !important;
+  cursor: pointer !important;
+}
+
+.eco-tour-popover .driver-popover-next-btn:hover,
+.eco-tour-popover .driver-popover-close-btn:hover {
+  background-color: var(--color-primary-hover) !important;
+}
+
+.eco-tour-popover .driver-popover-prev-btn {
+  background: transparent !important;
+  color: var(--color-text-secondary) !important;
+  border: none !important;
+  border-radius: 9999px !important;
+  padding: 6px 16px !important;
+  font-size: 0.8125rem !important;
+  cursor: pointer !important;
+}
+
+.eco-tour-popover .driver-popover-arrow-side-left .driver-popover-arrow {
+  border-left-color: var(--color-surface-raised) !important;
+}
+
+.eco-tour-popover .driver-popover-arrow-side-right .driver-popover-arrow {
+  border-right-color: var(--color-surface-raised) !important;
+}
+
+.eco-tour-popover .driver-popover-arrow-side-top .driver-popover-arrow {
+  border-top-color: var(--color-surface-raised) !important;
+}
+
+.eco-tour-popover .driver-popover-arrow-side-bottom .driver-popover-arrow {
+  border-bottom-color: var(--color-surface-raised) !important;
+}
+
+/* ── Discovery Pulse Animation ────────────────────────────── */
+
+@keyframes discovery-pulse {
+  0%, 100% { opacity: 0.6; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.3); }
+}
+
+/* ── StreamingCursor: Seedling grow-pulse ────────────────── */
+
+@keyframes grow-pulse {
+  0% { transform: scale(0.85); opacity: 0.7; }
+  50% { transform: scale(1); opacity: 1; }
+  100% { transform: scale(0.85); opacity: 0.7; }
+}
+
+.grow-pulse-anim {
+  animation: grow-pulse 1.5s infinite ease-in-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .grow-pulse-anim {
+    animation: none;
+  }
+}
+
+/* ── Network Status Pulse ─────────────────────────────────── */
+
+@keyframes status-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.85); }
+}
+
+.status-pulse {
+  animation: status-pulse 2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status-pulse {
+    animation: none;
+  }
+}
+
+/* ── Soft Breathing (Empty-Chat Botanical Backdrop) ────── */
+
+@keyframes breathe-soft {
+  0%, 100% { opacity: var(--eco-breathe-min, 0.09); }
+  50%      { opacity: var(--eco-breathe-max, 0.12); }
+}
+
+.breathe-soft {
+  animation: breathe-soft 10s ease-in-out infinite;
+}
+
+/* ── Welcome Overlay Animation ───────────────────────────── */
+
+@keyframes welcome-fade-in {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* ── Tab Fade-In (Settings) ───────────────────────────────── */
+
+@keyframes tab-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* ── Reduced Motion ────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .scroll-reveal,
+  .stagger > * {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ── KaTeX Math Overrides — app styling ─────────
+   KaTeX defaults to Computer Modern (serif), bright blue fractions, and
+   heavier weight than our prose. These overrides blend math into the warm
+   Eco body text so it feels native, not like a foreign element.
+   The CSS is lazy-loaded alongside the KaTeX JS — these rules apply only
+   after katex.min.css is injected into the document. ── */
+
+.eco-chat-markdown .katex {
+  color: var(--eco-text);
+  font-size: 1em;
+}
+
+/* Keep mathematical italics (variables) italic — only restyle color/weight */
+.eco-chat-markdown .katex .mord,
+.eco-chat-markdown .katex .mop,
+.eco-chat-markdown .katex .mbin,
+.eco-chat-markdown .katex .mrel,
+.eco-chat-markdown .katex .mopen,
+.eco-chat-markdown .katex .mclose,
+.eco-chat-markdown .katex .mpunct,
+.eco-chat-markdown .katex .minner {
+  color: var(--eco-text);
+}
+
+/* Inline math: subtle horizontal breathing room so it doesn't crowd text */
+.eco-chat-markdown .katex-html {
+  /* 0.1em (~1.5px at body size) — sub-token scale; --eco-space-xs (4px) would over-space inline math */
+  padding: 0 0.1em;
+}
+
+/* Display math (block-level): center with tasteful vertical spacing */
+.eco-chat-markdown .katex-display {
+  margin: var(--eco-space-md) 0;
+  color: var(--eco-text);
+}
+
+/* ── Search: scroll-to-message highlight ────────────────── */
+
+.message-highlight {
+  background-color: var(--color-primary-soft);
+  transition: background-color 2s ease;
+}
+
+/* ── Cookie notice ↔ chat-surface clearance ────────────────
+   The cookie notice is a fixed element pinned to the bottom of every page; on
+   the chat surface it would otherwise sit over content anchored to the bottom
+   (bug: first session). While the notice is visible on the chat surface
+   (`html.eco-chat-cookie-notice`, toggled by CookieBanner) the affected
+   surfaces reserve extra space below their bottom-anchored content so it clears
+   the notice. Three surfaces participate:
+     • the active-conversation composer (`[data-eco-composer-bar]`) — the
+       notice would sit over its Send button;
+     • the first-run setup surface (`[data-eco-setup-surface]`, WelcomeSetup,
+       which renders on /chat during the model download) — the mobile bar
+       floats over the bottom of the rotating reassurance card (the P0
+       download-wait "values moment");
+     • the empty-state trust footer (`[data-eco-chat-trust-footer]`, the
+       WhyEcoCard wrapper below the composer) — the mobile bar floats over the
+       "Read the methodology →" link under the trust pills.
+     • the setup error surface (`[data-eco-setup-error-surface]`, SetupErrorState,
+       which replaces the setup surface when the download ladder is exhausted) —
+       the mobile bar floats over the "Tell us more" action row.
+   How the reservation behaves depends on whether the content fits the viewport,
+   which differs by surface and device — it is NOT a simple "justify-center lifts
+   it" story (measured: at 390×844 the setup column overflows to ~1007px, so
+   justify-center has zero free space and the initial fold cannot shift). On
+   viewports where the content fits, the reservation lifts the bottom content
+   clear of the notice; where it overflows (common phones), the reservation
+   lengthens the scroll run so the content can be scrolled FULLY clear of the
+   notice — without it, the last line stays clipped even at max scroll.
+   Only the breakpoints where the notice actually overlaps reserve space: the
+   full-width mobile bar (<sm) and the bottom-right desktop card (lg+, composer
+   only — the centered setup card and the empty-state footer clear the desktop
+   card without help). The sm–md notice is lifted and narrow, so it never
+   reaches the composer. */
+@media (max-width: 639px) {
+  html.eco-chat-cookie-notice [data-eco-composer-bar] {
+    padding-bottom: 6.5rem;
+  }
+  html.eco-chat-cookie-notice [data-eco-setup-surface] {
+    padding-bottom: calc(6.5rem + env(safe-area-inset-bottom));
+  }
+  html.eco-chat-cookie-notice [data-eco-chat-trust-footer] {
+    padding-bottom: calc(6.5rem + env(safe-area-inset-bottom));
+  }
+  html.eco-chat-cookie-notice [data-eco-setup-error-surface] {
+    padding-bottom: calc(6.5rem + env(safe-area-inset-bottom));
+  }
+}
+@media (min-width: 1024px) {
+  html.eco-chat-cookie-notice [data-eco-composer-bar] {
+    padding-bottom: 8rem;
+  }
+}
+

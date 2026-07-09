@@ -1,0 +1,327 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+/* Copyright (C) 2026 Bos Computing LLC */
+
+/* ============================================================================
+   Eco design tokens
+   Single source of truth for all Eco design tokens.
+   Consumed by both apps/web (via Tailwind @theme inline) and apps/miner (direct import).
+   ============================================================================ */
+
+/* ── Light Theme ──────────────────────────────────────────────────────────── */
+
+:root {
+  /* Surfaces */
+  --eco-surface: #f5f0e8;
+  --eco-surface-elevated: #faf7f2;
+  --eco-surface-chat: #f2ece0;
+  --eco-cream: #f5f0e8;
+
+  /* Primary */
+  --eco-primary: #2d5a3d;
+  --eco-primary-hover: #174428;
+  --eco-primary-soft: #e6ede3;
+
+  /* Text */
+  --eco-text: #2c2418;
+  --eco-text-secondary: #6b5e4f;
+  --eco-text-muted: #766a5c; /* AA: 4.64:1 on surface (was #9a8e80 at 2.82:1) */
+
+  /* Accent */
+  --eco-accent: #3d7a50; /* AA: 4.52:1 on surface (was #4a8f5f at 3.44:1) */
+  --eco-accent-soft: #ebf3ee;
+
+  /* Semantic */
+  --eco-mint: #357a48; /* AA: 4.59:1 on surface (was #7bc08e at 1.89:1) */
+  --eco-amber: #8a5e15; /* AA: 5.01:1 on surface (was #d4a853 at 1.94:1) */
+  --eco-coral: #b04a3a; /* AA: 4.76:1 on surface (was #c75c4a at 3.66:1) */
+  --eco-sky: #3b6f99; /* AA: 4.72:1 on surface (was #5b8fb9 at 3.05:1) */
+
+  /* On-primary (text/icon on primary background) */
+  --eco-on-primary: #faf7f0;
+
+  /* Borders */
+  --eco-border: #e5ddd0;
+  --eco-border-muted: #ede7db;
+
+  /* Status */
+  --eco-success: #137035; /* AA: 5.45:1 on surface (was #16a34a at 2.91:1) */
+  --eco-success-soft: rgba(34, 197, 94, 0.1);
+  --eco-amber-soft: rgba(212, 168, 83, 0.12); /* amber hue wash (matches --eco-amber base #d4a853) */
+  --eco-warning: #9a4a02; /* AA: 5.52:1 on surface (was #d97706 at 2.81:1) */
+  --eco-warning-soft: rgba(245, 158, 11, 0.1);
+  --eco-error: #dc2626;
+  --eco-error-soft: rgba(239, 68, 68, 0.1);
+  --eco-info: #2563eb;
+  --eco-info-soft: rgba(59, 130, 246, 0.1);
+
+  /* Code blocks */
+  --eco-code-inline-bg: #ede7db;
+  --eco-code-inline-text: #2d5a3d;
+  --eco-code-header-bg: #ede7db;
+  --eco-code-header-text: #7a6e5f;
+  --eco-code-border: #e5ddd0;
+  --eco-code-link: #2d5a3d;
+  --eco-code-link-decoration: #94c9a3;
+
+  /* Neutral (for components that used gray-*) */
+  --eco-neutral-bg: #faf7f0;
+  --eco-neutral-bg-muted: #f5f0e8;
+  --eco-neutral-border: #e5ddd0;
+  --eco-neutral-border-muted: #ede7db;
+  --eco-neutral-text: #2c2418;
+  --eco-neutral-text-secondary: #5a4e3f;
+  --eco-neutral-text-muted: #9a8e80;
+
+  /* Danger */
+  --eco-danger: #b95050;
+  --eco-danger-soft: #faf0f0;
+
+  /* Typography */
+  --eco-font-display: 'Fraunces', Georgia, serif;
+  --eco-font-body: 'DM Sans', system-ui, sans-serif;
+  --eco-font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  /* Spacing (4px base) */
+  --eco-space-xs: 4px;
+  --eco-space-sm: 8px;
+  --eco-space-md: 16px;
+  --eco-space-lg: 24px;
+  --eco-space-xl: 32px;
+  --eco-space-2xl: 48px;
+  --eco-space-3xl: 64px;
+
+  /* Radius — Eco scale intentionally overrides Tailwind v4 defaults: lg=24px (not 8px), xl=28px (not 12px), 2xl=32px (not 16px). */
+  --eco-radius-sm: 8px;
+  --eco-radius-md: 12px;
+  --eco-radius-lg: 24px;
+  --eco-radius-xl: 28px;
+  --eco-radius-2xl: 32px;
+  --eco-radius-full: 9999px;
+
+  /* Shadows (warm rgba(44,36,24,...) -- never cool/blue) */
+  --eco-shadow-sm: 0 1px 2px rgba(44, 36, 24, 0.04);
+  --eco-shadow-md: 0 4px 12px rgba(44, 36, 24, 0.06);
+  --eco-shadow-lg: 0 8px 24px rgba(44, 36, 24, 0.08);
+  --eco-shadow-xl: 0 28px 100px rgba(26, 26, 26, 0.12);
+
+  /* Scrim -- modal/overlay backdrop (warm charcoal, ~55%) */
+  --eco-scrim: rgba(26, 26, 26, 0.55);
+
+  /* ── Backward Compatibility Aliases (remove in Phase 35+) ─────────────── */
+  --color-primary: var(--eco-primary);
+  --color-primary-hover: var(--eco-primary-hover);
+  --color-primary-soft: var(--eco-primary-soft);
+  --color-accent: var(--eco-accent);
+  --color-accent-soft: var(--eco-accent-soft);
+  --color-surface: var(--eco-surface);
+  --color-surface-raised: var(--eco-surface-elevated);
+  --color-surface-chat: var(--eco-surface-chat);
+  --color-text-primary: var(--eco-text);
+  --color-text-secondary: var(--eco-text-secondary);
+  --color-text-muted: var(--eco-text-muted);
+  --color-border: var(--eco-border);
+  --color-on-primary: var(--eco-on-primary);
+  --color-danger: var(--eco-danger);
+  --color-danger-soft: var(--eco-danger-soft);
+  --color-sky: var(--eco-sky);
+  --color-sky-soft: var(--eco-accent-soft);
+  --color-accent-red: var(--eco-error);
+  --color-success: var(--eco-success);
+  --color-success-soft: var(--eco-success-soft);
+  --color-success-soft-bold: #dcfce7;
+  --color-success-border: #bbf7d0;
+  --color-warning: var(--eco-warning);
+  --color-warning-soft: var(--eco-warning-soft);
+  --color-warning-soft-bold: #fef3c7;
+  --color-warning-border: #fde68a;
+  --color-warning-text: #92400e;
+  --color-info: var(--eco-info);
+  --color-info-soft: var(--eco-info-soft);
+  --color-error: var(--eco-error);
+  --color-error-soft: var(--eco-error-soft);
+  --color-special: #9333ea;
+  --color-special-soft: rgba(168, 85, 247, 0.1);
+  --color-code-inline-bg: var(--eco-code-inline-bg);
+  --color-code-inline-text: var(--eco-code-inline-text);
+  --color-code-header-bg: var(--eco-code-header-bg);
+  --color-code-header-text: var(--eco-code-header-text);
+  --color-code-border: var(--eco-code-border);
+  --color-code-link: var(--eco-code-link);
+  --color-code-link-decoration: var(--eco-code-link-decoration);
+  --color-neutral-bg: var(--eco-neutral-bg);
+  --color-neutral-bg-muted: var(--eco-neutral-bg-muted);
+  --color-neutral-border: var(--eco-neutral-border);
+  --color-neutral-border-muted: var(--eco-neutral-border-muted);
+  --color-neutral-text: var(--eco-neutral-text);
+  --color-neutral-text-secondary: var(--eco-neutral-text-secondary);
+  --color-neutral-text-muted: var(--eco-neutral-text-muted);
+}
+
+/* ── Dark Theme ───────────────────────────────────────────────────────────── */
+
+.dark {
+  /* Surfaces */
+  --eco-surface: #1a1a1a;
+  --eco-surface-elevated: #242424;
+  --eco-surface-chat: #1e1e1e;
+
+  /* Primary */
+  --eco-primary: #7bc08e;
+  --eco-primary-hover: #8fd0a0;
+  --eco-primary-soft: #1e2a22;
+
+  /* Text */
+  --eco-text: #ede8e0;
+  --eco-text-secondary: #a09888;
+  --eco-text-muted: #706b65;
+
+  /* Accent */
+  --eco-accent: #94c9a3;
+  --eco-accent-soft: #222a25;
+
+  /* Semantic */
+  --eco-mint: #7bc08e;
+  --eco-amber: #d4a853;
+  --eco-coral: #e07060;
+  --eco-sky: #6da0c8;
+
+  /* On-primary */
+  --eco-on-primary: #1a1a1a;
+
+  /* Borders */
+  --eco-border: #333333;
+  --eco-border-muted: #2a2a2a;
+
+  /* Status */
+  --eco-success: #4ade80;
+  --eco-success-soft: rgba(34, 197, 94, 0.1);
+  --eco-amber-soft: rgba(212, 168, 83, 0.16); /* amber hue wash, slightly stronger for dark surfaces */
+  --eco-warning: #fbbf24;
+  --eco-warning-soft: rgba(245, 158, 11, 0.1);
+  --eco-error: #f87171;
+  --eco-error-soft: rgba(239, 68, 68, 0.1);
+  --eco-info: #60a5fa;
+  --eco-info-soft: rgba(59, 130, 246, 0.1);
+
+  /* Code blocks */
+  --eco-code-inline-bg: #2a2a2a;
+  --eco-code-inline-text: #94c9a3;
+  --eco-code-header-bg: #2a2a2a;
+  --eco-code-header-text: #9a9590;
+  --eco-code-border: #333333;
+  --eco-code-link: #7bc08e;
+  --eco-code-link-decoration: #3a5a42;
+
+  /* Neutral */
+  --eco-neutral-bg: #252525;
+  --eco-neutral-bg-muted: #1a1a1a;
+  --eco-neutral-border: #333333;
+  --eco-neutral-border-muted: #2a2a2a;
+  --eco-neutral-text: #ede8e0;
+  --eco-neutral-text-secondary: #bbb5ad;
+  --eco-neutral-text-muted: #706b65;
+
+  /* Danger */
+  --eco-danger: #e87171;
+  --eco-danger-soft: #3d2020;
+
+  /* Shadows (dark: deeper with pure black) */
+  --eco-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.15);
+  --eco-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.20);
+  --eco-shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.25);
+  --eco-shadow-xl: 0 28px 100px rgba(0, 0, 0, 0.45);
+
+  /* Scrim -- pure black in dark (a charcoal scrim over the charcoal surface reads near-invisible) */
+  --eco-scrim: rgba(0, 0, 0, 0.6);
+
+  /* ── Backward Compatibility Aliases (remove in Phase 35+) ─────────────── */
+  --color-primary: var(--eco-primary);
+  --color-primary-hover: var(--eco-primary-hover);
+  --color-primary-soft: var(--eco-primary-soft);
+  --color-accent: var(--eco-accent);
+  --color-accent-soft: var(--eco-accent-soft);
+  --color-surface: var(--eco-surface);
+  --color-surface-raised: var(--eco-surface-elevated);
+  --color-surface-chat: var(--eco-surface-chat);
+  --color-text-primary: var(--eco-text);
+  --color-text-secondary: var(--eco-text-secondary);
+  --color-text-muted: var(--eco-text-muted);
+  --color-border: var(--eco-border);
+  --color-on-primary: var(--eco-on-primary);
+  --color-danger: var(--eco-danger);
+  --color-danger-soft: var(--eco-danger-soft);
+  --color-sky: var(--eco-sky);
+  --color-sky-soft: var(--eco-accent-soft);
+  --color-accent-red: var(--eco-error);
+  --color-success: var(--eco-success);
+  --color-success-soft: var(--eco-success-soft);
+  --color-success-soft-bold: rgba(34, 197, 94, 0.15);
+  --color-success-border: rgba(34, 197, 94, 0.3);
+  --color-warning: var(--eco-warning);
+  --color-warning-soft: var(--eco-warning-soft);
+  --color-warning-soft-bold: rgba(245, 158, 11, 0.15);
+  --color-warning-border: rgba(245, 158, 11, 0.3);
+  --color-warning-text: #fde68a;
+  --color-info: var(--eco-info);
+  --color-info-soft: var(--eco-info-soft);
+  --color-error: var(--eco-error);
+  --color-error-soft: var(--eco-error-soft);
+  --color-special: #c084fc;
+  --color-special-soft: rgba(168, 85, 247, 0.1);
+  --color-code-inline-bg: var(--eco-code-inline-bg);
+  --color-code-inline-text: var(--eco-code-inline-text);
+  --color-code-header-bg: var(--eco-code-header-bg);
+  --color-code-header-text: var(--eco-code-header-text);
+  --color-code-border: var(--eco-code-border);
+  --color-code-link: var(--eco-code-link);
+  --color-code-link-decoration: var(--eco-code-link-decoration);
+  --color-neutral-bg: var(--eco-neutral-bg);
+  --color-neutral-bg-muted: var(--eco-neutral-bg-muted);
+  --color-neutral-border: var(--eco-neutral-border);
+  --color-neutral-border-muted: var(--eco-neutral-border-muted);
+  --color-neutral-text: var(--eco-neutral-text);
+  --color-neutral-text-secondary: var(--eco-neutral-text-secondary);
+  --color-neutral-text-muted: var(--eco-neutral-text-muted);
+}
+
+/* ── Grain Texture Utility ────────────────────────────────────────────────── */
+
+.eco-grain {
+  position: relative;
+}
+
+.eco-grain::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0.025;
+  pointer-events: none;
+  z-index: 1;
+  border-radius: inherit;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  background-size: 128px 128px;
+}
+
+.dark .eco-grain::after {
+  opacity: 0.035;
+}
+
+.eco-grain-subtle {
+  position: relative;
+}
+
+.eco-grain-subtle::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0.015;
+  pointer-events: none;
+  z-index: 1;
+  border-radius: inherit;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  background-size: 128px 128px;
+}
+
+.dark .eco-grain-subtle::after {
+  opacity: 0.025;
+}

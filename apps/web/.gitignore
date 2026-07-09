@@ -1,0 +1,5 @@
+.vercel
+
+# Runtime engine assets copied from node_modules at build (scripts/copy-runtime-assets.mjs)
+/public/litert-wasm/
+/public/ort/

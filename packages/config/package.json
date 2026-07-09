@@ -1,0 +1,36 @@
+{
+  "name": "@eco/config",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Shared tsconfig and eslint configs for Eco packages",
+  "exports": {
+    "./tsconfig/base.json": "./tsconfig/base.json",
+    "./tsconfig/node.json": "./tsconfig/node.json",
+    "./tsconfig/nextjs.json": "./tsconfig/nextjs.json",
+    "./tsconfig/react.json": "./tsconfig/react.json",
+    "./eslint/base": "./eslint/base.mjs",
+    "./eslint/node": "./eslint/node.mjs",
+    "./eslint/nextjs": "./eslint/nextjs.mjs",
+    "./eslint/stage-strict-typed": "./eslint/stage-strict-typed.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.18.0",
+    "@next/eslint-plugin-next": "^15.1.6",
+    "@typescript-eslint/eslint-plugin": "^8.20.0",
+    "@typescript-eslint/parser": "^8.20.0",
+    "eslint": "^9.18.0",
+    "eslint-plugin-jsx-a11y": "^6.10.2",
+    "eslint-plugin-react": "^7.37.5",
+    "typescript-eslint": "^8.20.0"
+  },
+  "license": "AGPL-3.0-or-later",
+  "homepage": "https://econetwork.ai",
+  "bugs": {
+    "url": "https://github.com/camsteinberg/eco/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/camsteinberg/eco.git",
+    "directory": "packages/config"
+  }
+}

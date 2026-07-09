@@ -1,0 +1,138 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Bos Computing LLC
+
+name: Deploy Web Staging
+
+on:
+  workflow_run:
+    workflows: ["Web Launch CI"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-web-staging-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "22"
+  PNPM_VERSION: "9.15.4"
+
+jobs:
+  deploy-web:
+    name: Deploy web to Vercel (staging)
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      deployment_url: ${{ steps.deploy.outputs.deployment_url }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v5
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Deploy to Vercel
+        id: deploy
+        run: |
+          npx vercel deploy --archive=tgz --token "${VERCEL_TOKEN}" --yes | tee /tmp/vercel-deploy.log
+          deployment_url="$(grep -Eo 'https://[^ ]+\.vercel\.app[^ ]*' /tmp/vercel-deploy.log | tail -n 1)"
+          if [ -z "$deployment_url" ]; then
+            echo "::error::Unable to parse Vercel deployment URL from deploy output."
+            exit 1
+          fi
+          echo "deployment_url=${deployment_url}" >> "$GITHUB_OUTPUT"
+          echo "Vercel deployment: ${deployment_url}"
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+  smoke-web:
+    name: Smoke test web staging
+    needs: deploy-web
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+    steps:
+      - name: Check deployment URL and gate probe
+        run: |
+          set -euo pipefail
+
+          deployment_url="${{ needs.deploy-web.outputs.deployment_url }}"
+          if [ -z "$deployment_url" ]; then
+            echo "::error::Vercel deployment URL was not emitted."
+            exit 1
+          fi
+
+          if [ -n "${VERCEL_AUTOMATION_BYPASS_SECRET:-}" ]; then
+            echo "::add-mask::${VERCEL_AUTOMATION_BYPASS_SECRET}"
+            echo "Using configured Vercel automation bypass for protected preview smoke."
+          else
+            echo "No Vercel automation bypass secret configured; protected preview 401s will be reported as a staging configuration blocker."
+          fi
+
+          curl_preview() {
+            if [ -n "${VERCEL_AUTOMATION_BYPASS_SECRET:-}" ]; then
+              curl --header "x-vercel-protection-bypass: ${VERCEL_AUTOMATION_BYPASS_SECRET}" "$@"
+            else
+              curl "$@"
+            fi
+          }
+
+          head_status="$(
+            curl_preview --silent --show-error --location --head \
+              --output /tmp/web-deployment-head.txt \
+              --write-out "%{http_code}" \
+              "$deployment_url"
+          )"
+          if [ "$head_status" = "401" ] && [ -z "${VERCEL_AUTOMATION_BYPASS_SECRET:-}" ]; then
+            echo "::warning title=Staging preview smoke blocked by Vercel protection::Preview deployment returned HTTP 401 and VERCEL_AUTOMATION_BYPASS_SECRET is not configured for this workflow. Treating this as a non-production staging-smoke configuration blocker; Web Launch Gate and production smoke remain unchanged."
+            echo "Deployment URL: ${deployment_url}"
+            echo "Staging smoke status: blocked_by_vercel_preview_protection"
+            exit 0
+          fi
+          if [ "$head_status" -lt 200 ] || [ "$head_status" -ge 400 ]; then
+            echo "::error::Unexpected preview deployment HEAD status ${head_status}."
+            exit 1
+          fi
+
+          gate_status="$(
+            curl_preview --silent --show-error \
+              --output /tmp/web-gate-body.txt \
+              --write-out "%{http_code}" \
+              "${deployment_url}/api/gate"
+          )"
+          if [ "$gate_status" = "401" ] && [ -z "${VERCEL_AUTOMATION_BYPASS_SECRET:-}" ]; then
+            echo "::warning title=Staging gate probe blocked by Vercel protection::/api/gate returned HTTP 401 and VERCEL_AUTOMATION_BYPASS_SECRET is not configured. Treating this as a non-production staging-smoke configuration blocker; Web Launch Gate and production smoke remain unchanged."
+            echo "Deployment URL: ${deployment_url}"
+            echo "Staging smoke status: blocked_by_vercel_preview_protection"
+            exit 0
+          fi
+          if [ "$gate_status" -ne 200 ]; then
+            echo "::error::Unexpected /api/gate status ${gate_status}."
+            exit 1
+          fi
+
+          gate_body="$(cat /tmp/web-gate-body.txt)"
+
+          if ! printf '%s' "$gate_body" | grep -Eq '^\{"configured":(true|false)\}$'; then
+            echo "::error::Unexpected /api/gate response: ${gate_body}"
+            exit 1
+          fi
+
+          echo "Deployment URL: ${deployment_url}"
+          echo "/api/gate: ${gate_body}"
+          echo "Staging smoke status: passed"

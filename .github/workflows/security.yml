@@ -1,0 +1,200 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Bos Computing LLC
+
+# Comprehensive security scanning CI pipeline
+# Path-aware on PRs/pushes, full scan on schedule or manual dispatch.
+
+name: Security Scanning
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+  schedule:
+    - cron: "37 8 * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+  security-events: write
+
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    name: Classify security scope
+    runs-on: ubuntu-latest
+    outputs:
+      api: ${{ steps.classify.outputs.api }}
+      full_required: ${{ steps.classify.outputs.full_required }}
+      js: ${{ steps.classify.outputs.js }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Classify changed paths
+        id: classify
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" || "${{ github.event_name }}" == "schedule" ]]; then
+            files="__full__"
+          elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            files="$(git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}")"
+          else
+            # A force-push (rebase/amend) orphans the previous tip, so
+            # `github.event.before` can point at a commit that is unreachable
+            # from any ref — absent even from a full-history checkout — and
+            # `git diff` would die with "fatal: bad object". Verify reachability
+            # first; on a miss, fall through to HEAD^..HEAD / full-scan below
+            # (the pull_request run already covers the full PR diff).
+            before="${{ github.event.before }}"
+            if [[ -n "$before" && ! "$before" =~ ^0+$ ]] && git cat-file -e "$before^{commit}" 2>/dev/null; then
+              files="$(git diff --name-only "$before" "${{ github.sha }}")"
+            elif git rev-parse HEAD^ >/dev/null 2>&1; then
+              files="$(git diff --name-only HEAD^ HEAD)"
+            else
+              files="$(git ls-files)"
+            fi
+          fi
+
+          api=false
+          full_required=false
+          js=false
+
+          if [[ "$files" == "__full__" || -z "$files" ]]; then
+            full_required=true
+          fi
+
+          while IFS= read -r file; do
+            [[ -z "$file" ]] && continue
+            echo "changed: $file"
+            case "$file" in
+              .github/workflows/*|package.json|pnpm-lock.yaml|pnpm-workspace.yaml|turbo.json|tsconfig*.json|.nvmrc|docker-compose.yml|Dockerfile|*.toml|*.lock)
+                full_required=true
+                ;;
+              apps/web/*|apps/api/*|packages/*)
+                js=true
+                ;;
+            esac
+            case "$file" in
+              apps/api/*)
+                api=true
+                ;;
+            esac
+          done <<< "$files"
+
+          {
+            echo "api=$api"
+            echo "full_required=$full_required"
+            echo "js=$js"
+          } >> "$GITHUB_OUTPUT"
+          echo "api=$api full_required=$full_required js=$js"
+
+  pnpm-audit:
+    name: npm Audit
+    runs-on: ubuntu-latest
+    needs: changes
+    if: ${{ needs.changes.outputs.js == 'true' || needs.changes.outputs.full_required == 'true' }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v5
+        with:
+          version: 9.15.4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Audit npm dependencies
+        run: pnpm audit --audit-level=high
+
+  eslint-security:
+    name: ESLint Security Rules
+    runs-on: ubuntu-latest
+    needs: changes
+    if: ${{ needs.changes.outputs.js == 'true' || needs.changes.outputs.full_required == 'true' }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v5
+        with:
+          version: 9.15.4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run ESLint (includes security rules)
+        run: pnpm lint
+
+  trivy:
+    name: Trivy Filesystem Scan
+    runs-on: ubuntu-latest
+    needs: changes
+    if: ${{ needs.changes.outputs.full_required == 'true' || needs.changes.outputs.api == 'true' }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@v0.35.0
+        with:
+          scan-type: "fs"
+          scan-ref: "."
+          severity: "CRITICAL,HIGH"
+          format: "sarif"
+          output: "trivy-results.sarif"
+          skip-dirs: "node_modules"
+          exit-code: "1"
+        continue-on-error: true
+
+      - name: Upload SARIF to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        continue-on-error: true
+        with:
+          sarif_file: "trivy-results.sarif"
+
+  security-pass:
+    name: Security Pass
+    runs-on: ubuntu-latest
+    needs: [changes, pnpm-audit, eslint-security, trivy]
+    if: always()
+    steps:
+      - name: Check security jobs
+        run: |
+          set -euo pipefail
+          check_result() {
+            local name="$1"
+            local result="$2"
+            case "$result" in
+              success|skipped)
+                echo "$name: $result"
+                ;;
+              *)
+                echo "::error::$name finished with $result"
+                exit 1
+                ;;
+            esac
+          }
+
+          check_result "Classify security scope" "${{ needs.changes.result }}"
+          check_result "npm Audit" "${{ needs.pnpm-audit.result }}"
+          check_result "ESLint Security Rules" "${{ needs.eslint-security.result }}"
+          check_result "Trivy Filesystem Scan" "${{ needs.trivy.result }}"
+          echo "Security jobs passed or were intentionally path-skipped."

@@ -1,0 +1,386 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Bos Computing LLC
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "22"
+  PNPM_VERSION: "9.15.4"
+
+jobs:
+  changes:
+    name: Classify changes
+    runs-on: ubuntu-latest
+    outputs:
+      api: ${{ steps.classify.outputs.api }}
+      full_required: ${{ steps.classify.outputs.full_required }}
+      js: ${{ steps.classify.outputs.js }}
+      pure_web: ${{ steps.classify.outputs.pure_web }}
+      shared_js: ${{ steps.classify.outputs.shared_js }}
+      web: ${{ steps.classify.outputs.web }}
+      web_ui: ${{ steps.classify.outputs.web_ui }}
+      workflow: ${{ steps.classify.outputs.workflow }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Classify changed paths
+        id: classify
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            files="__full__"
+          elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            files="$(git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}")"
+          else
+            # A force-push (rebase/amend) orphans the previous tip, so
+            # `github.event.before` can point at a commit that is unreachable
+            # from any ref — absent even from a full-history checkout — and
+            # `git diff` would die with "fatal: bad object". Verify reachability
+            # first; on a miss, fall through to HEAD^..HEAD / full-scan below
+            # (the pull_request run already covers the full PR diff).
+            before="${{ github.event.before }}"
+            if [[ -n "$before" && ! "$before" =~ ^0+$ ]] && git cat-file -e "$before^{commit}" 2>/dev/null; then
+              files="$(git diff --name-only "$before" "${{ github.sha }}")"
+            elif git rev-parse HEAD^ >/dev/null 2>&1; then
+              files="$(git diff --name-only HEAD^ HEAD)"
+            else
+              files="$(git ls-files)"
+            fi
+          fi
+
+          api=false
+          full_required=false
+          js=false
+          shared_js=false
+          web=false
+          web_ui=false
+          workflow=false
+
+          if [[ "$files" == "__full__" || -z "$files" ]]; then
+            full_required=true
+          fi
+
+          while IFS= read -r file; do
+            [[ -z "$file" ]] && continue
+            echo "changed: $file"
+
+            case "$file" in
+              .github/workflows/*)
+                workflow=true
+                full_required=true
+                ;;
+              package.json|pnpm-lock.yaml|pnpm-workspace.yaml|turbo.json|tsconfig*.json|.nvmrc|vercel.json)
+                full_required=true
+                js=true
+                web=true
+                ;;
+              apps/web/app/*|apps/web/src/components/*|apps/web/src/hooks/*|apps/web/src/store/*|apps/web/src/stores/*|apps/web/public/*|apps/web/e2e/visual/*|apps/web/*.css|apps/web/src/*.css|apps/web/src/**/*.css)
+                js=true
+                web=true
+                web_ui=true
+                ;;
+              apps/web/*)
+                js=true
+                web=true
+                ;;
+              apps/api/*)
+                api=true
+                js=true
+                ;;
+              packages/config/*)
+                js=true
+                shared_js=true
+                web=true
+                ;;
+              packages/ui/*)
+                js=true
+                shared_js=true
+                web=true
+                web_ui=true
+                ;;
+              scripts/*|tests/*|tools/*|docker-compose.yml|Dockerfile|*.toml|*.lock)
+                full_required=true
+                ;;
+            esac
+          done <<< "$files"
+
+          pure_web=false
+          if [[ "$web" == "true" && "$shared_js" == "false" && "$full_required" == "false" && "$api" == "false" ]]; then
+            pure_web=true
+          fi
+
+          {
+            echo "api=$api"
+            echo "full_required=$full_required"
+            echo "js=$js"
+            echo "pure_web=$pure_web"
+            echo "shared_js=$shared_js"
+            echo "web=$web"
+            echo "web_ui=$web_ui"
+            echo "workflow=$workflow"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "api=$api full_required=$full_required js=$js pure_web=$pure_web shared_js=$shared_js web=$web web_ui=$web_ui workflow=$workflow"
+
+          printf '%s\n' "$files" > changed-files.txt
+          {
+            echo "api=$api"
+            echo "full_required=$full_required"
+            echo "js=$js"
+            echo "pure_web=$pure_web"
+            echo "shared_js=$shared_js"
+            echo "web=$web"
+            echo "web_ui=$web_ui"
+            echo "workflow=$workflow"
+          } > change-scope.env
+
+      - name: Upload change scope
+        uses: actions/upload-artifact@v5
+        with:
+          name: ci-change-scope
+          path: |
+            changed-files.txt
+            change-scope.env
+          retention-days: 7
+
+  install:
+    name: Install dependencies
+    runs-on: ubuntu-latest
+    needs: changes
+    if: ${{ needs.changes.outputs.js == 'true' || needs.changes.outputs.full_required == 'true' }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v5
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+  type-check:
+    name: Type check
+    runs-on: ubuntu-latest
+    needs: [changes, install]
+    if: ${{ needs.changes.outputs.js == 'true' || needs.changes.outputs.full_required == 'true' }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v5
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check packages
+        run: |
+          if [[ "${{ needs.changes.outputs.pure_web }}" == "true" ]]; then
+            pnpm --filter "@eco/ui" build
+            pnpm --filter @eco/web type-check
+          else
+            pnpm type-check
+          fi
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    needs: [changes, install]
+    if: ${{ needs.changes.outputs.js == 'true' || needs.changes.outputs.full_required == 'true' }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v5
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: |
+          if [[ "${{ needs.changes.outputs.pure_web }}" == "true" ]]; then
+            pnpm --filter "@eco/ui" build
+            pnpm --filter @eco/web lint
+          else
+            pnpm lint
+          fi
+
+  test-ts:
+    name: Test (TypeScript)
+    runs-on: ubuntu-latest
+    needs: [changes, install]
+    if: ${{ needs.changes.outputs.js == 'true' || needs.changes.outputs.full_required == 'true' }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v5
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run tests
+        run: |
+          if [[ "${{ needs.changes.outputs.pure_web }}" == "true" ]]; then
+            pnpm --filter "@eco/ui" build
+            pnpm --filter @eco/web test
+          else
+            pnpm test
+          fi
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v5
+        if: always()
+        continue-on-error: true
+        with:
+          files: ./coverage/lcov.info
+          fail_ci_if_error: false
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: [changes, type-check, lint, test-ts]
+    if: ${{ needs.changes.outputs.js == 'true' || needs.changes.outputs.full_required == 'true' }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v5
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Cache Turborepo
+        uses: actions/cache@v5
+        with:
+          path: .turbo
+          key: ${{ runner.os }}-turbo-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-
+
+      - name: Build packages
+        run: pnpm build
+
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    needs: [changes, install]
+    if: ${{ always() && (needs.changes.outputs.js == 'true' || needs.changes.outputs.full_required == 'true') && (needs.install.result == 'success' || needs.install.result == 'skipped') }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v5
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: npm audit
+        run: pnpm audit --audit-level=high
+
+  secrets-scan:
+    name: Secrets Scan
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: TruffleHog scan
+        uses: trufflesecurity/trufflehog@main
+        with:
+          extra_args: --only-verified
+
+  dependency-review:
+    name: Dependency Review
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Dependency Review
+        uses: actions/dependency-review-action@v5
+        with:
+          fail-on-severity: high
+        continue-on-error: true  # Non-blocking until repo dependency review settings are enabled
+
+  ci-pass:
+    name: CI Pass
+    runs-on: ubuntu-latest
+    needs: [changes, install, type-check, lint, test-ts, build]
+    if: always()
+    steps:
+      - name: Check required CI jobs
+        run: |
+          set -euo pipefail
+          check_result() {
+            local name="$1"
+            local result="$2"
+            case "$result" in
+              success|skipped)
+                echo "$name: $result"
+                ;;
+              *)
+                echo "::error::$name finished with $result"
+                exit 1
+                ;;
+            esac
+          }
+
+          check_result "Classify changes" "${{ needs.changes.result }}"
+          check_result "Install dependencies" "${{ needs.install.result }}"
+          check_result "Type check" "${{ needs.type-check.result }}"
+          check_result "Lint" "${{ needs.lint.result }}"
+          check_result "Test (TypeScript)" "${{ needs.test-ts.result }}"
+          check_result "Build" "${{ needs.build.result }}"
+          echo "Required CI jobs passed or were intentionally path-skipped."

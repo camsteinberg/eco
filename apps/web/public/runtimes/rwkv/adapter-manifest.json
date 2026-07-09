@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "engine": "web-rwkv",
+  "engineVersion": "0.10.20",
+  "wasmGluePath": "/runtimes/rwkv/web_rwkv.js",
+  "wasmBinaryPath": "/runtimes/rwkv/web_rwkv_bg.wasm",
+  "generatedAt": "2026-05-09T04:14:18.838Z",
+  "bindings": {
+    "tokenizer": true,
+    "modelInfo": true,
+    "pipelineExports": [],
+    "requiredPipelineExports": [
+      "createEcoRwkvPipeline",
+      "createPipeline",
+      "load",
+      "Pipeline",
+      "RwkvPipeline",
+      "Model"
+    ]
+  },
+  "source": {
+    "repository": "https://github.com/cryscan/web-rwkv",
+    "package": "web-rwkv",
+    "version": "0.10.20"
+  },
+  "integrity": {
+    "wasmSha256": "8b67adc0ff6c1c8f8a3923514216387d0e240e1dec478e7e32a36d658687e014",
+    "jsSha256": "8bda508e39e2b4e10859c6d95210e9a6b4da3269a05c3f24e8db7d51d57c57d9"
+  }
+}

@@ -1,0 +1,7 @@
+tests/load
+# Anchor to the repo root: a bare `tools` matches ANY dir named tools at any
+# depth (e.g. apps/web/src/lib/tools/), which would strip needed source from the
+# Vercel archive. The leading slash limits this to the root-level tools/ dir.
+/tools
+.worktrees
+*.wasm

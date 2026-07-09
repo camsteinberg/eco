@@ -1,0 +1,2249 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-05-13T23:05:00.000Z",
+  "routingEvidenceReconciliation": [
+    {
+      "modelId": "local/bonsai-1.7b-q4",
+      "name": "Bonsai 1.7B q4",
+      "browserClass": "chromium",
+      "deviceClass": "capable-laptop",
+      "readiness": "ready",
+      "confidenceState": "lab-only",
+      "reviewStatus": "complete",
+      "blockerCategory": "license-artifact-policy",
+      "blockers": [
+        "benchmark-readiness:missing compatibility check:quality-review",
+        "surface-not-allowed"
+      ],
+      "staleCompatibilityWarnings": [],
+      "routingEvidenceFresh": true,
+      "compatibilityState": "pass",
+      "routingEvidence": {
+        "runtimeAdapter": "transformers-ort",
+        "artifactSignature": "local-model-policy-2026-05-11.no-unforced-cuts.v1|local-model-evidence-thresholds.v4.state-matrix|local/bonsai-1.7b-q4|validation_candidate|onnx-community/Bonsai-1.7B-ONNX|3f3cf1759daf66342d26610488b9931f2fafcb29|onnx/model_q4.onnx,onnx/model_q4.onnx_data,chat_template.jinja,config.json,generation_config.json,tokenizer.json,tokenizer_config.json|chat_template.jinja:4063:0b04cc1ea9799b1be5432e625ee200a6d4710cde,config.json:1981:a0c9a1587b832660c9237c7365505dd298520028,generation_config.json:290:e1c124073fed6d78e58801bdbe679f5fa60ceb22,onnx/model_q4.onnx:370270:7bc690903a3985c4429bdb2e5248a91a8c46b84b5c3552032a3f08882c5a9d14,onnx/model_q4.onnx_data:1119057824:35046ab257c704b26e28ad2cce12fa8e367e394e82ea85bebe101c07b223ea3e,tokenizer.json:9117036:1463e2eafe9285b80c6a5afb663c5cb58b525ed5,tokenizer_config.json:4598:f52ba6f957521244c68b940bd39264e659005207|allowed|metadata-verified|compat:bonsai-1.7b-q4:transformers-ort:q4:webgpu-compact-benchmark:2026-05-09|local-model-compatibility-2026-05-08.runtime-evidence.v2|compat:bonsai-1.7b-q4:transformers-ort:q4:webgpu-compact-benchmark:2026-05-09|transformers-ort|@huggingface/transformers|4.2.0|onnxruntime-web|1.26.0-dev.20260416-b7804b056c|transformers-4.2.0|ort-web-1.26.0-dev.20260416-b7804b056c|local/bonsai-1.7b-q4|transformers-ort|onnx|q4|fp32|model_q4|1|onnx/model_q4.onnx,onnx/model_q4.onnx_data,config.json,generation_config.json,tokenizer.json,tokenizer_config.json",
+        "setupProfileId": "bonsai-1.7b-q4-empty-think-validation-profile",
+        "browserProfileSignature": "capability:webgpu|browser:chromium|browserVersion:146.0.7680.179|platform:unknown|memory:8|cores:8|gpuBuffer:4294967292|opfs:true",
+        "deviceProfileSignature": "capability:webgpu|memory:8|cores:8|gpuBuffer:4294967292|opfs:true|quota:538685880/1526182328|battery:unknown|connection:unknown",
+        "cacheBackend": "opfs",
+        "readiness": "ready",
+        "promptProofId": "quick-plain-answer#1",
+        "promptRendererIdentity": "tokenizer-template-empty-think-prefill",
+        "lifecycleProof": {
+          "prepare": {
+            "status": "pass",
+            "reason": "artifact-cache-ready"
+          },
+          "cancel": {
+            "status": "pass",
+            "reason": "benchmark-cancel-contract-proof"
+          },
+          "reset": {
+            "status": "pass",
+            "reason": "benchmark-prompt-reset"
+          },
+          "unload": {
+            "status": "pass",
+            "reason": "benchmark-cold-start"
+          },
+          "dispose": {
+            "status": "pass",
+            "reason": "benchmark-cold-start"
+          }
+        },
+        "benchmark": {
+          "quality": 1,
+          "firstTokenMs": 1166,
+          "tokensPerSecond": 12.855,
+          "reliability": 1,
+          "maxPeakMemoryBytes": 96801488,
+          "memorySampleSource": "performance-memory"
+        },
+        "warmSession": {
+          "state": "warm",
+          "coldStartMs": 4991.099999964237,
+          "warmStartMs": 0.10000002384185791,
+          "lastReadyAt": 1778696420623
+        },
+        "recentFailures": 0,
+        "fallbackAvailable": true,
+        "reviewStatus": "complete",
+        "observedAt": 1778696420623,
+        "confidenceState": "lab-only",
+        "blockerCategory": "license-artifact-policy",
+        "blockerCodes": [
+          "benchmark-readiness:missing compatibility check:quality-review",
+          "surface-not-allowed"
+        ],
+        "confidenceReason": "policy or user-facing surface gates still hold this model from normal routing"
+      },
+      "nextUnblockAttempt": "Keep in validation only; run blind review and investigate latency before normal chat assignment.",
+      "explanation": "policy or user-facing surface gates still hold this model from normal routing"
+    },
+    {
+      "modelId": "local/phi3-mini-4k-q4f16",
+      "name": "Phi-3 Mini 4K q4f16",
+      "browserClass": "chromium",
+      "deviceClass": "high-memory-laptop",
+      "readiness": "ready",
+      "confidenceState": "lab-only",
+      "reviewStatus": "complete",
+      "blockerCategory": "license-artifact-policy",
+      "blockers": [
+        "benchmark-readiness:missing compatibility check:quality-review",
+        "first-token-metric-missing",
+        "full-benchmark-run-missing",
+        "generation-output-missing",
+        "lab-phase:benchmark-pending",
+        "lab-phase:first-token-pending",
+        "lab-phase:generate-pending",
+        "lab-phase:memory-pending",
+        "lab-phase:prompt-render-pending",
+        "lab-phase:quality-pending",
+        "lab-phase:stream-pending",
+        "memory-peak-proof-missing",
+        "prompt-render-proof-not-recorded",
+        "quality-benchmark-record-missing",
+        "stream-output-missing",
+        "surface-not-allowed"
+      ],
+      "staleCompatibilityWarnings": [],
+      "routingEvidenceFresh": true,
+      "compatibilityState": "pass",
+      "routingEvidence": {
+        "runtimeAdapter": "transformers-ort",
+        "artifactSignature": "local-model-policy-2026-05-09.artifact-identity.v1|local-model-evidence-thresholds.v2|local/phi3-mini-4k-q4f16|validation_candidate|microsoft/Phi-3-mini-4k-instruct-onnx-web|80a2792f5bf861528ce9b449b3230f1bd3fdc759|onnx/model_q4f16.onnx,onnx/model_q4f16.onnx_data,added_tokens.json,config.json,generation_config.json,special_tokens_map.json,tokenizer.json,tokenizer.model,tokenizer_config.json|added_tokens.json:306:178968dec606c790aa335e9142f6afec37288470,config.json:952:b6034ce5bc14f51bb0a3abc2f1cc163b7c4fc47e,generation_config.json:183:54257143e1ab2be4134004a4a6bc69cfe347fdb6,onnx/model_q4f16.onnx:838080425:e726f1c300be9714987ebf7cb047afcb002f6ce9a28af1771d05d5d1d4eeaf48,onnx/model_q4f16.onnx_data:1454211072:62eb6a6870961b0039732d574779e44a7de42e26c04ca1433759728d644cc00f,special_tokens_map.json:597:3c1d52c6e188d1ffec8cfd250e947ad7d0f52d7d,tokenizer.json:1937870:fb71fd1a9dd9a1ab438959c3afdeaea4ba1c809a,tokenizer.model:499723:9e556afd44213b6bd1be2b850ebbbd98f5481437a8021afaf58ee7fb1818d347,tokenizer_config.json:3299:d57e94ca8011c3f8baccf36c54e941e949016349|allowed|metadata-verified|compat:phi3-mini-4k:transformers-ort:q4f16:artifact-head-pass:2026-05-09|local-model-compatibility-2026-05-08.runtime-evidence.v2|compat:phi3-mini-4k:transformers-ort:q4f16:artifact-head-pass:2026-05-09|transformers-ort|@huggingface/transformers|4.2.0|onnxruntime-web|1.26.0-dev.20260416-b7804b056c|transformers-4.2.0|ort-web-1.26.0-dev.20260416-b7804b056c|local/phi3-mini-4k-q4f16|transformers-ort|onnx|q4f16|q4f16|default-model-file|1|onnx/model_q4f16.onnx,onnx/model_q4f16.onnx_data,config.json,generation_config.json,tokenizer.json,tokenizer.model,tokenizer_config.json",
+        "setupProfileId": "phi3-mini-4k-q4f16-chatml-validation-profile",
+        "browserProfileSignature": "capability:webgpu|browser:chromium|browserVersion:146.0.7680.179|platform:unknown|memory:24|cores:8|gpuBuffer:4294967292|opfs:true",
+        "deviceProfileSignature": "capability:webgpu|memory:24|cores:8|gpuBuffer:4294967292|opfs:true|quota:4786468886/5906085910|battery:unknown|connection:unknown",
+        "cacheBackend": "opfs",
+        "readiness": "ready",
+        "promptProofId": "quick-plain-answer#1:metadata",
+        "promptRendererIdentity": "tokenizer-template",
+        "lifecycleProof": {
+          "prepare": {
+            "status": "pass",
+            "reason": "artifact-cache-ready"
+          },
+          "cancel": {
+            "status": "pass",
+            "reason": "benchmark-cancel-contract-proof"
+          },
+          "reset": {
+            "status": "pass",
+            "reason": "benchmark-lifecycle-proof-reset"
+          },
+          "unload": {
+            "status": "pass",
+            "reason": "benchmark-cold-start"
+          },
+          "dispose": {
+            "status": "pass",
+            "reason": "benchmark-cold-start"
+          }
+        },
+        "benchmark": {
+          "quality": 0.98,
+          "firstTokenMs": 254.40000000596046,
+          "tokensPerSecond": 15.88,
+          "reliability": 0.98,
+          "maxPeakMemoryBytes": 130998173,
+          "memorySampleSource": "performance-memory"
+        },
+        "warmSession": {
+          "state": "warm",
+          "coldStartMs": 7421.200000047684,
+          "warmStartMs": 0.09999996423721313,
+          "lastReadyAt": 1778700606982
+        },
+        "recentFailures": 1,
+        "failureCode": "quota-insufficient",
+        "fallbackAvailable": true,
+        "reviewStatus": "complete",
+        "observedAt": 1778700606982,
+        "confidenceState": "lab-only",
+        "blockerCategory": "license-artifact-policy",
+        "blockerCodes": [
+          "benchmark-readiness:missing compatibility check:quality-review",
+          "first-token-metric-missing",
+          "full-benchmark-run-missing",
+          "generation-output-missing",
+          "lab-phase:benchmark-pending",
+          "lab-phase:first-token-pending",
+          "lab-phase:generate-pending",
+          "lab-phase:memory-pending",
+          "lab-phase:prompt-render-pending",
+          "lab-phase:quality-pending",
+          "lab-phase:stream-pending",
+          "memory-peak-proof-missing",
+          "prompt-render-proof-not-recorded",
+          "quality-benchmark-record-missing",
+          "stream-output-missing",
+          "surface-not-allowed"
+        ],
+        "confidenceReason": "policy or user-facing surface gates still hold this model from normal routing"
+      },
+      "nextUnblockAttempt": "record privacy-safe prompt render proof before manual eligibility",
+      "explanation": "policy or user-facing surface gates still hold this model from normal routing"
+    },
+    {
+      "modelId": "local/smollm2-1.7b-webllm-q4f16",
+      "name": "SmolLM2 1.7B Instruct WebLLM q4f16_1",
+      "browserClass": "chromium",
+      "deviceClass": "high-memory-laptop",
+      "readiness": "ready",
+      "confidenceState": "lab-only",
+      "reviewStatus": "complete",
+      "blockerCategory": "license-artifact-policy",
+      "blockers": [
+        "benchmark-readiness:missing compatibility check:quality-review",
+        "first-token-metric-missing",
+        "full-benchmark-run-missing",
+        "generation-output-missing",
+        "lab-phase:benchmark-pending",
+        "lab-phase:first-token-pending",
+        "lab-phase:generate-pending",
+        "lab-phase:memory-pending",
+        "lab-phase:prompt-render-pending",
+        "lab-phase:quality-pending",
+        "lab-phase:stream-pending",
+        "memory-peak-proof-missing",
+        "prompt-render-proof-not-recorded",
+        "quality-benchmark-record-missing",
+        "stream-output-missing",
+        "surface-not-allowed",
+        "user-facing-compatibility-evidence-incomplete"
+      ],
+      "staleCompatibilityWarnings": [],
+      "routingEvidenceFresh": true,
+      "compatibilityState": "fail",
+      "routingEvidence": {
+        "runtimeAdapter": "webllm-mlc",
+        "artifactSignature": "local-model-policy-2026-05-09.artifact-identity.v1|local-model-evidence-thresholds.v2|local/smollm2-1.7b-webllm-q4f16|validation_candidate|mlc-ai/SmolLM2-1.7B-Instruct-q4f16_1-MLC|84f57f8580a9d8d623266b600ad4273bb9fd84c1|merges.txt,mlc-chat-config.json,ndarray-cache.json,params_shard_0.bin,params_shard_1.bin,params_shard_2.bin,params_shard_3.bin,params_shard_4.bin,params_shard_5.bin,params_shard_6.bin,params_shard_7.bin,params_shard_8.bin,params_shard_9.bin,params_shard_10.bin,params_shard_11.bin,params_shard_12.bin,params_shard_13.bin,params_shard_14.bin,params_shard_15.bin,params_shard_16.bin,params_shard_17.bin,params_shard_18.bin,params_shard_19.bin,params_shard_20.bin,params_shard_21.bin,params_shard_22.bin,params_shard_23.bin,params_shard_24.bin,params_shard_25.bin,params_shard_26.bin,params_shard_27.bin,params_shard_28.bin,params_shard_29.bin,params_shard_30.bin,params_shard_31.bin,params_shard_32.bin,params_shard_33.bin,params_shard_34.bin,params_shard_35.bin,params_shard_36.bin,tensor-cache.json,tokenizer_config.json,tokenizer.json,vocab.json|merges.txt:466391:69503b13f727ba3812b6803e97442a6de05ef5eb,mlc-chat-config.json:2023:9d5a67508d9b4d800338221941fe6f9dca1251ed,ndarray-cache.json:100963:77838e9af3047f5bc13830fceb0c67fb8065c741,params_shard_0.bin:50331648:669337a7863daaa8461386d37c6a6fc93f32432a507063874a54f1e652864b50,params_shard_1.bin:32509952:3b06106f13524cf711cd9adbbe991faf41219f8815cac6d492b1973f4a51a056,params_shard_10.bin:28315648:dc6a1862de635042a53e39c68e70feabac6d9b5888caea15b2abe72da5ad5bc7,params_shard_11.bin:16777216:374e196842dc01032478b29e46d7f7ac85af0125cb1fc767c28980e5d32cdd90,params_shard_12.bin:30420992:3baf0c943fcff63aba50d0949acc8e45a65fa74e5181964e5f4bf0d001c79c9c,params_shard_13.bin:28315648:12b9152eb50a534e7ff2a2e5004a2b03fc05e1f2528b013f9bb8977e523a56cf,params_shard_14.bin:16777216:bbdd552b53ffd29687ab1357f05a9aff133489f44daea0f3bed49b59a94d99d0,params_shard_15.bin:30420992:bd1746861c89cdb79afb74dda4499d39c3dc1c18d38b7c9d7b79d2ac95abf132,params_shard_16.bin:28315648:d48924646b7c11f658ad92b1a532b9c51b614950656ce43787622e64071ec805,params_shard_17.bin:16777216:49086928548444f9b7fb8cac54f2560cf80aeb8caedc711c5d4b4452ff420c82,params_shard_18.bin:30420992:91bea1e3348d426ac9951b972a79cf942a67443e74d993ecfc7c685cfb8df35f,params_shard_19.bin:28315648:c5abaa24e0c782ab866e8294e3689383743cfc61f1eba940465f4ea3a0af6352,params_shard_2.bin:16777216:0a3d8fb171aada94a73c3c7326e3a80ffffeef64a1df7ff225112a4b3f1c0dac,params_shard_20.bin:16777216:3863eee9b38531002df9cad67c4aae695efdac84673b4051727e5d66dc670458,params_shard_21.bin:30420992:269f85ea4c93255c9e44b096ceae7163f35496c97ca446bd779f19656f682d63,params_shard_22.bin:28315648:946b4ec4c31f343a0ccaa90845a2c2bf2bc4af0947b392857361233d40853d47,params_shard_23.bin:16777216:f73d79db598fbba7620729ee579ed26af15ae008f7c1a1d411050fc07b60af47,params_shard_24.bin:30420992:8d71924c6d5cc461b549dce61bc5eed15a0859b4a451c4085dffaba56c761eff,params_shard_25.bin:28315648:a59e7b9cfcccbc9d560b9d91505ce10771865a80ba909264dcb1f5229e115fde,params_shard_26.bin:16777216:ada169dcb95b6e0561e7ae6a2e5fbf3414c6080a7963c96dae29c37eb2f941ba,params_shard_27.bin:30420992:f11613319a9a0dbb0369e24153c88f3f89fbfef449af6bd6d332680de8ae9240,params_shard_28.bin:28315648:d9da814961c6569a028eecb390f9815ad25312c55ff80000ea3ac56421770133,params_shard_29.bin:16777216:02424ed87af5f69d1d2b600bb44f5a4320778df3199fe0073edfe4d8dbf52127,params_shard_3.bin:32522240:1db95b8c07655b444fc14b3ec108cdf2ad1e4f3b08ca40b0554386a005090b0a,params_shard_30.bin:30420992:3f6a2c8aa692d070a176f32df8d78f31b537af6199e7d8787ccfd86b78b60907,params_shard_31.bin:28315648:7a4373d8e1b78bf2c633ff8655a2546f478ccf9d2e94424e1e347cc56cdb1dbf,params_shard_32.bin:16777216:557133b873d92c9f7ee02c721c9241257cc6741bd1f57a2c232a47df2793184c,params_shard_33.bin:30420992:6c85b99eb0d1cf798f39fa891f03195ccdcf8547b97e6dbec96c9e57072c6c1a,params_shard_34.bin:28315648:57d8bff6cf6505f31f334c510db9587ae4f46382fab11ac5017348f01d680c7b,params_shard_35.bin:16777216:1a18e8d1c8384685212b3221b64d24a00e83e7b8cbaacd8b7a39548e12165a9f,params_shard_36.bin:30420992:2782bf1884547d4fcc2257a5923298deb6eda885990ae69c184db1c02b24c27f,params_shard_4.bin:28315648:990d61768f7287802cafefca8cb7c714e7d90333eef47a9234f92216a080ed15,params_shard_5.bin:16777216:70b337f4a1e3fc0fdcc26e4ddc1428945e7b2d14495667678cf22db9d13dbfad,params_shard_6.bin:30420992:5a0816a9e5d17ec3c233ae0a1c1586bbfbd7aecdc8614debf87f46ef48b0e3ad,params_shard_7.bin:28315648:be743b234e9a4b09ff49e86f325d241a646199b820e9819969d9bf0f1c01fad0,params_shard_8.bin:16777216:8e054bc56e904fd16efa8e736d2ae1d7d675d828d586aa835d04add78271c19d,params_shard_9.bin:30420992:e3866cca4f5179828284e402340dc0e1c3f05cd73fbf7cdf7aa46ff63463f7cf,tensor-cache.json:100963:77838e9af3047f5bc13830fceb0c67fb8065c741,tokenizer.json:2104556:f922b1797f0c88e71addc8393787831f2477a4bd,tokenizer_config.json:3764:76b6b266c3d0a53828e0fdd281dd9bb76d0bed78,vocab.json:800662:0ad5ecc2035b7031b88afb544ee95e2d49baa484|allowed|metadata-verified|compat:smollm2-1.7b:webllm-mlc:q4f16_1:artifact-head-pass:2026-05-09|local-model-compatibility-2026-05-08.runtime-evidence.v2|compat:smollm2-1.7b:webllm-mlc:q4f16_1:artifact-head-pass:2026-05-09|webllm-mlc|@mlc-ai/web-llm|0.2.83|WebGPU|browser-native|web-llm-0.2.83|mlc-webgpu|local/smollm2-1.7b-webllm-q4f16|webllm-mlc|mlc|q4f16_1|mlc-native|default-model-file|37|mlc-chat-config.json,ndarray-cache.json,params_shard_0.bin,params_shard_1.bin,params_shard_2.bin,params_shard_3.bin,params_shard_4.bin,params_shard_5.bin,params_shard_6.bin,params_shard_7.bin,params_shard_8.bin,params_shard_9.bin,params_shard_10.bin,params_shard_11.bin,params_shard_12.bin,params_shard_13.bin,params_shard_14.bin,params_shard_15.bin,params_shard_16.bin,params_shard_17.bin,params_shard_18.bin,params_shard_19.bin,params_shard_20.bin,params_shard_21.bin,params_shard_22.bin,params_shard_23.bin,params_shard_24.bin,params_shard_25.bin,params_shard_26.bin,params_shard_27.bin,params_shard_28.bin,params_shard_29.bin,params_shard_30.bin,params_shard_31.bin,params_shard_32.bin,params_shard_33.bin,params_shard_34.bin,params_shard_35.bin,params_shard_36.bin,tensor-cache.json,tokenizer.json,tokenizer_config.json",
+        "setupProfileId": "smollm2-1.7b-webllm-q4f16-mlc-validation-profile",
+        "browserProfileSignature": "capability:webgpu|browser:chromium|browserVersion:148.0.0.0|platform:unknown|memory:24|cores:8|gpuBuffer:4294967292|opfs:true",
+        "deviceProfileSignature": "capability:webgpu|memory:24|cores:8|gpuBuffer:4294967292|opfs:true|quota:0/10737418240|battery:unknown|connection:unknown",
+        "cacheBackend": "indexeddb",
+        "readiness": "ready",
+        "promptProofId": "quick-plain-answer#1:metadata",
+        "promptRendererIdentity": "tokenizer-template",
+        "lifecycleProof": {
+          "prepare": {
+            "status": "fail",
+            "reason": "download-status:not-downloaded"
+          },
+          "cancel": {
+            "status": "pass",
+            "reason": "benchmark-cancel-contract-proof"
+          },
+          "reset": {
+            "status": "pass",
+            "reason": "benchmark-lifecycle-proof-reset"
+          },
+          "unload": {
+            "status": "pass",
+            "reason": "benchmark-cold-start"
+          },
+          "dispose": {
+            "status": "pass",
+            "reason": "benchmark-cold-start"
+          }
+        },
+        "benchmark": {
+          "quality": 0.83,
+          "firstTokenMs": 711.4999999850988,
+          "tokensPerSecond": 31.255000000000003,
+          "reliability": 0.83,
+          "maxPeakMemoryBytes": 149372478,
+          "memorySampleSource": "performance-memory"
+        },
+        "warmSession": {
+          "state": "warm",
+          "coldStartMs": 21717.80000001192,
+          "warmStartMs": 463,
+          "lastReadyAt": 1778699383726
+        },
+        "recentFailures": 3,
+        "failureCode": "smoke-readiness-failed",
+        "fallbackAvailable": true,
+        "reviewStatus": "complete",
+        "observedAt": 1778699383726,
+        "confidenceState": "lab-only",
+        "blockerCategory": "license-artifact-policy",
+        "blockerCodes": [
+          "benchmark-readiness:missing compatibility check:quality-review",
+          "first-token-metric-missing",
+          "full-benchmark-run-missing",
+          "generation-output-missing",
+          "lab-phase:benchmark-pending",
+          "lab-phase:first-token-pending",
+          "lab-phase:generate-pending",
+          "lab-phase:memory-pending",
+          "lab-phase:prompt-render-pending",
+          "lab-phase:quality-pending",
+          "lab-phase:stream-pending",
+          "memory-peak-proof-missing",
+          "prompt-render-proof-not-recorded",
+          "quality-benchmark-record-missing",
+          "stream-output-missing",
+          "surface-not-allowed",
+          "user-facing-compatibility-evidence-incomplete"
+        ],
+        "confidenceReason": "policy or user-facing surface gates still hold this model from normal routing"
+      },
+      "nextUnblockAttempt": "record privacy-safe prompt render proof before manual eligibility",
+      "explanation": "policy or user-facing surface gates still hold this model from normal routing"
+    }
+  ],
+  "finalLabDecision": {
+    "generatedAt": "2026-05-13T23:05:00.000Z",
+    "decisions": [
+      {
+        "slot": "eco-fast",
+        "modelId": "candidate/ternary-bonsai-1.7b-onnx",
+        "status": "hold",
+        "reasons": [
+          "first-token-latency",
+          "missing-candidate-data:chromium/high-memory-laptop",
+          "missing-candidate-data:chromium/wasm-fallback-laptop",
+          "missing-coverage:chromium/low-memory-laptop",
+          "missing-coverage:firefox/capable-laptop",
+          "missing-coverage:safari/capable-laptop",
+          "surface-not-allowed",
+          "user-facing-compatibility-evidence-incomplete"
+        ],
+        "blockers": [
+          "first-token-latency",
+          "missing-candidate-data:chromium/high-memory-laptop",
+          "missing-candidate-data:chromium/wasm-fallback-laptop",
+          "missing-coverage:chromium/low-memory-laptop",
+          "missing-coverage:firefox/capable-laptop",
+          "missing-coverage:safari/capable-laptop",
+          "skipped:broad-model-downloads",
+          "surface-not-allowed",
+          "task-specific-product-policy:pending",
+          "task-specific-quality-disposition:pending",
+          "user-facing-compatibility-evidence-incomplete"
+        ],
+        "nextAction": "Complete task-specific quality and product-policy review before eco-fast can move forward.",
+        "whatNeedsToBecomeDefault": [
+          "benchmark-decision:first-token-latency",
+          "benchmark-decision:missing-candidate-data:chromium/high-memory-laptop",
+          "benchmark-decision:missing-candidate-data:chromium/wasm-fallback-laptop",
+          "candidate-risk:blind_review_missing",
+          "candidate-risk:latency_risk",
+          "candidate-risk:license_review",
+          "coverage:missing-coverage:chromium/low-memory-laptop",
+          "coverage:missing-coverage:firefox/capable-laptop",
+          "coverage:missing-coverage:safari/capable-laptop",
+          "skipped:broad-model-downloads:Default validation uses the current browser profile and local readiness/cache records; it does not download a broad multi-model lab matrix.",
+          "task-specific-product-policy:pending",
+          "task-specific-quality-disposition:pending"
+        ],
+        "userExperience": {
+          "downloadBytes": 479531332,
+          "firstResponse": "slow first token around 3045 ms",
+          "steadyReplies": "smooth steady replies near 17.2 tokens/sec",
+          "taskFit": "Compact Bonsai-family quick and writing candidate with one-profile automated quality proof, still waiting on blind review and broader profile coverage.",
+          "reliability": "12/12 automated checks passed",
+          "memoryStorageRisk": "measured peak memory around 82.6 MB; download around 457.3 MB",
+          "safestFallback": "no safe fallback established"
+        }
+      },
+      {
+        "slot": "eco-smart",
+        "modelId": "local/ternary-bonsai-4b-q2f16",
+        "status": "hold",
+        "reasons": [
+          "first-token-latency",
+          "insufficient-runs",
+          "missing-candidate-data:chromium/capable-laptop",
+          "missing-candidate-data:chromium/wasm-fallback-laptop",
+          "missing-coverage:chromium/low-memory-laptop",
+          "missing-coverage:firefox/capable-laptop",
+          "missing-coverage:safari/capable-laptop",
+          "quality-flags",
+          "smoke-only-run",
+          "surface-not-allowed",
+          "throughput",
+          "user-facing-compatibility-evidence-incomplete"
+        ],
+        "blockers": [
+          "first-token-latency",
+          "insufficient-runs",
+          "missing-candidate-data:chromium/capable-laptop",
+          "missing-candidate-data:chromium/wasm-fallback-laptop",
+          "missing-coverage:chromium/low-memory-laptop",
+          "missing-coverage:firefox/capable-laptop",
+          "missing-coverage:safari/capable-laptop",
+          "quality-flags",
+          "skipped:broad-model-downloads",
+          "smoke-only-run",
+          "surface-not-allowed",
+          "throughput",
+          "user-facing-compatibility-evidence-incomplete"
+        ],
+        "nextAction": "Clear quality-review blockers before eco-smart can move forward.",
+        "whatNeedsToBecomeDefault": [
+          "benchmark-decision:first-token-latency",
+          "benchmark-decision:insufficient-runs,first-token-latency,throughput,quality-flags",
+          "benchmark-decision:missing-candidate-data:chromium/capable-laptop",
+          "benchmark-decision:missing-candidate-data:chromium/wasm-fallback-laptop",
+          "benchmark-decision:smoke-only-run",
+          "candidate-risk:blind_review_missing",
+          "candidate-risk:latency_risk",
+          "coverage:missing-coverage:chromium/low-memory-laptop",
+          "coverage:missing-coverage:firefox/capable-laptop",
+          "coverage:missing-coverage:safari/capable-laptop",
+          "skipped:broad-model-downloads:Default validation uses the current browser profile and local readiness/cache records; it does not download a broad multi-model lab matrix."
+        ],
+        "userExperience": {
+          "downloadBytes": 1095955665,
+          "firstResponse": "slow first token around 8737 ms",
+          "steadyReplies": "usable steady replies near 6.6 tokens/sec",
+          "taskFit": "Quality-clean for deep answers, code, writing, and file-like tasks in the lab profile.",
+          "reliability": "16/16 automated checks passed",
+          "memoryStorageRisk": "measured peak memory around 65.0 MB; download around 1.02 GB",
+          "safestFallback": "no safe fallback established"
+        }
+      },
+      {
+        "slot": "fallback",
+        "modelId": null,
+        "status": "no-data",
+        "reasons": [
+          "no safe fallback cleared the lab gates"
+        ],
+        "blockers": [
+          "fallback-candidate-blocked:local/qwen3-0.6b:first-token-latency",
+          "fallback-candidate-blocked:local/qwen3-0.6b:insufficient-runs",
+          "fallback-candidate-blocked:local/qwen3-0.6b:manual-eligibility-phase:quality-fail",
+          "fallback-candidate-blocked:local/qwen3-0.6b:missing-candidate-data:chromium/high-memory-laptop",
+          "fallback-candidate-blocked:local/qwen3-0.6b:missing-candidate-data:chromium/wasm-fallback-laptop",
+          "fallback-candidate-blocked:local/qwen3-0.6b:quality-flags",
+          "fallback-candidate-blocked:local/qwen3-0.6b:state-matrix-default-product-state:hidden",
+          "fallback-candidate-blocked:local/qwen3-0.6b:state-matrix-product-state:hidden",
+          "fallback-candidate-blocked:local/qwen3-0.6b:state-matrix-quality-review-status:missing",
+          "fallback-candidate-blocked:local/qwen3-0.6b:throughput",
+          "promotion-row-missing"
+        ],
+        "nextAction": "Clear quality-review blockers before fallback can move forward.",
+        "whatNeedsToBecomeDefault": [
+          "promotion-row-missing"
+        ],
+        "userExperience": {
+          "downloadBytes": null,
+          "firstResponse": "not proven",
+          "steadyReplies": "not measured yet",
+          "taskFit": "not established for Eco tasks yet",
+          "reliability": "no fresh benchmark reliability evidence",
+          "memoryStorageRisk": "resource risk has not been measured yet; download size not recorded",
+          "safestFallback": "no safe fallback established"
+        }
+      },
+      {
+        "slot": "manual-selectable",
+        "modelId": "local/smollm2-1.7b-webllm-q4f16",
+        "status": "manual-selectable",
+        "reasons": [
+          "safe non-default local model with one-profile manual proof"
+        ],
+        "blockers": [],
+        "nextAction": null,
+        "whatNeedsToBecomeDefault": [
+          "benchmark-decision:insufficient-runs,first-token-latency,throughput,quality-flags",
+          "benchmark-decision:insufficient-runs,quality-pass-rate,first-token-latency,throughput,quality-flags",
+          "benchmark-decision:missing-candidate-data:chromium/capable-laptop",
+          "benchmark-decision:missing-candidate-data:chromium/wasm-fallback-laptop",
+          "candidate-risk:blind_review_missing",
+          "candidate-risk:memory_risk",
+          "coverage:missing-coverage:chromium/low-memory-laptop",
+          "coverage:missing-coverage:firefox/capable-laptop",
+          "coverage:missing-coverage:safari/capable-laptop",
+          "skipped:broad-model-downloads:Default validation uses the current browser profile and local readiness/cache records; it does not download a broad multi-model lab matrix."
+        ],
+        "userExperience": {
+          "downloadBytes": 966372794,
+          "firstResponse": "fast first token around 711 ms",
+          "steadyReplies": "smooth steady replies near 31.3 tokens/sec",
+          "taskFit": "Strong Smart-slot comparison target for local explanations, writing, quick answers, and code after a clean 14/14 benchmark.",
+          "reliability": "14/14 automated checks passed",
+          "memoryStorageRisk": "measured peak memory around 142.5 MB; download around 921.6 MB",
+          "safestFallback": "no safe fallback established"
+        }
+      }
+    ]
+  },
+  "launchReadiness": {
+    "schemaVersion": 1,
+    "status": "launch-safe-lab-incomplete",
+    "summary": "Normal product launch work can continue while queued hidden-lab model work remains fail-closed.",
+    "exposureBlockers": [],
+    "evidence": [
+      "completion-audit:incomplete",
+      "default-eligible-count:0",
+      "fallback:not-cleared",
+      "manual-eligible-count:3",
+      "next-work:benchmark-rerun:7",
+      "remaining-model-gaps:14"
+    ],
+    "nextActions": [
+      "Continue queued hidden-lab work; normal product surfaces remain fail-closed.",
+      "Rerun enough benchmark and performance evidence to clear latency, throughput, and sample-count gates.",
+      "Rerun or tune benchmark evidence to clear first-token latency gates before product exposure."
+    ],
+    "manualEligibleModelIds": [
+      "local/bonsai-1.7b-q4",
+      "local/phi3-mini-4k-q4f16",
+      "local/smollm2-1.7b-webllm-q4f16"
+    ],
+    "defaultEligibleModelIds": [],
+    "fallbackModelId": null,
+    "remainingModelGaps": 14,
+    "nextWorkQueueItem": {
+      "actionKind": "benchmark-rerun",
+      "lane": "lab-runner",
+      "count": 7,
+      "storageRisk": "high",
+      "nextRunTarget": {
+        "modelId": "local/bonsai-1.7b-q1",
+        "runUrl": "/validation/local-benchmark?eco-lab-mode=full-lab&eco-lab-model=local%2Fbonsai-1.7b-q1",
+        "estimatedDownloadBytes": 302000000,
+        "storageRisk": "low"
+      }
+    }
+  },
+  "modelStateMatrix": [
+    {
+      "reviewDate": "2026-05-11",
+      "modelId": "local/qwen3-0.6b",
+      "displayName": "Qwen3 0.6B",
+      "scope": "represented",
+      "representedOrIntake": "represented",
+      "internalOnly": true,
+      "productSurfaceAllowed": false,
+      "currentProductExposure": [
+        "default",
+        "routable",
+        "settings-opt-in"
+      ],
+      "defaultSurfaceMode": "incumbent-only",
+      "runtimeState": "profile-measured",
+      "labState": "benchmark-measured",
+      "productState": "hidden",
+      "qualityState": "acceptable",
+      "cutDecision": null,
+      "sourceFreshness": "current",
+      "sourceEvidence": [
+        {
+          "title": "onnx-community/Qwen3-0.6B-ONNX model metadata",
+          "url": "https://huggingface.co/onnx-community/Qwen3-0.6B-ONNX",
+          "lastReviewedAt": "2026-05-11"
+        },
+        {
+          "title": "Transformers.js browser inference docs",
+          "url": "https://huggingface.co/docs/transformers.js/index",
+          "publishedAt": "2026-03-31",
+          "lastReviewedAt": "2026-05-11"
+        }
+      ],
+      "challengedBlockers": [
+        "quality-review:missing"
+      ],
+      "artifactIdentity": {
+        "hfId": "onnx-community/Qwen3-0.6B-ONNX",
+        "revision": "da1453100cf3ff33ef56d17983fc7a8648706db6",
+        "files": [
+          "onnx/model_q4f16.onnx",
+          "added_tokens.json",
+          "chat_template.jinja",
+          "config.json",
+          "generation_config.json",
+          "merges.txt",
+          "special_tokens_map.json",
+          "tokenizer.json",
+          "tokenizer_config.json",
+          "vocab.json"
+        ],
+        "fileMetadataCount": 10,
+        "externalDataFileCount": 0,
+        "artifactReachability": "metadata-verified",
+        "licenseClassification": "allowed",
+        "redistributionEligibility": "proxy-allowed"
+      },
+      "artifactManifest": {
+        "repoId": "onnx-community/Qwen3-0.6B-ONNX",
+        "revision": "da1453100cf3ff33ef56d17983fc7a8648706db6",
+        "format": "ONNX Transformers.js",
+        "quantization": "q4f16",
+        "fileCount": 10,
+        "filesWithMetadata": 10,
+        "filesWithIntegrityOid": 10,
+        "externalDataFileCount": 0,
+        "expectedBytes": 583371748,
+        "quotaPreflight": {
+          "status": "ready",
+          "expectedBytes": 583371748,
+          "source": "artifact-review-file-metadata"
+        }
+      },
+      "labMeasurement": {
+        "compatibilityEvidenceId": "compat:qwen3-0.6b:transformers-ort:q4f16:webgpu-smoke-benchmark:2026-05-08",
+        "benchmarkStatus": "pass",
+        "recordCount": 10,
+        "passedRecordCount": 10,
+        "firstTokenMs": 1140,
+        "throughputTokensPerSecond": 18.7,
+        "peakMemoryBytes": 1200000000,
+        "peakMemorySource": "candidate-estimate",
+        "storageBytes": 583371748,
+        "browserStorageUsedBytes": null,
+        "coldStartMs": null,
+        "warmStartMs": null,
+        "cacheReuseRecorded": false,
+        "runtimeFailureSignal": null,
+        "failurePhase": null,
+        "qualityReviewStatus": "missing",
+        "measurementGaps": [
+          "cold-start-not-recorded",
+          "warm-start-not-recorded",
+          "cache-reuse-not-recorded",
+          "quality-review-missing"
+        ]
+      },
+      "labPhaseProof": {
+        "source": "static-compatibility-matrix",
+        "phases": {
+          "source": {
+            "status": "pass",
+            "source": "candidate-source-review",
+            "evidence": [
+              "sourceEvidence:2",
+              "sourceFreshness:current"
+            ],
+            "blockers": []
+          },
+          "license": {
+            "status": "pass",
+            "source": "artifact-license-policy",
+            "evidence": [
+              "license:allowed",
+              "redistribution:proxy-allowed"
+            ],
+            "blockers": []
+          },
+          "quota": {
+            "status": "pass",
+            "source": "artifact-review-file-metadata",
+            "evidence": [
+              "expectedBytes:583371748"
+            ],
+            "blockers": []
+          },
+          "fetch": {
+            "status": "pass",
+            "source": "artifact-reachability-policy",
+            "evidence": [
+              "reachability:metadata-verified",
+              "redistribution:proxy-allowed"
+            ],
+            "blockers": []
+          },
+          "cache": {
+            "status": "pending",
+            "source": "cache-reuse-not-recorded",
+            "evidence": [
+              "cacheBackend:opfs-preferred",
+              "cacheReuse:false"
+            ],
+            "blockers": [
+              "cache-reuse-not-recorded"
+            ]
+          },
+          "diagnostics": {
+            "status": "pass",
+            "source": "integration-contract-diagnostics",
+            "evidence": [
+              "adapterStatus:available",
+              "contractReady:true"
+            ],
+            "blockers": []
+          },
+          "integrity": {
+            "status": "pass",
+            "source": "artifact-integrity-metadata",
+            "evidence": [
+              "files:10",
+              "integrityFiles:10"
+            ],
+            "blockers": []
+          },
+          "prepare": {
+            "status": "pass",
+            "source": "reviewed-artifact-manifest",
+            "evidence": [
+              "checkedAt:2026-05-07",
+              "compatibility:artifact-preflight:pass"
+            ],
+            "blockers": []
+          },
+          "smoke": {
+            "status": "pass",
+            "source": "persistent-chromium-webgpu-benchmark",
+            "evidence": [
+              "checkedAt:2026-05-08",
+              "compatibility:smoke-generation:pass"
+            ],
+            "blockers": []
+          },
+          "tokenizer": {
+            "status": "pass",
+            "source": "setup-profile-tokenizer-proof",
+            "evidence": [
+              "promptRenderer:qwen3-0.6b-q4f16-template-disable-thinking:tokenizer-template-no-think:template-disable:none:single-assistant-turn"
+            ],
+            "blockers": []
+          },
+          "prompt-render": {
+            "status": "pass",
+            "source": "setup-profile-prompt-renderer-proof",
+            "evidence": [
+              "promptRenderer:qwen3-0.6b-q4f16-template-disable-thinking:tokenizer-template-no-think:template-disable:none:single-assistant-turn"
+            ],
+            "blockers": []
+          },
+          "session-create": {
+            "status": "pass",
+            "source": "persistent-chromium-webgpu-benchmark",
+            "evidence": [
+              "checkedAt:2026-05-08",
+              "compatibility:session-create:pass"
+            ],
+            "blockers": []
+          },
+          "gpu-allocation": {
+            "status": "pass",
+            "source": "session-create-gpu-allocation",
+            "evidence": [
+              "sessionCreate:pass"
+            ],
+            "blockers": []
+          },
+          "prefill": {
+            "status": "pass",
+            "source": "smoke-or-benchmark-generation-proof",
+            "evidence": [
+              "benchmark:pass",
+              "smoke:pass"
+            ],
+            "blockers": []
+          },
+          "sample": {
+            "status": "pass",
+            "source": "smoke-or-benchmark-generation-proof",
+            "evidence": [
+              "benchmark:pass",
+              "smoke:pass"
+            ],
+            "blockers": []
+          },
+          "generate": {
+            "status": "pass",
+            "source": "smoke-or-benchmark-generation-proof",
+            "evidence": [
+              "benchmark:pass",
+              "smoke:pass"
+            ],
+            "blockers": []
+          },
+          "first-token": {
+            "status": "pass",
+            "source": "lab-measurement-first-token",
+            "evidence": [
+              "firstTokenMs:1140"
+            ],
+            "blockers": []
+          },
+          "stream": {
+            "status": "pass",
+            "source": "lab-record-output-proof",
+            "evidence": [
+              "records:10"
+            ],
+            "blockers": []
+          },
+          "warm-repeat": {
+            "status": "pending",
+            "source": "cold-warm-repeat-proof-missing",
+            "evidence": [
+              "cacheReuse:false",
+              "coldStartMs:missing",
+              "warmStartMs:missing"
+            ],
+            "blockers": [
+              "cache-reuse-not-recorded",
+              "cold-start-metric-missing",
+              "warm-start-metric-missing"
+            ]
+          },
+          "memory": {
+            "status": "pass",
+            "source": "candidate-estimate",
+            "evidence": [
+              "peakMemoryBytes:1200000000"
+            ],
+            "blockers": []
+          },
+          "benchmark": {
+            "status": "pass",
+            "source": "persistent-chromium-webgpu-benchmark",
+            "evidence": [
+              "checkedAt:2026-05-09",
+              "compatibility:benchmark:pass"
+            ],
+            "blockers": []
+          },
+          "quality": {
+            "status": "pending",
+            "source": "blind-review-required-after-clean-benchmark",
+            "evidence": [
+              "compatibility:quality-review:missing"
+            ],
+            "blockers": [
+              "quality-review-proof-missing"
+            ]
+          },
+          "cancel": {
+            "status": "pending",
+            "source": "runtime-contract-without-measured-phase-proof",
+            "evidence": [
+              "runtime-contract:cancel:implemented"
+            ],
+            "blockers": [
+              "cancel-proof-not-recorded"
+            ]
+          },
+          "reset": {
+            "status": "pending",
+            "source": "runtime-contract-without-measured-phase-proof",
+            "evidence": [
+              "runtime-contract:reset:implemented"
+            ],
+            "blockers": [
+              "reset-proof-not-recorded"
+            ]
+          },
+          "unload": {
+            "status": "pending",
+            "source": "runtime-contract-without-measured-phase-proof",
+            "evidence": [
+              "runtime-contract:unload:implemented"
+            ],
+            "blockers": [
+              "unload-proof-not-recorded"
+            ]
+          },
+          "dispose": {
+            "status": "pending",
+            "source": "runtime-contract-without-measured-phase-proof",
+            "evidence": [
+              "runtime-contract:dispose:implemented"
+            ],
+            "blockers": [
+              "dispose-proof-not-recorded"
+            ]
+          }
+        },
+        "manualEligibilityPhaseBlockers": [
+          "manual-eligibility-phase:cache-pending",
+          "manual-eligibility-phase:cancel-pending",
+          "manual-eligibility-phase:dispose-pending",
+          "manual-eligibility-phase:reset-pending",
+          "manual-eligibility-phase:unload-pending",
+          "manual-eligibility-phase:warm-repeat-pending"
+        ]
+      },
+      "eligibilityProof": {
+        "manual": {
+          "eligible": false,
+          "blockers": [
+            "manual-eligibility-phase:cache-pending",
+            "manual-eligibility-phase:cancel-pending",
+            "manual-eligibility-phase:dispose-pending",
+            "manual-eligibility-phase:reset-pending",
+            "manual-eligibility-phase:unload-pending",
+            "manual-eligibility-phase:warm-repeat-pending",
+            "state-matrix-cache-reuse-missing",
+            "state-matrix-product-state:hidden"
+          ]
+        },
+        "default": {
+          "eligible": false,
+          "blockers": [
+            "manual-eligibility-phase:cache-pending",
+            "manual-eligibility-phase:cancel-pending",
+            "manual-eligibility-phase:dispose-pending",
+            "manual-eligibility-phase:reset-pending",
+            "manual-eligibility-phase:unload-pending",
+            "manual-eligibility-phase:warm-repeat-pending",
+            "state-matrix-cache-reuse-missing",
+            "state-matrix-default-product-state:hidden",
+            "state-matrix-product-state:hidden",
+            "state-matrix-quality-review-status:missing"
+          ]
+        }
+      },
+      "runtimeCapability": {
+        "runtime": "transformers",
+        "adapter": "transformers-ort",
+        "adapterStatus": "available",
+        "browserSupport": "validated",
+        "requiredProof": [
+          "transformers-js-webgpu-session-create",
+          "artifact-file-manifest-and-integrity",
+          "model-specific-dtype-discovery",
+          "cold-warm-cache-first-token",
+          "cancel-reset-unload"
+        ],
+        "contractReady": true
+      },
+      "runtimeIntegration": {
+        "cacheBackend": "opfs-preferred",
+        "cacheMetrics": [
+          "download-readiness",
+          "cold-start-ms",
+          "warm-start-ms",
+          "first-token-ms",
+          "cache-backend"
+        ],
+        "lifecycleSupport": {
+          "detect": "implemented",
+          "preflight": "implemented",
+          "prepare": "implemented",
+          "smoke": "implemented",
+          "generate": "implemented",
+          "stream": "implemented",
+          "cancel": "implemented",
+          "reset": "implemented",
+          "unload": "implemented",
+          "dispose": "implemented",
+          "diagnostics": "implemented"
+        }
+      },
+      "promptRenderer": {
+        "profileId": "qwen3-0.6b-q4f16-template-disable-thinking",
+        "family": "qwen3",
+        "promptFormat": "tokenizer-template",
+        "chatTemplateMode": "tokenizer-template-no-think",
+        "thinkingControl": "template-disable",
+        "assistantPrefill": "none",
+        "stopSequences": [
+          "<|im_end|>",
+          "</s>"
+        ]
+      },
+      "experimentsAttempted": [
+        "Qwen tokenizer template inspection",
+        "artifact identity check",
+        "current-day source review",
+        "empty-think assistant prefill comparison",
+        "enable_thinking=false comparison",
+        "product-surface leakage check",
+        "runtime contract review"
+      ],
+      "browserDeviceProfile": {
+        "browserSupport": "validated",
+        "preferredBackend": "webgpu",
+        "minimumDeviceMemoryGB": 4,
+        "requiredFeatures": [
+          "shader-f16"
+        ]
+      },
+      "outcome": {
+        "ownerClassification": "eco-work-required",
+        "summary": "Qwen3 0.6B needs more Eco-side runtime, artifact, lifecycle, prompt, cache, or benchmark work before product eligibility can be judged.",
+        "ecoSideBottlenecksRemaining": [],
+        "externalBlockers": [],
+        "reviewGatesRemaining": [
+          "quality-review:missing"
+        ],
+        "qualityJudgmentAllowed": true
+      },
+      "reopenTrigger": "Reopen if the policy version, browser profile, artifact identity, runtime contract, or quality evidence changes enough to invalidate the current complete judgment.",
+      "nextEngineeringAction": "Record hidden-lab phase proof for cache, cancel, dispose, reset, unload, warm-repeat before normal manual selection."
+    },
+    {
+      "reviewDate": "2026-05-11",
+      "modelId": "local/phi3-mini-4k-q4f16",
+      "displayName": "Phi-3 Mini 4K q4f16",
+      "scope": "represented",
+      "representedOrIntake": "represented",
+      "internalOnly": true,
+      "productSurfaceAllowed": false,
+      "currentProductExposure": [],
+      "defaultSurfaceMode": "none",
+      "runtimeState": "profile-measured",
+      "labState": "benchmark-measured",
+      "productState": "manual-eligible",
+      "qualityState": "acceptable",
+      "cutDecision": null,
+      "sourceFreshness": "current",
+      "sourceEvidence": [
+        {
+          "title": "microsoft/Phi-3-mini-4k-instruct-onnx-web browser artifact",
+          "url": "https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-onnx-web",
+          "publishedAt": "2024-05-30",
+          "lastReviewedAt": "2026-05-11"
+        },
+        {
+          "title": "microsoft/Phi-4-mini-instruct source successor signal",
+          "url": "https://huggingface.co/microsoft/Phi-4-mini-instruct",
+          "publishedAt": "2025-12-10",
+          "lastReviewedAt": "2026-05-11"
+        },
+        {
+          "title": "Transformers.js browser inference docs",
+          "url": "https://huggingface.co/docs/transformers.js/index",
+          "publishedAt": "2026-03-31",
+          "lastReviewedAt": "2026-05-11"
+        }
+      ],
+      "challengedBlockers": [],
+      "artifactIdentity": {
+        "hfId": "microsoft/Phi-3-mini-4k-instruct-onnx-web",
+        "revision": "80a2792f5bf861528ce9b449b3230f1bd3fdc759",
+        "files": [
+          "onnx/model_q4f16.onnx",
+          "onnx/model_q4f16.onnx_data",
+          "added_tokens.json",
+          "config.json",
+          "generation_config.json",
+          "special_tokens_map.json",
+          "tokenizer.json",
+          "tokenizer.model",
+          "tokenizer_config.json"
+        ],
+        "fileMetadataCount": 9,
+        "externalDataFileCount": 1,
+        "artifactReachability": "metadata-verified",
+        "licenseClassification": "allowed",
+        "redistributionEligibility": "proxy-allowed"
+      },
+      "artifactManifest": {
+        "repoId": "microsoft/Phi-3-mini-4k-instruct-onnx-web",
+        "revision": "80a2792f5bf861528ce9b449b3230f1bd3fdc759",
+        "format": "ONNX Transformers.js",
+        "quantization": "q4f16",
+        "fileCount": 9,
+        "filesWithMetadata": 9,
+        "filesWithIntegrityOid": 9,
+        "externalDataFileCount": 1,
+        "expectedBytes": 2294734427,
+        "quotaPreflight": {
+          "status": "ready",
+          "expectedBytes": 2294734427,
+          "source": "artifact-review-file-metadata"
+        }
+      },
+      "labMeasurement": {
+        "compatibilityEvidenceId": "compat:phi3-mini-4k:transformers-ort:q4f16:chromium-webgpu-full-lab:2026-05-13",
+        "benchmarkStatus": "pass",
+        "recordCount": 16,
+        "passedRecordCount": 16,
+        "firstTokenMs": 1590,
+        "throughputTokensPerSecond": 13.32,
+        "peakMemoryBytes": 4800000000,
+        "peakMemorySource": "candidate-estimate",
+        "storageBytes": 2294734427,
+        "browserStorageUsedBytes": null,
+        "coldStartMs": 7421,
+        "warmStartMs": 1,
+        "cacheReuseRecorded": true,
+        "runtimeFailureSignal": null,
+        "failurePhase": null,
+        "qualityReviewStatus": "pass",
+        "measurementGaps": []
+      },
+      "labPhaseProof": {
+        "source": "static-compatibility-matrix",
+        "phases": {
+          "source": {
+            "status": "pass",
+            "source": "candidate-source-review",
+            "evidence": [
+              "sourceEvidence:3",
+              "sourceFreshness:current"
+            ],
+            "blockers": []
+          },
+          "license": {
+            "status": "pass",
+            "source": "artifact-license-policy",
+            "evidence": [
+              "license:allowed",
+              "redistribution:proxy-allowed"
+            ],
+            "blockers": []
+          },
+          "quota": {
+            "status": "pass",
+            "source": "artifact-review-file-metadata",
+            "evidence": [
+              "expectedBytes:2294734427"
+            ],
+            "blockers": []
+          },
+          "fetch": {
+            "status": "pass",
+            "source": "artifact-reachability-policy",
+            "evidence": [
+              "reachability:metadata-verified",
+              "redistribution:proxy-allowed"
+            ],
+            "blockers": []
+          },
+          "cache": {
+            "status": "pass",
+            "source": "compatibility-cache-reuse",
+            "evidence": [
+              "cacheBackend:opfs-preferred",
+              "cacheReuse:true"
+            ],
+            "blockers": []
+          },
+          "diagnostics": {
+            "status": "pass",
+            "source": "integration-contract-diagnostics",
+            "evidence": [
+              "adapterStatus:available",
+              "contractReady:true"
+            ],
+            "blockers": []
+          },
+          "integrity": {
+            "status": "pass",
+            "source": "artifact-integrity-metadata",
+            "evidence": [
+              "files:9",
+              "integrityFiles:9"
+            ],
+            "blockers": []
+          },
+          "prepare": {
+            "status": "pass",
+            "source": "phi3-mini-lifecycle-proof-high-memory-report-2026-05-13.json",
+            "evidence": [
+              "checkedAt:2026-05-13",
+              "compatibility:artifact-preflight:pass"
+            ],
+            "blockers": []
+          },
+          "smoke": {
+            "status": "pass",
+            "source": "phi3-mini-lifecycle-proof-high-memory-report-2026-05-13.json",
+            "evidence": [
+              "checkedAt:2026-05-13",
+              "compatibility:smoke-generation:pass"
+            ],
+            "blockers": []
+          },
+          "tokenizer": {
+            "status": "pass",
+            "source": "setup-profile-tokenizer-proof",
+            "evidence": [
+              "promptRenderer:phi3-mini-4k-q4f16-chatml-validation-profile:tokenizer-template:system-directive:none:single-assistant-turn"
+            ],
+            "blockers": []
+          },
+          "prompt-render": {
+            "status": "pass",
+            "source": "setup-profile-prompt-renderer-proof",
+            "evidence": [
+              "promptRenderer:phi3-mini-4k-q4f16-chatml-validation-profile:tokenizer-template:system-directive:none:single-assistant-turn"
+            ],
+            "blockers": []
+          },
+          "session-create": {
+            "status": "pass",
+            "source": "phi3-mini-lifecycle-proof-high-memory-report-2026-05-13.json",
+            "evidence": [
+              "checkedAt:2026-05-13",
+              "compatibility:session-create:pass"
+            ],
+            "blockers": []
+          },
+          "gpu-allocation": {
+            "status": "pass",
+            "source": "session-create-gpu-allocation",
+            "evidence": [
+              "sessionCreate:pass"
+            ],
+            "blockers": []
+          },
+          "prefill": {
+            "status": "pass",
+            "source": "smoke-or-benchmark-generation-proof",
+            "evidence": [
+              "benchmark:pass",
+              "smoke:pass"
+            ],
+            "blockers": []
+          },
+          "sample": {
+            "status": "pass",
+            "source": "smoke-or-benchmark-generation-proof",
+            "evidence": [
+              "benchmark:pass",
+              "smoke:pass"
+            ],
+            "blockers": []
+          },
+          "generate": {
+            "status": "pass",
+            "source": "smoke-or-benchmark-generation-proof",
+            "evidence": [
+              "benchmark:pass",
+              "smoke:pass"
+            ],
+            "blockers": []
+          },
+          "first-token": {
+            "status": "pass",
+            "source": "lab-measurement-first-token",
+            "evidence": [
+              "firstTokenMs:1590"
+            ],
+            "blockers": []
+          },
+          "stream": {
+            "status": "pass",
+            "source": "lab-record-output-proof",
+            "evidence": [
+              "records:16"
+            ],
+            "blockers": []
+          },
+          "warm-repeat": {
+            "status": "pass",
+            "source": "cache-reuse-warm-repeat-proof",
+            "evidence": [
+              "cacheReuse:true",
+              "coldStartMs:7421",
+              "warmStartMs:1"
+            ],
+            "blockers": []
+          },
+          "memory": {
+            "status": "pass",
+            "source": "candidate-estimate",
+            "evidence": [
+              "peakMemoryBytes:4800000000"
+            ],
+            "blockers": []
+          },
+          "benchmark": {
+            "status": "pass",
+            "source": "phi3-mini-full-report-2026-05-09.json",
+            "evidence": [
+              "checkedAt:2026-05-13",
+              "compatibility:benchmark:pass"
+            ],
+            "blockers": []
+          },
+          "quality": {
+            "status": "pass",
+            "source": "local-benchmark-pairwise-codex-review-after-bonsai-q4-2026-05-13.json",
+            "evidence": [
+              "checkedAt:2026-05-13",
+              "compatibility:quality-review:pass"
+            ],
+            "blockers": []
+          },
+          "cancel": {
+            "status": "pass",
+            "source": "compatibility-lifecycle-proof",
+            "evidence": [
+              "lifecycle:cancel:pass"
+            ],
+            "blockers": []
+          },
+          "reset": {
+            "status": "pass",
+            "source": "compatibility-lifecycle-proof",
+            "evidence": [
+              "lifecycle:reset:pass"
+            ],
+            "blockers": []
+          },
+          "unload": {
+            "status": "pass",
+            "source": "compatibility-lifecycle-proof",
+            "evidence": [
+              "lifecycle:unload:pass"
+            ],
+            "blockers": []
+          },
+          "dispose": {
+            "status": "pass",
+            "source": "compatibility-lifecycle-proof",
+            "evidence": [
+              "lifecycle:dispose:pass"
+            ],
+            "blockers": []
+          }
+        },
+        "manualEligibilityPhaseBlockers": []
+      },
+      "eligibilityProof": {
+        "manual": {
+          "eligible": true,
+          "blockers": []
+        },
+        "default": {
+          "eligible": false,
+          "blockers": [
+            "state-matrix-default-product-state:manual-eligible"
+          ]
+        }
+      },
+      "runtimeCapability": {
+        "runtime": "transformers",
+        "adapter": "transformers-ort",
+        "adapterStatus": "available",
+        "browserSupport": "validated",
+        "requiredProof": [
+          "transformers-js-webgpu-session-create",
+          "artifact-file-manifest-and-integrity",
+          "model-specific-dtype-discovery",
+          "cold-warm-cache-first-token",
+          "cancel-reset-unload"
+        ],
+        "contractReady": true
+      },
+      "runtimeIntegration": {
+        "cacheBackend": "opfs-preferred",
+        "cacheMetrics": [
+          "download-readiness",
+          "cold-start-ms",
+          "warm-start-ms",
+          "first-token-ms",
+          "cache-backend"
+        ],
+        "lifecycleSupport": {
+          "detect": "implemented",
+          "preflight": "implemented",
+          "prepare": "implemented",
+          "smoke": "implemented",
+          "generate": "implemented",
+          "stream": "implemented",
+          "cancel": "implemented",
+          "reset": "implemented",
+          "unload": "implemented",
+          "dispose": "implemented",
+          "diagnostics": "implemented"
+        }
+      },
+      "promptRenderer": {
+        "profileId": "phi3-mini-4k-q4f16-chatml-validation-profile",
+        "family": "phi",
+        "promptFormat": "tokenizer-template",
+        "chatTemplateMode": "tokenizer-template",
+        "thinkingControl": "system-directive",
+        "assistantPrefill": "none",
+        "stopSequences": [
+          "<|end|>",
+          "<|endoftext|>",
+          "</s>"
+        ]
+      },
+      "experimentsAttempted": [
+        "Phi system-role folding",
+        "artifact identity check",
+        "blind-review gate",
+        "current-day source review",
+        "product-surface leakage check",
+        "runtime contract review",
+        "system-folded benchmark proof"
+      ],
+      "browserDeviceProfile": {
+        "browserSupport": "validated",
+        "preferredBackend": "webgpu",
+        "minimumDeviceMemoryGB": 24,
+        "requiredFeatures": [
+          "shader-f16"
+        ]
+      },
+      "outcome": {
+        "ownerClassification": "eco-work-required",
+        "summary": "Phi-3 Mini 4K q4f16 has one-profile measured runtime, benchmark, and acceptable quality proof for rough manual eligibility; default routing still needs stronger comparative and device coverage.",
+        "ecoSideBottlenecksRemaining": [],
+        "externalBlockers": [],
+        "reviewGatesRemaining": [],
+        "qualityJudgmentAllowed": true
+      },
+      "reopenTrigger": "Reopen when Eco records exact artifact identity, runtime lifecycle proof, prompt renderer proof, cache proof, first-token proof, browser profile proof, and blind quality evidence.",
+      "nextEngineeringAction": "Run blind comparative quality review, broader browser/device coverage, and comparative default scoring before default eligibility."
+    },
+    {
+      "reviewDate": "2026-05-11",
+      "modelId": "local/bonsai-1.7b-q4",
+      "displayName": "Bonsai 1.7B q4",
+      "scope": "represented",
+      "representedOrIntake": "represented",
+      "internalOnly": true,
+      "productSurfaceAllowed": false,
+      "currentProductExposure": [],
+      "defaultSurfaceMode": "none",
+      "runtimeState": "profile-measured",
+      "labState": "benchmark-measured",
+      "productState": "manual-eligible",
+      "qualityState": "acceptable",
+      "cutDecision": null,
+      "sourceFreshness": "current",
+      "sourceEvidence": [
+        {
+          "title": "onnx-community/Bonsai-1.7B-ONNX artifact tree",
+          "url": "https://huggingface.co/onnx-community/Bonsai-1.7B-ONNX/tree/main",
+          "publishedAt": "2026-04-16",
+          "lastReviewedAt": "2026-05-11"
+        },
+        {
+          "title": "Transformers.js browser inference docs",
+          "url": "https://huggingface.co/docs/transformers.js/index",
+          "publishedAt": "2026-03-31",
+          "lastReviewedAt": "2026-05-11"
+        }
+      ],
+      "challengedBlockers": [],
+      "artifactIdentity": {
+        "hfId": "onnx-community/Bonsai-1.7B-ONNX",
+        "revision": "3f3cf1759daf66342d26610488b9931f2fafcb29",
+        "files": [
+          "onnx/model_q4.onnx",
+          "onnx/model_q4.onnx_data",
+          "chat_template.jinja",
+          "config.json",
+          "generation_config.json",
+          "tokenizer.json",
+          "tokenizer_config.json"
+        ],
+        "fileMetadataCount": 7,
+        "externalDataFileCount": 1,
+        "artifactReachability": "metadata-verified",
+        "licenseClassification": "allowed",
+        "redistributionEligibility": "proxy-allowed"
+      },
+      "artifactManifest": {
+        "repoId": "onnx-community/Bonsai-1.7B-ONNX",
+        "revision": "3f3cf1759daf66342d26610488b9931f2fafcb29",
+        "format": "ONNX Transformers.js",
+        "quantization": "q4",
+        "fileCount": 7,
+        "filesWithMetadata": 7,
+        "filesWithIntegrityOid": 7,
+        "externalDataFileCount": 1,
+        "expectedBytes": 1128556062,
+        "quotaPreflight": {
+          "status": "ready",
+          "expectedBytes": 1128556062,
+          "source": "artifact-review-file-metadata"
+        }
+      },
+      "labMeasurement": {
+        "compatibilityEvidenceId": "compat:bonsai-1.7b-q4:transformers-ort:q4:chromium-webgpu-full-lab:2026-05-13",
+        "benchmarkStatus": "pass",
+        "recordCount": 12,
+        "passedRecordCount": 12,
+        "firstTokenMs": 1170,
+        "throughputTokensPerSecond": 12.855,
+        "peakMemoryBytes": 96800000,
+        "peakMemorySource": "compatibility-benchmark",
+        "storageBytes": 1128556062,
+        "browserStorageUsedBytes": null,
+        "coldStartMs": 7098,
+        "warmStartMs": 1,
+        "cacheReuseRecorded": true,
+        "runtimeFailureSignal": null,
+        "failurePhase": null,
+        "qualityReviewStatus": "pass",
+        "measurementGaps": []
+      },
+      "labPhaseProof": {
+        "source": "static-compatibility-matrix",
+        "phases": {
+          "source": {
+            "status": "pass",
+            "source": "candidate-source-review",
+            "evidence": [
+              "sourceEvidence:2",
+              "sourceFreshness:current"
+            ],
+            "blockers": []
+          },
+          "license": {
+            "status": "pass",
+            "source": "artifact-license-policy",
+            "evidence": [
+              "license:allowed",
+              "redistribution:proxy-allowed"
+            ],
+            "blockers": []
+          },
+          "quota": {
+            "status": "pass",
+            "source": "artifact-review-file-metadata",
+            "evidence": [
+              "expectedBytes:1128556062"
+            ],
+            "blockers": []
+          },
+          "fetch": {
+            "status": "pass",
+            "source": "artifact-reachability-policy",
+            "evidence": [
+              "reachability:metadata-verified",
+              "redistribution:proxy-allowed"
+            ],
+            "blockers": []
+          },
+          "cache": {
+            "status": "pass",
+            "source": "compatibility-cache-reuse",
+            "evidence": [
+              "cacheBackend:opfs-preferred",
+              "cacheReuse:true"
+            ],
+            "blockers": []
+          },
+          "diagnostics": {
+            "status": "pass",
+            "source": "integration-contract-diagnostics",
+            "evidence": [
+              "adapterStatus:available",
+              "contractReady:true"
+            ],
+            "blockers": []
+          },
+          "integrity": {
+            "status": "pass",
+            "source": "artifact-integrity-metadata",
+            "evidence": [
+              "files:7",
+              "integrityFiles:7"
+            ],
+            "blockers": []
+          },
+          "prepare": {
+            "status": "pass",
+            "source": "bonsai-q4-full-benchmark-report-2026-05-13.json",
+            "evidence": [
+              "checkedAt:2026-05-13",
+              "compatibility:artifact-preflight:pass"
+            ],
+            "blockers": []
+          },
+          "smoke": {
+            "status": "pass",
+            "source": "bonsai-q4-lifecycle-proof-report-2026-05-13.json",
+            "evidence": [
+              "checkedAt:2026-05-13",
+              "compatibility:smoke-generation:pass"
+            ],
+            "blockers": []
+          },
+          "tokenizer": {
+            "status": "pass",
+            "source": "setup-profile-tokenizer-proof",
+            "evidence": [
+              "promptRenderer:bonsai-1.7b-q4-empty-think-validation-profile:tokenizer-template-empty-think-prefill:fixed-empty-think-prefill:empty-think:single-assistant-turn"
+            ],
+            "blockers": []
+          },
+          "prompt-render": {
+            "status": "pass",
+            "source": "setup-profile-prompt-renderer-proof",
+            "evidence": [
+              "promptRenderer:bonsai-1.7b-q4-empty-think-validation-profile:tokenizer-template-empty-think-prefill:fixed-empty-think-prefill:empty-think:single-assistant-turn"
+            ],
+            "blockers": []
+          },
+          "session-create": {
+            "status": "pass",
+            "source": "bonsai-q4-lifecycle-proof-report-2026-05-13.json",
+            "evidence": [
+              "checkedAt:2026-05-13",
+              "compatibility:session-create:pass"
+            ],
+            "blockers": []
+          },
+          "gpu-allocation": {
+            "status": "pass",
+            "source": "session-create-gpu-allocation",
+            "evidence": [
+              "sessionCreate:pass"
+            ],
+            "blockers": []
+          },
+          "prefill": {
+            "status": "pass",
+            "source": "smoke-or-benchmark-generation-proof",
+            "evidence": [
+              "benchmark:pass",
+              "smoke:pass"
+            ],
+            "blockers": []
+          },
+          "sample": {
+            "status": "pass",
+            "source": "smoke-or-benchmark-generation-proof",
+            "evidence": [
+              "benchmark:pass",
+              "smoke:pass"
+            ],
+            "blockers": []
+          },
+          "generate": {
+            "status": "pass",
+            "source": "smoke-or-benchmark-generation-proof",
+            "evidence": [
+              "benchmark:pass",
+              "smoke:pass"
+            ],
+            "blockers": []
+          },
+          "first-token": {
+            "status": "pass",
+            "source": "lab-measurement-first-token",
+            "evidence": [
+              "firstTokenMs:1170"
+            ],
+            "blockers": []
+          },
+          "stream": {
+            "status": "pass",
+            "source": "lab-record-output-proof",
+            "evidence": [
+              "records:12"
+            ],
+            "blockers": []
+          },
+          "warm-repeat": {
+            "status": "pass",
+            "source": "cache-reuse-warm-repeat-proof",
+            "evidence": [
+              "cacheReuse:true",
+              "coldStartMs:7098",
+              "warmStartMs:1"
+            ],
+            "blockers": []
+          },
+          "memory": {
+            "status": "pass",
+            "source": "compatibility-benchmark",
+            "evidence": [
+              "peakMemoryBytes:96800000"
+            ],
+            "blockers": []
+          },
+          "benchmark": {
+            "status": "pass",
+            "source": "bonsai-q4-full-benchmark-report-2026-05-13.json",
+            "evidence": [
+              "checkedAt:2026-05-13",
+              "compatibility:benchmark:pass"
+            ],
+            "blockers": []
+          },
+          "quality": {
+            "status": "pass",
+            "source": "local-benchmark-pairwise-codex-review-after-bonsai-q4-2026-05-13.json",
+            "evidence": [
+              "checkedAt:2026-05-13",
+              "compatibility:quality-review:pass"
+            ],
+            "blockers": []
+          },
+          "cancel": {
+            "status": "pass",
+            "source": "compatibility-lifecycle-proof",
+            "evidence": [
+              "lifecycle:cancel:pass"
+            ],
+            "blockers": []
+          },
+          "reset": {
+            "status": "pass",
+            "source": "compatibility-lifecycle-proof",
+            "evidence": [
+              "lifecycle:reset:pass"
+            ],
+            "blockers": []
+          },
+          "unload": {
+            "status": "pass",
+            "source": "compatibility-lifecycle-proof",
+            "evidence": [
+              "lifecycle:unload:pass"
+            ],
+            "blockers": []
+          },
+          "dispose": {
+            "status": "pass",
+            "source": "compatibility-lifecycle-proof",
+            "evidence": [
+              "lifecycle:dispose:pass"
+            ],
+            "blockers": []
+          }
+        },
+        "manualEligibilityPhaseBlockers": []
+      },
+      "eligibilityProof": {
+        "manual": {
+          "eligible": true,
+          "blockers": []
+        },
+        "default": {
+          "eligible": false,
+          "blockers": [
+            "state-matrix-default-product-state:manual-eligible"
+          ]
+        }
+      },
+      "runtimeCapability": {
+        "runtime": "transformers",
+        "adapter": "transformers-ort",
+        "adapterStatus": "available",
+        "browserSupport": "validated",
+        "requiredProof": [
+          "transformers-js-webgpu-session-create",
+          "artifact-file-manifest-and-integrity",
+          "model-specific-dtype-discovery",
+          "cold-warm-cache-first-token",
+          "cancel-reset-unload"
+        ],
+        "contractReady": true
+      },
+      "runtimeIntegration": {
+        "cacheBackend": "opfs-preferred",
+        "cacheMetrics": [
+          "download-readiness",
+          "cold-start-ms",
+          "warm-start-ms",
+          "first-token-ms",
+          "cache-backend"
+        ],
+        "lifecycleSupport": {
+          "detect": "implemented",
+          "preflight": "implemented",
+          "prepare": "implemented",
+          "smoke": "implemented",
+          "generate": "implemented",
+          "stream": "implemented",
+          "cancel": "implemented",
+          "reset": "implemented",
+          "unload": "implemented",
+          "dispose": "implemented",
+          "diagnostics": "implemented"
+        }
+      },
+      "promptRenderer": {
+        "profileId": "bonsai-1.7b-q4-empty-think-validation-profile",
+        "family": "bonsai",
+        "promptFormat": "tokenizer-template",
+        "chatTemplateMode": "tokenizer-template-empty-think-prefill",
+        "thinkingControl": "fixed-empty-think-prefill",
+        "assistantPrefill": "empty-think",
+        "stopSequences": [
+          "<|im_end|>",
+          "</s>"
+        ]
+      },
+      "experimentsAttempted": [
+        "Bonsai compact context renderer",
+        "artifact identity check",
+        "current-day source review",
+        "family-specific repetition controls",
+        "first-token latency repair gate",
+        "product-surface leakage check",
+        "q1/q2/q4/q8 quantization comparison where available",
+        "runtime contract review"
+      ],
+      "browserDeviceProfile": {
+        "browserSupport": "validated",
+        "preferredBackend": "webgpu",
+        "minimumDeviceMemoryGB": 6,
+        "requiredFeatures": [
+          "shader-f16"
+        ]
+      },
+      "outcome": {
+        "ownerClassification": "eco-work-required",
+        "summary": "Bonsai 1.7B q4 has one-profile measured runtime, benchmark, and acceptable quality proof for rough manual eligibility; default routing still needs stronger comparative and device coverage.",
+        "ecoSideBottlenecksRemaining": [],
+        "externalBlockers": [],
+        "reviewGatesRemaining": [],
+        "qualityJudgmentAllowed": true
+      },
+      "reopenTrigger": "Reopen when Eco records exact artifact identity, runtime lifecycle proof, prompt renderer proof, cache proof, first-token proof, browser profile proof, and blind quality evidence.",
+      "nextEngineeringAction": "Run blind comparative quality review, broader browser/device coverage, and comparative default scoring before default eligibility."
+    },
+    {
+      "reviewDate": "2026-05-11",
+      "modelId": "local/smollm2-1.7b-webllm-q4f16",
+      "displayName": "SmolLM2 1.7B WebLLM q4f16_1",
+      "scope": "represented",
+      "representedOrIntake": "represented",
+      "internalOnly": true,
+      "productSurfaceAllowed": false,
+      "currentProductExposure": [],
+      "defaultSurfaceMode": "none",
+      "runtimeState": "profile-measured",
+      "labState": "benchmark-measured",
+      "productState": "manual-eligible",
+      "qualityState": "acceptable",
+      "cutDecision": null,
+      "sourceFreshness": "current",
+      "sourceEvidence": [
+        {
+          "title": "mlc-ai/SmolLM2-1.7B-Instruct-q4f16_1-MLC model metadata",
+          "url": "https://huggingface.co/mlc-ai/SmolLM2-1.7B-Instruct-q4f16_1-MLC",
+          "publishedAt": "2025-01-03",
+          "lastReviewedAt": "2026-05-11"
+        },
+        {
+          "title": "HuggingFaceTB/SmolLM2-1.7B-Instruct base model license metadata",
+          "url": "https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct",
+          "lastReviewedAt": "2026-05-11"
+        },
+        {
+          "title": "WebLLM documentation",
+          "url": "https://webllm.mlc.ai/docs/",
+          "lastReviewedAt": "2026-05-11"
+        },
+        {
+          "title": "@mlc-ai/web-llm npm package metadata",
+          "url": "https://registry.npmjs.org/@mlc-ai/web-llm/latest",
+          "lastReviewedAt": "2026-05-11"
+        }
+      ],
+      "challengedBlockers": [
+        "quality-review:missing"
+      ],
+      "artifactIdentity": {
+        "hfId": "mlc-ai/SmolLM2-1.7B-Instruct-q4f16_1-MLC",
+        "revision": "84f57f8580a9d8d623266b600ad4273bb9fd84c1",
+        "files": [
+          "merges.txt",
+          "mlc-chat-config.json",
+          "ndarray-cache.json",
+          "params_shard_0.bin",
+          "params_shard_1.bin",
+          "params_shard_2.bin",
+          "params_shard_3.bin",
+          "params_shard_4.bin",
+          "params_shard_5.bin",
+          "params_shard_6.bin",
+          "params_shard_7.bin",
+          "params_shard_8.bin",
+          "params_shard_9.bin",
+          "params_shard_10.bin",
+          "params_shard_11.bin",
+          "params_shard_12.bin",
+          "params_shard_13.bin",
+          "params_shard_14.bin",
+          "params_shard_15.bin",
+          "params_shard_16.bin",
+          "params_shard_17.bin",
+          "params_shard_18.bin",
+          "params_shard_19.bin",
+          "params_shard_20.bin",
+          "params_shard_21.bin",
+          "params_shard_22.bin",
+          "params_shard_23.bin",
+          "params_shard_24.bin",
+          "params_shard_25.bin",
+          "params_shard_26.bin",
+          "params_shard_27.bin",
+          "params_shard_28.bin",
+          "params_shard_29.bin",
+          "params_shard_30.bin",
+          "params_shard_31.bin",
+          "params_shard_32.bin",
+          "params_shard_33.bin",
+          "params_shard_34.bin",
+          "params_shard_35.bin",
+          "params_shard_36.bin",
+          "tensor-cache.json",
+          "tokenizer_config.json",
+          "tokenizer.json",
+          "vocab.json"
+        ],
+        "fileMetadataCount": 44,
+        "externalDataFileCount": 37,
+        "artifactReachability": "metadata-verified",
+        "licenseClassification": "allowed",
+        "redistributionEligibility": "lab-only"
+      },
+      "artifactManifest": {
+        "repoId": "mlc-ai/SmolLM2-1.7B-Instruct-q4f16_1-MLC",
+        "revision": "84f57f8580a9d8d623266b600ad4273bb9fd84c1",
+        "format": "MLC/WebLLM",
+        "quantization": "q4f16_1",
+        "fileCount": 44,
+        "filesWithMetadata": 44,
+        "filesWithIntegrityOid": 44,
+        "externalDataFileCount": 37,
+        "expectedBytes": 966372794,
+        "quotaPreflight": {
+          "status": "ready",
+          "expectedBytes": 966372794,
+          "source": "artifact-review-file-metadata"
+        }
+      },
+      "labMeasurement": {
+        "compatibilityEvidenceId": "compat:smollm2-1.7b:webllm-mlc:q4f16_1:high-memory-benchmark-pass:2026-05-09",
+        "benchmarkStatus": "pass",
+        "recordCount": 14,
+        "passedRecordCount": 14,
+        "firstTokenMs": 710,
+        "throughputTokensPerSecond": 31.3,
+        "peakMemoryBytes": 149000000,
+        "peakMemorySource": "compatibility-benchmark",
+        "storageBytes": 966372794,
+        "browserStorageUsedBytes": 10100000000,
+        "coldStartMs": 7100,
+        "warmStartMs": 724,
+        "cacheReuseRecorded": true,
+        "runtimeFailureSignal": null,
+        "failurePhase": null,
+        "qualityReviewStatus": "missing",
+        "measurementGaps": [
+          "quality-review-missing"
+        ]
+      },
+      "labPhaseProof": {
+        "source": "static-compatibility-matrix",
+        "phases": {
+          "source": {
+            "status": "pass",
+            "source": "candidate-source-review",
+            "evidence": [
+              "sourceEvidence:4",
+              "sourceFreshness:current"
+            ],
+            "blockers": []
+          },
+          "license": {
+            "status": "pass",
+            "source": "artifact-license-policy",
+            "evidence": [
+              "license:allowed",
+              "redistribution:lab-only"
+            ],
+            "blockers": []
+          },
+          "quota": {
+            "status": "pass",
+            "source": "artifact-review-file-metadata",
+            "evidence": [
+              "expectedBytes:966372794"
+            ],
+            "blockers": []
+          },
+          "fetch": {
+            "status": "pass",
+            "source": "artifact-reachability-policy",
+            "evidence": [
+              "reachability:metadata-verified",
+              "redistribution:lab-only"
+            ],
+            "blockers": []
+          },
+          "cache": {
+            "status": "pass",
+            "source": "compatibility-cache-reuse",
+            "evidence": [
+              "cacheBackend:adapter-managed",
+              "cacheReuse:true"
+            ],
+            "blockers": []
+          },
+          "diagnostics": {
+            "status": "pass",
+            "source": "integration-contract-diagnostics",
+            "evidence": [
+              "adapterStatus:available",
+              "contractReady:true"
+            ],
+            "blockers": []
+          },
+          "integrity": {
+            "status": "pass",
+            "source": "artifact-integrity-metadata",
+            "evidence": [
+              "files:44",
+              "integrityFiles:44"
+            ],
+            "blockers": []
+          },
+          "prepare": {
+            "status": "pass",
+            "source": "pinned-huggingface-metadata-review",
+            "evidence": [
+              "checkedAt:2026-05-09",
+              "compatibility:artifact-preflight:pass"
+            ],
+            "blockers": []
+          },
+          "smoke": {
+            "status": "pass",
+            "source": "high-memory-chromium-webgpu-validation",
+            "evidence": [
+              "checkedAt:2026-05-09",
+              "compatibility:smoke-generation:pass"
+            ],
+            "blockers": []
+          },
+          "tokenizer": {
+            "status": "pass",
+            "source": "setup-profile-tokenizer-proof",
+            "evidence": [
+              "promptRenderer:smollm2-1.7b-webllm-q4f16-mlc-validation-profile:tokenizer-template:system-directive:none:adapter-managed"
+            ],
+            "blockers": []
+          },
+          "prompt-render": {
+            "status": "pass",
+            "source": "setup-profile-prompt-renderer-proof",
+            "evidence": [
+              "promptRenderer:smollm2-1.7b-webllm-q4f16-mlc-validation-profile:tokenizer-template:system-directive:none:adapter-managed"
+            ],
+            "blockers": []
+          },
+          "session-create": {
+            "status": "pass",
+            "source": "high-memory-chromium-webgpu-validation",
+            "evidence": [
+              "checkedAt:2026-05-09",
+              "compatibility:session-create:pass"
+            ],
+            "blockers": []
+          },
+          "gpu-allocation": {
+            "status": "pass",
+            "source": "session-create-gpu-allocation",
+            "evidence": [
+              "sessionCreate:pass"
+            ],
+            "blockers": []
+          },
+          "prefill": {
+            "status": "pass",
+            "source": "smoke-or-benchmark-generation-proof",
+            "evidence": [
+              "benchmark:pass",
+              "smoke:pass"
+            ],
+            "blockers": []
+          },
+          "sample": {
+            "status": "pass",
+            "source": "smoke-or-benchmark-generation-proof",
+            "evidence": [
+              "benchmark:pass",
+              "smoke:pass"
+            ],
+            "blockers": []
+          },
+          "generate": {
+            "status": "pass",
+            "source": "smoke-or-benchmark-generation-proof",
+            "evidence": [
+              "benchmark:pass",
+              "smoke:pass"
+            ],
+            "blockers": []
+          },
+          "first-token": {
+            "status": "pass",
+            "source": "lab-measurement-first-token",
+            "evidence": [
+              "firstTokenMs:710"
+            ],
+            "blockers": []
+          },
+          "stream": {
+            "status": "pass",
+            "source": "lab-record-output-proof",
+            "evidence": [
+              "records:14"
+            ],
+            "blockers": []
+          },
+          "warm-repeat": {
+            "status": "pass",
+            "source": "cache-reuse-warm-repeat-proof",
+            "evidence": [
+              "cacheReuse:true",
+              "coldStartMs:7100",
+              "warmStartMs:724"
+            ],
+            "blockers": []
+          },
+          "memory": {
+            "status": "pass",
+            "source": "compatibility-benchmark",
+            "evidence": [
+              "peakMemoryBytes:149000000"
+            ],
+            "blockers": []
+          },
+          "benchmark": {
+            "status": "pass",
+            "source": "high-memory-chromium-webgpu-validation",
+            "evidence": [
+              "checkedAt:2026-05-09",
+              "compatibility:benchmark:pass"
+            ],
+            "blockers": []
+          },
+          "quality": {
+            "status": "pending",
+            "source": "benchmark-clean-review-required",
+            "evidence": [
+              "compatibility:quality-review:missing"
+            ],
+            "blockers": [
+              "blind-review-required"
+            ]
+          },
+          "cancel": {
+            "status": "pass",
+            "source": "compatibility-lifecycle-proof",
+            "evidence": [
+              "lifecycle:cancel:pass"
+            ],
+            "blockers": []
+          },
+          "reset": {
+            "status": "pass",
+            "source": "compatibility-lifecycle-proof",
+            "evidence": [
+              "lifecycle:reset:pass"
+            ],
+            "blockers": []
+          },
+          "unload": {
+            "status": "pass",
+            "source": "compatibility-lifecycle-proof",
+            "evidence": [
+              "lifecycle:unload:pass"
+            ],
+            "blockers": []
+          },
+          "dispose": {
+            "status": "pass",
+            "source": "compatibility-lifecycle-unload-alias-proof",
+            "evidence": [
+              "lifecycle:dispose:unload-alias-pass",
+              "runtime-contract:dispose:implemented"
+            ],
+            "blockers": []
+          }
+        },
+        "manualEligibilityPhaseBlockers": []
+      },
+      "eligibilityProof": {
+        "manual": {
+          "eligible": true,
+          "blockers": []
+        },
+        "default": {
+          "eligible": false,
+          "blockers": [
+            "state-matrix-default-product-state:manual-eligible",
+            "state-matrix-quality-review-status:missing"
+          ]
+        }
+      },
+      "runtimeCapability": {
+        "runtime": "webllm",
+        "adapter": "webllm-mlc",
+        "adapterStatus": "available",
+        "browserSupport": "validated",
+        "requiredProof": [
+          "pinned-model-and-model-lib",
+          "indexeddb-cache-diagnostics",
+          "stream-cancel-reset-unload",
+          "structured-generation-profile"
+        ],
+        "contractReady": true
+      },
+      "runtimeIntegration": {
+        "cacheBackend": "adapter-managed",
+        "cacheMetrics": [
+          "mlc-manifest-download-readiness",
+          "mlc-worker-create-ms",
+          "mlc-warm-start-ms",
+          "mlc-first-token-ms",
+          "mlc-cache-backend",
+          "mlc-unload-reset-proof"
+        ],
+        "lifecycleSupport": {
+          "detect": "implemented",
+          "preflight": "implemented",
+          "prepare": "implemented",
+          "smoke": "implemented",
+          "generate": "implemented",
+          "stream": "implemented",
+          "cancel": "implemented",
+          "reset": "implemented",
+          "unload": "implemented",
+          "dispose": "implemented",
+          "diagnostics": "implemented"
+        }
+      },
+      "promptRenderer": {
+        "profileId": "smollm2-1.7b-webllm-q4f16-mlc-validation-profile",
+        "family": "smollm2",
+        "promptFormat": "tokenizer-template",
+        "chatTemplateMode": "tokenizer-template",
+        "thinkingControl": "system-directive",
+        "assistantPrefill": "none",
+        "stopSequences": [
+          "<|im_end|>",
+          "</s>"
+        ]
+      },
+      "experimentsAttempted": [
+        "IndexedDB cache proof",
+        "WebLLM model-lib manifest review",
+        "artifact identity check",
+        "current-day source review",
+        "product-surface leakage check",
+        "runtime contract review",
+        "structured JSON generation utility review"
+      ],
+      "browserDeviceProfile": {
+        "browserSupport": "validated",
+        "preferredBackend": "webgpu",
+        "minimumDeviceMemoryGB": 24,
+        "requiredFeatures": [
+          "webgpu"
+        ]
+      },
+      "outcome": {
+        "ownerClassification": "eco-work-required",
+        "summary": "SmolLM2 1.7B WebLLM q4f16_1 has one-profile measured runtime, benchmark, and acceptable quality proof for rough manual eligibility; default routing still needs stronger comparative and device coverage.",
+        "ecoSideBottlenecksRemaining": [],
+        "externalBlockers": [],
+        "reviewGatesRemaining": [
+          "quality-review:missing"
+        ],
+        "qualityJudgmentAllowed": true
+      },
+      "reopenTrigger": "Reopen when Eco records exact artifact identity, runtime lifecycle proof, prompt renderer proof, cache proof, first-token proof, browser profile proof, and blind quality evidence.",
+      "nextEngineeringAction": "Run quality-review:missing, broader browser/device coverage, and comparative default scoring before default eligibility."
+    }
+  ]
+}

@@ -1,0 +1,203 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Bos Computing LLC
+
+name: Deploy Staging
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  actions: read
+  contents: read
+  packages: write
+
+concurrency:
+  group: deploy-staging-${{ github.event.workflow_run.head_sha || github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/${{ github.repository }}
+
+jobs:
+  changes:
+    name: Classify deploy scope
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    outputs:
+      api: ${{ steps.classify.outputs.api }}
+      full_required: ${{ steps.classify.outputs.full_required }}
+      backend: ${{ steps.classify.outputs.backend }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 2
+
+      - name: Download CI change scope
+        uses: actions/download-artifact@v5
+        continue-on-error: true
+        with:
+          name: ci-change-scope
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: /tmp/ci-change-scope
+
+      - name: Classify changed paths
+        id: classify
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -s /tmp/ci-change-scope/changed-files.txt ]]; then
+            files="$(cat /tmp/ci-change-scope/changed-files.txt)"
+          elif git rev-parse HEAD^ >/dev/null 2>&1; then
+            echo "::warning::CI change-scope artifact missing; falling back to HEAD^ diff."
+            files="$(git diff --name-only HEAD^ HEAD)"
+          else
+            echo "::warning::No reliable change scope available; deploying all backend services."
+            files="__full__"
+          fi
+
+          api=false
+          full_required=false
+
+          if [[ "$files" == "__full__" || -z "$files" ]]; then
+            full_required=true
+          fi
+
+          while IFS= read -r file; do
+            [[ -z "$file" ]] && continue
+            echo "changed: $file"
+            case "$file" in
+              .github/workflows/*|package.json|pnpm-lock.yaml|pnpm-workspace.yaml|turbo.json|tsconfig*.json|docker-compose.yml|Dockerfile|*.toml|*.lock|packages/config/*)
+                full_required=true
+                ;;
+              apps/api/*)
+                api=true
+                ;;
+            esac
+          done <<< "$files"
+
+          backend=false
+          if [[ "$api" == "true" || "$full_required" == "true" ]]; then
+            backend=true
+          fi
+
+          {
+            echo "api=$api"
+            echo "full_required=$full_required"
+            echo "backend=$backend"
+          } >> "$GITHUB_OUTPUT"
+          echo "api=$api full_required=$full_required backend=$backend"
+
+  build-api:
+    name: Build & Push API Image
+    needs: changes
+    if: ${{ needs.changes.outputs.api == 'true' || needs.changes.outputs.full_required == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push API image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}/api:staging
+            ${{ env.IMAGE_PREFIX }}/api:${{ github.event.workflow_run.head_sha }}
+
+  deploy-api:
+    name: Deploy API to Fly.io (staging)
+    needs: build-api
+    if: ${{ needs.build-api.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - run: flyctl deploy --config apps/api/fly.toml --app eco-api-staging --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+  smoke-test:
+    name: Smoke test staging
+    needs: [deploy-api]
+    if: ${{ always() && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && needs.deploy-api.result == 'success' }}
+    runs-on: ubuntu-latest
+    continue-on-error: false
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Wait for services to start
+        run: sleep 30
+
+      - name: Run smoke tests
+        run: ./scripts/smoke-test-staging.sh
+        env:
+          ECO_API_URL: https://eco-api-staging.fly.dev
+          ECO_WEB_URL: https://econetwork.ai
+
+  e2e-test:
+    name: E2E staging validation
+    needs: [deploy-api]
+    if: ${{ always() && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && needs.deploy-api.result == 'success' }}
+    runs-on: ubuntu-latest
+    continue-on-error: true  # E2E is advisory — don't block deploys
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Wait for services to stabilize
+        run: sleep 45
+
+      - name: Run E2E tests
+        run: ./scripts/e2e-staging.sh
+        env:
+          ECO_API_URL: https://eco-api-staging.fly.dev
+          ECO_WEB_URL: https://econetwork.ai
+
+  deploy-staging-pass:
+    name: Deploy Staging Pass
+    runs-on: ubuntu-latest
+    needs: [changes, build-api, deploy-api, smoke-test]
+    if: ${{ always() && github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - name: Check deploy staging result
+        run: |
+          set -euo pipefail
+          if [[ "${{ needs.changes.result }}" != "success" ]]; then
+            echo "::error::Deploy scope classification finished with ${{ needs.changes.result }}."
+            exit 1
+          fi
+          for result in \
+            "${{ needs.build-api.result }}" \
+            "${{ needs.deploy-api.result }}" \
+            "${{ needs.smoke-test.result }}"; do
+            case "$result" in
+              success|skipped) ;;
+              *)
+                echo "::error::Deploy staging dependency finished with $result"
+                exit 1
+                ;;
+            esac
+          done
+          echo "Deploy staging completed or was intentionally path-skipped."

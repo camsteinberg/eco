@@ -1,0 +1,81 @@
+name: Bug report
+description: Something isn't working the way it should
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. The more precisely you can describe
+        what happened, the faster we can fix it.
+
+        If this is a **security vulnerability**, please don't file it here — follow our
+        [security policy](../../SECURITY.md) instead.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the bug, and include the steps to reproduce it if you can.
+      placeholder: |
+        1. Went to /chat
+        2. Sent a message
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+      placeholder: I expected the model to reply, but instead...
+    validations:
+      required: true
+  - type: input
+    id: browser-os
+    attributes:
+      label: Browser and OS
+      description: Eco runs the model in your browser, so browser and version matter a lot.
+      placeholder: e.g. Chrome 141 on macOS 15, or Edge 141 on Windows 11
+    validations:
+      required: true
+  - type: input
+    id: gpu
+    attributes:
+      label: GPU / hardware
+      description: >
+        WebGPU support depends on your hardware. If you know your GPU (or that WebGPU is
+        unavailable), tell us here. On Chrome you can check chrome://gpu.
+      placeholder: e.g. Apple M2, or NVIDIA RTX 3060, or "WebGPU unavailable — running on CPU"
+    validations:
+      required: false
+  - type: dropdown
+    id: model
+    attributes:
+      label: Which on-device model were you using?
+      description: If you're not sure which model is active, pick "Not sure."
+      options:
+        - Not sure
+        - Qwen3.5 2B (candidate/qwen3.5-2b-onnx) — the default
+        - Gemma 4 E2B (candidate/gemma-4-e2b-litert)
+        - LFM2.5 350M (candidate/lfm2.5-350m-onnx) — the starter
+        - LFM2.5 1.2B (candidate/lfm2.5-1.2b-instruct-onnx)
+        - Bonsai 1.7B (local/bonsai-1.7b-q4)
+        - SmolLM2 1.7B (local/smollm2-1.7b-webllm-q4f16)
+        - Phi-3 Mini 4K (local/phi3-mini-4k-q4f16)
+        - Qwen3 0.6B (local/qwen3-0.6b)
+    validations:
+      required: true
+  - type: textarea
+    id: console
+    attributes:
+      label: Console errors
+      description: >
+        Open your browser's developer console (F12 → Console) and paste any errors here.
+        This is often the single most useful thing in a bug report.
+      render: text
+    validations:
+      required: false
+  - type: markdown
+    attributes:
+      value: |
+        **Tip:** the diagnostics page at `/diagnostics/local-ai?eco-diagnostics=1` reports
+        your device capability, which model was selected, and download behavior. If your
+        bug is about model selection, downloads, or performance, a note from there helps.

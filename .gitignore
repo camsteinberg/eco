@@ -1,0 +1,106 @@
+# Dependencies
+node_modules
+.pnp
+.pnp.js
+
+# Build outputs
+dist
+build
+.next
+out
+.turbo
+
+# Environment files
+.env*
+!.env.example
+
+# Rust / Tauri
+target/
+apps/miner/src-tauri/gen/
+*.tauri-signing-key
+!*.tauri-signing-key.pub
+
+# OS
+.DS_Store
+Thumbs.db
+*.swp
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea
+*.iml
+
+# Testing
+coverage
+*.lcov
+playwright-report/
+test-results/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# TypeScript
+*.tsbuildinfo
+
+# Claude Code
+.claude/settings.local.json
+.claude/skills/
+.mcp.json
+skills-lock.json
+
+# Agent / IDE tooling
+.agents/
+
+# Claude-Flow runtime
+.claude-flow/data/
+.claude-flow/logs/
+.claude-flow/sessions/
+
+# Generated Factory wiki
+droid-wiki/
+
+# TaskMaster
+.taskmaster/
+
+# Solana / Anchor
+contracts/.anchor/
+
+# Worktrees
+.worktrees/
+.vercel
+__pycache__/
+
+# Local benchmark / lab evidence trail — canonical copies in docs/evidence/
+/*-report-????-??-??.json
+/local-benchmark-*.json
+/local-benchmark-*.png
+/eco-local-benchmark-*.png
+/settings-models-*.png
+/settings-models-*.md
+/falcon-dom-json-candidates.json
+/console-*.txt
+/console-*.log
+/browser-console-*.txt
+/analyzer-snapshot-*
+/*-snapshot.yml
+/walk-*.png
+/walk2-*.png
+
+# Loose root-level debug images — never commit
+/*.png
+/*.jpg
+/*.jpeg
+/screenshots/
+
+# Playwright MCP session data — regenerable
+.playwright-mcp/
+
+# Internal agent tooling (never commit to the public repo)
+CLAUDE.local.md
+.claude/
+.claude-flow/
+.planning/

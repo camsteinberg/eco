@@ -1,0 +1,307 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Bos Computing LLC
+
+/**
+ * Phase E — evidence/admission.ts parametric tests.
+ *
+ * Verifies the unified admission gate produces the correct decision for
+ * every (v1.0 catalog model × representative profile) pair. The expectation
+ * table below is the spec — if a row changes, the catalog or compatibility
+ * table should change first.
+ *
+ * Reasons asserted alongside decisions so we catch silent drift (e.g. a
+ * 'with-warning' that came from the wrong path).
+ */
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { admit } from '../admission';
+import { CURRENT_LEDGER_VERSION } from '../ledger';
+import { getModel } from '../../catalog/catalog';
+import type { DeviceProfile } from '../../types';
+
+beforeEach(() => {
+  localStorage.clear();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+  localStorage.clear();
+});
+
+const PROFILES = {
+  chromiumHighMem: {
+    browserClass: 'chromium',
+    webgpuSupport: 'webgpu',
+    deviceMemoryGB: 24,
+    isMobile: false,
+    override: 'auto',
+  },
+  chromiumCapableLaptop: {
+    browserClass: 'chromium',
+    webgpuSupport: 'webgpu',
+    deviceMemoryGB: 8,
+    isMobile: false,
+    override: 'auto',
+  },
+  chromiumLowMem: {
+    browserClass: 'chromium',
+    webgpuSupport: 'webgpu',
+    deviceMemoryGB: 4,
+    isMobile: false,
+    override: 'auto',
+  },
+  safariWasm: {
+    browserClass: 'safari',
+    webgpuSupport: 'wasm-only',
+    deviceMemoryGB: 8,
+    isMobile: false,
+    override: 'auto',
+  },
+  firefoxWasm: {
+    browserClass: 'firefox',
+    webgpuSupport: 'wasm-only',
+    deviceMemoryGB: 16,
+    isMobile: false,
+    override: 'auto',
+  },
+  mobileIphone: {
+    browserClass: 'safari',
+    webgpuSupport: 'wasm-only',
+    deviceMemoryGB: 4,
+    isMobile: true,
+    override: 'auto',
+  },
+  belowFloor: {
+    browserClass: 'unknown',
+    webgpuSupport: 'none',
+    deviceMemoryGB: 2,
+    isMobile: false,
+    override: 'auto',
+  },
+} as const satisfies Record<string, DeviceProfile>;
+
+function model(id: string) {
+  const m = getModel(id);
+  if (!m) throw new Error(`expected catalog model ${id}`);
+  return m;
+}
+
+describe('admit — Phi-3 Mini (proven on high-memory Chromium)', () => {
+  const phi3 = () => model('local/phi3-mini-4k-q4f16');
+
+  it('allowed on Chromium 24 GB (seed proof present)', () => {
+    // phi3's preserved seed row (2026-05-13) must be inside its 45-day TTL for
+    // this proof-present assertion; pin the clock to the snapshot date.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-19T00:00:00.000Z'));
+    const r = admit(phi3(), PROFILES.chromiumHighMem);
+    expect(r.decision).toBe('allowed');
+    expect(r.reason).toBe('proven-on-this-profile');
+    expect(r.hasSeedProof).toBe(true);
+  });
+
+  it('denied on Chromium 8 GB (compat floor 16 GB)', () => {
+    const r = admit(phi3(), PROFILES.chromiumCapableLaptop);
+    expect(r.decision).toBe('denied');
+    expect(r.reason).toBe('incompatible-device');
+  });
+
+  it('denied on Firefox (compat allowed-browsers Chromium-only)', () => {
+    const r = admit(phi3(), PROFILES.firefoxWasm);
+    expect(r.decision).toBe('denied');
+    expect(r.reason).toBe('incompatible-device');
+  });
+});
+
+describe('admit — Bonsai (proven on capable-laptop)', () => {
+  const bonsai = () => model('local/bonsai-1.7b-q4');
+
+  it('allowed on Chromium 8 GB (seed proof present for capable-laptop)', () => {
+    // Capable-laptop preserved seed rows (2026-05-13) must be inside their
+    // 45-day TTL; pin the clock to the snapshot date.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-19T00:00:00.000Z'));
+    const r = admit(bonsai(), PROFILES.chromiumCapableLaptop);
+    expect(r.decision).toBe('allowed');
+    expect(r.reason).toBe('proven-on-this-profile');
+    expect(r.hasSeedProof).toBe(true);
+  });
+
+  it('with-warning on Chromium 24 GB (no seed for high-memory class — proven elsewhere)', () => {
+    const r = admit(bonsai(), PROFILES.chromiumHighMem);
+    expect(r.decision).toBe('with-warning');
+    expect(r.reason).toBe('proven-elsewhere');
+  });
+
+  it('denied on Chromium 4 GB (compat floor 8 GB)', () => {
+    expect(admit(bonsai(), PROFILES.chromiumLowMem).decision).toBe('denied');
+  });
+});
+
+describe('admit — Qwen3 (calculated coverage on low-memory + cross-browser)', () => {
+  const qwen = () => model('local/qwen3-0.6b');
+
+  it('allowed on Chromium 4 GB (calculated seed proof from backfill)', () => {
+    // Backfill rows crossed their 45-day TTL on wall-clock 2026-07-01; pin to
+    // the snapshot date like the sibling proof-present tests.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-19T00:00:00.000Z'));
+    const r = admit(qwen(), PROFILES.chromiumLowMem);
+    expect(r.decision).toBe('allowed');
+    expect(r.reason).toBe('proven-on-this-profile');
+    expect(r.seedProofSource).toBe('calculated');
+  });
+
+  it('allowed on Safari WASM (calculated seed proof from backfill)', () => {
+    // Backfill rows must be inside their 45-day TTL; pin like the siblings.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-19T00:00:00.000Z'));
+    const r = admit(qwen(), PROFILES.safariWasm);
+    expect(r.decision).toBe('allowed');
+    expect(r.reason).toBe('proven-on-this-profile');
+    expect(r.seedProofSource).toBe('calculated');
+  });
+
+  it('allowed on Firefox WASM (calculated seed proof from backfill)', () => {
+    // Backfill rows must be inside their 45-day TTL; pin like the siblings.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-19T00:00:00.000Z'));
+    const r = admit(qwen(), PROFILES.firefoxWasm);
+    expect(r.decision).toBe('allowed');
+    expect(r.reason).toBe('proven-on-this-profile');
+    expect(r.seedProofSource).toBe('calculated');
+  });
+});
+
+describe('admit — LFM2.5 350M (CPU-EP-unloadable on WASM — Finding E)', () => {
+  const lfm = () => model('candidate/lfm2.5-350m-onnx');
+
+  // The 350m's block-quant embeddings need GatherBlockQuantized, absent on
+  // ort-web's CPU EP — so it is incompatible (and therefore denied) on every
+  // wasm-only device, no matter what the seed backfill says. Admission delegates
+  // to compatibility, so the Finding E rule propagates here for free.
+  it('denied on Firefox WASM (incompatible on the CPU EP)', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-19T00:00:00.000Z'));
+    const r = admit(lfm(), PROFILES.firefoxWasm);
+    expect(r.decision).toBe('denied');
+    expect(r.reason).toBe('incompatible-device');
+  });
+
+  it('denied on mobile Safari 4 GB (wasm-only → CPU EP)', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-19T00:00:00.000Z'));
+    const r = admit(lfm(), PROFILES.mobileIphone);
+    expect(r.decision).toBe('denied');
+    expect(r.reason).toBe('incompatible-device');
+  });
+
+  it('denied when below floor (webgpuSupport none)', () => {
+    expect(admit(lfm(), PROFILES.belowFloor).decision).toBe('denied');
+  });
+});
+
+describe('admit — runtime ledger override', () => {
+  it('stays allowed with seed proof even without ledger (backfill covers safari wasm)', () => {
+    // Backfill rows must be inside their 45-day TTL; pin like the siblings.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-19T00:00:00.000Z'));
+    const qwen = model('local/qwen3-0.6b');
+    // After backfill: Safari WASM has calculated seed proof → already allowed.
+    const r = admit(qwen, PROFILES.safariWasm);
+    expect(r.decision).toBe('allowed');
+    expect(r.reason).toBe('proven-on-this-profile');
+    expect(r.hasSeedProof).toBe(true);
+    expect(r.seedProofSource).toBe('calculated');
+  });
+
+  it('promotes to allowed via ledger when seed proof is absent (below-floor profile)', () => {
+    // Use a profile that has no seed proof: Chromium 24 GB for Bonsai, which
+    // has no seed for high-memory-laptop (proven only on capable-laptop).
+    const bonsai = model('local/bonsai-1.7b-q4');
+    expect(admit(bonsai, PROFILES.chromiumHighMem).decision).toBe('with-warning');
+
+    localStorage.setItem(
+      'eco-local-ai-ledger-v1',
+      JSON.stringify([
+        {
+          modelId: 'local/bonsai-1.7b-q4',
+          profileKey: 'chromium|high-memory-laptop|webgpu',
+          outcome: 'smoke-pass',
+          recordedAt: new Date().toISOString(),
+          ledgerVersion: CURRENT_LEDGER_VERSION,
+        },
+      ]),
+    );
+
+    const after = admit(bonsai, PROFILES.chromiumHighMem);
+    expect(after.decision).toBe('allowed');
+    expect(after.reason).toBe('ledger-success');
+    expect(after.hasLedgerSuccess).toBe(true);
+  });
+
+  it('reports recentFailureCount when the ledger has smoke-fail entries', () => {
+    const qwen = model('local/qwen3-0.6b');
+    localStorage.setItem(
+      'eco-local-ai-ledger-v1',
+      JSON.stringify([
+        {
+          modelId: 'local/qwen3-0.6b',
+          profileKey: `chromium|low-memory-laptop|webgpu`,
+          outcome: 'smoke-fail',
+          recordedAt: new Date().toISOString(),
+          ledgerVersion: CURRENT_LEDGER_VERSION,
+        },
+        {
+          modelId: 'local/qwen3-0.6b',
+          profileKey: `chromium|low-memory-laptop|webgpu`,
+          outcome: 'generate-fail',
+          recordedAt: new Date().toISOString(),
+          ledgerVersion: CURRENT_LEDGER_VERSION,
+        },
+      ]),
+    );
+    const r = admit(qwen, PROFILES.chromiumLowMem);
+    expect(r.recentFailureCount).toBe(2);
+  });
+
+  it('reports recentDownloadFailureCount from genuine download-fail rows in the window', () => {
+    const qwen = model('local/qwen3-0.6b');
+    localStorage.setItem(
+      'eco-local-ai-ledger-v1',
+      JSON.stringify([
+        {
+          modelId: 'local/qwen3-0.6b',
+          profileKey: 'chromium|low-memory-laptop|webgpu',
+          outcome: 'download-fail',
+          errorCode: 'failed',
+          recordedAt: new Date().toISOString(),
+          ledgerVersion: CURRENT_LEDGER_VERSION,
+        },
+        {
+          modelId: 'local/qwen3-0.6b',
+          profileKey: 'chromium|low-memory-laptop|webgpu',
+          outcome: 'download-fail',
+          errorCode: 'aborted', // a user cancel — not counted
+          recordedAt: new Date().toISOString(),
+          ledgerVersion: CURRENT_LEDGER_VERSION,
+        },
+      ]),
+    );
+    const r = admit(qwen, PROFILES.chromiumLowMem);
+    expect(r.recentDownloadFailureCount).toBe(1);
+    // Download failures don't touch the smoke-failure count.
+    expect(r.recentFailureCount).toBe(0);
+  });
+
+  it('seedProofSource distinguishes benchmark from calculated', () => {
+    // Both preserved seed rows (2026-05-13) must be inside their 45-day TTL.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-19T00:00:00.000Z'));
+    const phi = model('local/phi3-mini-4k-q4f16');
+    const lfm = model('candidate/lfm2.5-350m-onnx');
+    expect(admit(phi, PROFILES.chromiumHighMem).seedProofSource).toBe('benchmark');
+    // LFM2.5 on high-memory was backfilled as calculated.
+    expect(admit(lfm, PROFILES.chromiumHighMem).seedProofSource).toBe('calculated');
+  });
+});

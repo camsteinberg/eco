@@ -1,0 +1,46 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+app = "eco-api"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "3001"
+  NODE_ENV = "production"
+  LOG_LEVEL = "info"
+
+[http_service]
+  internal_port = 3001
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+  [http_service.concurrency]
+    type = "connections"
+    hard_limit = 500
+    soft_limit = 400
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 4
+  memory_mb = 4096
+
+[processes]
+  app = "sh -c 'node apps/api/dist/db/migrate.js && node apps/api/dist/index.js'"
+
+[metrics]
+  port = 3001
+  path = "/metrics"
+
+[checks]
+  [checks.health]
+    type = "http"
+    port = 3001
+    path = "/health"
+    interval = "15s"
+    timeout = "5s"
+    grace_period = "10s"

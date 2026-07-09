@@ -1,0 +1,89 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Bos Computing LLC
+
+/**
+ * Tests for buildLocalReadinessFailureV2 — the v1.0 readiness builder.
+ *
+ * Pins:
+ *   - Return shape parity with buildLocalReadinessFailure (so the useChat
+ *     caller's updateMessage(localReadiness: ...) block is unchanged).
+ *   - Friendly name in `modelName` (Invariant 10 — no technical IDs).
+ *   - Status mapping: preparing → partial, error → downloaded-needs-test,
+ *     empty → not-downloaded.
+ */
+
+import { describe, expect, it } from 'vitest';
+import { buildLocalReadinessFailureV2 } from '../chat-turns';
+import type { SlotState } from '../../local-ai/lifecycle/slots';
+import type { ModelConfig } from '../../local-ai/types';
+
+const PHI3_FRIENDLY: ModelConfig = {
+  id: 'local/phi3-mini-4k-q4f16',
+  friendlyName: 'Phi-3 Mini',
+} as unknown as ModelConfig;
+
+function slot(overrides: Partial<SlotState>): SlotState {
+  return {
+    slot: 'eco-fast',
+    modelId: null,
+    model: null,
+    status: 'empty',
+    ...overrides,
+  };
+}
+
+describe('buildLocalReadinessFailureV2', () => {
+  it('maps preparing status to partial readiness', () => {
+    const result = buildLocalReadinessFailureV2({
+      slot: slot({ status: 'preparing', model: PHI3_FRIENDLY, modelId: PHI3_FRIENDLY.id }),
+    });
+    expect(result.readinessStatus).toBe('partial');
+    expect(result.message).toMatch(/still preparing/i);
+  });
+
+  it('maps error status to downloaded-needs-test readiness', () => {
+    const result = buildLocalReadinessFailureV2({
+      slot: slot({ status: 'error', model: PHI3_FRIENDLY, modelId: PHI3_FRIENDLY.id }),
+    });
+    expect(result.readinessStatus).toBe('downloaded-needs-test');
+    expect(result.message).toMatch(/Re-run setup/i);
+  });
+
+  it('maps empty status to not-downloaded readiness', () => {
+    const result = buildLocalReadinessFailureV2({ slot: slot({ status: 'empty' }) });
+    expect(result.readinessStatus).toBe('not-downloaded');
+    expect(result.message).toMatch(/one-time setup/i);
+  });
+
+  it('uses the friendly slot label "Eco Fast" / "Eco Smart"', () => {
+    expect(
+      buildLocalReadinessFailureV2({ slot: slot({ slot: 'eco-fast', status: 'empty' }) }).slotLabel,
+    ).toBe('Eco Fast');
+    expect(
+      buildLocalReadinessFailureV2({ slot: slot({ slot: 'eco-smart', status: 'empty' }) }).slotLabel,
+    ).toBe('Eco Smart');
+  });
+
+  it('renders modelName from friendlyName, never a technical id', () => {
+    const result = buildLocalReadinessFailureV2({
+      slot: slot({ model: PHI3_FRIENDLY, modelId: PHI3_FRIENDLY.id, status: 'preparing' }),
+    });
+    expect(result.modelName).toBe('Phi-3 Mini');
+    expect(result.modelName).not.toContain('q4f16');
+    expect(result.modelName).not.toContain('local/');
+  });
+
+  it('falls back to the slot label when no model is bound', () => {
+    const result = buildLocalReadinessFailureV2({
+      slot: slot({ slot: 'eco-fast', model: null, modelId: null, status: 'empty' }),
+    });
+    expect(result.modelName).toBe('Eco Fast');
+  });
+
+  it('always carries the slot id (V1 builder made it optional; V2 always knows)', () => {
+    const result = buildLocalReadinessFailureV2({
+      slot: slot({ slot: 'eco-smart', status: 'preparing' }),
+    });
+    expect(result.slotId).toBe('eco-smart');
+  });
+});

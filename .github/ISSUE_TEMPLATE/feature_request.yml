@@ -1,0 +1,41 @@
+name: Feature request
+description: Suggest an idea or improvement for Eco
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the idea. Eco is opinionated about staying calm, private, and focused —
+        so the best requests explain the underlying need, not just the feature. A couple of
+        things worth knowing up front: Eco is **text and code only** (no image/audio/video
+        generation), and the Free and Supporter tiers always have **identical
+        functionality** (no feature gating). Ideas that fit those bounds are very welcome.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: Describe the need or frustration behind the request.
+      placeholder: When I'm doing X, I find it hard to...
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like to see?
+      description: Describe the change or feature you're imagining.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you've considered
+      description: Other approaches, workarounds, or how other tools handle this.
+    validations:
+      required: false
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else?
+      description: Mockups, links, or extra context that would help.
+    validations:
+      required: false

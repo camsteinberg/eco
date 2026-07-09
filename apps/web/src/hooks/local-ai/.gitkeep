@@ -1,0 +1,4 @@
+Phase A placeholder. Phase K populates this directory with:
+- useEcoSetup.ts (orchestrates welcome+setup flow)
+- useEcoState.ts (reads slot state — single source of truth consumer)
+- useSwitchAI.ts (the switch-your-AI logic)

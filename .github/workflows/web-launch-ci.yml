@@ -1,0 +1,255 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Bos Computing LLC
+
+name: Web Launch CI
+
+# Why no `paths:` filters on the triggers below:
+#
+#   `Web Launch Gate` is a REQUIRED status check in main's branch
+#   protection. Path filtering at the `on:` level means the workflow
+#   never triggers for PRs that touch only non-web paths (e.g.,
+#   .claude/**, docs), so the required check never posts, and branch
+#   protection blocks the PR forever (hit on PR #57).
+#
+#   Instead, the workflow always triggers; the `changes` job below
+#   classifies the PR into "web scope changed" or "out of scope", and
+#   the `web-checks` job is gated on that flag. The aggregator job
+#   `web-launch-gate` always runs (`if: always()`) and posts a real
+#   check result — SUCCESS when intentionally skipped, SUCCESS when
+#   checks pass, FAILURE otherwise. Mirrors the proven pattern in
+#   ci.yml's `CI Pass` job (lines 576-608 at time of writing).
+#
+# What the gate enforces (Launch Trust Pass — launch QA gate hardening):
+#
+#   - `web-checks`: type-check, lint, Vitest, `next build`, and
+#     `verify:no-lab-bundle` (build-output proof that apps/web/src/lab/
+#     eval-only model surface never reaches a production chunk).
+#   - `web-e2e`: the launch-critical functional Playwright specs —
+#     `csp.spec.ts` (CSP/connect-src + clickjacking headers the privacy
+#     and browser-direct-grounding story depend on) and
+#     `local-runtime-launch-confidence.spec.ts` (the no-egress proof:
+#     web-lookups-off + local-fixture chat emit zero prompt egress / zero
+#     Wikipedia/Wikidata/Open-Meteo requests). Before this, no workflow
+#     ran the functional E2E suite at all.
+#
+# Out of this workflow on purpose:
+#
+#   - Visual regression lives in its own `visual-regression.yml` (sharded
+#     matrix + git-lfs baselines). It already runs on every PR and posts a
+#     `Visual regression tests` check; make THAT a required status check in
+#     branch protection rather than duplicating the matrix here.
+#   - Expected-commit production smoke is a POST-DEPLOY check, already wired
+#     in `deploy-production.yml` (passes ECO_EXPECTED_GIT_SHA +
+#     ECO_REQUIRE_ALIAS_FRESHNESS=true to scripts/production-web-smoke.sh).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: web-launch-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "22"
+  PNPM_VERSION: "9.15.4"
+
+jobs:
+  changes:
+    name: Classify web scope
+    runs-on: ubuntu-latest
+    outputs:
+      run_web: ${{ steps.classify.outputs.run_web }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Classify changed paths
+        id: classify
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            files="__full__"
+          elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            files="$(git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}")"
+          else
+            # A force-push (rebase/amend) orphans the previous tip, so
+            # `github.event.before` can point at a commit that is unreachable
+            # from any ref — absent even from a full-history checkout — and
+            # `git diff` would die with "fatal: bad object". Verify reachability
+            # first; on a miss, fall through to HEAD^..HEAD / full-scan below
+            # (the pull_request run already covers the full PR diff).
+            before="${{ github.event.before }}"
+            if [[ -n "$before" && ! "$before" =~ ^0+$ ]] && git cat-file -e "$before^{commit}" 2>/dev/null; then
+              files="$(git diff --name-only "$before" "${{ github.sha }}")"
+            elif git rev-parse HEAD^ >/dev/null 2>&1; then
+              files="$(git diff --name-only HEAD^ HEAD)"
+            else
+              files="$(git ls-files)"
+            fi
+          fi
+
+          run_web=false
+
+          if [[ "$files" == "__full__" || -z "$files" ]]; then
+            run_web=true
+          fi
+
+          while IFS= read -r file; do
+            [[ -z "$file" ]] && continue
+            echo "changed: $file"
+            case "$file" in
+              apps/web/*|\
+              packages/config/*|packages/ui/*|\
+              scripts/*|\
+              .nvmrc|vercel.json|\
+              package.json|pnpm-lock.yaml|pnpm-workspace.yaml|\
+              turbo.json|tsconfig*.json|\
+              .github/workflows/web-launch-ci.yml)
+                run_web=true
+                ;;
+            esac
+          done <<< "$files"
+
+          echo "run_web=$run_web" >> "$GITHUB_OUTPUT"
+          echo "run_web=$run_web"
+
+  web-checks:
+    name: Web checks
+    runs-on: ubuntu-latest
+    needs: changes
+    if: ${{ needs.changes.outputs.run_web == 'true' }}
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v5
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build web-consumed shared packages
+        run: pnpm --filter "@eco/ui" build
+
+      - name: Type-check web
+        run: pnpm --filter @eco/web type-check
+
+      - name: Lint web
+        run: pnpm --filter @eco/web lint
+
+      - name: Test web
+        run: pnpm --filter @eco/web test
+
+      - name: Build web
+        run: pnpm --filter @eco/web build
+
+      # Build-output proof (Invariant 12): assert apps/web/src/lab/ eval-only
+      # model surface is absent from every production chunk. Reuses the `.next`
+      # output from the build above — no extra build cost.
+      - name: Verify no lab/ surface in the production bundle
+        run: pnpm --filter @eco/web verify:no-lab-bundle
+
+  web-e2e:
+    name: Web launch-critical E2E
+    runs-on: ubuntu-latest
+    needs: changes
+    if: ${{ needs.changes.outputs.run_web == 'true' }}
+    timeout-minutes: 25
+    # Official Playwright image ships the matching browser + OS deps preinstalled
+    # (no flaky `playwright install --with-deps` apt step). Tag MUST track the
+    # @playwright/test version in apps/web/package.json (^1.58.2). Mirrors the
+    # proven setup in visual-regression.yml.
+    container:
+      image: mcr.microsoft.com/playwright:v1.58.2-noble
+      options: --user root
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v5
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The web dev server imports @eco/ui from its built dist; build it first.
+      - name: Build web-consumed shared packages
+        run: pnpm --filter "@eco/ui" build
+
+      # playwright.config.ts boots both the web (Next/Turbopack) and api (tsx)
+      # dev servers itself (reuseExistingServer is false under CI) and waits on
+      # the api's /health/ready, which returns 200 in dev without DB/Redis. Both
+      # specs are self-contained: csp.spec.ts is pure HTTP header assertions, and
+      # local-runtime-launch-confidence.spec.ts mocks /api/auth + /v1 and uses the
+      # local-generation fixture, so neither downloads a model or needs a database.
+      - name: Run launch-critical E2E (CSP + no-egress local runtime)
+        working-directory: apps/web
+        run: pnpm exec playwright test e2e/csp.spec.ts e2e/local-runtime-launch-confidence.spec.ts
+
+      - name: Upload E2E report
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: web-e2e-report
+          path: |
+            apps/web/playwright-report/
+            apps/web/test-results/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  web-launch-gate:
+    # IMPORTANT: this is the required-status-check name in main branch
+    # protection. Renaming this job (its `name:` value) WILL break branch
+    # protection until the rule is updated. Don't rename without a
+    # coordinated update to the protection rule.
+    name: Web Launch Gate
+    runs-on: ubuntu-latest
+    needs: [changes, web-checks, web-e2e]
+    if: always()
+    timeout-minutes: 5
+
+    steps:
+      - name: Check required web-launch jobs
+        run: |
+          set -euo pipefail
+          check_result() {
+            local name="$1"
+            local result="$2"
+            case "$result" in
+              success|skipped)
+                echo "$name: $result"
+                ;;
+              *)
+                echo "::error::$name finished with $result"
+                exit 1
+                ;;
+            esac
+          }
+
+          check_result "Classify web scope" "${{ needs.changes.result }}"
+          check_result "Web checks" "${{ needs.web-checks.result }}"
+          check_result "Web launch-critical E2E" "${{ needs.web-e2e.result }}"
+          echo "Web Launch Gate passed or was intentionally path-skipped."

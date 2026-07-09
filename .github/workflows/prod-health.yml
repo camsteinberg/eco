@@ -1,0 +1,39 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Bos Computing LLC
+
+# Weekly production health probe.
+#
+# Runs the same non-mutating smoke as the deploy pipeline (scripts/
+# production-web-smoke.sh, including the runtime engine-asset manifest added in
+# slice 3) against live prod on a schedule, so a silent prod-only regression —
+# e.g. the #204 "LiteRT/Gemma engine statics never served" incident — is caught
+# by CI within a week instead of by a user. No new probe logic: the script is
+# reused verbatim. Not tied to a deploy, so no expected-SHA/alias-freshness is
+# supplied (those degrade to warnings; the script fails only on hard failures).
+
+name: Production Health Probe
+
+on:
+  schedule:
+    - cron: "23 9 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prod-health-${{ github.workflow }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: Production web smoke and health probes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Run non-mutating production smoke
+        run: ./scripts/production-web-smoke.sh
+        env:
+          ECO_API_URL: https://api.econetwork.ai
+          ECO_WEB_URL: https://econetwork.ai

@@ -1,0 +1,220 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Bos Computing LLC
+
+/**
+ * Direct tests for the REAL default `runAttempt` seam (`defaultRunAttempt`),
+ * reached via `DEFAULT_SEAMS.runAttempt`.
+ *
+ * The `executeSetup` / `runSetupCascade` tests inject a *fake* `runAttempt`, so
+ * the actual download-vs-load/smoke phase classification — the seam that drives
+ * the cascade's retry-vs-demote policy — is never exercised there. These tests
+ * pin it.
+ *
+ * Why the phase split matters (see `setup-cascade.ts`):
+ *   - phase 'download'      → cascade retries the SAME model once (treated as a
+ *                             transient network blip), NOT recorded to the ledger.
+ *   - phase 'load-or-smoke' → cascade demotes immediately (deterministic for
+ *                             this model×device) and records a smoke-fail so the
+ *                             model is excluded on the next pick.
+ * Misclassifying either way is a real first-run regression — wasted re-downloads
+ * of a deterministically broken model, or premature demotion on a network blip —
+ * so it is worth locking behind direct tests.
+ *
+ * The `finally { unsubscribe() }` block is covered separately: the attempt must
+ * release its progress listener on every exit path, including when a collaborator
+ * throws.
+ */
+
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { ProgressTracker } from '../../download/progress';
+import type { ProgressEvent, ProgressPhase } from '../../download/progress';
+import type { ModelConfig, Slot } from '../../types';
+import type { SmokeResult } from '../smoke';
+
+vi.mock('../../download/download', () => ({
+  downloadModel: vi.fn(),
+  // Real error hierarchy (signature mirrors the module) so setup-runner's
+  // `instanceof` check resolves and the type-checker accepts the constructor.
+  InsufficientStorageError: class InsufficientStorageError extends Error {
+    constructor(public requiredBytes: number, public availableBytes?: number) {
+      super('not enough free space');
+      this.name = 'InsufficientStorageError';
+    }
+  },
+}));
+vi.mock('../smoke', () => ({ runSmoke: vi.fn() }));
+
+import { DEFAULT_SEAMS } from '../setup-runner';
+import { downloadModel, InsufficientStorageError } from '../../download/download';
+import { runSmoke } from '../smoke';
+
+const SLOT: Slot = 'eco-fast';
+const MODEL = { id: 'lfm2.5-1.2b' } as ModelConfig;
+
+const passSmoke = (): SmokeResult => ({ passed: true, firstTokenMs: 12, durationMs: 80, tokensReceived: 6 });
+const failSmoke = (reason: string): SmokeResult => ({ passed: false, reason, durationMs: 40 });
+
+/** `defaultRunAttempt` ignores the resolved DownloadResult — only the absence of a throw matters. */
+const downloadOk = () =>
+  vi.mocked(downloadModel).mockResolvedValue(undefined as unknown as Awaited<ReturnType<typeof downloadModel>>);
+
+const eventsOf = (spy: ReturnType<typeof vi.fn>): ProgressEvent[] =>
+  spy.mock.calls.map((c) => c[0] as ProgressEvent);
+
+const phaseEvent = (events: ProgressEvent[], phase: ProgressPhase) =>
+  events.find((e): e is Extract<ProgressEvent, { kind: 'phase' }> => e.kind === 'phase' && e.phase === phase);
+
+const enteredSmoke = (events: ProgressEvent[]): boolean =>
+  events.some((e) => e.kind === 'progress' && e.phase === 'smoke' && e.stage === 'starting');
+
+describe('DEFAULT_SEAMS.runAttempt — download vs load/smoke phase classification', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it('classifies a download rejection as phase "download" (cascade retries the same model once)', async () => {
+    vi.mocked(downloadModel).mockRejectedValue(new Error('network down'));
+    const onProgress = vi.fn();
+
+    const result = await DEFAULT_SEAMS.runAttempt(SLOT, MODEL, onProgress);
+
+    expect(result).toEqual({ ok: false, phase: 'download', reason: 'network down' });
+    expect(runSmoke).not.toHaveBeenCalled();
+    const events = eventsOf(onProgress);
+    expect(enteredSmoke(events)).toBe(false);
+    expect(phaseEvent(events, 'error')?.reason).toBe('network down');
+  });
+
+  it('falls back to a generic reason when the download rejects with a non-Error', async () => {
+    vi.mocked(downloadModel).mockRejectedValue('socket hung up');
+
+    const result = await DEFAULT_SEAMS.runAttempt(SLOT, MODEL, vi.fn());
+
+    expect(result).toEqual({ ok: false, phase: 'download', reason: 'Download failed.' });
+  });
+
+  it('tags an insufficient-storage rejection so the cascade skips the retry', async () => {
+    vi.mocked(downloadModel).mockRejectedValue(
+      new InsufficientStorageError(2_000_000_000, 300_000_000),
+    );
+
+    const result = await DEFAULT_SEAMS.runAttempt(SLOT, MODEL, vi.fn());
+
+    expect(result).toEqual({
+      ok: false,
+      phase: 'download',
+      reason: 'not enough free space',
+      reasonCode: 'insufficient-storage',
+    });
+    expect(runSmoke).not.toHaveBeenCalled();
+  });
+
+  it('classifies a smoke rejection as phase "load-or-smoke" (cascade demotes immediately)', async () => {
+    downloadOk();
+    vi.mocked(runSmoke).mockRejectedValue(new Error('WebGPU device lost'));
+    const onProgress = vi.fn();
+
+    const result = await DEFAULT_SEAMS.runAttempt(SLOT, MODEL, onProgress);
+
+    expect(result).toEqual({ ok: false, phase: 'load-or-smoke', reason: 'WebGPU device lost' });
+    expect(downloadModel).toHaveBeenCalledTimes(1);
+    const events = eventsOf(onProgress);
+    expect(enteredSmoke(events)).toBe(true);
+    expect(phaseEvent(events, 'error')?.reason).toBe('WebGPU device lost');
+  });
+
+  it('falls back to a generic reason when smoke rejects with a non-Error', async () => {
+    downloadOk();
+    vi.mocked(runSmoke).mockRejectedValue('opaque');
+
+    const result = await DEFAULT_SEAMS.runAttempt(SLOT, MODEL, vi.fn());
+
+    expect(result).toEqual({ ok: false, phase: 'load-or-smoke', reason: 'Smoke check failed.' });
+  });
+
+  it('classifies a smoke check that returns passed:false as phase "load-or-smoke"', async () => {
+    downloadOk();
+    vi.mocked(runSmoke).mockResolvedValue(failSmoke('no tokens before timeout'));
+    const onProgress = vi.fn();
+
+    const result = await DEFAULT_SEAMS.runAttempt(SLOT, MODEL, onProgress);
+
+    expect(result).toEqual({ ok: false, phase: 'load-or-smoke', reason: 'no tokens before timeout' });
+    expect(phaseEvent(eventsOf(onProgress), 'error')?.reason).toBe('no tokens before timeout');
+  });
+
+  it('returns { ok: true } and completes when download and smoke both pass', async () => {
+    downloadOk();
+    vi.mocked(runSmoke).mockResolvedValue(passSmoke());
+    const onProgress = vi.fn();
+
+    const result = await DEFAULT_SEAMS.runAttempt(SLOT, MODEL, onProgress);
+
+    expect(result).toEqual({ ok: true });
+    const events = eventsOf(onProgress);
+    expect(phaseEvent(events, 'done')).toBeDefined();
+    expect(phaseEvent(events, 'error')).toBeUndefined();
+  });
+});
+
+describe('DEFAULT_SEAMS.runAttempt — progress-listener cleanup (finally semantics)', () => {
+  let unsubscribeSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.resetAllMocks();
+    unsubscribeSpy = vi.fn();
+    // Spy on subscribe but call through, so events still reach onProgressEvent
+    // while we observe that the returned unsubscribe is invoked. We deliberately
+    // capture the prototype method to re-invoke it with an explicit receiver.
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- called via .call(this, …) below
+    const realSubscribe = ProgressTracker.prototype.subscribe;
+    vi.spyOn(ProgressTracker.prototype, 'subscribe').mockImplementation(function (
+      this: ProgressTracker,
+      handler,
+    ) {
+      const realUnsub = realSubscribe.call(this, handler);
+      return () => {
+        unsubscribeSpy();
+        realUnsub();
+      };
+    });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it.each([
+    ['download failure', () => {
+      vi.mocked(downloadModel).mockRejectedValue(new Error('x'));
+    }],
+    ['smoke rejection', () => {
+      downloadOk();
+      vi.mocked(runSmoke).mockRejectedValue(new Error('x'));
+    }],
+    ['smoke not-passed', () => {
+      downloadOk();
+      vi.mocked(runSmoke).mockResolvedValue(failSmoke('x'));
+    }],
+    ['success', () => {
+      downloadOk();
+      vi.mocked(runSmoke).mockResolvedValue(passSmoke());
+    }],
+  ])('unsubscribes the progress listener on the %s path', async (_label, arrange) => {
+    arrange();
+
+    await DEFAULT_SEAMS.runAttempt(SLOT, MODEL, vi.fn());
+
+    expect(unsubscribeSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('still unsubscribes if a progress handler throws (this is why it is a finally)', async () => {
+    vi.mocked(downloadModel).mockRejectedValue(new Error('download boom'));
+    const throwingHandler = vi.fn(() => {
+      throw new Error('handler boom');
+    });
+
+    await expect(DEFAULT_SEAMS.runAttempt(SLOT, MODEL, throwingHandler)).rejects.toThrow('handler boom');
+    expect(unsubscribeSpy).toHaveBeenCalledTimes(1);
+  });
+});

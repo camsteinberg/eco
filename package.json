@@ -1,0 +1,73 @@
+{
+  "name": "eco",
+  "private": true,
+  "version": "0.0.1",
+  "description": "Eco — local-first, on-device AI chat",
+  "engines": {
+    "node": ">=22.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "scripts": {
+    "build": "turbo build",
+    "dev": "turbo dev",
+    "lint": "turbo lint",
+    "check:cycles": "node scripts/check-circular-deps.mjs",
+    "type-check": "turbo type-check",
+    "test": "turbo test",
+    "clean": "turbo clean && rm -rf node_modules",
+    "format": "prettier --write \"**/*.{ts,tsx,md,json}\" --ignore-path .gitignore"
+  },
+  "devDependencies": {
+    "eslint-plugin-security": "^4.0.0",
+    "prettier": "^3.4.2",
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.3"
+  },
+  "packageManager": "pnpm@9.15.4",
+  "pnpm": {
+    "overrides": {
+      "rollup": ">=4.59.0",
+      "minimatch@<3.1.4": "3.1.4",
+      "minimatch@>=9.0.0 <9.0.7": "9.0.7",
+      "flatted": ">=3.4.0",
+      "fast-xml-parser": ">=5.5.6",
+      "hono": ">=4.12.25",
+      "@hono/node-server": ">=1.19.13 <2",
+      "defu": "6.1.5",
+      "drizzle-orm": "0.45.2",
+      "fast-uri": ">=3.1.2",
+      "fast-xml-builder": ">=1.1.7",
+      "kysely": ">=0.28.17",
+      "next": ">=16.2.6 <17",
+      "picomatch@<2.3.2": "2.3.2",
+      "picomatch@>=4.0.0 <4.0.4": "4.0.4",
+      "protobufjs": ">=7.5.6",
+      "vite": "6.4.3",
+      "ws@>=7.0.0 <7.5.11": "7.5.11",
+      "ws@>=8.0.0 <8.21.0": "8.21.0",
+      "form-data@>=4.0.0 <4.0.6": "4.0.6"
+    },
+    "auditConfig": {
+      "ignoreCves": [
+        "CVE-2025-13204",
+        "CVE-2025-12735",
+        "CVE-2026-47429"
+      ],
+      "ignoreGhsas": [
+        "GHSA-gv7w-rqvm-qjhr"
+      ]
+    },
+    "patchedDependencies": {
+      "@huggingface/transformers@4.2.0": "patches/@huggingface__transformers@4.2.0.patch"
+    }
+  },
+  "license": "AGPL-3.0-or-later",
+  "homepage": "https://econetwork.ai",
+  "bugs": {
+    "url": "https://github.com/camsteinberg/eco/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/camsteinberg/eco.git"
+  }
+}

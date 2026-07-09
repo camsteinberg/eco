@@ -1,0 +1,178 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Bos Computing LLC
+
+name: Deploy Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type DEPLOY to confirm production deployment"
+        required: true
+        type: string
+      target:
+        description: "Production deployment target"
+        required: true
+        default: web
+        type: choice
+        options:
+          - web
+          - api
+          - all
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: deploy-production-${{ github.event.inputs.target }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: "22"
+  PNPM_VERSION: "9.15.4"
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/${{ github.repository }}
+
+jobs:
+  validate:
+    name: Validate deployment confirmation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check confirmation
+        if: ${{ github.event.inputs.confirm != 'DEPLOY' }}
+        run: |
+          echo "::error::You must type DEPLOY to confirm production deployment"
+          exit 1
+
+      - name: Show deployment target
+        run: echo "Deploying target=${{ github.event.inputs.target }}"
+
+  build-api:
+    name: Build & Push API Image
+    needs: validate
+    if: ${{ github.event.inputs.target == 'api' || github.event.inputs.target == 'all' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push API image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}/api:production
+            ${{ env.IMAGE_PREFIX }}/api:${{ github.sha }}
+
+  deploy-api:
+    name: Deploy API to Fly.io (production)
+    needs: build-api
+    if: ${{ needs.build-api.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - run: flyctl deploy --config apps/api/fly.production.toml --app eco-api --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+  deploy-web:
+    name: Deploy web to Vercel (production)
+    needs: validate
+    if: ${{ github.event.inputs.target == 'web' || github.event.inputs.target == 'all' }}
+    runs-on: ubuntu-latest
+    outputs:
+      deployment_url: ${{ steps.deploy.outputs.deployment_url }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v5
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Deploy to Vercel (production)
+        id: deploy
+        # VERCEL_PROJECT_ID must be the web project, not the root eco project
+        run: |
+          set -euo pipefail
+          npx vercel deploy --archive=tgz --token "${VERCEL_TOKEN}" --yes --prod | tee /tmp/vercel-deploy.log
+          deployment_url="$(grep -Eo 'https://[^ ]+\.vercel\.app[^ ]*' /tmp/vercel-deploy.log | tail -n 1)"
+          if [ -z "$deployment_url" ]; then
+            echo "::error::Unable to parse Vercel deployment URL from deploy output."
+            exit 1
+          fi
+          echo "deployment_url=${deployment_url}" >> "$GITHUB_OUTPUT"
+          echo "Vercel deployment: ${deployment_url}"
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+  smoke-test:
+    name: Smoke test production web and health probes
+    needs: [deploy-web, deploy-api]
+    if: ${{ always() && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && (needs.deploy-web.result == 'success' || needs.deploy-api.result == 'success') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Wait for services to start
+        run: sleep 30
+
+      - name: Run non-mutating production smoke
+        run: ./scripts/production-web-smoke.sh
+        env:
+          ECO_API_URL: https://api.econetwork.ai
+          ECO_WEB_URL: https://econetwork.ai
+          ECO_EXPECTED_GIT_SHA: ${{ needs.deploy-web.result == 'success' && github.sha || '' }}
+          ECO_EXPECTED_WEB_DEPLOYMENT_URL: ${{ needs.deploy-web.result == 'success' && needs.deploy-web.outputs.deployment_url || '' }}
+          ECO_REQUIRE_ALIAS_FRESHNESS: ${{ needs.deploy-web.result == 'success' && 'true' || 'false' }}
+
+      # Mutating flow check: creates a throwaway account, updates it, deletes it.
+      # Catches the prod-only signup/profile/delete regressions that GET-only
+      # smokes and mocked unit tests cannot. Self-cleaning (see the script).
+      - name: Run mutating auth-flow smoke (signup → profile → delete)
+        run: ./scripts/production-auth-flow-smoke.sh
+        env:
+          ECO_API_URL: https://api.econetwork.ai
+          ECO_WEB_URL: https://econetwork.ai
+
+  deploy-production-pass:
+    name: Deploy Production Pass
+    runs-on: ubuntu-latest
+    needs: [validate, build-api, deploy-api, deploy-web, smoke-test]
+    if: always()
+    steps:
+      - name: Check production deploy result
+        run: |
+          set -euo pipefail
+          if [[ "${{ needs.validate.result }}" != "success" ]]; then
+            echo "::error::Deployment validation finished with ${{ needs.validate.result }}."
+            exit 1
+          fi
+          for result in \
+            "${{ needs.build-api.result }}" \
+            "${{ needs.deploy-api.result }}" \
+            "${{ needs.deploy-web.result }}" \
+            "${{ needs.smoke-test.result }}"; do
+            case "$result" in
+              success|skipped) ;;
+              *)
+                echo "::error::Production deployment dependency finished with $result"
+                exit 1
+                ;;
+            esac
+          done
+          echo "Production deployment completed for target=${{ github.event.inputs.target }}."

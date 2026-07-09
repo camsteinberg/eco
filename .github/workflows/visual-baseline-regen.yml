@@ -1,0 +1,138 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Bos Computing LLC
+
+name: Visual Baseline Regen
+
+# Regenerate visual regression baselines on the same Ubuntu Playwright
+# container that CI uses, so the committed baselines always match the
+# rendering environment that validates them.
+#
+# Why this exists:
+#   The validation workflow (`visual-regression.yml`) runs Playwright inside
+#   `mcr.microsoft.com/playwright:v1.58.2-noble`. Baselines previously came
+#   from `pnpm test:visual:update` on the developer's Mac → font/anti-alias
+#   diffs broke every shard in CI. This workflow eliminates that whole
+#   class of false positives by generating baselines in the same Docker
+#   image CI runs.
+#
+# How to use:
+#   1. Trigger:  gh workflow run visual-baseline-regen.yml --ref <branch>
+#   2. Watch:    gh run watch
+#   3. Download: gh run download <run-id> -n visual-baselines-all \
+#                  -D apps/web/e2e/visual/__screenshots__
+#   4. Commit:   git add apps/web/e2e/visual/__screenshots__ && \
+#                  git commit -m "chore(web): regenerate visual baselines (CI-rendered)"
+#   5. Push and watch Visual Regression CI go green.
+#
+# The 'scope' input lets you regenerate a single shard if you only need a
+# subset (e.g. after a chat-page-only change you don't need to redo every
+# tablet screenshot).
+
+on:
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: "Shard to regenerate (all | mobile | tablet | desktop-light | desktop-dark)"
+        required: false
+        default: "all"
+        type: choice
+        options:
+          - all
+          - mobile
+          - tablet
+          - desktop-light
+          - desktop-dark
+
+permissions:
+  contents: read
+
+concurrency:
+  group: visual-baseline-regen-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "22"
+  PNPM_VERSION: "9.15.4"
+
+jobs:
+  regen:
+    name: Regenerate baselines (${{ inputs.scope }})
+    runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.58.2-noble
+      options: --user root
+    steps:
+      - name: Install git-lfs
+        run: |
+          apt-get update
+          apt-get install -y git-lfs
+
+      - uses: actions/checkout@v5
+        with:
+          lfs: true
+
+      - uses: pnpm/action-setup@v5
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build shared packages
+        run: pnpm --filter "@eco/ui" build
+
+      - name: Regenerate baselines
+        working-directory: apps/web
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${{ inputs.scope }}" in
+            mobile)
+              npx playwright test --config playwright.visual.config.ts \
+                --project=mobile --update-snapshots
+              ;;
+            tablet)
+              npx playwright test --config playwright.visual.config.ts \
+                --project=tablet --update-snapshots
+              ;;
+            desktop-light)
+              npx playwright test --config playwright.visual.config.ts \
+                --project=desktop \
+                e2e/visual/pages.spec.ts e2e/visual/authenticated.spec.ts \
+                --update-snapshots
+              ;;
+            desktop-dark)
+              npx playwright test --config playwright.visual.config.ts \
+                --project=desktop e2e/visual/dark-mode.spec.ts \
+                --update-snapshots
+              ;;
+            all | "")
+              npx playwright test --config playwright.visual.config.ts \
+                --update-snapshots
+              ;;
+            *)
+              echo "::error::Unknown scope '${{ inputs.scope }}'"
+              exit 1
+              ;;
+          esac
+
+      - name: List regenerated files
+        if: always()
+        working-directory: apps/web
+        run: |
+          echo "Baseline tree after regen:"
+          find e2e/visual/__screenshots__ -type f -name "*.png" | sort
+
+      - name: Upload regenerated baselines
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: visual-baselines-${{ inputs.scope }}
+          path: apps/web/e2e/visual/__screenshots__/
+          if-no-files-found: error
+          retention-days: 14

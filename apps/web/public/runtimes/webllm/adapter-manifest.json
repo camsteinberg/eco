@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "runtime": "webllm-mlc",
+  "package": "@mlc-ai/web-llm",
+  "packageVersion": "0.2.83",
+  "modelLibraries": [
+    {
+      "modelId": "local/smollm2-1.7b-webllm-q4f16",
+      "webLlmModelId": "SmolLM2-1.7B-Instruct-q4f16_1-MLC",
+      "source": "https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/web-llm-models/v0_2_83/base/SmolLM2-1.7B-Instruct-q4f16_1_cs1k-webgpu.wasm",
+      "file": "SmolLM2-1.7B-Instruct-q4f16_1_cs1k-webgpu.wasm",
+      "sizeBytes": 5911637,
+      "sha256": "4f95a590f0a3ad2254494bd9130b508478d63fdeb03eafdccf534b526d40b9c2"
+    }
+  ]
+}

@@ -1,0 +1,145 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Bos Computing LLC
+
+/**
+ * Shared runtime types.
+ *
+ * Two adapter implementations (Transformers.js v4 + WebLLM) conform to
+ * RuntimeAdapter so lifecycle.ts can drive either uniformly.
+ */
+
+import type { ModelConfig } from '../types';
+import type { CjkSuppressionTelemetry } from './cjk-suppression';
+import type { KvReuseTelemetry } from './kv-cache';
+
+// ─── Conversation shape ────────────────────────────────────────────────────────
+
+export type ChatRole = 'system' | 'user' | 'assistant';
+
+export type ChatMessage = {
+  role: ChatRole;
+  content: string;
+};
+
+// ─── Lifecycle event callback ─────────────────────────────────────────────────
+
+/**
+ * Phases the adapters can emit during load and generate. Smoke.ts
+ * subscribes to capture structured diagnostics; production callers
+ * pass undefined.
+ */
+export type LifecyclePhase =
+  | 'runtime-import'
+  | 'webgpu-probe'
+  | 'load-start'
+  | 'load-finish'
+  | 'load-fail'
+  | 'first-token'
+  | 'generation-complete'
+  | 'generation-fail';
+
+export type LifecycleEvent = {
+  phase: LifecyclePhase;
+  /** Wall-clock timestamp (performance.now() if available, else Date.now()). */
+  at: number;
+  /** Optional human-readable note (e.g. runtime version). */
+  note?: string;
+  /** Error detail when phase is a failure. */
+  error?: { message: string; name?: string };
+};
+
+export type OnLifecycleEvent = (event: LifecycleEvent) => void;
+
+// ─── Adapter contract ──────────────────────────────────────────────────────
+
+export type LoadOptions = {
+  /** Force WASM regardless of WebGPU availability. */
+  forceWasm?: boolean;
+  /** Progress callback fired during model weight loading. 0..1. */
+  onLoadProgress?: (progress: number) => void;
+  /** AbortSignal cancels load partway through. */
+  signal?: AbortSignal;
+  /** Optional lifecycle event callback for diagnostic capture. */
+  onLifecycleEvent?: OnLifecycleEvent;
+};
+
+export type GenerateOptions = {
+  /** Maximum tokens to generate (default: 512). */
+  maxTokens?: number;
+  /** Sampling temperature (default: 0.7). 0 = greedy/argmax (the Transformers
+   *  worker maps this to `do_sample:false`; the LiteRT adapter to
+   *  SamplerType.GREEDY) — used by the eval harness's reproducible arm. */
+  temperature?: number;
+  /** The full per-model sampling profile. HONORED since the #4 Phase-1
+   *  sampling-plumbing fix: the Transformers worker forwards top_p/top_k/
+   *  repetition_penalty/no_repeat_ngram_size into GenerationConfig
+   *  (transformers-generate-args.ts); the LiteRT adapter maps temperature/topK/
+   *  topP onto its sampler params (no repetition/ngram knob). WebLLM relies on
+   *  MLC's own defaults. Each key is emitted only when set, so a greedy or
+   *  unprofiled call stays clean. */
+  topP?: number;
+  topK?: number;
+  repetitionPenalty?: number;
+  noRepeatNgramSize?: number;
+  /** AbortSignal cancels generation between tokens. */
+  signal?: AbortSignal;
+  /** Optional lifecycle event callback for diagnostic capture. */
+  onLifecycleEvent?: OnLifecycleEvent;
+};
+
+export type TokenEvent =
+  | { kind: 'token'; text: string; seq?: number }
+  | { kind: 'done'; promptTokens?: number; completionTokens?: number; tokenizerName?: string; kvReuse?: KvReuseTelemetry; cjkSuppression?: CjkSuppressionTelemetry }
+  | { kind: 'error'; reason: string; code?: AdapterErrorCode };
+
+export type AdapterErrorCode =
+  | 'webgpu-unavailable'
+  | 'oom'
+  | 'device-lost'
+  | 'init-failed'
+  | 'generation-failed'
+  | 'timeout'
+  | 'aborted'
+  | 'cooldown-active'
+  | 'template-missing';
+
+export type RuntimeBackend = 'webgpu' | 'wasm';
+
+/**
+ * The observable result of a completed model load. Carries the execution
+ * provider the load ACTUALLY resolved to (`RuntimeAdapter.backend`) — a
+ * `forceWasm: false` request can still fall back to WASM, and the resolved
+ * value is what the evidence ledger and diagnostics need to record. `null`
+ * when the adapter can't report a backend.
+ */
+export type LoadResult = {
+  backend: RuntimeBackend | null;
+};
+
+export type RuntimeAdapter = {
+  /** The runtime this adapter speaks. */
+  readonly runtime: 'transformers' | 'webllm' | 'litert';
+  /** True if a model is currently loaded and ready to generate. */
+  readonly isLoaded: boolean;
+  /** The backend the loaded model is using, or null when unloaded. */
+  readonly backend: RuntimeBackend | null;
+  /** The model currently loaded, or null when unloaded. */
+  readonly activeModel: ModelConfig | null;
+
+  load(model: ModelConfig, options?: LoadOptions): Promise<void>;
+  generate(messages: ChatMessage[], options?: GenerateOptions): AsyncIterable<TokenEvent>;
+  unload(): Promise<void>;
+};
+
+// ─── Adapter errors ────────────────────────────────────────────────────────
+
+export class AdapterError extends Error {
+  readonly code: AdapterErrorCode;
+  readonly recoverable: boolean;
+  constructor(message: string, code: AdapterErrorCode, recoverable = true) {
+    super(message);
+    this.name = 'AdapterError';
+    this.code = code;
+    this.recoverable = recoverable;
+  }
+}

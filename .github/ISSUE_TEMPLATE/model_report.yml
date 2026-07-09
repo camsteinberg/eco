@@ -1,0 +1,72 @@
+name: On-device model report
+description: Report how an on-device model behaved or performed on your device
+labels: ["model-report"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Eco's models run on *your* device, so how they behave varies a lot with hardware.
+        Reports like this help us tune model selection and set honest expectations. Use this
+        for output quality, speed, memory, or download behavior — not for app bugs (use the
+        bug report for those).
+  - type: input
+    id: device
+    attributes:
+      label: Device
+      description: CPU/SoC, RAM, GPU, and OS — as much as you know.
+      placeholder: e.g. MacBook Air M2, 16GB, macOS 15 · or ThinkPad, Ryzen 7, 32GB, RTX 3050, Windows 11
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: Browser
+      placeholder: e.g. Chrome 141 (WebGPU on)
+    validations:
+      required: true
+  - type: dropdown
+    id: model
+    attributes:
+      label: Which model?
+      options:
+        - Not sure
+        - Qwen3.5 2B (candidate/qwen3.5-2b-onnx) — the default
+        - Gemma 4 E2B (candidate/gemma-4-e2b-litert)
+        - LFM2.5 350M (candidate/lfm2.5-350m-onnx) — the starter
+        - LFM2.5 1.2B (candidate/lfm2.5-1.2b-instruct-onnx)
+        - Bonsai 1.7B (local/bonsai-1.7b-q4)
+        - SmolLM2 1.7B (local/smollm2-1.7b-webllm-q4f16)
+        - Phi-3 Mini 4K (local/phi3-mini-4k-q4f16)
+        - Qwen3 0.6B (local/qwen3-0.6b)
+    validations:
+      required: true
+  - type: dropdown
+    id: what-degraded
+    attributes:
+      label: What degraded?
+      options:
+        - Output quality (wrong, repetitive, or low-quality replies)
+        - Speed (slow tokens/s or slow first token)
+        - Memory (tab crashed, ran out of memory)
+        - Download (slow, stalled, or failed to download)
+        - Something else
+    validations:
+      required: true
+  - type: input
+    id: tokens-per-sec
+    attributes:
+      label: Tokens/second (if known)
+      description: The diagnostics page reports this; leave blank if you don't have it.
+      placeholder: e.g. ~12 tok/s
+    validations:
+      required: false
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: >
+        Describe what you saw. A note from
+        `/diagnostics/local-ai?eco-diagnostics=1` (selected model, device capability,
+        timings) is especially helpful here.
+    validations:
+      required: true
