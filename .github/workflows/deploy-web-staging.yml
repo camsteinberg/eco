@@ -23,7 +23,14 @@ env:
 jobs:
   deploy-web:
     name: Deploy web to Vercel (staging)
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    # Guard: workflow_run's branches filter matches the head branch NAME only, so a
+    # fork's `main` also satisfies it. Require the run to originate from this
+    # repository and from a push before deploying (this job checks out trusted main,
+    # so the risk is spurious deploys rather than untrusted-code execution).
+    if: >-
+      ${{ github.event.workflow_run.conclusion == 'success'
+      && github.event.workflow_run.head_repository.full_name == github.repository
+      && github.event.workflow_run.event == 'push' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     outputs:
