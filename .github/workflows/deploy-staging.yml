@@ -25,7 +25,14 @@ env:
 jobs:
   changes:
     name: Classify deploy scope
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    # Guard: workflow_run's branches filter matches the head branch NAME only, so a
+    # PR opened from a fork's `main` also satisfies it. Require the run to originate
+    # from this repository (not a fork) and from a push (not a fork PR) before any
+    # job checks out the untrusted head_sha or touches deploy credentials.
+    if: >-
+      ${{ github.event.workflow_run.conclusion == 'success'
+      && github.event.workflow_run.head_repository.full_name == github.repository
+      && github.event.workflow_run.event == 'push' }}
     runs-on: ubuntu-latest
     outputs:
       api: ${{ steps.classify.outputs.api }}
@@ -97,7 +104,11 @@ jobs:
   build-api:
     name: Build & Push API Image
     needs: changes
-    if: ${{ needs.changes.outputs.api == 'true' || needs.changes.outputs.full_required == 'true' }}
+    # Defense-in-depth: re-assert the same-repository origin so a build holding
+    # packages:write never runs on a fork-originated workflow_run.
+    if: >-
+      ${{ (needs.changes.outputs.api == 'true' || needs.changes.outputs.full_required == 'true')
+      && github.event.workflow_run.head_repository.full_name == github.repository }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -124,13 +135,17 @@ jobs:
   deploy-api:
     name: Deploy API to Fly.io (staging)
     needs: build-api
-    if: ${{ needs.build-api.result == 'success' }}
+    # Defense-in-depth: re-assert the same-repository origin so a deploy holding
+    # FLY_API_TOKEN never runs on a fork-originated workflow_run.
+    if: >-
+      ${{ needs.build-api.result == 'success'
+      && github.event.workflow_run.head_repository.full_name == github.repository }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
-      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - uses: superfly/flyctl-actions/setup-flyctl@ed8efb33836e8b2096c7fd3ba1c8afe303ebbff1 # master 2026-04-08, SHA-pinned
       - run: flyctl deploy --config apps/api/fly.toml --app eco-api-staging --remote-only
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
@@ -179,7 +194,13 @@ jobs:
     name: Deploy Staging Pass
     runs-on: ubuntu-latest
     needs: [changes, build-api, deploy-api, smoke-test]
-    if: ${{ always() && github.event.workflow_run.conclusion == 'success' }}
+    # Mirror the `changes` guard so this summary job is SKIPPED (not hard-failed on a
+    # skipped `changes`) for fork-originated / non-push runs; on legit push runs it
+    # still runs via always() to surface real upstream failures.
+    if: >-
+      ${{ always() && github.event.workflow_run.conclusion == 'success'
+      && github.event.workflow_run.head_repository.full_name == github.repository
+      && github.event.workflow_run.event == 'push' }}
     steps:
       - name: Check deploy staging result
         run: |
