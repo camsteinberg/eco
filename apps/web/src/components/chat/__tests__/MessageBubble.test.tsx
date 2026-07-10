@@ -514,12 +514,14 @@ describe("MessageBubble", () => {
       }
     });
 
-    it("clears the interval when the phase leaves loading", () => {
+    it("clears the loading interval when the phase leaves loading", () => {
       vi.useFakeTimers();
       try {
         const { rerender } = renderLoading();
         expect(vi.getTimerCount()).toBeGreaterThan(0);
-        // Phase → generating unmounts LoadingPrelude and clears its timer.
+        // Phase → generating unmounts LoadingPrelude (clearing its 1s
+        // interval) and mounts ThinkingPrelude, which owns exactly one
+        // pending timer: the 4s label timeout.
         rerender(
           <MessageBubble
             role="assistant"
@@ -529,16 +531,16 @@ describe("MessageBubble", () => {
             status="streaming"
           />,
         );
-        expect(vi.getTimerCount()).toBe(0);
+        expect(vi.getTimerCount()).toBe(1);
       } finally {
         vi.useRealTimers();
       }
     });
 
-    it("warm 'thinking' path renders dots with no loading copy and starts no timer", () => {
+    it("warm 'thinking' path shows dots first, then the honest prefill label after 4s", () => {
       vi.useFakeTimers();
       try {
-        render(
+        const { unmount } = render(
           <MessageBubble
             role="assistant"
             content=""
@@ -548,8 +550,18 @@ describe("MessageBubble", () => {
           />,
         );
         expect(screen.getByTestId("cursor")).toHaveAttribute("data-phase", "thinking");
+        // No loading-ladder copy, and no label before the threshold.
         expect(screen.queryByText("Warming up Eco…")).not.toBeInTheDocument();
         expect(screen.queryByText(/runs privately on your device/)).not.toBeInTheDocument();
+        expect(screen.queryByText("Reading over the conversation…")).not.toBeInTheDocument();
+
+        act(() => {
+          vi.advanceTimersByTime(4_000);
+        });
+        expect(screen.getByText("Reading over the conversation…")).toBeInTheDocument();
+
+        // Unmount clears the (already-fired or pending) timeout.
+        unmount();
         expect(vi.getTimerCount()).toBe(0);
       } finally {
         vi.useRealTimers();

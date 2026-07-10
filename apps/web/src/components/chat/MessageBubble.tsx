@@ -484,7 +484,13 @@ function StreamingPrelude({ phase }: { phase?: StreamPhase }) {
     return <LoadingPrelude />;
   }
 
-  // Some phases carry an honest context label; thinking and queued are dots-only.
+  // The thinking wait gets its own time-aware pill: dots-only for the common
+  // sub-second case, one honest label once the wait is clearly a prefill.
+  if (resolvedPhase === "thinking") {
+    return <ThinkingPrelude />;
+  }
+
+  // Some phases carry an honest context label; queued stays dots-only.
   // - tool-executing: deterministic tool work is running.
   const label = resolvedPhase === "tool-executing" ? "Working with tools" : null;
 
@@ -492,6 +498,56 @@ function StreamingPrelude({ phase }: { phase?: StreamPhase }) {
     <div className="inline-flex items-center gap-2 rounded-full border border-[var(--eco-border)]/70 bg-[var(--eco-surface-elevated)]/75 px-3 py-2 text-sm text-[var(--eco-text-secondary)] shadow-sm">
       <StreamingCursor phase={resolvedPhase} />
       {label && <span>{label}</span>}
+    </div>
+  );
+}
+
+// Thinking-wait label. Most thinking waits end in well under a second, so the
+// dots stay label-free by default. Past this threshold the wait is almost
+// always a full-history prefill — on a KV-reuse miss the model re-reads every
+// prior token before its first word, the 5–8s-class pause long conversations
+// hit each time the context window evicts. The copy names what the model is
+// actually doing (same honesty rule as the cold-load ladder: explain the WHY,
+// never invent progress).
+const THINKING_LABEL = "Reading over the conversation…";
+const THINKING_LABEL_MS = 4_000;
+
+/**
+ * The warm "thinking" pill. Breathing dots from mount; after
+ * `THINKING_LABEL_MS` the honest prefill label fades in beside them (instant
+ * under reduced motion). The label lives in an `aria-live="polite"` region so
+ * its appearance is announced once. The component only mounts while the phase
+ * is "thinking", so unmount clears the timer — no leaked timeout, fresh
+ * threshold on the next turn.
+ */
+function ThinkingPrelude() {
+  const shouldReduce = useReducedMotion();
+  const [showLabel, setShowLabel] = useState(false);
+  useEffect(() => {
+    const id = setTimeout(() => setShowLabel(true), THINKING_LABEL_MS);
+    return () => clearTimeout(id);
+  }, []);
+
+  return (
+    <div
+      data-testid="thinking-prelude"
+      className="inline-flex items-center gap-2 rounded-full border border-[var(--eco-border)]/70 bg-[var(--eco-surface-elevated)]/75 px-3 py-2 text-sm text-[var(--eco-text-secondary)] shadow-sm"
+    >
+      <StreamingCursor phase="thinking" />
+      <span aria-live="polite" className="min-w-0">
+        <AnimatePresence initial={false}>
+          {showLabel && (
+            <motion.span
+              className="block"
+              initial={shouldReduce ? false : { opacity: 0, y: 3 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={getTransition("gentle", shouldReduce)}
+            >
+              {THINKING_LABEL}
+            </motion.span>
+          )}
+        </AnimatePresence>
+      </span>
     </div>
   );
 }
