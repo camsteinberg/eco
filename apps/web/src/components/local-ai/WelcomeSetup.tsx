@@ -48,6 +48,10 @@ export type WelcomeSetupProps = {
    * honest expectation ("this device runs a lighter model") instead of the
    * standard first-load copy. */
   lightweightDevice?: boolean;
+  /** True when this run resumed a bound-but-unfinished pick (an interrupted
+   * download that a reload left mid-flight). Frames the wait as finishing an
+   * existing download rather than a first-run setup, so the copy stays honest. */
+  resuming?: boolean;
 };
 
 // The wait runs 2–10 minutes; a 4-line loop (32s) empties fast and reads as
@@ -78,16 +82,20 @@ export function WelcomeSetup({
   priorAttemptFailed = false,
   findingFit = false,
   lightweightDevice = false,
+  resuming = false,
 }: WelcomeSetupProps) {
   const reducedMotion = useReducedMotion();
   const reassurance = REASSURANCE_COPY[reassuranceIndex % REASSURANCE_COPY.length]!;
   // While the ladder demotes, hold the honest "finding the best fit" line so a
-  // reset progress bar reads as deliberate. The smoke phase keeps its own copy —
-  // it's the real cold load of the chosen model, not a demotion.
+  // reset progress bar reads as deliberate. A resumed pick names the wait as
+  // finishing an existing download, not a first-run setup. The smoke phase keeps
+  // its own copy either way — it's the real cold load of the chosen model.
   const statusCopy =
     findingFit && phase !== 'smoke'
       ? 'Finding the best fit for your device…'
-      : statusCopyFor(phase, percent, lightweightDevice);
+      : resuming && phase === 'downloading'
+        ? 'Finishing your model download…'
+        : statusCopyFor(phase, percent, lightweightDevice);
 
   return (
     <main

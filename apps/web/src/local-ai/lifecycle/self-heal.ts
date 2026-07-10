@@ -39,6 +39,7 @@ import {
 } from '../selection/recommend';
 import { clearEvidence } from '../evidence/ledger';
 import { getDeviceProfile } from '../device/profile';
+import { getActiveLocalHeavyWorkLease } from '../../lib/local-heavy-work-owner';
 import type { Slot } from '../types';
 
 // ─── Constants ─────────────────────────────────────────────────────────────
@@ -109,6 +110,15 @@ export type SelfHealOptions = {
    * assignable it returns LFM2.5 (the rebind then no-ops).
    */
   resolveEcoFastDefault?: () => string | null;
+  /**
+   * Test seam: sweep expired heavy-work leases. Defaults to
+   * `getActiveLocalHeavyWorkLease`, whose read clears an expired lease in BOTH
+   * mutual-exclusion domains (runtime + download) as a side effect. Only
+   * EXPIRED leases are swept — a live lease is left untouched, because ownerId
+   * cannot distinguish a dead session from a live other tab and the cross-tab
+   * single-download invariant depends on live leases surviving.
+   */
+  sweepExpiredLeases?: () => void;
 };
 
 /** Local-only mirror of chatStore's explicit-selection flag key. A user who
@@ -187,11 +197,12 @@ export async function runSelfHeal(options?: SelfHealOptions): Promise<SelfHealRe
         ?? (typeof caches !== 'undefined' ? new CacheApiStorage() : null);
       if (cacheStorage) await cacheStorage.clearModel(migration.modelId);
       // A slot bound to the migrated model and marked 'ready' now points at an
-      // empty cache. Flip it to 'preparing' so the setup pipeline re-fetches
-      // the new artifact through the full download path (progress UI, headroom
-      // preflight). Without this the slot stays 'ready' forever: reconcile
-      // skips fully-missing files (nothing to "repair"), and the first message
-      // would fall into the worker's implicit remote fetch instead.
+      // empty cache. Flip it to 'preparing' here — proactively, the instant we
+      // wipe — so the setup pipeline re-fetches the new artifact through the
+      // full download path (progress UI, headroom preflight). Boot reconcile
+      // would now catch this too (it flips 'ready'→'preparing' on wholly-missing
+      // files), but this migration already KNOWS the cache is gone, so it flips
+      // immediately rather than waiting on reconcile's per-file verification.
       const slotState = getAllSlots();
       for (const slot of SLOTS) {
         if (slotState[slot].modelId === migration.modelId && slotState[slot].status === 'ready') {
@@ -288,6 +299,18 @@ export async function runSelfHeal(options?: SelfHealOptions): Promise<SelfHealRe
     report.errors.push(`legacy-migration: ${describe(err)}`);
   }
 
+  // 4. Expired-lease sweep. A tab that crashed mid-download/switch can leave a
+  //    heavy-work lease behind; it self-expires by `expiresAt`, but the read
+  //    below is what actually clears it (both the runtime and download domains
+  //    in one call). We only READ — never force-clear a live lease, since a
+  //    still-valid lease may belong to a live other tab, and the single-download
+  //    invariant relies on it. Best-effort; a failure must not crash boot.
+  try {
+    (options?.sweepExpiredLeases ?? getActiveLocalHeavyWorkLease)();
+  } catch (err) {
+    report.errors.push(`lease-sweep: ${describe(err)}`);
+  }
+
   return report;
 }
 
@@ -295,20 +318,35 @@ export async function runSelfHeal(options?: SelfHealOptions): Promise<SelfHealRe
  * On-demand: verify the cache integrity for one model's files. Called
  * when a slot has transitioned to 'error' so we can clean corrupted
  * entries and let the user retry from a known-good state.
+ *
+ * Reports two distinct counts so the caller can act honestly:
+ *   - `removed`: files that were present but failed verify (size mismatch /
+ *     corruption) and were deleted.
+ *   - `missing`: files that are wholly absent (verify failed AND has() is
+ *     definitively false). NOTHING is deleted for a missing file — there is
+ *     nothing to remove; the caller flips the slot to 'preparing' so the
+ *     download pipeline re-fetches it. This is the interrupted-download case:
+ *     the slot must not stay 'ready' on bytes that were never fully written.
+ * Per-file storage errors stay best-effort (caught, skipped) and count as
+ * neither — we can't prove such a file is gone.
  */
 export async function repairModelCache(
   modelId: string,
   files: ReadonlyArray<{ url: string; sizeBytes: number }>,
   options?: { storage?: Storage },
-): Promise<{ removed: number }> {
+): Promise<{ removed: number; missing: number }> {
   const storage = options?.storage ?? new CacheApiStorage();
   let removed = 0;
+  let missing = 0;
   for (const file of files) {
     try {
       const verified = await storage.verify({ modelId, url: file.url }, file.sizeBytes);
       if (verified) continue;
       const exists = await storage.has({ modelId, url: file.url });
-      if (!exists) continue;
+      if (!exists) {
+        missing++;
+        continue;
+      }
       await storage.remove({ modelId, url: file.url });
       removed++;
     } catch {
@@ -316,7 +354,7 @@ export async function repairModelCache(
       // catch any entries we miss.
     }
   }
-  return { removed };
+  return { removed, missing };
 }
 
 // ─── Boot-time slot reconciliation ─────────────────────────────────────────
@@ -333,11 +371,12 @@ export type SlotPlanResolver = (
 
 export type ReconcileReport = {
   /** Slots whose status was flipped from 'ready' to 'preparing' because
-   *  their model's cache failed verification. */
+   *  their model's cache failed verification (files removed) OR was found
+   *  wholly missing (interrupted download). */
   slotsFlippedToPreparing: Slot[];
-  /** Per-model details: which files were removed because they didn't
-   *  match the plan's declared sizes. */
-  modelsRepaired: Array<{ modelId: string; removed: number }>;
+  /** Per-model details: `removed` files deleted for a size mismatch, and
+   *  `missing` files found wholly absent. A slot flips when either is > 0. */
+  modelsRepaired: Array<{ modelId: string; removed: number; missing: number }>;
   /** Non-fatal errors during reconciliation. */
   errors: string[];
 };
@@ -358,9 +397,14 @@ export type ReconcileOptions = {
  * For each ready slot:
  *   1. Resolve the model's file plan via `planResolver`.
  *   2. Run `repairModelCache` — removes any file whose stored byte size
- *      doesn't match the plan's declared size (Bug #4 detection).
- *   3. If anything was removed, flip the slot to 'preparing' so the
- *      consumer's setup pipeline can re-fetch the missing files cleanly.
+ *      doesn't match the plan's declared size (Bug #4 detection), and reports
+ *      any file found wholly missing (an interrupted download the reload left
+ *      the slot falsely 'ready' on).
+ *   3. If anything was removed OR any file was missing, flip the slot to
+ *      'preparing' so the consumer's setup pipeline re-fetches cleanly. The
+ *      onCacheRepaired hint fires only when files were actually removed — a
+ *      wholly-missing file was never there to "clean up," so that copy would
+ *      be untruthful.
  *
  * Closes the L3-03 wiring loop: `repairModelCache` previously existed
  * but wasn't called from boot, so a slot marked 'ready' could silently
@@ -398,22 +442,29 @@ export async function reconcileReadySlots(
     if (!files || files.length === 0) continue;
 
     let removed = 0;
+    let missing = 0;
     try {
       const result = await repairModelCache(state.modelId, files, {
         storage: cacheStorage,
       });
       removed = result.removed;
+      missing = result.missing;
     } catch (err) {
       report.errors.push(`repair(${state.modelId}): ${describe(err)}`);
       continue;
     }
 
-    if (removed > 0) {
-      report.modelsRepaired.push({ modelId: state.modelId, removed });
+    if (removed > 0 || missing > 0) {
+      report.modelsRepaired.push({ modelId: state.modelId, removed, missing });
       try {
         setStatus(slot, 'preparing');
         report.slotsFlippedToPreparing.push(slot);
-        options?.onCacheRepaired?.({ modelId: state.modelId, slot, removed });
+        // Only fire the "we cleaned up your cache" hint when bytes were actually
+        // removed — a wholly-missing file was never present to clean up, so the
+        // honest recovery is a silent re-download, not a cleanup notice.
+        if (removed > 0) {
+          options?.onCacheRepaired?.({ modelId: state.modelId, slot, removed });
+        }
       } catch (err) {
         report.errors.push(`set-status(${slot}): ${describe(err)}`);
       }

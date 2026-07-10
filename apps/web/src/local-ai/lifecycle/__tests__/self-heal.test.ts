@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Bos Computing LLC
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CacheApiStorage, type CacheLike, type CacheStorageLike } from '../../download/storage';
 import { _resetSlotsForTesting, setSlotStorage } from '../slots';
 import {
@@ -360,6 +360,20 @@ describe('runSelfHeal — legacy migration', () => {
   });
 });
 
+describe('runSelfHeal — expired-lease sweep', () => {
+  it('invokes the lease sweep at boot (best-effort, via the seam)', async () => {
+    const sweepExpiredLeases = vi.fn();
+    await runSelfHeal({ now: () => nowMs, storage, sweepExpiredLeases });
+    expect(sweepExpiredLeases).toHaveBeenCalledTimes(1);
+  });
+
+  it('records a lease-sweep error without crashing boot', async () => {
+    const sweepExpiredLeases = vi.fn(() => { throw new Error('lease boom'); });
+    const report = await runSelfHeal({ now: () => nowMs, storage, sweepExpiredLeases });
+    expect(report.errors.some((e) => e.includes('lease-sweep') && e.includes('lease boom'))).toBe(true);
+  });
+});
+
 // ─── repairModelCache ──────────────────────────────────────────────────────
 
 describe('repairModelCache', () => {
@@ -384,14 +398,17 @@ describe('repairModelCache', () => {
     expect(await cacheStorage.has({ modelId, url: 'https://hf/bad.bin' })).toBe(false);
   });
 
-  it('skips files that simply don\'t exist (vs corrupted)', async () => {
+  it('counts wholly-missing files as missing and deletes nothing', async () => {
     const cacheStorage = new CacheApiStorage(new MemoryCacheStorage());
+    const removeSpy = vi.spyOn(cacheStorage, 'remove');
     const result = await repairModelCache(
       'local/phi3-mini-4k-q4f16',
       [{ url: 'https://hf/missing.bin', sizeBytes: 5 }],
       { storage: cacheStorage },
     );
     expect(result.removed).toBe(0);
+    expect(result.missing).toBe(1);
+    expect(removeSpy).not.toHaveBeenCalled();
   });
 });
 
@@ -459,8 +476,31 @@ describe('reconcileReadySlots', () => {
     expect(report.modelsRepaired).toHaveLength(1);
     expect(report.modelsRepaired[0]!.modelId).toBe(MODEL_ID);
     expect(report.modelsRepaired[0]!.removed).toBe(1);
+    expect(report.modelsRepaired[0]!.missing).toBe(0);
     expect(getSlot('eco-fast').status).toBe('preparing');
     expect(repaired).toEqual([{ modelId: MODEL_ID, slot: 'eco-fast', removed: 1 }]);
+  });
+
+  it('flips a ready slot to preparing on a wholly-missing file, deletes nothing, and does NOT fire onCacheRepaired', async () => {
+    setSlot('eco-fast', MODEL_ID);
+    setSlotStatus('eco-fast', 'ready');
+    const cacheStorage = new CacheApiStorage(new MemoryCacheStorage());
+    // Cache is empty: every planned file is wholly missing (the interrupted
+    // download the reload left the slot falsely 'ready' on).
+    const removeSpy = vi.spyOn(cacheStorage, 'remove');
+
+    const repaired: Array<{ modelId: string; slot: Slot; removed: number }> = [];
+    const report = await reconcileReadySlots(async () => PLAN, {
+      cacheStorage,
+      onCacheRepaired: (info) => { repaired.push(info); },
+    });
+
+    expect(report.slotsFlippedToPreparing).toEqual(['eco-fast']);
+    expect(report.modelsRepaired).toEqual([{ modelId: MODEL_ID, removed: 0, missing: PLAN.length }]);
+    expect(getSlot('eco-fast').status).toBe('preparing');
+    expect(removeSpy).not.toHaveBeenCalled();
+    // "We cleaned up your cache" would be untruthful — nothing was there to clean.
+    expect(repaired).toEqual([]);
   });
 
   it('skips a slot whose plan resolver returns null (unknown model)', async () => {

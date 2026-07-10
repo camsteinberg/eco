@@ -20,7 +20,23 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { prepareModelForSlot, type SwitchModelSeams } from '../switch-model';
 import { DownloadFailedError } from '../../download/download';
+import { getModel } from '../../catalog/catalog';
+import {
+  _resetSlotsForTesting,
+  getSlot,
+  setSlot as realSetSlot,
+  setSlotStatus as realSetSlotStatus,
+  setSlotStorage,
+  type KeyValueStorage as SlotKeyValueStorage,
+} from '../slots';
 import type { ModelConfig, Slot } from '../../types';
+
+class FakeSlotStorage implements SlotKeyValueStorage {
+  private map = new Map<string, string>();
+  getItem(k: string): string | null { return this.map.get(k) ?? null; }
+  setItem(k: string, v: string): void { this.map.set(k, v); }
+  removeItem(k: string): void { this.map.delete(k); }
+}
 
 const target = { id: 'local/next-model', friendlyName: 'Next' } as ModelConfig;
 const previous = { id: 'local/prev-model', friendlyName: 'Prev' } as ModelConfig;
@@ -415,5 +431,46 @@ describe('progress forwarding', () => {
       { kind: 'phase', phase: 'load-start' },
       { kind: 'load', fraction: 0.7 },
     ]);
+  });
+});
+
+// The root-cause pin for the phantom-pick bug: the switch binds the target via
+// the REAL setSlot BEFORE the download. On a slot previously 'ready' on the old
+// model, that bind must flip the slot to 'preparing' (the target's bytes are
+// unverified) — otherwise a reload mid-download leaves the slot falsely 'ready'
+// on a model that never finished downloading.
+describe('phantom-pick regression (real slot store)', () => {
+  afterEach(() => {
+    _resetSlotsForTesting();
+  });
+
+  it('binding the target pre-download flips the slot to preparing, not ready', async () => {
+    setSlotStorage(new FakeSlotStorage());
+    const prev = getModel('local/phi3-mini-4k-q4f16')!;
+    realSetSlot('eco-fast', prev.id);
+    realSetSlotStatus('eco-fast', 'ready');
+    expect(getSlot('eco-fast').status).toBe('ready');
+
+    const targetId = 'local/qwen3-0.6b';
+    let rejectDownload: (err: Error) => void = () => {};
+    const { seams } = makeSeams({
+      getModel: (id: string) => getModel(id),
+      setSlot: realSetSlot as unknown as SwitchModelSeams['setSlot'],
+      setSlotStatus: realSetSlotStatus as unknown as SwitchModelSeams['setSlotStatus'],
+      download: vi.fn(() => new Promise<void>((_resolve, reject) => { rejectDownload = reject; })),
+    });
+
+    const settled = prepareModelForSlot({ slot: 'eco-fast', modelId: targetId, previous: prev, seams });
+    // setSlot(target) runs synchronously before the download await.
+    await Promise.resolve();
+
+    const mid = getSlot('eco-fast');
+    expect(mid.modelId).toBe(targetId);
+    expect(mid.status).toBe('preparing');
+
+    // Settle the hung download so no pending op leaks past the test.
+    rejectDownload(new Error('stop'));
+    await vi.runAllTimersAsync();
+    await settled.catch(() => undefined);
   });
 });

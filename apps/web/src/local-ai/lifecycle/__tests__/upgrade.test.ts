@@ -255,46 +255,60 @@ describe('planUpgradeOffer', () => {
     ecoSmartReadyModelId: null as string | null,
     record: null as UpgradeRecord | null,
     recommendSmart: () => model('target'),
+    // Default the cache probe to "not cached" so the eligibility cases below are
+    // deterministic and never touch the real Cache API. The cached-target guard
+    // has its own dedicated case.
+    isTargetCached: async () => false,
   };
 
-  it('offers the eco-smart recommendation on a fresh record', () => {
-    expect(planUpgradeOffer(base)?.id).toBe('target');
+  it('offers the eco-smart recommendation on a fresh record', async () => {
+    expect((await planUpgradeOffer(base))?.id).toBe('target');
   });
 
-  it('convergence: no offer when the device is already on the class-best', () => {
-    expect(planUpgradeOffer({ ...base, currentModelId: 'target' })).toBeNull();
+  it('convergence: no offer when the device is already on the class-best', async () => {
+    expect(await planUpgradeOffer({ ...base, currentModelId: 'target' })).toBeNull();
   });
 
-  it('no offer when eco-smart already holds the target ready', () => {
-    expect(planUpgradeOffer({ ...base, ecoSmartReadyModelId: 'target' })).toBeNull();
+  it('no offer when eco-smart already holds the target ready', async () => {
+    expect(await planUpgradeOffer({ ...base, ecoSmartReadyModelId: 'target' })).toBeNull();
   });
 
-  it('no nagging: declined/done/deferred records for the same target suppress the offer', () => {
+  it('no offer when the target is already fully cached (no phantom download offer)', async () => {
+    expect(await planUpgradeOffer({ ...base, isTargetCached: async () => true })).toBeNull();
+  });
+
+  it('a cache-probe error reads as not-cached and still offers', async () => {
+    expect(
+      (await planUpgradeOffer({ ...base, isTargetCached: async () => { throw new Error('storage'); } }))?.id,
+    ).toBe('target');
+  });
+
+  it('no nagging: declined/done/deferred records for the same target suppress the offer', async () => {
     for (const phase of ['declined', 'done', 'deferred'] as const) {
-      expect(planUpgradeOffer({ ...base, record: record({ phase }) })).toBeNull();
+      expect(await planUpgradeOffer({ ...base, record: record({ phase }) })).toBeNull();
     }
   });
 
-  it('re-surfaces an undecided offered record (tab closed mid-popup)', () => {
-    expect(planUpgradeOffer({ ...base, record: record({ phase: 'offered' }) })?.id).toBe('target');
+  it('re-surfaces an undecided offered record (tab closed mid-popup)', async () => {
+    expect((await planUpgradeOffer({ ...base, record: record({ phase: 'offered' }) }))?.id).toBe('target');
   });
 
-  it('no offer while a cycle is mid-flight, even if the recommendation moved', () => {
+  it('no offer while a cycle is mid-flight, even if the recommendation moved', async () => {
     for (const phase of ['accepted', 'downloading', 'staged', 'swapping'] as const) {
       expect(
-        planUpgradeOffer({ ...base, record: record({ phase, targetModelId: 'old-target' }) }),
+        await planUpgradeOffer({ ...base, record: record({ phase, targetModelId: 'old-target' }) }),
       ).toBeNull();
     }
   });
 
-  it('a settled record for a DIFFERENT target allows a new cycle', () => {
+  it('a settled record for a DIFFERENT target allows a new cycle', async () => {
     expect(
-      planUpgradeOffer({ ...base, record: record({ phase: 'declined', targetModelId: 'old-target' }) })?.id,
+      (await planUpgradeOffer({ ...base, record: record({ phase: 'declined', targetModelId: 'old-target' }) }))?.id,
     ).toBe('target');
   });
 
-  it('no offer when the recommendation cannot resolve', () => {
-    expect(planUpgradeOffer({ ...base, recommendSmart: () => null })).toBeNull();
+  it('no offer when the recommendation cannot resolve', async () => {
+    expect(await planUpgradeOffer({ ...base, recommendSmart: () => null })).toBeNull();
   });
 });
 

@@ -44,6 +44,13 @@ describe('WelcomeSetup', () => {
     expect(screen.getByText(/finding the best fit for your device/i)).toBeInTheDocument();
   });
 
+  it('frames a resumed download as finishing, not first-run setup', () => {
+    render(<WelcomeSetup phase="downloading" percent={40} etaSeconds={30} reassuranceIndex={0} resuming />);
+    expect(screen.getByText(/finishing your model download/i)).toBeInTheDocument();
+    // Not the first-run copy — this is an interrupted download picking back up.
+    expect(screen.queryByText(/getting your private ai ready/i)).toBeNull();
+  });
+
   it('rotates reassurance copy across the promise/process/warmth mix', () => {
     const { rerender } = render(
       <WelcomeSetup phase="downloading" percent={30} etaSeconds={60} reassuranceIndex={0} />,

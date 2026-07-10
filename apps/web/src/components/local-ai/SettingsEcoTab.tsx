@@ -6,6 +6,7 @@
 import { useState } from 'react';
 import { Button } from '@eco/ui';
 import type { ModelConfig } from '../../local-ai/types';
+import type { SlotStatus } from '../../local-ai/lifecycle/slots';
 import { getDisplayInfo } from '../../local-ai/display';
 import { useSettingsStore } from '../../stores/settingsStore';
 import type { StorageBreakdown } from '../../hooks/local-ai/useLocalAiStorageBreakdown';
@@ -30,6 +31,10 @@ import { CustomInstructionsSection } from '../settings/CustomInstructionsSection
 export type SettingsEcoTabProps = {
   /** The model running in the eco-fast slot. Null when nothing is loaded. */
   currentModel: ModelConfig | null;
+  /** Status of the slot that supplied currentModel. When 'preparing', the
+   *  "Currently running" card shows a quiet "Setting up on this device…" line
+   *  so an interrupted download never reads as a ready model. */
+  currentModelStatus?: SlotStatus;
   /** Storage occupied across all cached models, in bytes. */
   storageBytes: number | null;
   /**
@@ -52,6 +57,7 @@ export type SettingsEcoTabProps = {
 
 export function SettingsEcoTab({
   currentModel,
+  currentModelStatus,
   storageBytes,
   storageBreakdown,
   storageStatus,
@@ -116,7 +122,11 @@ export function SettingsEcoTab({
       </SettingsSection>
 
       <SettingsSection title="Currently running">
-        <CurrentModelCard model={currentModel} showProvenance={showTechnicalDetails} />
+        <CurrentModelCard
+          model={currentModel}
+          showProvenance={showTechnicalDetails}
+          status={currentModelStatus}
+        />
       </SettingsSection>
 
       <CustomInstructionsSection />
@@ -242,7 +252,15 @@ export function SettingsEcoTab({
   );
 }
 
-function CurrentModelCard({ model, showProvenance }: { model: ModelConfig; showProvenance: boolean }) {
+function CurrentModelCard({
+  model,
+  showProvenance,
+  status,
+}: {
+  model: ModelConfig;
+  showProvenance: boolean;
+  status?: SlotStatus;
+}) {
   const display = getDisplayInfo(model.id, model);
   return (
     <div className="flex flex-col gap-1">
@@ -252,6 +270,11 @@ function CurrentModelCard({ model, showProvenance }: { model: ModelConfig; showP
       >
         {display.friendlyName}
       </span>
+      {status === 'preparing' && (
+        <span className="text-sm" style={{ color: 'var(--eco-text-secondary)' }}>
+          Setting up on this device…
+        </span>
+      )}
       {display.qualityPhrase && (
         <span className="text-sm" style={{ fontFamily: 'var(--eco-font-body)', color: 'var(--eco-text-secondary)' }}>
           {display.qualityPhrase}

@@ -156,6 +156,17 @@ describe('getActiveLocalHeavyWorkLease after the split', () => {
     expect(localStorage.getItem(RUNTIME_KEY)).toBeNull();
     expect(localStorage.getItem(DOWNLOAD_KEY)).toBeNull();
   });
+
+  it('leaves a still-live lease untouched (a live other tab must survive the boot sweep)', () => {
+    const future = Date.now() + 60_000;
+    localStorage.setItem(
+      DOWNLOAD_KEY,
+      JSON.stringify({ ownerId: 'download:other-tab', kind: 'download', startedAt: Date.now(), expiresAt: future }),
+    );
+    // The boot sweep is a read; a live lease must not be cleared.
+    getActiveLocalHeavyWorkLease();
+    expect(localStorage.getItem(DOWNLOAD_KEY)).not.toBeNull();
+  });
 });
 
 describe('clearActiveLocalHeavyWorkLease', () => {

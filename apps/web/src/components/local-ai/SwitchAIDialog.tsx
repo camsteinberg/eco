@@ -46,6 +46,11 @@ export type SwitchAIDialogProps = {
   onClose(): void;
   /** Current model in the slot. */
   currentModel: ModelConfig | null;
+  /** Whether the current model's slot is 'ready'. When false, the current-row
+   *  caption reads "Setting up…" instead of "Currently running" — an
+   *  interrupted download must not read as a running model. Undefined keeps the
+   *  legacy "Currently running" caption. */
+  currentModelReady?: boolean;
   /** State container from useSwitchAI. */
   state: UseSwitchAIReturn;
   /** Load progress fraction (0..1) from the adapter. */
@@ -69,7 +74,7 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export function SwitchAIDialog({ open, onClose, currentModel, state, loadProgress = 0, loadPhase, onAbort }: SwitchAIDialogProps) {
+export function SwitchAIDialog({ open, onClose, currentModel, currentModelReady, state, loadProgress = 0, loadPhase, onAbort }: SwitchAIDialogProps) {
   const [failure, setFailure] = useState<FailureView | null>(null);
   const [autoRetrying, setAutoRetrying] = useState(false);
   const reduceMotion = useReducedMotion();
@@ -162,7 +167,11 @@ export function SwitchAIDialog({ open, onClose, currentModel, state, loadProgres
         {state.saving && !failure ? (
           <LoadingProgress progress={loadProgress} phase={loadPhase ?? null} />
         ) : hasChoices ? (
-          <AiList state={state} currentModelId={currentModel?.id ?? null} />
+          <AiList
+            state={state}
+            currentModelId={currentModel?.id ?? null}
+            currentModelReady={currentModelReady}
+          />
         ) : (
           <EmptyState />
         )}
@@ -211,7 +220,15 @@ export function SwitchAIDialog({ open, onClose, currentModel, state, loadProgres
  * quiet "Recommended for your device" line. No mono provenance, no radios —
  * the whole row is the control, and a checkmark marks the selection.
  */
-function AiList({ state, currentModelId }: { state: UseSwitchAIReturn; currentModelId: string | null }) {
+function AiList({
+  state,
+  currentModelId,
+  currentModelReady,
+}: {
+  state: UseSwitchAIReturn;
+  currentModelId: string | null;
+  currentModelReady?: boolean;
+}) {
   const reduceMotion = useReducedMotion();
   return (
     <ul role="radiogroup" aria-label="Available AIs" className="flex flex-col gap-2">
@@ -246,7 +263,7 @@ function AiList({ state, currentModelId }: { state: UseSwitchAIReturn; currentMo
                   </span>
                   {isCurrent && (
                     <span className="text-xs" style={{ color: 'var(--eco-text-muted)' }}>
-                      Currently running
+                      {currentModelReady === false ? 'Setting up…' : 'Currently running'}
                     </span>
                   )}
                 </span>

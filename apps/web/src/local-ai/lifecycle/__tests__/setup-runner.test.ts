@@ -19,6 +19,7 @@ function fakeActions() {
     setError: vi.fn(),
     markPriorAttemptFailed: vi.fn(),
     markFindingFit: vi.fn(),
+    markResuming: vi.fn(),
   };
 }
 
@@ -143,6 +144,59 @@ describe('executeSetup', () => {
     await executeSetup(a, { slot: 'eco-fast', seams: s });
     expect(a.setBelowFloor).toHaveBeenCalled();
     expect(a.setError).not.toHaveBeenCalled();
+    expect(s.runAttempt).not.toHaveBeenCalled();
+  });
+});
+
+describe('executeSetup — resume a bound preparing pick (phantom-pick fix)', () => {
+  const preparingSlot = (modelId: string, model: ModelConfig | null) =>
+    ({ modelId, status: 'preparing', model } as unknown as SlotState);
+
+  it('resumes the bound preparing model verbatim — recommend/starter seams not consulted', async () => {
+    const a = fakeActions();
+    const resumeModel = model('resume-me');
+    const s = seams({ getSlot: vi.fn(() => preparingSlot('resume-me', resumeModel)) });
+    await executeSetup(a, { slot: 'eco-fast', seams: s });
+    expect(a.markResuming).toHaveBeenCalled();
+    expect(s.runAttempt).toHaveBeenNthCalledWith(1, 'eco-fast', resumeModel, expect.any(Function));
+    expect(s.recommend).not.toHaveBeenCalled();
+    expect(s.starterModelForSlot).not.toHaveBeenCalled();
+    expect(s.isModelCached).not.toHaveBeenCalled();
+    expect(a.setReady).toHaveBeenCalledWith(resumeModel);
+  });
+
+  it('a resumed model that fails demotes through the cascade', async () => {
+    let calls = 0;
+    const a = fakeActions();
+    const resumeModel = model('resume-me');
+    const s = seams({
+      getSlot: vi.fn(() => preparingSlot('resume-me', resumeModel)),
+      runAttempt: vi.fn(async () => (++calls === 1
+        ? { ok: false as const, phase: 'load-or-smoke' as const, reason: 'OOM' }
+        : { ok: true as const })),
+      nextInCascade: vi.fn(() => model('b')),
+    });
+    await executeSetup(a, { slot: 'eco-fast', seams: s });
+    expect(s.recordEvidence).toHaveBeenCalledWith({ modelId: 'resume-me', profile: PROFILE, outcome: 'smoke-fail' });
+    expect(a.setReady).toHaveBeenCalledWith(model('b'));
+  });
+
+  it('a preparing pick whose id no longer resolves falls through to a fresh recommendation', async () => {
+    const a = fakeActions();
+    const s = seams({ getSlot: vi.fn(() => preparingSlot('gone/from-catalog', null)) });
+    await executeSetup(a, { slot: 'eco-fast', seams: s });
+    expect(a.markResuming).not.toHaveBeenCalled();
+    expect(s.recommend).toHaveBeenCalled();
+    expect(a.setReady).toHaveBeenCalledWith(model('a'));
+  });
+
+  it('a ready slot short-circuits to setReady without resuming', async () => {
+    const a = fakeActions();
+    const ready = model('ready-model');
+    const s = seams({ getSlot: vi.fn(() => ({ modelId: 'ready-model', status: 'ready', model: ready } as unknown as SlotState)) });
+    await executeSetup(a, { slot: 'eco-fast', seams: s });
+    expect(a.setReady).toHaveBeenCalledWith(ready);
+    expect(a.markResuming).not.toHaveBeenCalled();
     expect(s.runAttempt).not.toHaveBeenCalled();
   });
 });

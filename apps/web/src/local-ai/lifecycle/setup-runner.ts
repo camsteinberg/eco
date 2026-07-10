@@ -34,6 +34,10 @@ export type SetupRunnerActions = {
   setError(reason: string, opts?: { exhausted?: boolean }): void;
   markPriorAttemptFailed(): void;
   markFindingFit(): void;
+  /** The run picked up a bound-but-unfinished pick (interrupted download /
+   *  reconcile flip) rather than recommending fresh — the gate can soften its
+   *  copy to "finishing your download" instead of first-run copy. */
+  markResuming(): void;
 };
 
 export type SetupSeams = {
@@ -212,13 +216,29 @@ export async function executeSetup(
     actions.markPriorAttemptFailed();
   }
 
+  // A slot left 'preparing' with a bound model is an in-flight pick whose bytes
+  // are unverified — an interrupted switch/upgrade download or a reconcile flip.
+  // RESUME that exact model rather than re-recommending: setSlot flips the slot
+  // to 'preparing' the instant a switch binds a new pick pre-download, so
+  // re-recommending here would silently swap the user's chosen model out from
+  // under them. The download pipeline's per-file verify-skip means resuming only
+  // re-fetches what's missing; a resumed model that fails still demotes through
+  // the cascade as normal. A bound id the catalog no longer carries resolves to
+  // current.model === null (getSlot nulls unknown ids), so we fall through to a
+  // fresh pick — the correct behavior when the pick can't be honored.
+  const resumeModel =
+    current.status === 'preparing' && current.model ? current.model : null;
+  if (resumeModel) actions.markResuming();
+
   let result;
   try {
-    // Stage A: resolve the ladder's first rung up front (starter unless the
-    // class-best is already fully cached). The cascade's recommend seam then
-    // returns that precomputed pick — cache probing is async and the cascade's
-    // recommend contract is sync, so the choice has to happen out here.
-    const firstPick = await chooseFirstPick(slot, profile, seams, resolveStarterFirst(options));
+    // Stage A: resolve the ladder's first rung up front. A resumed bound pick
+    // takes precedence; otherwise the starter unless the class-best is already
+    // fully cached. The cascade's recommend seam then returns that precomputed
+    // pick — cache probing is async and the cascade's recommend contract is
+    // sync, so the choice has to happen out here.
+    const firstPick = resumeModel
+      ?? await chooseFirstPick(slot, profile, seams, resolveStarterFirst(options));
     result = await runSetupCascade({
       slot,
       profile,

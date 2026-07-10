@@ -48,6 +48,10 @@ export type EcoSetupState = {
   findingFit: boolean;
   /** True when setup failed because the whole fallback ladder was exhausted. */
   errorExhausted: boolean;
+  /** True when start() resumed a bound-but-unfinished pick (interrupted
+   * download / reconcile flip) rather than recommending fresh — WelcomeSetup
+   * softens its copy to "finishing your download". */
+  resuming: boolean;
 };
 
 export type EcoSetupActions = {
@@ -65,6 +69,8 @@ export type EcoSetupActions = {
   markPriorAttemptFailed(): void;
   /** Called when the ladder demotes to a different model. */
   markFindingFit(): void;
+  /** Called when start() resumes a bound-but-unfinished pick. */
+  markResuming(): void;
 };
 
 export type UseEcoSetupReturn = EcoSetupState & {
@@ -88,6 +94,7 @@ const INITIAL_STATE: EcoSetupState = {
   priorAttemptFailed: false,
   findingFit: false,
   errorExhausted: false,
+  resuming: false,
 };
 
 export function useEcoSetup(): UseEcoSetupReturn {
@@ -163,9 +170,13 @@ export function useEcoSetup(): UseEcoSetupReturn {
     setState((s) => ({ ...s, findingFit: true }));
   }, []);
 
+  const markResuming = useCallback(() => {
+    setState((s) => ({ ...s, resuming: true }));
+  }, []);
+
   const actions = useMemo<EcoSetupActions>(
-    () => ({ onProgressEvent, setBelowFloor, setReady, setError, reset, markPriorAttemptFailed, markFindingFit }),
-    [onProgressEvent, setBelowFloor, setReady, setError, reset, markPriorAttemptFailed, markFindingFit],
+    () => ({ onProgressEvent, setBelowFloor, setReady, setError, reset, markPriorAttemptFailed, markFindingFit, markResuming }),
+    [onProgressEvent, setBelowFloor, setReady, setError, reset, markPriorAttemptFailed, markFindingFit, markResuming],
   );
 
   return { ...state, actions };
