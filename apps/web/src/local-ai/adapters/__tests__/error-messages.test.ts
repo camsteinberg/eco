@@ -4,8 +4,26 @@
 import { describe, expect, it } from "vitest";
 import {
   LOCAL_COOLDOWN_MESSAGE,
+  LOCAL_GENERATION_REPEATED_MESSAGE,
+  LOCAL_RUNTIME_HICCUP_MESSAGE,
   describeLocalCooldownMessage,
 } from "../error-messages";
+
+describe("centralized on-device failure copy", () => {
+  it("pins the repeated-failure escalation copy exactly", () => {
+    expect(LOCAL_GENERATION_REPEATED_MESSAGE).toBe(
+      "On-device AI hit the same snag again. Eco reset the model for a fresh start — if it keeps happening, a lighter model may run better on this device.",
+    );
+  });
+
+  it("pins the runtime-hiccup copy byte-identical to the persisted literal", () => {
+    // chat-recovery.ts writes this onto persisted assistant messages, and
+    // ErrorMessage matches it by exact string — it must never drift.
+    expect(LOCAL_RUNTIME_HICCUP_MESSAGE).toBe(
+      "On-device AI needed a moment. Try again on this device to pick up where you left off.",
+    );
+  });
+});
 
 describe("describeLocalCooldownMessage", () => {
   it("keeps the honest countdown in seconds when under a minute", () => {

@@ -173,7 +173,8 @@ export function MessageBubble({
   // couldn't confirm (hedge/decline/degrade), it sets `verification` instead of a
   // citation. Render the marker on the FINISHED reply only, and only when there's no
   // sourced citation — a turn is FOUND xor not, so the two never co-render.
-  const showUncertaintyNote = !isStreaming && !!verification && !hasGroundingCitation;
+  const showUncertaintyNote =
+    !isStreaming && status !== "error" && !!verification && !hasGroundingCitation;
 
   // The grounding disclosure shows ONCE PER CHAT: under the FIRST grounded answer in
   // the conversation only (finished + grounded) — NOT the latest, otherwise it

@@ -20,6 +20,25 @@ export const TEMPLATE_MISSING_USER_MESSAGE =
 export const LOCAL_GENERATION_FALLBACK_MESSAGE =
   "On-device AI hit a snag. Your conversation is safe — try sending your message again.";
 
+/**
+ * Escalated copy for a SECOND consecutive on-device generation failure on the
+ * same model. By this point the runtime has reset the dead adapter (see
+ * lifecycle.ts fault-unload), so the honest message is "we reset it, and if it
+ * keeps happening a lighter model may help" — paired with the lighter-model
+ * nudge ErrorMessage renders only for this exact string.
+ */
+export const LOCAL_GENERATION_REPEATED_MESSAGE =
+  "On-device AI hit the same snag again. Eco reset the model for a fresh start — if it keeps happening, a lighter model may run better on this device.";
+
+/**
+ * Warm copy for a recoverable on-device runtime hiccup where the turn can be
+ * retried in place (no partial content). Kept byte-identical to the literal
+ * chat-recovery.ts persists onto the assistant message, so ErrorMessage's
+ * exact-string match keeps working for already-saved conversations.
+ */
+export const LOCAL_RUNTIME_HICCUP_MESSAGE =
+  "On-device AI needed a moment. Try again on this device to pick up where you left off.";
+
 /** Warm cooldown copy for when the remaining time can't be recovered cleanly. */
 export const LOCAL_COOLDOWN_MESSAGE =
   "On-device AI needs a short breather after a snag. Give it a moment, then send your message again.";

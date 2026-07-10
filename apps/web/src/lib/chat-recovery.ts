@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Bos Computing LLC
 
+import { LOCAL_RUNTIME_HICCUP_MESSAGE } from "../local-ai/adapters/error-messages";
+
 export type ChatCompletionMessage = {
   role: "user" | "assistant" | "system";
   content: string;
@@ -68,8 +70,7 @@ export function getLocalRuntimeCrashRecovery(
     globalError,
     assistantUpdate: {
       status: "error",
-      errorMessage:
-        "On-device AI needed a moment. Try again on this device to pick up where you left off.",
+      errorMessage: LOCAL_RUNTIME_HICCUP_MESSAGE,
       inferenceMethod: "local",
     },
     shouldSwitchToNetwork: false,
