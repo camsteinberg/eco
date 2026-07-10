@@ -138,14 +138,19 @@ export function openEcoDB(): Promise<IDBPDatabase<EcoDB>> {
 /**
  * Walk the parentId chain from the given leaf message back to the root,
  * then return the path in display order (root first, leaf last).
+ *
+ * The leaf pointer is a hint, not a precondition: a conversation record can
+ * carry a null or dangling `activeLeafId` (message save dropped under storage
+ * pressure while the conversation record still updated, interrupted write,
+ * external cleanup). Messages that exist must still restore — when the
+ * pointer doesn't resolve, fall back to the newest message in the
+ * conversation as the leaf instead of rendering an empty pane.
  */
 export async function getActiveBranch(
   db: IDBPDatabase<EcoDB>,
   conversationId: string,
   activeLeafId: string | null
 ): Promise<DbMessage[]> {
-  if (!activeLeafId) return [];
-
   const allMessages = await db.getAllFromIndex(
     "messages",
     "by-conversation",
@@ -154,13 +159,17 @@ export async function getActiveBranch(
   if (allMessages.length === 0) return [];
 
   const byId = new Map(allMessages.map((m) => [m.id, m]));
-  const leaf = byId.get(activeLeafId);
-  if (!leaf) return [];
+  const leaf =
+    (activeLeafId ? byId.get(activeLeafId) : undefined) ??
+    allMessages.reduce((newest, m) => (m.createdAt > newest.createdAt ? m : newest));
 
-  // Walk from leaf to root
+  // Walk from leaf to root. The visited set turns a corrupt parentId cycle
+  // into a truncated branch instead of a hang.
   const path: DbMessage[] = [];
+  const visited = new Set<string>();
   let current: DbMessage | undefined = leaf;
-  while (current) {
+  while (current && !visited.has(current.id)) {
+    visited.add(current.id);
     path.push(current);
     current = current.parentId ? byId.get(current.parentId) : undefined;
   }
