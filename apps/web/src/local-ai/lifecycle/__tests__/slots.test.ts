@@ -89,6 +89,38 @@ describe('Slot read/write basics', () => {
     expect(getSlot('eco-fast').status).toBe('ready');
   });
 
+  it('binding a DIFFERENT id over a ready slot flips it to preparing (phantom-pick fix)', () => {
+    setSlot('eco-fast', 'local/phi3-mini-4k-q4f16');
+    setSlotStatus('eco-fast', 'ready');
+    // Re-bind to a different model — its bytes are unverified, so the slot must
+    // not stay 'ready' (that is the interrupted-download phantom pick).
+    setSlot('eco-fast', 'local/qwen3-0.6b');
+    const s = getSlot('eco-fast');
+    expect(s.modelId).toBe('local/qwen3-0.6b');
+    expect(s.status).toBe('preparing');
+  });
+
+  it('re-binding the SAME id preserves the status', () => {
+    setSlot('eco-fast', 'local/phi3-mini-4k-q4f16');
+    setSlotStatus('eco-fast', 'ready');
+    setSlot('eco-fast', 'local/phi3-mini-4k-q4f16');
+    expect(getSlot('eco-fast').status).toBe('ready');
+  });
+
+  it('an empty slot still defaults to preparing on first bind', () => {
+    expect(getSlot('eco-fast').status).toBe('empty');
+    setSlot('eco-fast', 'local/phi3-mini-4k-q4f16');
+    expect(getSlot('eco-fast').status).toBe('preparing');
+  });
+
+  it('setSlot(null) clears both the id and status keys', () => {
+    setSlot('eco-fast', 'local/phi3-mini-4k-q4f16');
+    setSlotStatus('eco-fast', 'ready');
+    setSlot('eco-fast', null);
+    expect(storage.getItem('eco-local-ai-slot-eco-fast')).toBeNull();
+    expect(storage.getItem('eco-local-ai-slot-status-eco-fast')).toBeNull();
+  });
+
   it('clearSlot is equivalent to setSlot(slot, null)', () => {
     setSlot('eco-fast', 'local/phi3-mini-4k-q4f16');
     clearSlot('eco-fast');
@@ -204,5 +236,15 @@ describe('subscribe', () => {
     unsub();
     setSlot('eco-smart', 'local/qwen3-0.6b');
     expect(events).toHaveLength(0);
+  });
+
+  it('notifies with the flipped status when a re-bind changes the model', () => {
+    setSlot('eco-fast', 'local/phi3-mini-4k-q4f16');
+    setSlotStatus('eco-fast', 'ready');
+    const statuses: string[] = [];
+    const unsub = subscribe((_slot, state) => statuses.push(state.status));
+    setSlot('eco-fast', 'local/qwen3-0.6b');
+    expect(statuses).toEqual(['preparing']);
+    unsub();
   });
 });

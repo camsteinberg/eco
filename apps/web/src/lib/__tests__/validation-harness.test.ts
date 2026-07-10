@@ -15,6 +15,7 @@ import {
   getValidationSelectedModelOverride,
   getValidationSlotModelOverride,
   getValidationSlotStatusOverride,
+  isCacheVerificationForced,
   isValidationHarnessEnabledForEnvironment,
   VALIDATION_REMOTE_FIXTURE_MESSAGE_PREFIX,
 } from '../validation-harness';
@@ -419,5 +420,49 @@ describe('validation remote stream harness', () => {
         }),
       ),
     ).toBe(false);
+  });
+});
+
+describe('isCacheVerificationForced (e2e fixture cache seam)', () => {
+  const originalPathAndQuery = `${window.location.pathname}${window.location.search}`;
+
+  beforeEach(() => {
+    window.history.replaceState({}, '', '/chat');
+  });
+
+  afterEach(() => {
+    window.history.replaceState({}, '', originalPathAndQuery);
+    window.localStorage.clear();
+    vi.unstubAllEnvs();
+  });
+
+  it('defaults to false when the param is absent', () => {
+    expect(isCacheVerificationForced()).toBe(false);
+  });
+
+  it('reads the on/true/1 forms from the URL', () => {
+    for (const value of ['on', 'true', '1']) {
+      window.history.replaceState({}, '', `/chat?eco-force-cache-verified=${value}`);
+      expect(isCacheVerificationForced()).toBe(true);
+    }
+  });
+
+  it('reads the param from localStorage (fallback used by the visual fixtures)', () => {
+    window.localStorage.setItem('eco-force-cache-verified', '1');
+    expect(isCacheVerificationForced()).toBe(true);
+  });
+
+  it('treats other values as false', () => {
+    window.history.replaceState({}, '', '/chat?eco-force-cache-verified=nope');
+    expect(isCacheVerificationForced()).toBe(false);
+  });
+
+  it('is false in production even when the param is set (never leaks to prod)', () => {
+    vi.stubEnv('NEXT_PUBLIC_ECO_VALIDATION_HARNESS', 'false');
+    vi.stubEnv('NODE_ENV', 'production');
+    window.history.replaceState({}, '', '/chat?eco-force-cache-verified=1');
+    // The harness gate is closed in production (isValidationHarnessEnabled
+    // returns false), so the seam is inert regardless of the param.
+    expect(isCacheVerificationForced()).toBe(false);
   });
 });

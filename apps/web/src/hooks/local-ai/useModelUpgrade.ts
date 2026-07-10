@@ -180,13 +180,13 @@ async function ensureBootFlow(): Promise<void> {
   }
   // Everything else (idle, an undecided offered record, or a settled cycle
   // whose target may since have moved) funnels through offer eligibility.
-  maybeOffer();
+  await maybeOffer();
 }
 
-function maybeOffer(): void {
+async function maybeOffer(): Promise<void> {
   const fast = getSlot('eco-fast');
   const smart = getSlot('eco-smart');
-  const target = planUpgradeOffer({
+  const target = await planUpgradeOffer({
     profile: getDeviceProfile(),
     currentModelId: fast.modelId,
     ecoSmartReadyModelId: smart.status === 'ready' ? smart.modelId : null,

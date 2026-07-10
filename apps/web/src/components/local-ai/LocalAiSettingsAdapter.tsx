@@ -13,7 +13,7 @@ import { CacheApiStorage } from '../../local-ai/download/storage';
 import { clearEvidence } from '../../local-ai/evidence/ledger';
 import { generate as generateThroughLifecycle } from '../../local-ai/runtime/lifecycle';
 import { prepareModelForSlot } from '../../local-ai/lifecycle/switch-model';
-import { setSlot, setSlotStatus } from '../../local-ai/lifecycle/slots';
+import { setSlot, setSlotStatus, type SlotStatus } from '../../local-ai/lifecycle/slots';
 import { isLocalAiSlot } from '../../local-ai/util';
 import { useChatStore } from '../../stores/chatStore';
 import { SettingsEcoTab } from './SettingsEcoTab';
@@ -36,6 +36,14 @@ export function LocalAiSettingsAdapter() {
   const state = useEcoState();
   const slot = 'eco-fast' as const;
   const currentModel = state.fastModel ?? state.smartModel;
+  // Status of whichever slot supplied currentModel, so the readouts can tell a
+  // ready model apart from one still setting up (an interrupted download leaves
+  // the slot 'preparing').
+  const currentModelStatus: SlotStatus | null = state.fastModel
+    ? state.slots['eco-fast'].status
+    : state.smartModel
+      ? state.slots['eco-smart'].status
+      : null;
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -170,6 +178,7 @@ export function LocalAiSettingsAdapter() {
     <>
       <SettingsEcoTab
         currentModel={currentModel}
+        currentModelStatus={currentModelStatus ?? undefined}
         storageBytes={storageBytes}
         storageBreakdown={breakdown.data}
         storageStatus={breakdown.status}
@@ -181,6 +190,7 @@ export function LocalAiSettingsAdapter() {
         open={dialogOpen}
         onClose={() => setDialogOpen(false)}
         currentModel={currentModel}
+        currentModelReady={currentModelStatus === 'ready'}
         state={switchState}
         loadProgress={loadProgress}
         loadPhase={loadPhase}

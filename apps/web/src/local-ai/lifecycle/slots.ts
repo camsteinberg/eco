@@ -141,11 +141,18 @@ export function setSlot(slot: Slot, model: ModelConfig | string | null): void {
   if (!storage) return;
   const id = typeof model === 'string' ? model : model?.id ?? null;
   if (id) {
+    // Status describes the BYTES of the currently-bound model. Binding a
+    // DIFFERENT id (a switch/upgrade that binds pre-download, a reconcile flip)
+    // means those bytes are unverified until the pipeline drives the slot to
+    // 'ready', so force 'preparing'. Without this, a reload mid-switch leaves
+    // the slot falsely 'ready' on a model that never finished downloading — the
+    // "phantom pick" (Settings claims it's running, chat refuses, nothing
+    // resumes). A same-id re-bind preserves status: the bytes it describes are
+    // unchanged. An 'empty' slot also becomes 'preparing' so a freshly-assigned
+    // slot never reads as 'empty' before the pipeline runs.
+    const previousId = readSlotId(slot);
     storage.setItem(slotKey(slot), id);
-    // Setting a model doesn't imply ready — caller controls status via
-    // setSlotStatus. Default to 'preparing' so a freshly-assigned slot
-    // doesn't read as 'empty' before smoke runs.
-    if (readSlotStatus(slot) === 'empty') {
+    if (id !== previousId || readSlotStatus(slot) === 'empty') {
       storage.setItem(statusKey(slot), 'preparing');
     }
   } else {

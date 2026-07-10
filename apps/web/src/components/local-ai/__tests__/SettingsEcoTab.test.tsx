@@ -274,6 +274,32 @@ describe('SettingsEcoTab — ready state with model', () => {
     fireEvent.click(screen.getByRole('button', { name: /switch your ai/i }));
     expect(onSwitch).toHaveBeenCalledOnce();
   });
+
+  it('shows a "Setting up on this device…" line when the model is still preparing', () => {
+    render(
+      <SettingsEcoTab
+        currentModel={MODEL}
+        currentModelStatus="preparing"
+        storageBytes={null}
+        onSwitchAI={() => undefined}
+        onClearCache={async () => undefined}
+      />,
+    );
+    expect(screen.getByText(/setting up on this device/i)).toBeInTheDocument();
+  });
+
+  it('omits the setting-up line when the model is ready', () => {
+    render(
+      <SettingsEcoTab
+        currentModel={MODEL}
+        currentModelStatus="ready"
+        storageBytes={null}
+        onSwitchAI={() => undefined}
+        onClearCache={async () => undefined}
+      />,
+    );
+    expect(screen.queryByText(/setting up on this device/i)).toBeNull();
+  });
 });
 
 describe('SettingsEcoTab — storage display (legacy fallback)', () => {

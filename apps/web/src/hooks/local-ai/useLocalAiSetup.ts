@@ -49,6 +49,7 @@ export function useLocalAiSetup(options: UseLocalAiSetupOptions = {}): UseLocalA
         setError: setup.actions.setError,
         markPriorAttemptFailed: setup.actions.markPriorAttemptFailed,
         markFindingFit: setup.actions.markFindingFit,
+        markResuming: setup.actions.markResuming,
       },
       { slot, skipBootstrap: options.skipBootstrap },
     );

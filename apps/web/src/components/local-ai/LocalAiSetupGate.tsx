@@ -91,6 +91,7 @@ export function LocalAiSetupGate({
         priorAttemptFailed={setup.priorAttemptFailed}
         findingFit={setup.findingFit}
         lightweightDevice={lightweightDevice}
+        resuming={setup.resuming}
       />
     );
   }

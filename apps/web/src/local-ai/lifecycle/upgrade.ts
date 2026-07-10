@@ -316,6 +316,9 @@ export type PlanUpgradeOfferOptions = {
   record: UpgradeRecord | null;
   /** Seam — defaults to recommend('eco-smart', profile) with a null-on-throw guard. */
   recommendSmart?: (profile: DeviceProfile) => ModelConfig | null;
+  /** Seam — defaults to isModelFullyCached. Never offer a DOWNLOAD for a model
+   *  already fully on disk (a phantom "upgrade" offer for cached weights). */
+  isTargetCached?: (model: ModelConfig) => Promise<boolean>;
 };
 
 /**
@@ -325,8 +328,9 @@ export type PlanUpgradeOfferOptions = {
  * mid-flight. A settled cycle for a DIFFERENT target allows a fresh offer —
  * the recommendation legitimately moves when evidence or the profile changes.
  */
-export function planUpgradeOffer(options: PlanUpgradeOfferOptions): ModelConfig | null {
+export async function planUpgradeOffer(options: PlanUpgradeOfferOptions): Promise<ModelConfig | null> {
   const recommendSmart = options.recommendSmart ?? defaultRecommendSmart;
+  const isTargetCached = options.isTargetCached ?? isModelFullyCached;
   const target = recommendSmart(options.profile);
   if (!target) return null;
   if (target.id === options.currentModelId) return null;
@@ -337,6 +341,13 @@ export function planUpgradeOffer(options: PlanUpgradeOfferOptions): ModelConfig 
     if (record.targetModelId === target.id && record.phase !== 'offered') return null;
     if (record.targetModelId !== target.id && !isSettledPhase(record.phase)) return null;
   }
+  // Never offer a DOWNLOAD for a model already fully on disk. Field-observed:
+  // an interrupted download left the slot inconsistent, and a stale offer
+  // surfaced for weights that were in fact already cached. The probe runs last
+  // so the cheap sync checks above can short-circuit it. A probe error reads as
+  // "not cached" (fail toward offering) so a storage blip never suppresses a
+  // genuine upgrade.
+  if (await isTargetCached(target).catch(() => false)) return null;
   return target;
 }
 

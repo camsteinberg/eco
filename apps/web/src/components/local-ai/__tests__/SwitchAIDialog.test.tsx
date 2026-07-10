@@ -156,6 +156,26 @@ describe('SwitchAIDialog — single calm list', () => {
     );
     expect(screen.getByText(/no alternative ais are available/i)).toBeInTheDocument();
   });
+
+  it('current row reads "Currently running" when the model is ready', () => {
+    const onClose = vi.fn();
+    const state = makeState();
+    render(
+      <SwitchAIDialog open onClose={onClose} currentModel={BONSAI} currentModelReady state={state} />,
+    );
+    expect(screen.getByText(/currently running/i)).toBeInTheDocument();
+    expect(screen.queryByText(/setting up/i)).toBeNull();
+  });
+
+  it('current row reads "Setting up…" when the current model is not ready', () => {
+    const onClose = vi.fn();
+    const state = makeState();
+    render(
+      <SwitchAIDialog open onClose={onClose} currentModel={BONSAI} currentModelReady={false} state={state} />,
+    );
+    expect(screen.getByText(/setting up/i)).toBeInTheDocument();
+    expect(screen.queryByText(/currently running/i)).toBeNull();
+  });
 });
 
 describe('SwitchAIDialog — failure flow with cascade suggestion', () => {

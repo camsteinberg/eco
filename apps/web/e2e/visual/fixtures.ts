@@ -47,6 +47,13 @@ async function seedReadySlot(page: Page): Promise<void> {
         "eco-local-ai-slot-status-eco-fast",
         "ready",
       );
+      // The seeded slot has no real cache bytes, so mark the cache verified:
+      // boot reconcile's wholly-missing-file repair would otherwise flip the
+      // slot to 'preparing' and re-enter the non-deterministic bootstrap UI.
+      // readHarnessParam() falls back to localStorage, so no goto URL — and
+      // thus no baseline — needs to change. Inert on production hosts (the
+      // harness helper is gated by isValidationHarnessEnabled).
+      window.localStorage.setItem("eco-force-cache-verified", "1");
     } catch {
       // localStorage may be unavailable in some embedded contexts; the
       // fixture remains a best-effort seed.
