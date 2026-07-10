@@ -87,7 +87,10 @@ async function seedReadySlot(page: Page): Promise<void> {
 }
 
 async function openSwitchAIDialog(page: Page): Promise<void> {
-  await page.goto('/settings?tab=models&local-ai-v1=1', { waitUntil: 'networkidle' });
+  // The eco-fast slot is primed 'ready' with no cache bytes — mark the cache
+  // verified so boot reconcile leaves it 'ready' (otherwise the current-model
+  // row would read "Setting up…" instead of "Currently running").
+  await page.goto('/settings?tab=models&local-ai-v1=1&eco-force-cache-verified=1', { waitUntil: 'networkidle' });
   await page.getByRole('button', { name: /switch your ai/i }).click();
   await expect(page.getByRole('dialog')).toBeVisible({ timeout: 10_000 });
 }

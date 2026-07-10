@@ -15,7 +15,11 @@ const localFixtureSearch =
   + "&eco-force-browser=chromium"
   + "&eco-force-platform=desktop"
   + "&eco-force-device-memory=16"
-  + "&eco-force-opfs=true";
+  + "&eco-force-opfs=true"
+  // This fixture primes a 'ready' eco-fast slot with NO cache bytes; treat that
+  // primed cache as verified so boot reconcile does not flip the slot to
+  // 'preparing' (which would suppress the faked local generation below).
+  + "&eco-force-cache-verified=1";
 
 async function seedCompletedLocalOnboarding(page: Page): Promise<void> {
   await page.addInitScript(() => {
@@ -165,7 +169,7 @@ test("web lookups off: fact and weather queries decline deterministically with n
     }
   });
 
-  await page.goto("/settings?tab=models", { waitUntil: "networkidle" });
+  await page.goto("/settings?tab=models&eco-force-cache-verified=1", { waitUntil: "networkidle" });
 
   const webLookupSwitch = page.getByRole("switch", {
     name: "Toggle web fact lookups",

@@ -40,6 +40,7 @@ import {
 import { clearEvidence } from '../evidence/ledger';
 import { getDeviceProfile } from '../device/profile';
 import { getActiveLocalHeavyWorkLease } from '../../lib/local-heavy-work-owner';
+import { isCacheVerificationForced } from '../../lib/validation-harness';
 import type { Slot } from '../types';
 
 // ─── Constants ─────────────────────────────────────────────────────────────
@@ -389,6 +390,14 @@ export type ReconcileOptions = {
    *  hint so the UI can surface a one-time "we cleaned up your cache"
    *  message. Optional. */
   onCacheRepaired?: (info: { modelId: string; slot: Slot; removed: number }) => void;
+  /** Harness-only seam: when true, skip boot cache reconciliation entirely.
+   *  Defaults to the validation-harness helper (`isCacheVerificationForced`),
+   *  which is ALWAYS false on production hosts. Exists because e2e fixtures
+   *  prime 'ready' slots via localStorage without writing real cache bytes — the
+   *  wholly-missing-file flip below would otherwise (correctly, but unhelpfully)
+   *  demote those fixture slots to 'preparing' and break the pre-seeded-ready
+   *  convention their faked generation depends on. */
+  isCacheVerificationForced?: () => boolean;
 };
 
 /**
@@ -423,6 +432,15 @@ export async function reconcileReadySlots(
     modelsRepaired: [],
     errors: [],
   };
+
+  // Harness-only escape hatch: e2e fixtures prime 'ready' slots with no cache
+  // bytes by design (generation is faked), so the missing-file flip below would
+  // wrongly demote them. Skip the whole pass when forced. Production is
+  // unaffected — the seam is gated by isValidationHarnessEnabled().
+  const cacheVerificationForced = options?.isCacheVerificationForced ?? isCacheVerificationForced;
+  if (cacheVerificationForced()) {
+    return report;
+  }
 
   const cacheStorage = options?.cacheStorage ?? new CacheApiStorage();
   const setStatus = options?.setStatus ?? setSlotStatus;

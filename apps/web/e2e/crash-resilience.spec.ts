@@ -169,7 +169,10 @@ test.describe("crash resilience", () => {
     await seedReadySlot(page);
 
     await page.goto(
-      `/chat?local-ai-v1=1&eco-force-local-runtime=crash&${FORCED_DEVICE_PROFILE}`,
+      // Slot is primed 'ready' with no cache bytes — mark the cache verified so
+      // boot reconcile leaves it 'ready' and the gate passes through to the
+      // ChatWorkspace tree where the crash boundary is mounted.
+      `/chat?local-ai-v1=1&eco-force-local-runtime=crash&eco-force-cache-verified=1&${FORCED_DEVICE_PROFILE}`,
       { waitUntil: "networkidle" },
     );
 

@@ -135,7 +135,9 @@ test.describe("v1.0 local-AI gate", () => {
   test("ready-slot passthrough renders chat surface", async ({ page }) => {
     await seedReadySlot(page);
 
-    await page.goto("/chat?local-ai-v1=1", { waitUntil: "networkidle" });
+    // Slot is primed 'ready' with no cache bytes — mark the cache verified so
+    // boot reconcile leaves it 'ready' and the gate passes through to chat.
+    await page.goto("/chat?local-ai-v1=1&eco-force-cache-verified=1", { waitUntil: "networkidle" });
 
     // The chat surface's empty state heading should be visible.
     await expect(
@@ -152,7 +154,9 @@ test.describe("v1.0 local-AI gate", () => {
   test("legacy OnboardingWizard suppressed when v1 on", async ({ page }) => {
     await seedReadySlot(page);
 
-    await page.goto("/chat?local-ai-v1=1", { waitUntil: "networkidle" });
+    // Slot is primed 'ready' with no cache bytes — mark the cache verified so
+    // boot reconcile leaves it 'ready' and the gate passes through to chat.
+    await page.goto("/chat?local-ai-v1=1&eco-force-cache-verified=1", { waitUntil: "networkidle" });
 
     // Chat surface present.
     await expect(

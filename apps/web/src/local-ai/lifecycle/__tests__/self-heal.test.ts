@@ -547,6 +547,40 @@ describe('reconcileReadySlots', () => {
     expect(second.slotsFlippedToPreparing).toEqual([]);
   });
 
+  it('skips reconciliation entirely when cache verification is forced (harness fixtures)', async () => {
+    setSlot('eco-fast', MODEL_ID);
+    setSlotStatus('eco-fast', 'ready');
+    const cacheStorage = new CacheApiStorage(new MemoryCacheStorage());
+    // Empty cache: without the seam this ready slot would flip on missing files.
+    const planResolver = vi.fn(async () => PLAN);
+    const onCacheRepaired = vi.fn();
+
+    const report = await reconcileReadySlots(planResolver, {
+      cacheStorage,
+      onCacheRepaired,
+      isCacheVerificationForced: () => true,
+    });
+
+    // No plan resolved, no repair, no flip, empty report — the slot stays ready.
+    expect(planResolver).not.toHaveBeenCalled();
+    expect(onCacheRepaired).not.toHaveBeenCalled();
+    expect(report.slotsFlippedToPreparing).toEqual([]);
+    expect(report.modelsRepaired).toEqual([]);
+    expect(getSlot('eco-fast').status).toBe('ready');
+  });
+
+  it('still reconciles when the seam returns false (default missing-file flip preserved)', async () => {
+    setSlot('eco-fast', MODEL_ID);
+    setSlotStatus('eco-fast', 'ready');
+    const cacheStorage = new CacheApiStorage(new MemoryCacheStorage());
+    const report = await reconcileReadySlots(async () => PLAN, {
+      cacheStorage,
+      isCacheVerificationForced: () => false,
+    });
+    expect(report.slotsFlippedToPreparing).toEqual(['eco-fast']);
+    expect(getSlot('eco-fast').status).toBe('preparing');
+  });
+
   it('handles multiple ready slots in one pass', async () => {
     setSlot('eco-fast', MODEL_ID);
     setSlotStatus('eco-fast', 'ready');

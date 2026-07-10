@@ -533,6 +533,25 @@ export function getValidationSlotStatusOverride(
   );
 }
 
+/**
+ * Harness-only seam declaring "primed model-slot caches are to be treated as
+ * verified; skip boot cache reconciliation." Exists because e2e fixtures prime a
+ * slot to 'ready' via localStorage WITHOUT writing real cache bytes; boot
+ * reconcile now (correctly) flips such a slot to 'preparing' as a wholly-missing
+ * repair, which would defeat the fixtures' pre-seeded-ready convention and their
+ * faked generation path. Reads `eco-force-cache-verified` from the URL or
+ * localStorage (mirrors the other eco-force-* params). NEVER active on
+ * production hosts — gated by `isValidationHarnessEnabled()`.
+ */
+export function isCacheVerificationForced(): boolean {
+  if (!isValidationHarnessEnabled()) {
+    return false;
+  }
+
+  const value = readHarnessParam('eco-force-cache-verified');
+  return value === 'on' || value === 'true' || value === '1';
+}
+
 export function getValidationHarnessBatteryOverride(): {
   level: number;
   charging: boolean;
