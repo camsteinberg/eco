@@ -125,14 +125,72 @@ describe("getActiveBranch", () => {
     expect(branchB.map((m) => m.id)).toEqual(["m1", "m3", "m4"]);
   });
 
-  it("returns empty array when leafId is null", async () => {
+  it("returns empty array when leafId is null and the conversation has no messages", async () => {
     const branch = await getActiveBranch(db, "c1", null);
     expect(branch).toEqual([]);
   });
 
-  it("returns empty array when leaf message is not found", async () => {
+  it("returns empty array when leaf is not found and the conversation has no messages", async () => {
     const branch = await getActiveBranch(db, "c1", "nonexistent");
     expect(branch).toEqual([]);
+  });
+
+  it("falls back to the newest message when leafId is null but messages exist", async () => {
+    const msgs: DbMessage[] = [
+      { id: "m1", conversationId: "c1", parentId: null, role: "user", content: "A", createdAt: 1 },
+      { id: "m2", conversationId: "c1", parentId: "m1", role: "assistant", content: "B", createdAt: 2 },
+    ];
+    for (const m of msgs) {
+      await db.put("messages", m);
+    }
+
+    const branch = await getActiveBranch(db, "c1", null);
+    expect(branch.map((m) => m.id)).toEqual(["m1", "m2"]);
+  });
+
+  it("falls back to the newest message when the leaf id is dangling", async () => {
+    // The dangling-leaf shape task #28 restores from: the conversation record
+    // points at a message whose save never landed (e.g. dropped under storage
+    // pressure), while earlier messages persisted fine.
+    const msgs: DbMessage[] = [
+      { id: "m1", conversationId: "c1", parentId: null, role: "user", content: "A", createdAt: 1 },
+      { id: "m2", conversationId: "c1", parentId: "m1", role: "assistant", content: "B", createdAt: 2 },
+      { id: "m3", conversationId: "c1", parentId: "m2", role: "user", content: "C", createdAt: 3 },
+    ];
+    for (const m of msgs) {
+      await db.put("messages", m);
+    }
+
+    const branch = await getActiveBranch(db, "c1", "never-saved");
+    expect(branch.map((m) => m.id)).toEqual(["m1", "m2", "m3"]);
+  });
+
+  it("fallback stays on the newest branch when siblings exist", async () => {
+    const msgs: DbMessage[] = [
+      { id: "m1", conversationId: "c1", parentId: null, role: "user", content: "Root", createdAt: 1 },
+      { id: "m2", conversationId: "c1", parentId: "m1", role: "assistant", content: "Branch A", createdAt: 2 },
+      { id: "m3", conversationId: "c1", parentId: "m1", role: "assistant", content: "Branch B", createdAt: 3 },
+      { id: "m4", conversationId: "c1", parentId: "m3", role: "user", content: "Follow-up B", createdAt: 4 },
+    ];
+    for (const m of msgs) {
+      await db.put("messages", m);
+    }
+
+    const branch = await getActiveBranch(db, "c1", null);
+    expect(branch.map((m) => m.id)).toEqual(["m1", "m3", "m4"]);
+  });
+
+  it("truncates instead of hanging on a corrupt parentId cycle", async () => {
+    const msgs: DbMessage[] = [
+      { id: "m1", conversationId: "c1", parentId: "m2", role: "user", content: "A", createdAt: 1 },
+      { id: "m2", conversationId: "c1", parentId: "m1", role: "assistant", content: "B", createdAt: 2 },
+    ];
+    for (const m of msgs) {
+      await db.put("messages", m);
+    }
+
+    const branch = await getActiveBranch(db, "c1", "m2");
+    expect(branch.map((m) => m.id)).toEqual(["m1", "m2"]);
   });
 });
 
