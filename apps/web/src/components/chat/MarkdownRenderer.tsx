@@ -3,7 +3,7 @@
 
 "use client";
 
-import { useRef, useEffect, useMemo, useState } from "react";
+import { memo, useRef, useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
@@ -386,7 +386,19 @@ function createCitationP(baseClassName: string) {
 // Component
 // ---------------------------------------------------------------------------
 
-export function MarkdownRenderer({ content, isStreaming = false, hasCitations = false }: MarkdownRendererProps) {
+/**
+ * Memoized on purpose — and this memo is load-bearing. During streaming the
+ * chat store publishes a new messages array on every metered token slice
+ * (~every animation frame), which re-renders every bubble in the list. All
+ * three props here are primitives, so `memo` lets every COMPLETED message
+ * skip the whole markdown pipeline (normalize → remark → rehype → highlight)
+ * on those ticks; only the streaming message, whose `content` is actually
+ * changing, re-parses. Keep the props primitive — an object or inline-lambda
+ * prop would silently defeat this.
+ */
+export const MarkdownRenderer = memo(MarkdownRendererImpl);
+
+function MarkdownRendererImpl({ content, isStreaming = false, hasCitations = false }: MarkdownRendererProps) {
   const shouldReduce = useReducedMotion();
 
   // Track how many block-level elements have been rendered in previous passes.
