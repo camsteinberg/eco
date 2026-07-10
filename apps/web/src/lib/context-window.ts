@@ -46,9 +46,26 @@ export type LocalContextSafetyDecision =
     };
 
 /**
+ * Eviction quantum, as a fraction of the history budget. When the window must
+ * shrink, the start advances to the next quantum boundary rather than
+ * minimally. A minimal slide moves the start on nearly every turn once a
+ * conversation saturates its budget — and any start movement breaks the
+ * strict-prefix KV-reuse gate (`runtime/kv-cache.ts`), forcing a full-context
+ * reprefill (the worst TTFT) on every remaining turn. Quantized eviction keeps
+ * the start fixed until the conversation outgrows the current quantum, so KV
+ * reuse survives every turn between evictions, at the cost of up to ~one
+ * quantum of unused history budget. The boundary is a pure function of stable
+ * prefix sums, so consecutive turns recompute the same start with no state.
+ */
+const EVICTION_QUANTUM_FRACTION = 1 / 8;
+
+/**
  * Select the most recent messages that fit within 75% of the model's context
  * window. System prompt tokens are deducted first (always included, outside
- * the history budget). Only complete user+assistant pairs are kept.
+ * the history budget). Only complete user+assistant pairs are kept, and when
+ * history must be evicted the cut advances in quantum steps (see
+ * `EVICTION_QUANTUM_FRACTION`) so the window start — and with it KV-cache
+ * reuse — stays stable between evictions.
  *
  * @param activeBranch - All messages in the current conversation branch
  * @param modelContextLength - Model's total context length in tokens
@@ -84,6 +101,30 @@ export function selectMessagesForContext(
 
     tokensUsed += msgTokens;
     startIndex = i;
+  }
+
+  // Quantize the eviction point: round the evicted-token count up to the next
+  // quantum boundary and advance the start there. Evicting slightly more than
+  // the minimum buys turns of start stability (KV reuse) before the next
+  // eviction. Never advances past the final user turn — the last pair (or
+  // trailing user message) survives, matching the minimal walk's guarantee.
+  if (startIndex > 0 && startIndex < activeBranch.length) {
+    const quantum = Math.max(1, Math.floor(historyBudget * EVICTION_QUANTUM_FRACTION));
+    let evictedTokens = 0;
+    for (let i = 0; i < startIndex; i++) {
+      evictedTokens += countTokens(activeBranch[i]!.content, options?.estimateTokens);
+    }
+    const targetEvicted = Math.ceil(evictedTokens / quantum) * quantum;
+
+    let lastUserIndex = activeBranch.length - 1;
+    while (lastUserIndex > 0 && activeBranch[lastUserIndex]!.role !== "user") {
+      lastUserIndex--;
+    }
+
+    while (startIndex < lastUserIndex && evictedTokens < targetEvicted) {
+      evictedTokens += countTokens(activeBranch[startIndex]!.content, options?.estimateTokens);
+      startIndex++;
+    }
   }
 
   // Extract the selected slice

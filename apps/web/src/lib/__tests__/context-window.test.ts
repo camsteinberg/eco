@@ -172,6 +172,63 @@ describe("selectMessagesForContext", () => {
     expect(result[3]!.content).toBe("Second reply");
   });
 
+  it("evicts past the minimal cut to the next quantum boundary", () => {
+    // 12 messages of 5 tokens (20 chars) each; context 32 → budget 24, quantum
+    // max(1, floor(24/8)) = 3. Minimal walk keeps the last 4 messages
+    // (20 tokens; a 5th would exceed 24), so s_min = 8 with 40 evicted tokens.
+    // 40 is not a multiple of 3 → target 42 → the cut advances one more
+    // message (45 ≥ 42), the now-leading assistant is dropped as an orphan,
+    // and the final pair remains.
+    const messages: ChatMessage[] = [];
+    for (let i = 0; i < 6; i++) {
+      messages.push(msg("user", "u".repeat(20), `u${i}`));
+      messages.push(msg("assistant", "a".repeat(20), `a${i}`));
+    }
+    const result = selectMessagesForContext(messages, 32);
+    expect(result.map((m) => m.id)).toEqual(["u5", "a5"]);
+  });
+
+  it("keeps the window start stable across appended turns (KV prefix stability)", () => {
+    // Turns of 100 tokens (user 100 chars = 25 tok, assistant 300 chars = 75
+    // tok); context 4096 → budget 3072, quantum 384. The minimal walk moves
+    // the start on nearly every turn once the budget saturates (~31 turns);
+    // the quantized cut may only move once per ~384 tokens of growth.
+    const conversation: ChatMessage[] = [];
+    const starts: string[] = [];
+    for (let i = 0; i < 60; i++) {
+      conversation.push(msg("user", "u".repeat(100), `u${i}`));
+      conversation.push(msg("assistant", "a".repeat(300), `a${i}`));
+      const selected = selectMessagesForContext(conversation, 4096);
+      expect(selected.length).toBeGreaterThan(0);
+      starts.push(selected[0]!.id);
+    }
+    const changes = starts.filter((s, i) => i > 0 && s !== starts[i - 1]).length;
+    // Post-saturation growth ≈ 29 turns × 100 tokens = 2900 tokens; at one
+    // move per 384-token quantum that is ~8 changes. The minimal walk made
+    // ~29. Allow slack, but require the amortization to be real.
+    expect(changes).toBeLessThanOrEqual(10);
+    // And the window itself always fits the budget.
+    const finalTokens = selectMessagesForContext(conversation, 4096).reduce(
+      (sum, m) => sum + estimateTokens(m.content),
+      0,
+    );
+    expect(finalTokens).toBeLessThanOrEqual(Math.floor(4096 * 0.75));
+  });
+
+  it("quantization never evicts the final user turn", () => {
+    // A giant early message puts the next quantum boundary beyond the end of
+    // the conversation; the cut must clamp at the last user message.
+    const messages: ChatMessage[] = [
+      msg("user", "x".repeat(4000), "u1"), // 1000 tokens
+      msg("assistant", "y".repeat(4000), "a1"), // 1000 tokens
+      msg("user", "short question", "u2"),
+      msg("assistant", "short answer", "a2"),
+    ];
+    // context 128 → budget 96: only the last pair fits minimally.
+    const result = selectMessagesForContext(messages, 128);
+    expect(result.map((m) => m.id)).toEqual(["u2", "a2"]);
+  });
+
   it("accepts a tokenizer-aware estimator when available", () => {
     const messages: ChatMessage[] = [
       msg("user", "one two three", "u1"),
