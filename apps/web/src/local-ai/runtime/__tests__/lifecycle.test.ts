@@ -49,6 +49,7 @@ class FakeAdapter implements RuntimeAdapter {
   unloadCalls = 0;
   failOnLoad: AdapterError | null = null;
   failOnGenerateEvent: { code: import('../types').AdapterErrorCode; reason: string } | null = null;
+  throwOnGenerate: AdapterError | null = null;
 
   async load(model: ModelConfig): Promise<void> {
     this.loadCalls++;
@@ -61,6 +62,9 @@ class FakeAdapter implements RuntimeAdapter {
   }
 
   async *generate(): AsyncIterable<import('../types').TokenEvent> {
+    if (this.throwOnGenerate) {
+      throw this.throwOnGenerate;
+    }
     if (this.failOnGenerateEvent) {
       yield { kind: 'error', reason: this.failOnGenerateEvent.reason, code: this.failOnGenerateEvent.code };
       return;
@@ -248,6 +252,82 @@ describe('generate', () => {
     }
     expect(getCooldown(MODEL_A.id)).not.toBeNull();
     expect(getCooldown(MODEL_A.id)!.code).toBe('oom');
+  });
+});
+
+// ─── Fault unload ───────────────────────────────────────────────────────────
+
+// unloadActive() is fired-and-forgotten in generate()'s finally, running under
+// the lifecycle lock. Flush the queued lock continuation + the async unload
+// before asserting.
+const flushUnload = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+describe('fault unload', () => {
+  it('unloads the dead adapter when generate emits a fault error event', async () => {
+    const adapter = new FakeAdapter();
+    adapter.failOnGenerateEvent = { code: 'oom', reason: 'GPU oom' };
+    setAdapterFactory(() => adapter);
+    await loadModel(MODEL_A);
+
+    for await (const event of generate([])) {
+      void event;
+    }
+    await flushUnload();
+
+    expect(adapter.unloadCalls).toBe(1);
+    expect(getActiveModel()).toBeNull();
+    expect(getActiveAdapter()).toBeNull();
+  });
+
+  it('unloads the dead adapter when generate throws an OOM', async () => {
+    const adapter = new FakeAdapter();
+    adapter.throwOnGenerate = new AdapterError('out of memory', 'oom', true);
+    setAdapterFactory(() => adapter);
+    await loadModel(MODEL_A);
+
+    await expect((async () => {
+      for await (const event of generate([])) {
+        void event;
+      }
+    })()).rejects.toBeInstanceOf(AdapterError);
+    await flushUnload();
+
+    expect(adapter.unloadCalls).toBe(1);
+    expect(getActiveModel()).toBeNull();
+  });
+
+  it('does NOT unload when generate emits an aborted error event', async () => {
+    const adapter = new FakeAdapter();
+    adapter.failOnGenerateEvent = { code: 'aborted', reason: 'user stopped' };
+    setAdapterFactory(() => adapter);
+    await loadModel(MODEL_A);
+
+    for await (const event of generate([])) {
+      void event;
+    }
+    await flushUnload();
+
+    expect(adapter.unloadCalls).toBe(0);
+    expect(getActiveModel()).toEqual(MODEL_A);
+  });
+
+  it('does NOT unload when the caller signal is aborted, even on a fault throw', async () => {
+    const adapter = new FakeAdapter();
+    adapter.throwOnGenerate = new AdapterError('out of memory', 'oom', true);
+    setAdapterFactory(() => adapter);
+    await loadModel(MODEL_A);
+
+    const controller = new AbortController();
+    controller.abort();
+    await expect((async () => {
+      for await (const event of generate([], { signal: controller.signal })) {
+        void event;
+      }
+    })()).rejects.toBeInstanceOf(AdapterError);
+    await flushUnload();
+
+    expect(adapter.unloadCalls).toBe(0);
+    expect(getActiveModel()).toEqual(MODEL_A);
   });
 });
 

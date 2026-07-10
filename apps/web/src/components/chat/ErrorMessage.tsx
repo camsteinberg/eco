@@ -10,6 +10,14 @@ import { useChatStore } from "../../stores/chatStore";
 import { isLocalAiSlot } from "../../local-ai/util";
 import { getDeviceProfile } from "../../local-ai/device/profile";
 import { listCandidates } from "../../local-ai/selection/recommend";
+import { getModel } from "../../local-ai/catalog/catalog";
+import { getSlot } from "../../local-ai/lifecycle/slots";
+import { isModelFullyCached } from "../../local-ai/download/download";
+import {
+  LOCAL_GENERATION_FALLBACK_MESSAGE,
+  LOCAL_GENERATION_REPEATED_MESSAGE,
+  LOCAL_RUNTIME_HICCUP_MESSAGE,
+} from "../../local-ai/adapters/error-messages";
 import type { Slot } from "../../local-ai/types";
 
 const ERROR_MESSAGES = [
@@ -33,6 +41,7 @@ const CAPACITY_MESSAGE = {
 };
 
 const LOCAL_SETUP_MESSAGE_TITLE = "Eco needs one quick setup";
+const LOCAL_GENERATION_FAILURE_TITLE = "That reply hit a snag";
 const LOCAL_COOLDOWN_MESSAGE_TITLE = "Let this device cool down";
 const BROWSER_UNSUPPORTED_MESSAGE_TITLE = "Eco isn't ready for this browser yet";
 const BROWSER_UNSUPPORTED_MESSAGE_BODY =
@@ -82,6 +91,44 @@ function detectCapacityNudge(selectedModel: string): CapacityNudge | null {
   }
 }
 
+type LighterModelNudge = {
+  slot: Slot;
+  modelName: string;
+};
+
+// After a model has faulted twice, offer a genuinely lighter model for this
+// device — one strictly smaller than the current pick. Prefer a lighter model
+// that's already fully cached (one tap to switch); otherwise offer the
+// highest-ranked lighter candidate. Returns null when nothing lighter exists,
+// so the caller falls back to the generic Manage Models link.
+async function detectLighterModelNudge(
+  selectedModel: string,
+): Promise<LighterModelNudge | null> {
+  if (typeof window === "undefined") return null;
+  const slotKey: Slot = isLocalAiSlot(selectedModel) ? selectedModel : "eco-fast";
+  const currentModel = isLocalAiSlot(selectedModel)
+    ? getSlot(slotKey).model
+    : getModel(selectedModel);
+  if (!currentModel) return null;
+  const profile = getDeviceProfile();
+  try {
+    const lighter = listCandidates(slotKey, profile)
+      .map((candidate) => candidate.model)
+      .filter((model) => model.sizeGB < currentModel.sizeGB);
+    if (lighter.length === 0) return null;
+    let chosen = lighter[0]!;
+    for (const model of lighter) {
+      if (await isModelFullyCached(model)) {
+        chosen = model;
+        break;
+      }
+    }
+    return { slot: slotKey, modelName: chosen.friendlyName };
+  } catch {
+    return null;
+  }
+}
+
 export function ErrorMessage({
   onRetry,
   message,
@@ -93,6 +140,7 @@ export function ErrorMessage({
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const selectedModel = useChatStore((s) => s.selectedModel);
   const [capacityNudge, setCapacityNudge] = useState<CapacityNudge | null>(null);
+  const [lighterNudge, setLighterNudge] = useState<LighterModelNudge | null>(null);
 
   // Check if this is a capacity-related error
   const isCapacityError =
@@ -112,8 +160,16 @@ export function ErrorMessage({
   const isBrowserUnsupportedError = Boolean(
     message && message.includes(BROWSER_UNSUPPORTED_MARKER),
   );
+  // A recovered on-device generation fault (see useChat's applyLocalGenerationError
+  // + chat-recovery). These carry "on-device" wording that would otherwise trip
+  // the setup regex below, so classify them first and exempt them from setup.
+  const isLocalGenerationFailure =
+    message === LOCAL_GENERATION_FALLBACK_MESSAGE
+    || message === LOCAL_GENERATION_REPEATED_MESSAGE
+    || message === LOCAL_RUNTIME_HICCUP_MESSAGE;
   const isLocalSetupError =
     !isBrowserUnsupportedError
+    && !isLocalGenerationFailure
     && (Boolean(localReadiness)
       || Boolean(
         message
@@ -121,8 +177,25 @@ export function ErrorMessage({
       ));
   const isLocalCooldownError = Boolean(
     message
-      && /paused this model|graphics device needed a rest|lighter local load|crash-risk|cooling down/i.test(message),
+      && /paused this model|graphics device needed a rest|lighter local load|crash-risk|cooling down|needs a short breather/i.test(message),
   );
+
+  // Resolve a lighter-model option only for the repeated-failure card (the copy
+  // that promises one). Async because the cached-model check touches storage;
+  // mirrors the capacity-nudge effect otherwise.
+  useEffect(() => {
+    if (message !== LOCAL_GENERATION_REPEATED_MESSAGE) {
+      setLighterNudge(null);
+      return;
+    }
+    let cancelled = false;
+    void detectLighterModelNudge(selectedModel).then((nudge) => {
+      if (!cancelled) setLighterNudge(nudge);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [message, selectedModel]);
 
   // Pick a stable error message based on hash of the error string
   const errorInfo = isBrowserUnsupportedError
@@ -137,6 +210,11 @@ export function ErrorMessage({
       }
     : isCapacityError
     ? CAPACITY_MESSAGE
+    : isLocalGenerationFailure
+    ? {
+        title: LOCAL_GENERATION_FAILURE_TITLE,
+        body: message,
+      }
     : isLocalSetupError
     ? {
         title: LOCAL_SETUP_MESSAGE_TITLE,
@@ -224,6 +302,24 @@ export function ErrorMessage({
       >
         {errorInfo.body}
       </p>
+
+      {isLocalGenerationFailure && message === LOCAL_GENERATION_REPEATED_MESSAGE &&
+        (lighterNudge ? (
+          <a
+            data-testid="lighter-model-setup-link"
+            href={`/settings?tab=models&setup=${lighterNudge.slot}`}
+            className="inline-flex min-h-8 items-center rounded-md text-xs font-medium text-[var(--eco-primary)] underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--eco-primary)]"
+          >
+            Set up {lighterNudge.modelName} on this device &rarr;
+          </a>
+        ) : (
+          <a
+            href={MANAGE_MODELS_HREF}
+            className="inline-flex min-h-8 items-center rounded-md text-xs font-medium text-[var(--eco-primary)] underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--eco-primary)]"
+          >
+            Manage Models
+          </a>
+        ))}
 
       {isCapacityError && capacityNudge && (
         <a

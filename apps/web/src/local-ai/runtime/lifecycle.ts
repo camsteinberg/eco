@@ -48,6 +48,19 @@ const COOLDOWN_TRIGGER_CODES: ReadonlySet<AdapterErrorCode> = new Set([
   'init-failed',
 ]);
 
+// Codes that mean the loaded adapter/GPU device is likely dead — a mid-decode
+// OOM or device-lost leaves the WebGPU adapter unusable, and a bare
+// generation-failed is safest treated the same way (retrying against a wedged
+// adapter just burns ~110ms per failed attempt forever). When generate() ends
+// on one of these, we unload the active adapter so the next loadModel does a
+// clean re-init instead of reusing the corpse. 'aborted' is deliberately absent
+// — a user stop must never unload or cooldown (PR #128 regression territory).
+const FAULT_UNLOAD_CODES: ReadonlySet<AdapterErrorCode> = new Set([
+  'oom',
+  'device-lost',
+  'generation-failed',
+]);
+
 export type CooldownRecord = {
   modelId: string;
   code: AdapterErrorCode;
@@ -223,19 +236,34 @@ export async function* generate(
     );
   }
   let crashedCode: AdapterErrorCode | null = null;
+  let faultCode: AdapterErrorCode | null = null;
   try {
     for await (const event of adapter.generate(messages, options)) {
       if (event.kind === 'error' && event.code && COOLDOWN_TRIGGER_CODES.has(event.code)) {
         crashedCode = event.code;
       }
+      if (event.kind === 'error' && event.code && FAULT_UNLOAD_CODES.has(event.code)) {
+        faultCode = event.code;
+      }
       yield event;
     }
   } catch (err) {
     crashedCode = errorCode(err);
+    const code = errorCode(err);
+    if (FAULT_UNLOAD_CODES.has(code)) {
+      faultCode = code;
+    }
     throw err;
   } finally {
     if (crashedCode && state.activeModel) {
       recordCooldown(state.activeModel.id, crashedCode);
+    }
+    // Drop the dead adapter after a fault so the next loadModel re-inits a
+    // fresh WebGPU device instead of retrying against the wedged one. Skip on
+    // abort: a user stop leaves the adapter healthy. Fire-and-forget — it runs
+    // under the lifecycle lock, so the next loadModel serializes behind it.
+    if (faultCode && !options?.signal?.aborted) {
+      void unloadActive();
     }
   }
 }

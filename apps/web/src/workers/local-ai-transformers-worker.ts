@@ -61,6 +61,7 @@ import {
   type CjkSuppressionTelemetry,
   type CjkTokenScan,
 } from '../local-ai/runtime/cjk-suppression';
+import { classifyGenerationError } from './classify-generation-error';
 
 // ─── Local self typing ─────────────────────────────────────────────────────
 
@@ -784,12 +785,7 @@ async function handleGenerate(msg: Extract<WorkerInbound, { type: 'generate' }>)
     // and TJS failures deep in the generation loop are undiagnosable without
     // one (the KV-reuse vision-encoder crash took a stack to localize).
     console.error('[eco/local-ai-worker] generation failed', err);
-    const m = message.toLowerCase();
-    const code = m.includes('out of memory') || m.includes('oom')
-      ? 'oom'
-      : m.includes('device') && m.includes('lost')
-        ? 'device-lost'
-        : 'generation-failed';
+    const code = classifyGenerationError(message);
     post({ type: 'error', generationId: msg.generationId, code, message });
   } finally {
     abortFlag = null;

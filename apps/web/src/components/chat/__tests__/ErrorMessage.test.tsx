@@ -13,14 +13,16 @@ import "@testing-library/jest-dom";
 const recommendationState = vi.hoisted(() => ({
   current: null as null | {
     slot: "eco-fast" | "eco-smart";
-    model: { id: string; friendlyName: string };
+    model: { id: string; friendlyName: string; sizeGB?: number };
   },
 }));
 
 vi.mock("../../../local-ai/selection/recommend", () => ({
+  // Pass the whole model through so both the capacity nudge (friendlyName) and
+  // the lighter-model nudge (id + sizeGB) can read what they need.
   listCandidates: () =>
     recommendationState.current
-      ? [{ model: { friendlyName: recommendationState.current.model.friendlyName }, score: 0.9 }]
+      ? [{ model: recommendationState.current.model, score: 0.9 }]
       : [],
   recommend: () => null,
   NoAssignableModelError: class extends Error {},
@@ -40,12 +42,35 @@ vi.mock("../../../local-ai/util", () => ({
   isLocalAiSlot: (s: string) => s === "eco-fast" || s === "eco-smart",
 }));
 
+// The current slot's bound model — sizeGB is the threshold the lighter-model
+// nudge filters below.
+vi.mock("../../../local-ai/lifecycle/slots", () => ({
+  getSlot: () => ({
+    slot: "eco-fast" as const,
+    modelId: "local/current-model",
+    model: { id: "local/current-model", friendlyName: "Current Model", sizeGB: 3 },
+    status: "ready" as const,
+  }),
+}));
+
+vi.mock("../../../local-ai/catalog/catalog", () => ({
+  getModel: () => null,
+}));
+
+vi.mock("../../../local-ai/download/download", () => ({
+  isModelFullyCached: async () => false,
+}));
+
 vi.mock("../../../stores/chatStore", () => ({
   useChatStore: (selector: (state: { selectedModel: string }) => unknown) =>
     selector({ selectedModel: "eco-fast" }),
 }));
 
 import { ErrorMessage } from "../ErrorMessage";
+import {
+  LOCAL_GENERATION_FALLBACK_MESSAGE,
+  LOCAL_GENERATION_REPEATED_MESSAGE,
+} from "../../../local-ai/adapters/error-messages";
 
 describe("ErrorMessage", () => {
   beforeEach(() => {
@@ -324,5 +349,41 @@ describe("ErrorMessage", () => {
       expect(screen.getByRole("heading")).toBeInTheDocument();
     });
     expect(screen.queryByTestId("capacity-local-setup-link")).not.toBeInTheDocument();
+  });
+
+  // ─── Bundle: on-device generation-failure cards ───────────────────────────
+  it("titles a generic generation failure honestly and keeps Try again", () => {
+    render(<ErrorMessage onRetry={() => {}} message={LOCAL_GENERATION_FALLBACK_MESSAGE} />);
+    expect(screen.getByRole("heading")).toHaveTextContent("That reply hit a snag");
+    // It must NOT be mistaken for a setup problem.
+    expect(screen.queryByText(/Eco needs one quick setup/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /try again/i })).toBeInTheDocument();
+  });
+
+  it("offers a lighter model on the repeated-failure card", async () => {
+    recommendationState.current = {
+      slot: "eco-fast",
+      // Strictly lighter than the current (sizeGB 3) slot model.
+      model: { id: "local/bonsai-lite", friendlyName: "Bonsai Lite", sizeGB: 1 },
+    };
+    render(<ErrorMessage onRetry={() => {}} message={LOCAL_GENERATION_REPEATED_MESSAGE} />);
+    expect(screen.getByRole("heading")).toHaveTextContent("That reply hit a snag");
+    await waitFor(() => {
+      expect(screen.getByTestId("lighter-model-setup-link")).toBeInTheDocument();
+    });
+    const link = screen.getByTestId("lighter-model-setup-link");
+    expect(link).toHaveAttribute("href", "/settings?tab=models&setup=eco-fast");
+    expect(link).toHaveTextContent(/Set up Bonsai Lite/);
+  });
+
+  it("keeps the cooldown title for the warmed 'needs a short breather' copy", () => {
+    render(
+      <ErrorMessage
+        onRetry={() => {}}
+        message="On-device AI needs a short breather after a snag — try again in about 2 minutes."
+      />,
+    );
+    expect(screen.getByRole("heading")).toHaveTextContent("Let this device cool down");
+    expect(screen.queryByRole("button", { name: /try again/i })).not.toBeInTheDocument();
   });
 });

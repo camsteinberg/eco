@@ -12,8 +12,9 @@
  *     cooldown that prevents immediate reload
  *   - the lifecycle's activeAdapter / activeModel are cleared so the
  *     slot can be reassigned
- *   - generate() failures yield an `{ kind: 'error' }` event and the
- *     active adapter remains for subsequent generations
+ *   - generate() failures yield an `{ kind: 'error' }` event; fault codes
+ *     (oom, device-lost, generation-failed) drop the dead adapter so the next
+ *     load re-inits a fresh device (PR L7), while non-fault codes keep it
  *   - after clearing the cooldown, the same model loads cleanly
  *   - slot status transitions are observable (preparing → error → preparing
  *     → ready) — no stuck 'active' flag
@@ -252,7 +253,7 @@ describe('Invariant 8 — generate() failures are recoverable', () => {
     },
   );
 
-  it('generation-failed during generate: error surfaced, NO cooldown (recoverable on next call)', async () => {
+  it('generation-failed during generate: error surfaced, NO cooldown, dead adapter dropped for a clean reload (PR L7)', async () => {
     setAdapterFactory((m) => failingGenerateAdapter(m, 'generation-failed'));
     await loadModel(TEST_MODEL);
 
@@ -262,10 +263,27 @@ describe('Invariant 8 — generate() failures are recoverable', () => {
     }
     expect(events.filter((e) => e.kind === 'error')).toHaveLength(1);
 
-    // 'generation-failed' is NOT a cooldown trigger — immediate retry must
-    // be possible without clearing anything.
+    // The fault unload in generate()'s finally is fire-and-forget under the
+    // lifecycle lock — let it settle before asserting.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // 'generation-failed' is NOT a cooldown trigger — retry is never time-gated.
     expect(getCooldown(TEST_MODEL.id)).toBeNull();
-    expect(getActiveAdapter()).not.toBeNull();
+    // PR L7: the faulted adapter is dropped so the next call re-inits a fresh
+    // WebGPU device instead of looping ~110ms/attempt against the wedged one.
+    // Recovery is via a clean reload, not reuse of the dead adapter.
+    expect(getActiveAdapter()).toBeNull();
+    expect(getActiveModel()).toBeNull();
+
+    // Immediate reload works with nothing to clear.
+    setAdapterFactory((m) => happyAdapter(m));
+    const adapter = await loadModel(TEST_MODEL);
+    expect(adapter.isLoaded).toBe(true);
+    const goodEvents: TokenEvent[] = [];
+    for await (const event of generate([{ role: 'user', content: 'hi' }])) {
+      goodEvents.push(event);
+    }
+    expect(goodEvents.some((e) => e.kind === 'done')).toBe(true);
   });
 });
 

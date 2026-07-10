@@ -307,7 +307,11 @@ import {
   type UpgradeRecord,
 } from "../../local-ai/lifecycle/upgrade";
 import { MODEL_PREPARING_BUSY_MESSAGE } from "../../lib/local-heavy-work-owner";
-import { LOCAL_GENERATION_FALLBACK_MESSAGE } from "../../local-ai/adapters/error-messages";
+import {
+  LOCAL_GENERATION_FALLBACK_MESSAGE,
+  LOCAL_GENERATION_REPEATED_MESSAGE,
+} from "../../local-ai/adapters/error-messages";
+import { _resetFailureStreakForTesting } from "../useChat/failure-streak";
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
@@ -359,6 +363,9 @@ beforeEach(() => {
   shared.fastSlotState = makeReadyFastSlot();
   shared.smartSlotState = makeEmptySmartSlot();
   resetChatStore();
+  // Isolate the module-scoped generic-failure streak so escalation cases don't
+  // leak across tests (a leftover count would flip attempt-1 pins to REPEATED).
+  _resetFailureStreakForTesting();
 });
 
 afterEach(() => {
@@ -942,6 +949,62 @@ describe("useChat — runtime error handling", () => {
     });
 
     expect(recordedReceipts.some((r) => r.status === "error")).toBe(true);
+  });
+
+  it("escalates to the repeated-failure copy on a second consecutive generic failure", async () => {
+    const genericError = () => ({
+      kind: "error" as const,
+      tokens: [],
+      error: new LocalInferenceStreamError("LOCAL_INFERENCE_FAILED", "boom", true),
+    });
+
+    const { result } = renderHook(() => useChat());
+
+    setScripts([genericError()]);
+    await act(async () => {
+      await result.current.sendMessage("first try");
+    });
+    // Attempt 1 shows the retry-friendly fallback.
+    expect(lastAssistant()!.errorMessage).toBe(LOCAL_GENERATION_FALLBACK_MESSAGE);
+
+    setScripts([genericError()]);
+    await act(async () => {
+      await result.current.sendMessage("second try");
+    });
+    // Attempt 2 (same model) escalates to the "we reset it, try lighter" copy.
+    expect(lastAssistant()!.errorMessage).toBe(LOCAL_GENERATION_REPEATED_MESSAGE);
+  });
+
+  it("resets the streak after a successful generation between failures", async () => {
+    const genericError = () => ({
+      kind: "error" as const,
+      tokens: [],
+      error: new LocalInferenceStreamError("LOCAL_INFERENCE_FAILED", "boom", true),
+    });
+
+    const { result } = renderHook(() => useChat());
+
+    setScripts([genericError()]);
+    await act(async () => {
+      await result.current.sendMessage("fail once");
+    });
+    expect(lastAssistant()!.errorMessage).toBe(LOCAL_GENERATION_FALLBACK_MESSAGE);
+
+    // A clean completion in between resets the streak.
+    setScripts([{ kind: "tokens", tokens: ["all", " good"] }]);
+    setLastUsage({ promptTokens: 4, completionTokens: 2, maxTokens: 1024 });
+    await act(async () => {
+      await result.current.sendMessage("this one works");
+    });
+    expect(lastAssistant()!.status).toBe("complete");
+
+    setLastUsage(null);
+    setScripts([genericError()]);
+    await act(async () => {
+      await result.current.sendMessage("fail again");
+    });
+    // Back to attempt-1 copy — the success reset the streak.
+    expect(lastAssistant()!.errorMessage).toBe(LOCAL_GENERATION_FALLBACK_MESSAGE);
   });
 });
 

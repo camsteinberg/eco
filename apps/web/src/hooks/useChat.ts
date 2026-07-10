@@ -49,8 +49,13 @@ import { getLastUsage as getLocalAiLastUsage, getLastTemplateName as getLocalAiL
 import {
   TEMPLATE_MISSING_USER_MESSAGE,
   LOCAL_GENERATION_FALLBACK_MESSAGE,
+  LOCAL_GENERATION_REPEATED_MESSAGE,
   describeLocalCooldownMessage,
 } from "../local-ai/adapters/error-messages";
+import {
+  recordLocalGenerationFailure,
+  resetLocalGenerationFailureStreak,
+} from "./useChat/failure-streak";
 import { recordGenerationReceipt, hashSystemPrompt } from "../local-ai/lifecycle/generation-receipt";
 import type { Slot as LocalAiSlot } from "../local-ai/types";
 import { logger } from "../lib/logger";
@@ -452,7 +457,11 @@ export function useChat() {
     return baseSystemPrompt ?? composeBaseSystemPrompt(model);
   }
 
-  function applyLocalGenerationError(err: unknown, assistantId: string) {
+  function applyLocalGenerationError(
+    err: unknown,
+    assistantId: string,
+    modelKey: string,
+  ) {
     const currentAssistant = useChatStore
       .getState()
       .messages.find((message) => message.id === assistantId);
@@ -541,24 +550,39 @@ export function useChat() {
       // library detail ("boom", "No model loaded", …). Show a warm, honest
       // fallback and keep the technical detail in diagnostics only.
       logger.warn("[eco/local-inference] unhandled stream error", err);
+      const message = escalateGenericFailure(modelKey);
       updateMessage(assistantId, {
         status: "error",
-        errorMessage: LOCAL_GENERATION_FALLBACK_MESSAGE,
+        errorMessage: message,
         inferenceMethod: "local",
       });
-      setError(LOCAL_GENERATION_FALLBACK_MESSAGE);
+      setError(message);
       return;
     }
 
     // Non-LocalInferenceStreamError failure — same treatment: warm fallback for
     // the user, raw detail to diagnostics.
     logger.warn("[eco/local-inference] untyped generation error", err);
+    const message = escalateGenericFailure(modelKey);
     updateMessage(assistantId, {
       status: "error",
-      errorMessage: LOCAL_GENERATION_FALLBACK_MESSAGE,
+      errorMessage: message,
       inferenceMethod: "local",
     });
-    setError(LOCAL_GENERATION_FALLBACK_MESSAGE);
+    setError(message);
+  }
+
+  // A generic on-device failure that matched no dedicated branch. Track it as a
+  // per-model streak: the first shows the retry-friendly fallback, the second
+  // (and beyond) shows the escalated "we reset the model, try a lighter one"
+  // copy the lighter-model nudge keys on. Dedicated branches (cooldown, OOM,
+  // device-protection, template, preparing) never call this — they neither
+  // increment nor reset the streak.
+  function escalateGenericFailure(modelKey: string): string {
+    const count = recordLocalGenerationFailure(modelKey);
+    return count >= 2
+      ? LOCAL_GENERATION_REPEATED_MESSAGE
+      : LOCAL_GENERATION_FALLBACK_MESSAGE;
   }
 
   // ── Dispatch resolution ────────────────────────────────────────────────
@@ -1063,7 +1087,7 @@ export function useChat() {
     // mirrors the prior single-catch behavior for that status and records the
     // matching receipt. Returning here means the turn is finished.
     function finalizeErrorResult(error: unknown): void {
-      applyLocalGenerationError(error, assistantId);
+      applyLocalGenerationError(error, assistantId, model);
       recordReceiptAsync((sph) => ({
         ...buildReceiptBase(sph),
         status: 'error' as const,
@@ -1218,6 +1242,8 @@ export function useChat() {
         ...(lastUsage?.completionTokens != null && { localCompletionTokens: lastUsage.completionTokens }),
         ...(lastUsage?.maxTokens != null && { localMaxTokens: lastUsage.maxTokens }),
       });
+      // A clean completion breaks any prior generic-failure streak.
+      resetLocalGenerationFailureStreak();
       // Reconcile the persisted body with the deterministic display normalization
       // (clean completion only — a user-stopped turn keeps its raw partial text).
       if (!generation.abortController.signal.aborted) {
@@ -1258,7 +1284,12 @@ export function useChat() {
       return;
     }
 
-    applyLocalGenerationError(err, assistantId);
+    // Best-effort resolve to the dispatched model id for the streak key. The
+    // resolved id isn't in scope here (this is the top-level safety net for
+    // errors that escaped streamResponse), so recover it from the current
+    // selection the same way resolveDispatch does.
+    const modelKey = resolveSelectedModelId(useChatStore.getState().selectedModel);
+    applyLocalGenerationError(err, assistantId, modelKey);
   }
 
   async function continueInterruptedMessageLocally(
@@ -1319,7 +1350,7 @@ export function useChat() {
     });
     if (!leaseAcquisition.ok) {
       if (!leaseAcquisition.aborted) {
-        applyLocalGenerationError(new Error(leaseAcquisition.message), assistantId);
+        applyLocalGenerationError(new Error(leaseAcquisition.message), assistantId, localModelId);
       }
       clearActiveGeneration(generation);
       return;
@@ -1347,6 +1378,7 @@ export function useChat() {
         applyLocalGenerationError(
           result.status === "error" ? result.error : undefined,
           assistantId,
+          localModelId,
         );
         return;
       }
@@ -1356,6 +1388,8 @@ export function useChat() {
         inferenceMethod: "local",
         confidence: null,
       });
+      // A clean continuation breaks any prior generic-failure streak.
+      resetLocalGenerationFailureStreak();
       // Reconcile persisted body with the deterministic display normalization
       // (this block is reached only on a clean "completed" continuation).
       finalizeAssistantMarkdown(assistantId, updateMessage);

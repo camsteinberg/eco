@@ -735,6 +735,20 @@ describe("MessageBubble", () => {
       );
       expect(screen.queryByTestId("uncertainty-note")).not.toBeInTheDocument();
     });
+
+    it("does NOT render the marker on an error card even when verification is set", () => {
+      // A generation-fault error card must not sprout a grounding uncertainty
+      // note — the verification is stale context from the failed turn.
+      render(
+        <MessageBubble
+          role="assistant"
+          content="On-device AI hit a snag."
+          status="error"
+          verification={{ status: "unverified" }}
+        />,
+      );
+      expect(screen.queryByTestId("uncertainty-note")).not.toBeInTheDocument();
+    });
   });
 
   describe("canonical tool answer (host-computed exact value wins over model prose)", () => {
