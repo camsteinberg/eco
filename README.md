@@ -98,12 +98,11 @@ packages/
   config/     Shared TypeScript + ESLint configuration.
 ```
 
-The on-device AI lives in `apps/web/src/local-ai/`. Inference runs through three
+The on-device AI lives in `apps/web/src/local-ai/`. Inference runs through two
 in-browser runtimes depending on the model and device:
 
 - **Transformers.js v4 + WebGPU** — the primary runtime for most models.
 - **LiteRT-LM** — runs Gemma 4 E2B.
-- **WebLLM (MLC)** — runs SmolLM2 (being retired).
 
 The shipping model catalog is defined in
 `apps/web/src/local-ai/catalog/catalog-data.json`. A diagnostics surface is available at
