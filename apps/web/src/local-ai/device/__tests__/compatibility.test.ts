@@ -242,7 +242,7 @@ describe('device/compatibility — CPU-EP incompatibility (Finding E)', () => {
 });
 
 describe('device/compatibility — WebGPU adapter without shader-f16', () => {
-  // f16 builds (onnx-q4f16 / onnx-q2f16 / mlc-q4f16) cannot run on the WebGPU EP
+  // f16 builds (onnx-q4f16 / onnx-q2f16) cannot run on the WebGPU EP
   // of an adapter that lacks shader-f16 — they load, then OrtRun dies on the
   // first f16 op. They must be flagged unsupported so the cascade never offers
   // them (and never burns a multi-minute download on a model that can't run).

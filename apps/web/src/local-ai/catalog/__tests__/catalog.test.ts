@@ -47,7 +47,7 @@ describe('local-ai catalog (Phase C)', () => {
     expect(model!.vendor, `${id}.vendor`).toMatch(/\S/);
     expect(model!.sizeGB, `${id}.sizeGB`).toBeGreaterThan(0);
     expect(['transformers', 'litert']).toContain(model!.runtime);
-    expect(['onnx-q4', 'onnx-q4f16', 'mlc-q4f16', 'litertlm']).toContain(model!.format);
+    expect(['onnx-q4', 'onnx-q4f16', 'litertlm']).toContain(model!.format);
     expect(model!.capabilities.intent.length, `${id}.capabilities.intent`).toBeGreaterThan(0);
     expect(model!.capabilities.tasks.length, `${id}.capabilities.tasks`).toBeGreaterThan(0);
     expect(model!.capabilities.contextTokens, `${id}.capabilities.contextTokens`).toBeGreaterThan(0);

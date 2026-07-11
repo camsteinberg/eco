@@ -183,16 +183,15 @@ export function isAssignable(model: ModelConfig, profile: DeviceProfile): boolea
 
 /**
  * Whether a catalog `format` needs the WebGPU `shader-f16` feature to execute
- * on the WebGPU execution provider. The q4f16 / q2f16 ONNX builds and the MLC
- * (WebLLM) q4f16 build all emit f16 shader ops; plain int4 (`onnx-q4`) does
- * not, and `litertlm` runs through a separate runtime that never touches the
- * ORT WebGPU EP. Exhaustive over the union so a new format must be classified.
+ * on the WebGPU execution provider. The q4f16 / q2f16 ONNX builds emit f16
+ * shader ops; plain int4 (`onnx-q4`) does not, and `litertlm` runs through a
+ * separate runtime that never touches the ORT WebGPU EP. Exhaustive over the
+ * union so a new format must be classified.
  */
 export function formatRequiresShaderF16(format: ModelConfig['format']): boolean {
   switch (format) {
     case 'onnx-q4f16':
     case 'onnx-q2f16':
-    case 'mlc-q4f16':
       return true;
     case 'onnx-q4':
     case 'litertlm':

@@ -475,7 +475,7 @@ function defaultGenerateId(): string {
 function dtypeFromFormat(format: string): 'q4' | 'q4f16' | 'q2f16' {
   if (format === 'onnx-q4') return 'q4';
   if (format === 'onnx-q2f16') return 'q2f16';
-  // onnx-q4f16, mlc-q4f16, or anything else → q4f16
+  // onnx-q4f16 or anything else → q4f16
   return 'q4f16';
 }
 
