@@ -11,10 +11,13 @@ type Toast = {
   id: string
   message: string
   type: ToastType
+  /** Auto-dismiss delay in ms. Defaults to 3000; longer copy (e.g. the
+   *  retired-model notice) passes a larger value so it can be read in full. */
+  durationMs?: number
 }
 
 type ToastContextType = {
-  toast: (message: string, type?: ToastType) => void
+  toast: (message: string, type?: ToastType, durationMs?: number) => void
 }
 
 const ToastContext = createContext<ToastContextType>({ toast: () => {} })
@@ -38,9 +41,9 @@ const typeTextStyles: Record<ToastType, string> = {
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([])
 
-  const addToast = useCallback((message: string, type: ToastType = 'info') => {
+  const addToast = useCallback((message: string, type: ToastType = 'info', durationMs?: number) => {
     const id = crypto.randomUUID()
-    setToasts((prev) => [...prev, { id, message, type }])
+    setToasts((prev) => [...prev, { id, message, type, durationMs }])
   }, [])
 
   const removeToast = useCallback((id: string) => {
@@ -67,9 +70,9 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
     const timer = setTimeout(() => {
       setIsExiting(true)
       setTimeout(() => onDismiss(toast.id), 200)
-    }, 3000)
+    }, toast.durationMs ?? 3000)
     return () => clearTimeout(timer)
-  }, [toast.id, onDismiss])
+  }, [toast.id, toast.durationMs, onDismiss])
 
   return (
     <div

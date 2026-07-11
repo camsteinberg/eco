@@ -4,6 +4,7 @@
 import type { ReactNode } from "react";
 import { AppShell } from "../../src/components/layout/AppShell";
 import { ToastProvider } from "../../src/components/ui/Toast";
+import { RetiredModelNotice } from "../../src/components/local-ai/RetiredModelNotice";
 
 export default function ProtectedAppLayout({
   children,
@@ -12,6 +13,7 @@ export default function ProtectedAppLayout({
 }) {
   return (
     <ToastProvider>
+      <RetiredModelNotice />
       <AppShell>{children}</AppShell>
     </ToastProvider>
   );
