@@ -60,6 +60,7 @@ signup_response=$(curl -s -w "\n%{http_code}" \
 signup_status=$(echo "$signup_response" | tail -1)
 
 auth_available=false
+session_cookie=""
 if [ "$signup_status" -ge 200 ] && [ "$signup_status" -lt 300 ]; then
   pass "Sign up"
 elif [ "$signup_status" = "422" ]; then
@@ -75,16 +76,26 @@ echo "── Authentication ─────────────────�
 echo ""
 
 if [ "$signup_status" -ge 200 ] && [ "$signup_status" -lt 300 ]; then
-  signin_response=$(curl -s -w "\n%{http_code}" -c /tmp/eco-e2e-cookies.txt \
+  # The session cookie is set with Domain=.econetwork.ai (the web app needs it
+  # across subdomains), but staging is probed via its fly.dev hostname — a
+  # spec-compliant cookie jar (curl -c/-b) refuses to store a cookie whose
+  # Domain doesn't match the request host, so every authed probe would 401.
+  # We're replaying the cookie to the exact host that issued it, so capture
+  # the Set-Cookie header directly and send it verbatim.
+  signin_response=$(curl -s -w "\n%{http_code}" -D /tmp/eco-e2e-headers.txt \
     -X POST "$API_URL/api/auth/sign-in/email" \
     -H "Content-Type: application/json" \
     -d "{\"email\":\"$TEST_EMAIL\",\"password\":\"$TEST_PASSWORD\"}" 2>/dev/null)
 
   signin_status=$(echo "$signin_response" | tail -1)
+  session_cookie=$(grep -i '^set-cookie:' /tmp/eco-e2e-headers.txt | head -1 \
+    | cut -d: -f2- | cut -d';' -f1 | sed 's/^ *//' | tr -d '\r' || true)
 
-  if [ "$signin_status" -ge 200 ] && [ "$signin_status" -lt 300 ]; then
+  if [ "$signin_status" -ge 200 ] && [ "$signin_status" -lt 300 ] && [ -n "$session_cookie" ]; then
     pass "Sign in"
     auth_available=true
+  elif [ "$signin_status" -ge 200 ] && [ "$signin_status" -lt 300 ]; then
+    fail "Sign in" "no session cookie in response"
   else
     fail "Sign in" "HTTP $signin_status"
   fi
@@ -105,7 +116,7 @@ echo "── Billing ───────────────────�
 echo ""
 
 if [ "$auth_available" = true ]; then
-  billing_response=$(curl -s -w "\n%{http_code}" -b /tmp/eco-e2e-cookies.txt \
+  billing_response=$(curl -s -w "\n%{http_code}" -H "Cookie: $session_cookie" \
     -X POST "$API_URL/v1/billing/checkout" \
     -H "Content-Type: application/json" \
     -d '{"tier":"supporter"}' 2>/dev/null)
@@ -159,7 +170,7 @@ echo "── Cleanup ───────────────────�
 echo ""
 
 if [ "$auth_available" = true ]; then
-  delete_response=$(curl -s -w "\n%{http_code}" -b /tmp/eco-e2e-cookies.txt \
+  delete_response=$(curl -s -w "\n%{http_code}" -H "Cookie: $session_cookie" \
     -X DELETE "$API_URL/v1/auth/account" 2>/dev/null)
 
   delete_status=$(echo "$delete_response" | tail -1)
@@ -173,8 +184,8 @@ else
   skip "Account deletion" "auth unavailable"
 fi
 
-# Clean up cookie file
-rm -f /tmp/eco-e2e-cookies.txt
+# Clean up captured response headers
+rm -f /tmp/eco-e2e-headers.txt
 
 # ── Summary ─────────────────────────────────────────────────────────────────
 
