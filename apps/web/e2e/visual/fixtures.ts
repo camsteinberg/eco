@@ -26,7 +26,7 @@ import { getModel } from "../../src/local-ai/catalog/catalog";
  * `apps/web/src/local-ai/__tests__/` and e2e tests at
  * `apps/web/e2e/local-ai-v1-gate.spec.ts` and friends.
  */
-const SEEDED_SLOT_MODEL_ID = "local/smollm2-1.7b-webllm-q4f16";
+const SEEDED_SLOT_MODEL_ID = "candidate/qwen3.5-2b-onnx";
 
 // Module-load guard: if the catalog ID is ever renamed/removed, fail
 // LOUDLY here rather than silently dropping back into the slow bootstrap
