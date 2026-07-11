@@ -27,11 +27,9 @@ const MODEL_CONNECT_SRC = [
   // it unconditionally is safe (CSP permits, it does not force use) and means
   // the CDN flag can flip with no separate CSP redeploy.
   'https://models.econetwork.ai',
-  // WebLLM fetches its WebGPU runtime WASM (model_lib) from the mlc-ai
-  // binary-mlc-llm-libs repo on raw.githubusercontent.com — a separate
-  // origin from HuggingFace. Without this entry MLC's CreateMLCEngine
-  // throws on first-time setup with a CSP violation.
-  'https://raw.githubusercontent.com',
+  // (Removed 2026-07-10) The GitHub raw-content origin was only needed by the
+  // WebLLM/MLC runtime to fetch its model_lib WASM. WebLLM was retired with
+  // SmolLM2 (registry C1/C2), so the origin is dropped to tighten connect-src.
 ].join(' ')
 
 // Phase 5 grounding talks DIRECTLY from the browser to Wikimedia's public REST
