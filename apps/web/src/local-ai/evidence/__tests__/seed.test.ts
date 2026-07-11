@@ -213,15 +213,15 @@ describe('loadSeedEvidence — profile-scoped query', () => {
     ).toBe(false);
   });
 
-  it('returns bonsai + qwen3 + lfm2.5 on Chromium WebGPU 8 GB (capable-laptop)', () => {
+  it('returns qwen3 + lfm2.5 on Chromium WebGPU 8 GB (capable-laptop)', () => {
     // Capable-laptop preserved seed rows (2026-05-13) must be inside their
     // 45-day TTL; pin to the snapshot date so this set is evaluated as fresh.
+    // (Bonsai's capable-laptop row was removed when Bonsai retired 2026-07-11.)
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-06-19T00:00:00.000Z'));
     const evidence = loadSeedEvidence(profile({ deviceMemoryGB: 8 }));
     expect(evidence.map((e) => e.modelId).sort()).toEqual([
       'candidate/lfm2.5-350m-onnx',
-      'local/bonsai-1.7b-q4',
       'local/qwen3-0.6b',
     ]);
   });

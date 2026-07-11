@@ -212,7 +212,7 @@ describe('Legacy key migration', () => {
 
   it('prefers the new key when both new and legacy are present', () => {
     storage.setItem('eco-local-ai-slot-eco-fast', 'local/phi3-mini-4k-q4f16');
-    storage.setItem('eco-model-slot-eco-fast', 'local/bonsai-1.7b-q4');
+    storage.setItem('eco-model-slot-eco-fast', 'local/qwen3-0.6b');
     expect(getSlot('eco-fast').modelId).toBe('local/phi3-mini-4k-q4f16');
   });
 

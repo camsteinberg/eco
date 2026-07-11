@@ -339,7 +339,7 @@ describe("ErrorMessage", () => {
   it("renders a Set up <model> link in the capacity branch when a manual recommendation exists", async () => {
     recommendationState.current = {
       slot: "eco-fast",
-      model: { id: "local/bonsai-1.7b-q4", friendlyName: "Bonsai 1.7B q4" },
+      model: { id: "local/qwen3-0.6b", friendlyName: "Qwen3 0.6B" },
     };
     render(<ErrorMessage message="No contributor available — capacity busy" />);
     await waitFor(() => {
@@ -347,7 +347,7 @@ describe("ErrorMessage", () => {
     });
     const link = screen.getByTestId("capacity-local-setup-link");
     expect(link).toHaveAttribute("href", "/settings?tab=models&setup=eco-fast");
-    expect(link).toHaveTextContent(/Set up Bonsai 1\.7B q4/);
+    expect(link).toHaveTextContent(/Set up Qwen3 0\.6B/);
   });
 
   it("does NOT render the Set up link when no manual recommendation exists", async () => {
@@ -363,7 +363,7 @@ describe("ErrorMessage", () => {
   it("does NOT render the Set up link for non-capacity errors even when a recommendation exists", async () => {
     recommendationState.current = {
       slot: "eco-fast",
-      model: { id: "local/bonsai-1.7b-q4", friendlyName: "Bonsai 1.7B q4" },
+      model: { id: "local/qwen3-0.6b", friendlyName: "Qwen3 0.6B" },
     };
     // Generic error message — does NOT match the capacity regex.
     render(<ErrorMessage message="Something else went wrong." />);

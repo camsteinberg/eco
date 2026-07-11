@@ -136,26 +136,6 @@ describe('device/compatibility — Phi-3 Mini (high-memory WebGPU)', () => {
   });
 });
 
-describe('device/compatibility — Bonsai (capable-laptop WebGPU)', () => {
-  const bonsai = () => model('local/bonsai-1.7b-q4');
-
-  it('supported on Chromium WebGPU 8 GB', () => {
-    expect(isCompatible(bonsai(), PROFILES.chromiumCapableLaptop)).toBe('supported');
-  });
-
-  it('supported on Chromium WebGPU 16 GB', () => {
-    expect(isCompatible(bonsai(), PROFILES.chromiumHighMem)).toBe('supported');
-  });
-
-  it('unsupported on Chromium WebGPU 4 GB', () => {
-    expect(isCompatible(bonsai(), PROFILES.chromiumLowMem)).toBe('unsupported');
-  });
-
-  it('unsupported on Chromium WASM-only', () => {
-    expect(isCompatible(bonsai(), PROFILES.chromiumWasmOnly)).toBe('unsupported');
-  });
-});
-
 describe('device/compatibility — Qwen3 (universal small)', () => {
   const qwen = () => model('local/qwen3-0.6b');
 
@@ -258,11 +238,11 @@ describe('device/compatibility — WebGPU adapter without shader-f16', () => {
     expect(isAssignable(model(id), PROFILES.chromiumNoShaderF16)).toBe(false);
   });
 
-  // The non-f16 ONNX models are the survivors — what the cascade surfaces for
-  // this device instead of an honest dead-end. LFM2.5-350M joined Bonsai when
-  // its artifact swapped to the f16-free q4 build (instant-start plan slice 1,
-  // 2026-07-01) — it is the light option a weak f16-less iGPU can actually load.
-  const nonF16OnnxModels = ['local/bonsai-1.7b-q4', 'candidate/lfm2.5-350m-onnx'] as const;
+  // The non-f16 ONNX survivor — what the cascade surfaces for this device
+  // instead of an honest dead-end. LFM2.5-350M is the f16-free q4 build
+  // (instant-start plan slice 1, 2026-07-01), the light option a weak f16-less
+  // iGPU can actually load. (Bonsai, the other non-f16 rung, retired 2026-07-11.)
+  const nonF16OnnxModels = ['candidate/lfm2.5-350m-onnx'] as const;
 
   it.each(nonF16OnnxModels)('keeps non-f16 model %s runnable on an f16-less adapter', (id) => {
     expect(isCompatible(model(id), PROFILES.chromiumNoShaderF16)).toBe('supported');

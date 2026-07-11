@@ -113,28 +113,32 @@ describe('admit — Phi-3 Mini (proven on high-memory Chromium)', () => {
   });
 });
 
-describe('admit — Bonsai (proven on capable-laptop)', () => {
-  const bonsai = () => model('local/bonsai-1.7b-q4');
+// LFM2.5-1.2B is proven only on the high-memory-laptop class (its sole seed
+// row), so it exercises the mirror of what Bonsai used to: proven-on-profile on
+// high-memory, proven-elsewhere on the compatible-but-unseeded capable-laptop,
+// and denied below its 8 GB floor. (Bonsai retired 2026-07-11.)
+describe('admit — LFM2.5 1.2B (proven on high-memory)', () => {
+  const lfm = () => model('candidate/lfm2.5-1.2b-instruct-onnx');
 
-  it('allowed on Chromium 8 GB (seed proof present for capable-laptop)', () => {
-    // Capable-laptop preserved seed rows (2026-05-13) must be inside their
-    // 45-day TTL; pin the clock to the snapshot date.
+  it('allowed on Chromium 24 GB (seed proof present for high-memory-laptop)', () => {
+    // The high-memory benchmark row (2026-06-17) must be inside its 45-day TTL;
+    // pin the clock to the snapshot date.
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-06-19T00:00:00.000Z'));
-    const r = admit(bonsai(), PROFILES.chromiumCapableLaptop);
+    const r = admit(lfm(), PROFILES.chromiumHighMem);
     expect(r.decision).toBe('allowed');
     expect(r.reason).toBe('proven-on-this-profile');
     expect(r.hasSeedProof).toBe(true);
   });
 
-  it('with-warning on Chromium 24 GB (no seed for high-memory class — proven elsewhere)', () => {
-    const r = admit(bonsai(), PROFILES.chromiumHighMem);
+  it('with-warning on Chromium 8 GB (no seed for capable-laptop class — proven elsewhere)', () => {
+    const r = admit(lfm(), PROFILES.chromiumCapableLaptop);
     expect(r.decision).toBe('with-warning');
     expect(r.reason).toBe('proven-elsewhere');
   });
 
   it('denied on Chromium 4 GB (compat floor 8 GB)', () => {
-    expect(admit(bonsai(), PROFILES.chromiumLowMem).decision).toBe('denied');
+    expect(admit(lfm(), PROFILES.chromiumLowMem).decision).toBe('denied');
   });
 });
 
@@ -215,18 +219,19 @@ describe('admit — runtime ledger override', () => {
     expect(r.seedProofSource).toBe('calculated');
   });
 
-  it('promotes to allowed via ledger when seed proof is absent (below-floor profile)', () => {
-    // Use a profile that has no seed proof: Chromium 24 GB for Bonsai, which
-    // has no seed for high-memory-laptop (proven only on capable-laptop).
-    const bonsai = model('local/bonsai-1.7b-q4');
-    expect(admit(bonsai, PROFILES.chromiumHighMem).decision).toBe('with-warning');
+  it('promotes to allowed via ledger when seed proof is absent (proven-elsewhere profile)', () => {
+    // Use a profile that has no seed proof: LFM2.5-1.2B is seeded only for
+    // high-memory-laptop, so on capable-laptop (8 GB) it is compatible but
+    // unseeded → with-warning, until a ledger success promotes it.
+    const lfm = model('candidate/lfm2.5-1.2b-instruct-onnx');
+    expect(admit(lfm, PROFILES.chromiumCapableLaptop).decision).toBe('with-warning');
 
     localStorage.setItem(
       'eco-local-ai-ledger-v1',
       JSON.stringify([
         {
-          modelId: 'local/bonsai-1.7b-q4',
-          profileKey: 'chromium|high-memory-laptop|webgpu',
+          modelId: 'candidate/lfm2.5-1.2b-instruct-onnx',
+          profileKey: 'chromium|capable-laptop|webgpu',
           outcome: 'smoke-pass',
           recordedAt: new Date().toISOString(),
           ledgerVersion: CURRENT_LEDGER_VERSION,
@@ -234,7 +239,7 @@ describe('admit — runtime ledger override', () => {
       ]),
     );
 
-    const after = admit(bonsai, PROFILES.chromiumHighMem);
+    const after = admit(lfm, PROFILES.chromiumCapableLaptop);
     expect(after.decision).toBe('allowed');
     expect(after.reason).toBe('ledger-success');
     expect(after.hasLedgerSuccess).toBe(true);

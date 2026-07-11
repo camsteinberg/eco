@@ -56,7 +56,7 @@ describe('resolveReadyLocalRecoveryModelId', () => {
   it('returns null when currentModelId is not a ready slot model', async () => {
     bindReady('eco-fast', 'local/phi3-mini-4k-q4f16');
     const result = await resolveReadyLocalRecoveryModelId({
-      currentModelId: 'local/bonsai-1.7b-q4',
+      currentModelId: 'local/qwen3-0.6b',
     });
     expect(result).toBeNull();
   });
@@ -118,7 +118,7 @@ describe('resolveReadyLocalRecoveryModelId', () => {
     bindReady('eco-fast', 'local/phi3-mini-4k-q4f16');
     const result = await resolveReadyLocalRecoveryModelId({
       currentModelId: null,
-      preferredModelId: 'local/bonsai-1.7b-q4',
+      preferredModelId: 'local/qwen3-0.6b',
     });
     // Falls back to eco-fast scan
     expect(result).toBe('local/phi3-mini-4k-q4f16');

@@ -62,7 +62,7 @@ function makeResult(overrides?: Partial<EvalResult>): EvalResult {
   return {
     promptId: 'p1',
     category: 'factual-known',
-    modelId: 'local/bonsai-1.7b-q4',
+    modelId: 'local/qwen3-0.6b',
     runtimeAdapter: 'transformers',
     output: 'hi',
     generationOptions: { temperature: 0.7, maxTokens: 256 },

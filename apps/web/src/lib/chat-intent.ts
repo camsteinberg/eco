@@ -75,20 +75,6 @@ const CHAT_INTENT_MODEL_DATA: Record<string, ChatIntentModelSlice> = {
     qualityTier: "smart",
     maxNewTokens: { webgpu: 1024 },
   },
-  "local/bonsai-1.7b-q4": {
-    id: "local/bonsai-1.7b-q4",
-    family: "bonsai",
-    qualityTier: "fast",
-    maxNewTokens: { webgpu: 1024 },
-    generationDefaults: {
-      topP: 0.92,
-      topK: 40,
-      repetitionPenalty: 1.05,
-      intentOverrides: {
-        writing: { topP: 0.92 },
-      },
-    },
-  },
   "candidate/lfm2.5-1.2b-instruct-onnx": {
     id: "candidate/lfm2.5-1.2b-instruct-onnx",
     family: "lfm2",

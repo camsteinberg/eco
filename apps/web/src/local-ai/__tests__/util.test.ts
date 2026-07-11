@@ -45,7 +45,7 @@ describe('getContextTokens', () => {
 
 describe('resolveSelectedModelId', () => {
   it('passes a concrete model id through unchanged', () => {
-    expect(resolveSelectedModelId('local/bonsai-1.7b-q4')).toBe('local/bonsai-1.7b-q4');
+    expect(resolveSelectedModelId('local/qwen3-0.6b')).toBe('local/qwen3-0.6b');
   });
 
   it('resolves a slot to its bound model id', () => {

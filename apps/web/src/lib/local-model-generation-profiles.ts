@@ -312,7 +312,9 @@ const GEMMA4_LITERT_GEN: GenerationProfileSlice = {
 // ─── Lookup maps ──────────────────────────────────────────────────────────
 
 const PROFILE_BY_MODEL_ID: Record<string, GenerationProfileSlice> = {
-  "local/bonsai-1.7b-q4": bonsaiGenerationProfile("q4"),
+  // Bonsai q4 retired from the catalog 2026-07-11; its profile lives on via
+  // `bonsaiGenerationProfile` + `FAMILY_FALLBACK.bonsai` for the eval-lane
+  // q1/q2/q8 dev seams (see chat-intent.ts), so no PROFILE_BY_MODEL_ID row.
   "local/phi3-mini-4k-q4f16": PHI3_MINI_GEN,
   "local/qwen3-0.6b": QWEN_GEN,
   "candidate/lfm2.5-350m-onnx": LFM25_350M_GEN,

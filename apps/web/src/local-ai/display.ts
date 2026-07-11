@@ -23,11 +23,6 @@ export type DisplayInfo = {
 };
 
 const DISPLAY_MAP: Record<string, Omit<DisplayInfo, 'provenance'> & { provider: string }> = {
-  'local/bonsai-1.7b-q4': {
-    friendlyName: 'Eco Balanced (Bonsai)',
-    qualityPhrase: 'Balanced reasoning · runs on most devices',
-    provider: 'ONNX Community',
-  },
   'local/phi3-mini-4k-q4f16': {
     friendlyName: 'Eco Reasoning (Microsoft)',
     qualityPhrase: 'Strongest at math and code',

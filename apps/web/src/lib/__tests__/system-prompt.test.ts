@@ -127,7 +127,7 @@ describe('getOnDeviceSystemPrompt', () => {
   });
 
   it('returns base prompt for catalog models without systemDirective (Bonsai q4)', () => {
-    const prompt = getOnDeviceSystemPrompt('local/bonsai-1.7b-q4');
+    const prompt = getOnDeviceSystemPrompt('local/qwen3-0.6b');
     expect(prompt).not.toContain('/no_think');
     expect(prompt).not.toContain('Answer directly');
   });

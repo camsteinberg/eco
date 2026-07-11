@@ -527,7 +527,7 @@ describe('buildSnapshotFromEvalExport', () => {
       generatedAt: '2026-05-13T23:05:00.000Z',
       routingEvidenceReconciliation: [
         {
-          modelId: 'local/bonsai-1.7b-q4',
+          modelId: 'local/phi3-mini-4k-q4f16',
           browserClass: 'chromium',
           deviceClass: 'high-memory-laptop',
           readiness: 'ready',
@@ -562,7 +562,7 @@ describe('buildSnapshotFromEvalExport', () => {
       },
       results: [
         result({
-          modelId: 'local/bonsai-1.7b-q4',
+          modelId: 'local/phi3-mini-4k-q4f16',
           error: 'load failed: network error',
           perf: { ttftMs: null, tokensPerSec: null, totalMs: 1000, completionTokens: 0, smokePass: false },
         }),

@@ -115,6 +115,13 @@ export type RetiredModelMigration = {
  * ('webllm/model' | 'webllm/config' | 'webllm/wasm', the lib's default cache
  * backend), which are disjoint from Eco's namespace and must be named
  * explicitly to be purged.
+ *
+ * 2026-07-11: Bonsai (`local/bonsai-1.7b-q4`) — the dev-era former everyday
+ * default, quality-demoted and loop-prone; its f16-less WebGPU floor role is
+ * now served by Gemma 4 E2B (LiteRT). It ran on Transformers.js with the
+ * default Cache API storage, so its bytes live entirely in the
+ * `eco-local-ai-<id>` namespace — no extraCacheNames needed (the migration's
+ * default clearModel purge is sufficient).
  */
 const RETIRED_MODEL_MIGRATIONS: ReadonlyArray<RetiredModelMigration> = [
   {
@@ -122,6 +129,11 @@ const RETIRED_MODEL_MIGRATIONS: ReadonlyArray<RetiredModelMigration> = [
     friendlyLabel: 'SmolLM2',
     markerKey: 'eco-local-ai-mig-retire-smollm2-v1',
     extraCacheNames: ['webllm/model', 'webllm/config', 'webllm/wasm'],
+  },
+  {
+    modelId: 'local/bonsai-1.7b-q4',
+    friendlyLabel: 'Bonsai',
+    markerKey: 'eco-local-ai-mig-retire-bonsai-v1',
   },
 ];
 

@@ -106,7 +106,7 @@ describe('runEval', () => {
     };
 
     const run = await runEval(
-      { label: 'baseline', modelIds: ['local/bonsai-1.7b-q4'], promptIds: ['fk1'] },
+      { label: 'baseline', modelIds: ['local/qwen3-0.6b'], promptIds: ['fk1'] },
       baseDeps({ generate, now: clock.now }),
     );
 
@@ -114,7 +114,7 @@ describe('runEval', () => {
     expect(run.results).toHaveLength(1);
     const r = run.results[0]!;
     expect(r.promptId).toBe('fk1');
-    expect(r.modelId).toBe('local/bonsai-1.7b-q4');
+    expect(r.modelId).toBe('local/qwen3-0.6b');
     expect(r.category).toBe('factual-known');
     expect(r.runtimeAdapter).toBe('transformers');
     expect(r.output).toBe('Paris is the capital.');

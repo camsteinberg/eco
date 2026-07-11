@@ -111,14 +111,14 @@ describe('modelMatchesSlot', () => {
   it('eco-fast prefers snappy/balanced intents', () => {
     expect(modelMatchesSlot(getModel('local/qwen3-0.6b')!, 'eco-fast')).toBe(true);
     expect(modelMatchesSlot(getModel('candidate/lfm2.5-350m-onnx')!, 'eco-fast')).toBe(true);
-    expect(modelMatchesSlot(getModel('local/bonsai-1.7b-q4')!, 'eco-fast')).toBe(true);
+    expect(modelMatchesSlot(getModel('candidate/lfm2.5-1.2b-instruct-onnx')!, 'eco-fast')).toBe(true);
   });
 
   it('eco-smart prefers balanced/quality intents', () => {
     expect(modelMatchesSlot(getModel('local/phi3-mini-4k-q4f16')!, 'eco-smart')).toBe(true);
     expect(modelMatchesSlot(getModel('candidate/qwen3.5-2b-onnx')!, 'eco-smart')).toBe(true);
     expect(modelMatchesSlot(getModel('local/qwen3-0.6b')!, 'eco-smart')).toBe(true);
-    expect(modelMatchesSlot(getModel('local/bonsai-1.7b-q4')!, 'eco-smart')).toBe(true);
+    expect(modelMatchesSlot(getModel('candidate/gemma-4-e2b-litert')!, 'eco-smart')).toBe(true);
   });
 
   it('lfm2.5 (snappy-only) does not match eco-smart slot', () => {
