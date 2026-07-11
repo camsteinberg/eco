@@ -133,6 +133,11 @@ const UPGRADE_RECORD_KEY = 'eco-local-ai-upgrade-v1';
  *  the "your model was retired" toast. localStorage (not sessionStorage) so it
  *  survives to a later session where the consumer actually mounts. */
 const RETIRED_MODEL_NOTICE_HINT_KEY = 'eco-local-ai-retired-notice-v1';
+/** Window event announcing a freshly written notice hint. The consumer mounts
+ *  BEFORE this async self-heal step runs, so without the event its mount-time
+ *  read would surface the toast one session late. Mirror reader:
+ *  components/local-ai/RetiredModelNotice.tsx. */
+const RETIRED_MODEL_NOTICE_EVENT = 'eco-local-ai-retired-notice';
 
 // ─── Report types ──────────────────────────────────────────────────────────
 
@@ -328,11 +333,18 @@ async function runRetiredModelMigration(
   }
 
   // 5. Notice hint — one-time, only when the user was actually on the model.
+  //    Also announced via a window event: the RetiredModelNotice consumer mounts
+  //    before this async migration runs, so its mount-time read alone would
+  //    surface the toast one session late. The localStorage hint stays the
+  //    source of truth for sessions where the consumer mounts later.
   if (wasOnRetiredModel) {
     storage.setItem(
       RETIRED_MODEL_NOTICE_HINT_KEY,
       JSON.stringify({ label: migration.friendlyLabel, at: now() }),
     );
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event(RETIRED_MODEL_NOTICE_EVENT));
+    }
   }
 }
 

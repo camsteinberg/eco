@@ -372,6 +372,23 @@ describe('runSelfHeal — retired-model migration', () => {
     expect(storage.getItem(NOTICE_HINT_KEY)).not.toBeNull();
   });
 
+  it('announces a freshly written notice hint via the window event (same-session toast)', async () => {
+    // The RetiredModelNotice consumer mounts before this async migration runs;
+    // without the event its mount-time read would surface the toast one
+    // session late.
+    storage.setItem('eco-selected-model', RETIRED_ID);
+    let announced = 0;
+    const listener = () => { announced += 1; };
+    window.addEventListener('eco-local-ai-retired-notice', listener);
+    try {
+      await runSelfHeal(seamOptions());
+    } finally {
+      window.removeEventListener('eco-local-ai-retired-notice', listener);
+    }
+    expect(announced).toBe(1);
+    expect(storage.getItem(NOTICE_HINT_KEY)).not.toBeNull();
+  });
+
   it('does NOT fire the notice for a user who was on a different model', async () => {
     setSlot('eco-fast', QWEN);
     setSlotStatus('eco-fast', 'ready');
