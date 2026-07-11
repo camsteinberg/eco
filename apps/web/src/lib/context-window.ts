@@ -13,6 +13,19 @@ export function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
+/**
+ * The refusal shown when a turn's prompt won't fit the local model's context
+ * even after the new-token budget is clamped to the floor. Exported as a stable
+ * constant so the error surface (`ErrorMessage`) can match it exactly and give
+ * it an honest title instead of the generic "needs one quick setup" copy.
+ *
+ * Copy note: this message posts INTO the transcript as an assistant error — it
+ * does not preserve anything in the composer, so it must not claim to have
+ * "kept your draft." It states what happened and what the user can do next.
+ */
+export const CONTEXT_WINDOW_REFUSAL_MESSAGE =
+  "This local model needs a shorter context before it can answer. Trim the long chat or file, or ask for a shorter answer.";
+
 function countTokens(text: string, estimator?: TokenEstimator): number {
   return estimator ? Math.max(0, Math.ceil(estimator(text))) : estimateTokens(text);
 }
@@ -241,8 +254,7 @@ export function assessLocalContextSafety(
     requestedNewTokens,
     totalTokens,
     safeBudgetTokens,
-    reason:
-      'This local model needs a shorter context before it can answer safely. Eco kept your draft here; trim the long chat or file, or ask for a shorter answer.',
+    reason: CONTEXT_WINDOW_REFUSAL_MESSAGE,
   };
 }
 

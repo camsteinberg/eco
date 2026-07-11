@@ -79,6 +79,8 @@ type MessageBubbleProps = {
   isNew?: boolean;
   /** When true, stream was interrupted mid-response (partial content). */
   streamInterrupted?: boolean;
+  /** Why the stream was interrupted, when known — drives per-cause marker copy. */
+  interruptedReason?: "user-stop" | "fault" | "restore-detected";
   /** When true, a local response ended near its generation limit. */
   possiblyTruncated?: boolean;
   /** Concrete model selected by orchestrator when user chose "auto". */
@@ -152,6 +154,7 @@ export function MessageBubble({
   conversationId: _conversationId,
   isNew: _isNew = false,
   streamInterrupted = false,
+  interruptedReason,
   possiblyTruncated = false,
   resolvedModel: _resolvedModel,
   reactions: _reactions,
@@ -439,7 +442,7 @@ export function MessageBubble({
         )}
 
         {streamInterrupted && !isStreaming && onRetry && (
-          <StreamInterrupted onRetry={onRetry} />
+          <StreamInterrupted onRetry={onRetry} reason={interruptedReason} />
         )}
 
         {possiblyTruncated && !isStreaming && role === "assistant" && onAssistantAction && (

@@ -71,6 +71,8 @@ import {
   LOCAL_GENERATION_FALLBACK_MESSAGE,
   LOCAL_GENERATION_REPEATED_MESSAGE,
 } from "../../../local-ai/adapters/error-messages";
+import { MODEL_PREPARING_BUSY_MESSAGE } from "../../../lib/local-heavy-work-owner";
+import { CONTEXT_WINDOW_REFUSAL_MESSAGE } from "../../../lib/context-window";
 
 describe("ErrorMessage", () => {
   beforeEach(() => {
@@ -311,6 +313,26 @@ describe("ErrorMessage", () => {
     // Must NOT use the generic "Eco needs one quick setup" wording — that
     // reads as "you need to do something" rather than "we don't support this".
     expect(screen.queryByText(/Eco needs one quick setup/i)).not.toBeInTheDocument();
+  });
+
+  // ─── Bundle: headline classes that must NOT read as "one quick setup" ─────
+  it("titles a still-preparing model honestly and keeps Try again", () => {
+    render(<ErrorMessage onRetry={() => {}} message={MODEL_PREPARING_BUSY_MESSAGE} />);
+    expect(screen.getByRole("heading")).toHaveTextContent("Your model is still getting ready");
+    // A model already warming up is not a setup task the user skipped.
+    expect(screen.queryByText(/Eco needs one quick setup/i)).not.toBeInTheDocument();
+    // Waiting then retrying is the right action here, so Try again stays.
+    expect(screen.getByRole("button", { name: /try again/i })).toBeInTheDocument();
+  });
+
+  it("titles a context-window refusal honestly and drops the re-refusing Try again", () => {
+    render(<ErrorMessage onRetry={() => {}} message={CONTEXT_WINDOW_REFUSAL_MESSAGE} />);
+    expect(screen.getByRole("heading")).toHaveTextContent("This conversation is too long");
+    expect(screen.queryByText(/Eco needs one quick setup/i)).not.toBeInTheDocument();
+    // The body says what to do (trim / shorten); an unchanged retry would just
+    // re-refuse, so there is no Try again button.
+    expect(screen.getByText(/trim the long chat or file/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /try again/i })).not.toBeInTheDocument();
   });
 
   // ─── Bundle 3: capacity-error local-setup link ────────────────────────────

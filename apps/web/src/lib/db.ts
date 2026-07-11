@@ -34,6 +34,13 @@ export type DbMessage = {
   tokenCount?: number;
   streamStartTime?: number | null;
   streamInterrupted?: boolean;
+  /**
+   * Why the stream was interrupted, when known. Persisted so a reloaded
+   * interrupted reply keeps its honest per-cause copy — see
+   * `ChatMessage.interruptedReason`. Optional and backward-compatible: records
+   * written before this field simply omit it.
+   */
+  interruptedReason?: "user-stop" | "fault" | "restore-detected";
   resolvedModel?: string;
   inferenceMethod?: "remote" | "local";
   confidence?: number | null;
@@ -93,6 +100,7 @@ export function toDbMessage(m: ChatMessage, conversationId: string): DbMessage {
     tokenCount: m.tokenCount,
     streamStartTime: m.streamStartTime,
     ...(m.streamInterrupted !== undefined && { streamInterrupted: m.streamInterrupted }),
+    ...(m.interruptedReason !== undefined && { interruptedReason: m.interruptedReason }),
     ...(m.resolvedModel !== undefined && { resolvedModel: m.resolvedModel }),
     ...(m.inferenceMethod !== undefined && { inferenceMethod: m.inferenceMethod }),
     ...(m.confidence !== undefined && { confidence: m.confidence }),

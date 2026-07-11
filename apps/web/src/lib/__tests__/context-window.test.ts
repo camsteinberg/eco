@@ -4,6 +4,7 @@
 import { describe, it, expect } from "vitest";
 import type { ChatMessage } from "../../stores/chatStore";
 import {
+  CONTEXT_WINDOW_REFUSAL_MESSAGE,
   MIN_LOCAL_NEW_TOKENS,
   assessLocalContextSafety,
   clampRequestedNewTokensForContext,
@@ -344,6 +345,13 @@ describe("clampRequestedNewTokensForContext", () => {
 
     const decision = assessLocalContextSafety(messages, systemPrompt, 4096, granted);
     expect(decision.ok).toBe(false);
+    // The refusal uses the shared, matchable constant — and states the truth:
+    // it does NOT claim to have "kept your draft" (the message posts into the
+    // transcript; nothing is preserved in the composer).
+    if (!decision.ok) {
+      expect(decision.reason).toBe(CONTEXT_WINDOW_REFUSAL_MESSAGE);
+      expect(decision.reason).not.toMatch(/kept your draft/i);
+    }
   });
 
   it("never raises a request smaller than the floor", () => {

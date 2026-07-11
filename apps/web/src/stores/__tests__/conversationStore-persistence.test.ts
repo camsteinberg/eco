@@ -298,4 +298,144 @@ describe("conversation store persistence", () => {
     expect(unverified?.citations).toBeUndefined();
   });
 
+  it("marks a reply a crash left mid-stream as interrupted on reload", async () => {
+    const { openEcoDB } = await import("../../lib/db");
+    const db = await openEcoDB();
+
+    await db.put("conversations", {
+      id: "conv-crashed",
+      title: "Crashed mid-reply",
+      createdAt: 1,
+      updatedAt: 2,
+      activeLeafId: "assistant-stuck",
+      preview: "crashed preview",
+      pinnedAt: null,
+    });
+
+    await db.put("messages", {
+      id: "user-asked",
+      conversationId: "conv-crashed",
+      parentId: null,
+      role: "user",
+      content: "Explain photosynthesis.",
+      createdAt: 1,
+    });
+
+    // A reply the crash caught before it finalized: persisted with its live
+    // "streaming" status and no content (no tokens landed before the crash).
+    await db.put("messages", {
+      id: "assistant-stuck",
+      conversationId: "conv-crashed",
+      parentId: "user-asked",
+      role: "assistant",
+      content: "",
+      createdAt: 2,
+      status: "streaming",
+    });
+
+    db.close();
+
+    vi.resetModules();
+    const { useConversationStore } = await import("../conversationStore");
+    await waitForHydration(useConversationStore);
+
+    useConversationStore.setState({
+      conversations: [
+        {
+          id: "conv-crashed",
+          title: "Crashed mid-reply",
+          createdAt: 1,
+          updatedAt: 2,
+          activeLeafId: "assistant-stuck",
+          preview: "crashed preview",
+          pinnedAt: null,
+        },
+      ],
+      activeConversationId: "conv-crashed",
+    });
+
+    const branch = await useConversationStore
+      .getState()
+      .loadConversationMessages("conv-crashed");
+
+    const stuck = branch.find((m) => m.id === "assistant-stuck");
+    // No longer a bare, forever-streaming bubble: it restores as a finished but
+    // interrupted reply, with the marker + Try again.
+    expect(stuck?.status).toBe("complete");
+    expect(stuck?.streamInterrupted).toBe(true);
+    expect(stuck?.interruptedReason).toBe("restore-detected");
+
+    // The user turn is left exactly as stored.
+    const asked = branch.find((m) => m.id === "user-asked");
+    expect(asked?.streamInterrupted).toBeUndefined();
+  });
+
+  it("round-trips a persisted interruptedReason unchanged for a finished reply", async () => {
+    const { openEcoDB } = await import("../../lib/db");
+    const db = await openEcoDB();
+
+    await db.put("conversations", {
+      id: "conv-stopped",
+      title: "User-stopped reply",
+      createdAt: 1,
+      updatedAt: 2,
+      activeLeafId: "assistant-stopped",
+      preview: "stopped preview",
+      pinnedAt: null,
+    });
+
+    await db.put("messages", {
+      id: "user-stopped",
+      conversationId: "conv-stopped",
+      parentId: null,
+      role: "user",
+      content: "Write a long essay.",
+      createdAt: 1,
+    });
+
+    // A reply the user stopped: already finalized (complete + interrupted) with
+    // its reason persisted. The restore sweep must leave it exactly as stored.
+    await db.put("messages", {
+      id: "assistant-stopped",
+      conversationId: "conv-stopped",
+      parentId: "user-stopped",
+      role: "assistant",
+      content: "Here is the start of the essay",
+      createdAt: 2,
+      status: "complete",
+      streamInterrupted: true,
+      interruptedReason: "user-stop",
+    });
+
+    db.close();
+
+    vi.resetModules();
+    const { useConversationStore } = await import("../conversationStore");
+    await waitForHydration(useConversationStore);
+
+    useConversationStore.setState({
+      conversations: [
+        {
+          id: "conv-stopped",
+          title: "User-stopped reply",
+          createdAt: 1,
+          updatedAt: 2,
+          activeLeafId: "assistant-stopped",
+          preview: "stopped preview",
+          pinnedAt: null,
+        },
+      ],
+      activeConversationId: "conv-stopped",
+    });
+
+    const branch = await useConversationStore
+      .getState()
+      .loadConversationMessages("conv-stopped");
+
+    const stopped = branch.find((m) => m.id === "assistant-stopped");
+    expect(stopped?.streamInterrupted).toBe(true);
+    expect(stopped?.interruptedReason).toBe("user-stop");
+    expect(stopped?.content).toBe("Here is the start of the essay");
+  });
+
 });

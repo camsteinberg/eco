@@ -6,6 +6,7 @@ import type { Conversation } from '../lib/types/conversation'
 import { openEcoDB, getActiveBranch } from '../lib/db'
 import { migrateFromLocalStorage } from '../lib/db-migration'
 import { resolveBranchLeafId } from '../lib/conversation-navigation'
+import { markRestoredInterruptions } from '../lib/chat-recovery'
 import {
   ACTIVE_CONVERSATION_STORAGE_KEY,
   COMPOSER_DRAFT_STORAGE_KEY,
@@ -291,7 +292,7 @@ export const useConversationStore = create<ConversationState & ConversationActio
           ?? null
         const branch = await getActiveBranch(db, conversationId, activeLeafId)
 
-        return branch.map((m) => ({
+        const restored: ChatMessage[] = branch.map((m) => ({
           id: m.id,
           role: m.role,
           content: m.content,
@@ -302,6 +303,7 @@ export const useConversationStore = create<ConversationState & ConversationActio
           tokenCount: m.tokenCount,
           streamStartTime: m.streamStartTime,
           streamInterrupted: m.streamInterrupted,
+          interruptedReason: m.interruptedReason,
           resolvedModel: m.resolvedModel,
           inferenceMethod: m.inferenceMethod,
           confidence: m.confidence,
@@ -310,6 +312,12 @@ export const useConversationStore = create<ConversationState & ConversationActio
           verification: m.verification,
           canonicalToolAnswer: m.canonicalToolAnswer,
         }))
+
+        // Catch replies a crash/reload left mid-stream: they persist with a
+        // non-terminal status and would otherwise restore as a bare, actionless
+        // (often empty) bubble. Mark them interrupted so the honest marker +
+        // Try again render.
+        return markRestoredInterruptions(restored)
       } catch (error) {
         logConversationPersistenceError(
           `load messages for conversation ${conversationId}`,

@@ -14,6 +14,9 @@ describe("getLocalRuntimeCrashRecovery", () => {
     expect(recovery.assistantUpdate).toMatchObject({
       status: "complete",
       streamInterrupted: true,
+      // A runtime crash is a fault, not a user stop — the marker copy must not
+      // claim "you stopped this reply."
+      interruptedReason: "fault",
       inferenceMethod: "local",
     });
   });

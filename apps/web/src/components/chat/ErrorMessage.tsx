@@ -18,6 +18,8 @@ import {
   LOCAL_GENERATION_REPEATED_MESSAGE,
   LOCAL_RUNTIME_HICCUP_MESSAGE,
 } from "../../local-ai/adapters/error-messages";
+import { MODEL_PREPARING_BUSY_MESSAGE } from "../../lib/local-heavy-work-owner";
+import { CONTEXT_WINDOW_REFUSAL_MESSAGE } from "../../lib/context-window";
 import type { Slot } from "../../local-ai/types";
 
 const ERROR_MESSAGES = [
@@ -43,6 +45,12 @@ const CAPACITY_MESSAGE = {
 const LOCAL_SETUP_MESSAGE_TITLE = "Eco needs one quick setup";
 const LOCAL_GENERATION_FAILURE_TITLE = "That reply hit a snag";
 const LOCAL_COOLDOWN_MESSAGE_TITLE = "Let this device cool down";
+// A model still warming up is not a setup task the user forgot — it's already
+// in progress. Say that, so the card doesn't read as "you need to do something."
+const MODEL_PREPARING_TITLE = "Your model is still getting ready";
+// A context-window refusal isn't a setup problem either — the chat/file is just
+// too long for this local model. The honest fix is to shorten, not to "set up."
+const CONTEXT_WINDOW_REFUSAL_TITLE = "This conversation is too long";
 const BROWSER_UNSUPPORTED_MESSAGE_TITLE = "Eco isn't ready for this browser yet";
 const BROWSER_UNSUPPORTED_MESSAGE_BODY =
   "Eco runs its AI right on your device, and this browser can't do that yet. Try Chrome or Edge on a recent device.";
@@ -167,9 +175,17 @@ export function ErrorMessage({
     message === LOCAL_GENERATION_FALLBACK_MESSAGE
     || message === LOCAL_GENERATION_REPEATED_MESSAGE
     || message === LOCAL_RUNTIME_HICCUP_MESSAGE;
+  // A model mid-preparation and a context-window refusal both contain the words
+  // "local model", so the setup regex below would otherwise mislabel them as
+  // "Eco needs one quick setup". Classify them by exact string first and exempt
+  // them from setup — each gets its own honest title.
+  const isModelPreparingError = message === MODEL_PREPARING_BUSY_MESSAGE;
+  const isContextWindowRefusal = message === CONTEXT_WINDOW_REFUSAL_MESSAGE;
   const isLocalSetupError =
     !isBrowserUnsupportedError
     && !isLocalGenerationFailure
+    && !isModelPreparingError
+    && !isContextWindowRefusal
     && (Boolean(localReadiness)
       || Boolean(
         message
@@ -210,6 +226,16 @@ export function ErrorMessage({
       }
     : isCapacityError
     ? CAPACITY_MESSAGE
+    : isModelPreparingError
+    ? {
+        title: MODEL_PREPARING_TITLE,
+        body: message,
+      }
+    : isContextWindowRefusal
+    ? {
+        title: CONTEXT_WINDOW_REFUSAL_TITLE,
+        body: message,
+      }
     : isLocalGenerationFailure
     ? {
         title: LOCAL_GENERATION_FAILURE_TITLE,
@@ -367,7 +393,7 @@ export function ErrorMessage({
         </a>
       )}
 
-      {onRetry && !isCapacityError && !isLocalSetupError && !isLocalCooldownError && (
+      {onRetry && !isCapacityError && !isLocalSetupError && !isLocalCooldownError && !isContextWindowRefusal && (
         <button
           type="button"
           onClick={handleRetry}

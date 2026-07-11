@@ -361,6 +361,7 @@ export function MessageList({
                 }
                 toolCalls={isLastAssistant ? activeToolCalls : undefined}
                 streamInterrupted={msg.streamInterrupted}
+                interruptedReason={msg.interruptedReason}
                 possiblyTruncated={msg.possiblyTruncated}
                 resolvedModel={msg.resolvedModel}
                 inferenceMethod={msg.inferenceMethod}

@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Bos Computing LLC
 
 import { LOCAL_RUNTIME_HICCUP_MESSAGE } from "../local-ai/adapters/error-messages";
+import type { ChatMessage } from "../stores/chatStore";
 
 export type ChatCompletionMessage = {
   role: "user" | "assistant" | "system";
@@ -14,6 +15,7 @@ export type LocalRuntimeCrashRecovery = {
     | {
         status: "complete";
         streamInterrupted: true;
+        interruptedReason: "fault";
         inferenceMethod: "local";
       }
     | {
@@ -60,6 +62,7 @@ export function getLocalRuntimeCrashRecovery(
       assistantUpdate: {
         status: "complete",
         streamInterrupted: true,
+        interruptedReason: "fault",
         inferenceMethod: "local",
       },
       shouldSwitchToNetwork: false,
@@ -75,4 +78,36 @@ export function getLocalRuntimeCrashRecovery(
     },
     shouldSwitchToNetwork: false,
   };
+}
+
+/**
+ * Restore-time sweep for replies a crash or reload left unfinalized.
+ *
+ * A generation that never reaches its completion handler is persisted with its
+ * live status still `"streaming"` (or `"sending"`) — the store's `isStreaming`
+ * flag doesn't survive a reload, so on restore that message renders as a bare,
+ * actionless bubble (empty when no tokens landed before the crash). This marks
+ * those assistant messages as interrupted with reason `"restore-detected"` so
+ * the bubble shows the honest "this reply was interrupted" marker plus a working
+ * Try again, instead of looking like a blank or forever-loading reply.
+ *
+ * Deliberately narrow: only ASSISTANT messages whose persisted status is a
+ * non-terminal `"streaming"`/`"sending"` are touched. A finished reply
+ * (`"complete"`/`"error"`, or a legacy record with no status) is left exactly as
+ * stored. Returns a new array; unaffected messages are passed through by
+ * reference.
+ */
+export function markRestoredInterruptions(messages: ChatMessage[]): ChatMessage[] {
+  return messages.map((message) => {
+    const isUnfinalizedAssistant =
+      message.role === "assistant" &&
+      (message.status === "streaming" || message.status === "sending");
+    if (!isUnfinalizedAssistant) return message;
+    return {
+      ...message,
+      status: "complete",
+      streamInterrupted: true,
+      interruptedReason: "restore-detected",
+    };
+  });
 }
