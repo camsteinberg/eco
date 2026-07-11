@@ -319,6 +319,18 @@ async function runRetiredModelMigration(
   if (smartRaw === modelId) {
     clearSlot('eco-smart');
   }
+  // Also drop LEGACY slot keys still naming the retired id (walked 2026-07-11:
+  // the rebind writes only the canonical key, which shadows a legacy value —
+  // safe by construction, but a cleanup migration must not leave the retired
+  // id lying in storage).
+  for (const slot of SLOTS) {
+    for (const prefix of getLegacyKeyPrefixes()) {
+      const legacyKey = prefix + slot;
+      if (safeGetItem(storage, legacyKey) === modelId) {
+        storage.removeItem(legacyKey);
+      }
+    }
+  }
 
   // 3. chatStore selection detox: a persisted selection of the retired id
   //    degrades to the 'eco-fast' auto-slot, and the explicit flag is demoted so

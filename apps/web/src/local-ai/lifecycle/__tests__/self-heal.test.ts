@@ -302,7 +302,7 @@ describe('runSelfHeal — retired-model migration', () => {
     expect(hint?.label).toBe('Retired Test Model');
   });
 
-  it('detects the retired id from a LEGACY slot key and rebinds', async () => {
+  it('detects the retired id from a LEGACY slot key, rebinds, and removes the legacy key', async () => {
     storage.setItem('eco-model-slot-eco-fast', RETIRED_ID);
 
     await runSelfHeal(seamOptions());
@@ -310,6 +310,17 @@ describe('runSelfHeal — retired-model migration', () => {
     // Canonical key now holds the rebind target (setSlot writes it).
     expect(readRawSlotIdForMigration('eco-fast')).toBe(QWEN);
     expect(storage.getItem(NOTICE_HINT_KEY)).not.toBeNull();
+    // The stale legacy key must not keep naming the retired id (walked
+    // 2026-07-11: it was shadowed-but-present before this cleanup).
+    expect(storage.getItem('eco-model-slot-eco-fast')).toBeNull();
+  });
+
+  it('leaves a legacy slot key naming a LIVE model untouched', async () => {
+    storage.setItem('eco-slot-eco-fast', QWEN);
+
+    await runSelfHeal(seamOptions());
+
+    expect(storage.getItem('eco-slot-eco-fast')).toBe(QWEN);
   });
 
   it('clears (does not rebind) an eco-smart slot on the retired id', async () => {
