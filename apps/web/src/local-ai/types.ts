@@ -42,7 +42,7 @@ export type Intent = 'snappy' | 'balanced' | 'quality';
 
 // ─── Catalog model ─────────────────────────────────────────────────────────
 
-export type ModelRuntime = 'transformers' | 'webllm' | 'litert';
+export type ModelRuntime = 'transformers' | 'litert';
 
 /**
  * Concrete download artifact for a catalog model: HuggingFace id, pinned

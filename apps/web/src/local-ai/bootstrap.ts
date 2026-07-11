@@ -12,10 +12,8 @@
  *     into a DownloadPlan via the proxy URL + catalog metadata.
  *   - runtime/transformers-adapter.setWorkerFactory → constructs the
  *     real Worker that imports @huggingface/transformers.
- *   - runtime/webllm-adapter.setWebLLMEngineFactory → constructs the
- *     real WebLLM engine via the published @mlc-ai/web-llm package.
  *   - runtime/lifecycle.setAdapterFactory → picks transformers vs
- *     webllm per (model, profile) using runtime-router.
+ *     litert per (model, profile) using runtime-router.
  *   - lifecycle/smoke.setSmokeGenerationFn → loads the model via
  *     runtime/lifecycle and streams a tiny generation.
  *
@@ -36,11 +34,6 @@ import {
   setWorkerFactory as setTransformersWorkerFactory,
   TransformersAdapter,
 } from './runtime/transformers-adapter';
-import {
-  hasWebLLMEngineFactory,
-  setWebLLMEngineFactory,
-  WebLLMAdapter,
-} from './runtime/webllm-adapter';
 import {
   hasLiteRTEngineFactory,
   setLiteRTEngineFactory,
@@ -117,26 +110,6 @@ export async function bootstrapLocalAi(options?: BootstrapOptions): Promise<void
     });
   }
 
-  // ── WebLLM engine factory ───────────────────────────────────────────────
-  if (!hasWebLLMEngineFactory()) {
-    setWebLLMEngineFactory(async ({ modelId, onProgress }) => {
-      const mod = await import('@mlc-ai/web-llm');
-      const engine = await mod.CreateMLCEngine(modelId, {
-        initProgressCallback: onProgress
-          ? (report: { progress: number; text?: string }) => {
-              const pct = Math.max(0, Math.min(1, report.progress));
-              onProgress(Math.round(pct * 1_000_000), 1_000_000);
-            }
-          : undefined,
-      });
-      // Cast through `unknown` — the published types are a tighter shape
-      // than our adapter's narrow contract requires.
-      return engine as unknown as Parameters<
-        NonNullable<Parameters<typeof setWebLLMEngineFactory>[0]>
-      >[0] extends never ? never : import('./runtime/webllm-adapter').WebLLMEngine;
-    });
-  }
-
   // ── LiteRT-LM engine factory (dev-only eval lane) ───────────────────────
   // Dynamic import keeps the ~38 MB WASM runtime out of the boot bundle —
   // it only loads when a `litert` model is actually selected.
@@ -174,9 +147,6 @@ export async function bootstrapLocalAi(options?: BootstrapOptions): Promise<void
     setAdapterFactory((model: ModelConfig) => {
       const profile = getDeviceProfile();
       const routing = selectRuntime(model, profile);
-      if (routing.runtime === 'webllm') {
-        return new WebLLMAdapter();
-      }
       if (routing.runtime === 'litert') {
         // Same Cache API backend the download pipeline writes to, so the
         // adapter streams the already-downloaded `.litertlm` instead of

@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Bos Computing LLC
 
 import { describe, expect, it } from 'vitest';
-import { canRunWebLLM, selectRuntime } from '../runtime-router';
+import { selectRuntime } from '../runtime-router';
 import type { DeviceProfile, ModelConfig } from '../../types';
 
 const PROFILES: Record<string, DeviceProfile> = {
@@ -24,77 +24,28 @@ const TJS_MODEL: ModelConfig = {
   bestFor: 't', knownLimitation: 'k', evidenceTier: 'proven',
 };
 
-const WEBLLM_MODEL: ModelConfig = {
+const LITERT_MODEL: ModelConfig = {
   ...TJS_MODEL,
-  id: 'local/smollm2-1.7b-webllm-q4f16',
-  friendlyName: 'SmolLM2',
-  runtime: 'webllm',
-  format: 'mlc-q4f16',
+  id: 'candidate/gemma-4-e2b-litert',
+  friendlyName: 'Gemma 4',
+  runtime: 'litert',
+  format: 'litertlm',
 };
 
 describe('selectRuntime', () => {
-  it('honors catalog runtime when device supports it (TJS)', () => {
-    const r = selectRuntime(TJS_MODEL, PROFILES.chromiumWebGPU!);
-    expect(r.runtime).toBe('transformers');
-    expect(r.reason).toBe('catalog-runtime');
-  });
-
-  it('honors catalog runtime when device supports it (WebLLM)', () => {
-    const r = selectRuntime(WEBLLM_MODEL, PROFILES.chromiumWebGPU!);
-    expect(r.runtime).toBe('webllm');
-    expect(r.reason).toBe('catalog-runtime');
-  });
-
-  it('falls back from WebLLM to TJS on Safari', () => {
-    const r = selectRuntime(WEBLLM_MODEL, PROFILES.safari!);
-    expect(r.runtime).toBe('transformers');
-    expect(r.reason).toBe('webllm-fallback');
-  });
-
-  it('falls back from WebLLM to TJS on Firefox', () => {
-    const r = selectRuntime(WEBLLM_MODEL, PROFILES.firefox!);
-    expect(r.runtime).toBe('transformers');
-    expect(r.reason).toBe('webllm-fallback');
-  });
-
-  it('falls back from WebLLM to TJS on Chromium WASM-only', () => {
-    const r = selectRuntime(WEBLLM_MODEL, PROFILES.chromiumWasm!);
-    expect(r.runtime).toBe('transformers');
-    expect(r.reason).toBe('webllm-fallback');
-  });
-
-  it('falls back from WebLLM to TJS on mobile', () => {
-    const r = selectRuntime(WEBLLM_MODEL, PROFILES.mobile!);
-    expect(r.runtime).toBe('transformers');
-  });
-
-  it('TJS always selects transformers regardless of profile', () => {
+  it('honors the transformers catalog runtime regardless of profile', () => {
     for (const profile of Object.values(PROFILES)) {
-      expect(selectRuntime(TJS_MODEL, profile).runtime).toBe('transformers');
+      const r = selectRuntime(TJS_MODEL, profile);
+      expect(r.runtime).toBe('transformers');
+      expect(r.reason).toBe('catalog-runtime');
     }
   });
-});
 
-describe('canRunWebLLM', () => {
-  it('true on chromium + webgpu + desktop', () => {
-    expect(canRunWebLLM(PROFILES.chromiumWebGPU!)).toBe(true);
-  });
-
-  it('false on chromium wasm-only', () => {
-    expect(canRunWebLLM(PROFILES.chromiumWasm!)).toBe(false);
-  });
-
-  it('false on Safari (even with webgpu)', () => {
-    expect(canRunWebLLM({
-      ...PROFILES.safari!,
-      webgpuSupport: 'webgpu',
-    })).toBe(false);
-  });
-
-  it('false on mobile', () => {
-    expect(canRunWebLLM({
-      ...PROFILES.chromiumWebGPU!,
-      isMobile: true,
-    })).toBe(false);
+  it('honors the litert catalog runtime regardless of profile', () => {
+    for (const profile of Object.values(PROFILES)) {
+      const r = selectRuntime(LITERT_MODEL, profile);
+      expect(r.runtime).toBe('litert');
+      expect(r.reason).toBe('catalog-runtime');
+    }
   });
 });

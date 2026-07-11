@@ -24,7 +24,7 @@
  *
  * Adapter creation is injected via `setAdapterFactory` so tests can
  * substitute mocks. The production factory selects transformers-adapter
- * vs webllm-adapter via `runtime-router`.
+ * vs litert-adapter via `runtime-router`.
  */
 
 import type { ModelConfig } from '../types';

@@ -118,7 +118,7 @@ export type LoadResult = {
 
 export type RuntimeAdapter = {
   /** The runtime this adapter speaks. */
-  readonly runtime: 'transformers' | 'webllm' | 'litert';
+  readonly runtime: 'transformers' | 'litert';
   /** True if a model is currently loaded and ready to generate. */
   readonly isLoaded: boolean;
   /** The backend the loaded model is using, or null when unloaded. */

@@ -8,7 +8,6 @@ import {
 } from '../bootstrap';
 import { hasDownloadPlanResolver, setDownloadPlanResolver } from '../download/download';
 import { hasWorkerFactory, setWorkerFactory } from '../runtime/transformers-adapter';
-import { hasWebLLMEngineFactory, setWebLLMEngineFactory } from '../runtime/webllm-adapter';
 import { hasAdapterFactory, setAdapterFactory } from '../runtime/lifecycle';
 import { hasSmokeGenerationFn, setSmokeGenerationFn } from '../lifecycle/smoke';
 
@@ -16,7 +15,6 @@ beforeEach(() => {
   // Reset all DI seams plus the bootstrap latch.
   setDownloadPlanResolver(null);
   setWorkerFactory(null);
-  setWebLLMEngineFactory(null);
   setAdapterFactory(null);
   setSmokeGenerationFn(null);
   _resetBootstrapForTesting();
@@ -25,7 +23,6 @@ beforeEach(() => {
 afterEach(() => {
   setDownloadPlanResolver(null);
   setWorkerFactory(null);
-  setWebLLMEngineFactory(null);
   setAdapterFactory(null);
   setSmokeGenerationFn(null);
   _resetBootstrapForTesting();
@@ -35,7 +32,6 @@ describe('bootstrapLocalAi', () => {
   it('registers every DI seam', async () => {
     expect(hasDownloadPlanResolver()).toBe(false);
     expect(hasWorkerFactory()).toBe(false);
-    expect(hasWebLLMEngineFactory()).toBe(false);
     expect(hasAdapterFactory()).toBe(false);
     expect(hasSmokeGenerationFn()).toBe(false);
 
@@ -43,7 +39,6 @@ describe('bootstrapLocalAi', () => {
 
     expect(hasDownloadPlanResolver()).toBe(true);
     expect(hasWorkerFactory()).toBe(true);
-    expect(hasWebLLMEngineFactory()).toBe(true);
     expect(hasAdapterFactory()).toBe(true);
     expect(hasSmokeGenerationFn()).toBe(true);
   });

@@ -611,8 +611,7 @@ function getResolvedBackend(): RuntimeBackend | null {
   }
 }
 
-function getRuntimeAdapter(model: ModelConfig): 'webllm' | 'transformers' | 'litert' | 'unknown' {
-  if (model.runtime === 'webllm') return 'webllm';
+function getRuntimeAdapter(model: ModelConfig): 'transformers' | 'litert' | 'unknown' {
   if (model.runtime === 'transformers') return 'transformers';
   if (model.runtime === 'litert') return 'litert';
   return 'unknown';
