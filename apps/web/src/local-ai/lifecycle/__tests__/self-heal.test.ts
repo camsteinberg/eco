@@ -437,6 +437,26 @@ describe('runSelfHeal — retired-model migration', () => {
     expect(storage.getItem(NOTICE_HINT_KEY)).toBeNull();
   });
 
+  it('reports the error and leaves the marker unset when an extra-cache purge rejects', async () => {
+    // A rejected extra-cache delete must NOT be swallowed — it has to block the
+    // marker, exactly as a failing clearModel does (marker written only on full
+    // success). Retries next boot.
+    setSlot('eco-fast', RETIRED_ID);
+
+    const report = await runSelfHeal({
+      now: () => nowMs,
+      storage,
+      cacheStorage: new CacheApiStorage(new MemoryCacheStorage()),
+      deleteCacheByName: () => Promise.reject(new Error('cache-delete boom')),
+      retiredMigrations: [migration],
+      resolveEcoFastDefault: () => QWEN,
+    });
+
+    expect(report.retiredModelMigrationsRun).toEqual([]);
+    expect(report.errors.some((e) => e.includes('retired-migration'))).toBe(true);
+    expect(storage.getItem(MARKER)).toBeNull();
+  });
+
   it('runs BEFORE the former-default rebind: a retired eco-fast slot is rebound by THIS migration', async () => {
     // The retired id is not a former everyday default, so if the retirement
     // migration did not run first, the former-default block would leave it (and

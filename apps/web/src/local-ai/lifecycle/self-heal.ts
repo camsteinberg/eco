@@ -227,10 +227,13 @@ function defaultResolveEcoFastDefault(): string | null {
 }
 
 /** Default cache-name delete: the global Cache API, or a no-op where it's absent
- *  (SSR / restricted contexts have no caches to purge). */
+ *  (SSR / restricted contexts have no caches to purge). A rejection is NOT
+ *  swallowed — it propagates to the migration runner's try/catch so a failed
+ *  purge blocks the marker (marker written LAST, only on full success), exactly
+ *  as a failing clearModel does. */
 async function defaultDeleteCacheByName(name: string): Promise<void> {
   if (typeof caches === 'undefined') return;
-  await caches.delete(name).catch(() => false);
+  await caches.delete(name);
 }
 
 /**
