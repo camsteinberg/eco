@@ -214,6 +214,8 @@ describe("interruptActiveGeneration", () => {
     expect(msg.content).toBe("so far pending");
     expect(msg.status).toBe("complete");
     expect(msg.streamInterrupted).toBe(true);
+    // The stop was the user's — record that so the marker copy can say so.
+    expect(msg.interruptedReason).toBe("user-stop");
     expect(generation.abortController.signal.aborted).toBe(true);
     expect(useChatStore.getState().streamPhase).toBe("idle");
     // The active pointer is cleared.

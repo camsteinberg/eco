@@ -167,6 +167,7 @@ export function interruptActiveGeneration(options?: {
     chatState.updateMessage(streamingMessage.id, {
       status: "complete",
       streamInterrupted: true,
+      interruptedReason: "user-stop",
     });
   }
 

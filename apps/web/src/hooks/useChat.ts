@@ -1103,9 +1103,13 @@ export function useChat() {
       // already complete+interrupted. Finalize only if it somehow isn't.
       const msg = useChatStore.getState().messages.find((m) => m.id === assistantId);
       if (msg && msg.status !== "complete") {
+        // Reaching here means interruptActiveGeneration (the user-stop path)
+        // did NOT already finalize this message — the abort came from elsewhere
+        // (e.g. a lookup abort), so classify it as a fault, not "you stopped".
         updateMessage(assistantId, {
           status: "complete",
           streamInterrupted: true,
+          interruptedReason: "fault",
           inferenceMethod: "local",
         });
       }
@@ -1280,7 +1284,11 @@ export function useChat() {
     const hasPartialContent = Boolean(assistantMsg && assistantMsg.content.length > 0);
 
     if (hasPartialContent) {
-      updateMessage(assistantId, { status: "complete", streamInterrupted: true });
+      updateMessage(assistantId, {
+        status: "complete",
+        streamInterrupted: true,
+        interruptedReason: "fault",
+      });
       return;
     }
 

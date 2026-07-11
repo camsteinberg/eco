@@ -50,6 +50,16 @@ export interface ChatMessage {
   streamStartTime?: number | null;
   /** True when stream dropped mid-response (partial content received). */
   streamInterrupted?: boolean;
+  /**
+   * Why the stream was interrupted, when known. Drives honest per-cause copy in
+   * `StreamInterrupted`:
+   * - `user-stop` — the user pressed Stop.
+   * - `fault` — an on-device runtime fault ended the reply early.
+   * - `restore-detected` — a reply left unfinalized by a crash/reload, caught by
+   *   the restore sweep. Optional and backward-compatible: older interrupted
+   *   messages carry no reason and get neutral phrasing.
+   */
+  interruptedReason?: "user-stop" | "fault" | "restore-detected";
   /** True when a local response ended near its generation limit and may need continuation. */
   possiblyTruncated?: boolean;
   localCompletionTokens?: number;
@@ -168,7 +178,7 @@ interface ChatActions {
   ) => void;
   restorePersistedPreferences: () => void;
   restorePersistedComposerDraft: () => void;
-  updateMessage: (id: string, updates: Partial<Pick<ChatMessage, "content" | "status" | "errorMessage" | "streamInterrupted" | "possiblyTruncated" | "localCompletionTokens" | "localMaxTokens" | "resolvedModel" | "inferenceMethod" | "confidence" | "offlineDivider" | "localReadiness" | "currentGenerationId" | "lastSeq" | "canonicalToolAnswer">>) => void;
+  updateMessage: (id: string, updates: Partial<Pick<ChatMessage, "content" | "status" | "errorMessage" | "streamInterrupted" | "interruptedReason" | "possiblyTruncated" | "localCompletionTokens" | "localMaxTokens" | "resolvedModel" | "inferenceMethod" | "confidence" | "offlineDivider" | "localReadiness" | "currentGenerationId" | "lastSeq" | "canonicalToolAnswer">>) => void;
   removeMessage: (id: string) => void;
   addFileAttachment: (file: File) => string;
   updateFileAttachment: (id: string, updates: Partial<FileAttachment>) => void;
