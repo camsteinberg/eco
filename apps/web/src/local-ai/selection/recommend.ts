@@ -98,21 +98,24 @@ export const PREFERRED_SMART_MODEL_ID = 'candidate/qwen3.5-2b-onnx';
  * device-appropriate default. Boot self-heal migrates an eco-fast slot still
  * bound to one of these — but device-aware: it rebinds to `recommend('eco-fast',
  * profile)`, not a fixed constant. Profiles primed before a graduation otherwise
- * keep the old model forever (observed live 2026-06-10: a pre-06-05 profile still
- * chatting on Bonsai five days after the LFM2.5 graduation).
+ * keep the old model forever.
  *
  * LFM2.5-1.2B is here because the 2026-06-13 everyday-swap superseded it on
  * capable devices — but it is NOT demoted everywhere (it remains the default on
  * low-memory/non-Chromium devices). The device-aware rebind handles this: on a
  * low-memory device `recommend('eco-fast')` returns LFM2.5 itself, so the rebind
- * is a no-op. Bonsai is fully demoted; on any device it yields to the recommendation.
+ * is a no-op.
+ *
+ * Bonsai used to sit here (the dev-era former default) but retired 2026-07-11 —
+ * a bonsai-bound slot is now handled by the retirement migration in
+ * lifecycle/self-heal.ts (RETIRED_MODEL_MIGRATIONS), which runs before this
+ * former-default rebind, so it no longer needs a former-default entry.
  *
  * There is no eco-smart counterpart: no shipped code path has ever auto-bound the
  * eco-smart slot (setup and Settings both bind eco-fast), so there is no
  * system-written stale-smart-binding population to migrate.
  */
 export const FORMER_EVERYDAY_DEFAULT_IDS: ReadonlyArray<string> = [
-  'local/bonsai-1.7b-q4',
   'candidate/lfm2.5-1.2b-instruct-onnx',
 ];
 
@@ -121,7 +124,8 @@ export const FORMER_EVERYDAY_DEFAULT_IDS: ReadonlyArray<string> = [
  * WebGPU but lack the `shader-f16` feature — older-Intel desktops (C2) and ~all
  * Adreno Android (C3) — every q4f16 ONNX/MLC build is unassignable, but Gemma 4
  * (LiteRT, non-f16 `.litertlm`) loads fine. It is therefore the device-appropriate
- * default there, displacing the demoted Bonsai floor (which stays selectable).
+ * default there — the f16-free floor role Bonsai used to share before it retired
+ * (2026-07-11); LFM2.5-350M (onnx-q4) remains the light non-f16 fallback.
  * Empirically confirmed runnable on a shimmed-f16-less WebGPU device (#191: 51/51
  * generations, 0 errors). Where Gemma is ALSO unassignable (low-memory / WASM-only
  * / non-Chromium) it never enters the ranked list, so preferring it is a safe
