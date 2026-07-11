@@ -22,7 +22,6 @@
     "@eco/ui": "workspace:*",
     "@huggingface/transformers": "4.2.0",
     "@litert-lm/core": "0.13.1",
-    "@mlc-ai/web-llm": "0.2.83",
     "@noble/hashes": "^2.0.1",
     "@sentry/nextjs": "^10.43.0",
     "better-auth": "^1.6.23",
