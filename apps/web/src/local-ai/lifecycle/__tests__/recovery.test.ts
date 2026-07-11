@@ -79,11 +79,11 @@ describe('resolveReadyLocalRecoveryModelId', () => {
   });
 
   it('falls back to eco-smart when eco-fast is empty', async () => {
-    bindReady('eco-smart', 'local/smollm2-1.7b-webllm-q4f16');
+    bindReady('eco-smart', 'candidate/qwen3.5-2b-onnx');
     const result = await resolveReadyLocalRecoveryModelId({
       currentModelId: null,
     });
-    expect(result).toBe('local/smollm2-1.7b-webllm-q4f16');
+    expect(result).toBe('candidate/qwen3.5-2b-onnx');
   });
 
   it('returns null when all slots are empty', async () => {
@@ -96,7 +96,7 @@ describe('resolveReadyLocalRecoveryModelId', () => {
   it('returns null when all slots are in error state', async () => {
     setSlot('eco-fast', 'local/phi3-mini-4k-q4f16');
     setSlotStatus('eco-fast', 'error');
-    setSlot('eco-smart', 'local/smollm2-1.7b-webllm-q4f16');
+    setSlot('eco-smart', 'candidate/qwen3.5-2b-onnx');
     setSlotStatus('eco-smart', 'error');
     const result = await resolveReadyLocalRecoveryModelId({
       currentModelId: null,
@@ -106,12 +106,12 @@ describe('resolveReadyLocalRecoveryModelId', () => {
 
   it('prefers preferredModelId over slot-scan when currentModelId is null', async () => {
     bindReady('eco-fast', 'local/phi3-mini-4k-q4f16');
-    bindReady('eco-smart', 'local/smollm2-1.7b-webllm-q4f16');
+    bindReady('eco-smart', 'candidate/qwen3.5-2b-onnx');
     const result = await resolveReadyLocalRecoveryModelId({
       currentModelId: null,
-      preferredModelId: 'local/smollm2-1.7b-webllm-q4f16',
+      preferredModelId: 'candidate/qwen3.5-2b-onnx',
     });
-    expect(result).toBe('local/smollm2-1.7b-webllm-q4f16');
+    expect(result).toBe('candidate/qwen3.5-2b-onnx');
   });
 
   it('ignores preferredModelId when it is not a ready slot model', async () => {
@@ -134,7 +134,7 @@ describe('getLocalRecoveryCandidateIds', () => {
 
   it('returns only ready slot model ids', () => {
     bindReady('eco-fast', 'local/phi3-mini-4k-q4f16');
-    setSlot('eco-smart', 'local/smollm2-1.7b-webllm-q4f16');
+    setSlot('eco-smart', 'candidate/qwen3.5-2b-onnx');
     // eco-smart is 'preparing', not 'ready'
     const ids = getLocalRecoveryCandidateIds();
     expect(ids).toEqual(['local/phi3-mini-4k-q4f16']);
@@ -142,11 +142,11 @@ describe('getLocalRecoveryCandidateIds', () => {
 
   it('returns both when both slots are ready', () => {
     bindReady('eco-fast', 'local/phi3-mini-4k-q4f16');
-    bindReady('eco-smart', 'local/smollm2-1.7b-webllm-q4f16');
+    bindReady('eco-smart', 'candidate/qwen3.5-2b-onnx');
     const ids = getLocalRecoveryCandidateIds();
     expect(ids).toEqual([
       'local/phi3-mini-4k-q4f16',
-      'local/smollm2-1.7b-webllm-q4f16',
+      'candidate/qwen3.5-2b-onnx',
     ]);
   });
 });

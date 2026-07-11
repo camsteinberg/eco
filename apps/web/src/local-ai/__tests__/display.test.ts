@@ -6,9 +6,9 @@ import { getDisplayInfo } from '../display';
 import { getCatalog } from '../catalog/catalog';
 
 describe('getDisplayInfo', () => {
-  it('returns branded names for all 8 catalog models', () => {
+  it('returns branded names for all 7 catalog models', () => {
     const catalog = getCatalog();
-    expect(catalog.length).toBe(8);
+    expect(catalog.length).toBe(7);
 
     for (const model of catalog) {
       const info = getDisplayInfo(model.id, model);
@@ -17,17 +17,6 @@ describe('getDisplayInfo', () => {
       // Provenance always includes the size
       expect(info.provenance).toContain('GB');
     }
-  });
-
-  it('maps SmolLM2 to Eco Quick (Smol)', () => {
-    const info = getDisplayInfo('local/smollm2-1.7b-webllm-q4f16', {
-      friendlyName: 'SmolLM2',
-      vendor: 'Hugging Face (via MLC AI)',
-      sizeGB: 0.97,
-    });
-    expect(info.friendlyName).toBe('Eco Quick (Smol)');
-    expect(info.qualityPhrase).toBe('Highest throughput · fastest replies');
-    expect(info.provenance).toBe('Hugging Face · 1.0 GB');
   });
 
   it('maps Phi-3 Mini to Eco Reasoning (Microsoft)', () => {

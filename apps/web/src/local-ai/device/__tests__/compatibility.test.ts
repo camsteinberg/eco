@@ -7,9 +7,9 @@
  * Tests:
  *   - Every v1.0 catalog model has a compatibility rule (no silent drift if
  *     someone adds a sixth model without updating the table).
- *   - Hardware floor enforced (≥16 GB for Phi-3 / SmolLM2, ≥8 GB for Bonsai,
+ *   - Hardware floor enforced (≥16 GB for Phi-3, ≥8 GB for Bonsai,
  *     ≥4 GB for Qwen3, ≥3 GB for LFM2.5).
- *   - WebGPU floor enforced (Phi-3 / SmolLM2 / Bonsai require WebGPU).
+ *   - WebGPU floor enforced (Phi-3 / Bonsai require WebGPU).
  *   - Browser-engine floor enforced (only Chromium for WebGPU-required models).
  *   - `with-warning` for mobile form factor on desktop-targeted models.
  *   - `isAssignable` agrees with `isCompatible !== 'unsupported'`.
@@ -133,23 +133,6 @@ describe('device/compatibility — Phi-3 Mini (high-memory WebGPU)', () => {
   it('unsupported on Safari and Firefox', () => {
     expect(isCompatible(phi3(), PROFILES.safariDesktop)).toBe('unsupported');
     expect(isCompatible(phi3(), PROFILES.firefoxDesktop)).toBe('unsupported');
-  });
-});
-
-describe('device/compatibility — SmolLM2 (high-memory WebGPU via WebLLM)', () => {
-  const smol = () => model('local/smollm2-1.7b-webllm-q4f16');
-
-  it('supported on Chromium WebGPU ≥16 GB', () => {
-    expect(isCompatible(smol(), PROFILES.chromiumHighMem)).toBe('supported');
-  });
-
-  it('unsupported on Chromium WebGPU 8 GB', () => {
-    expect(isCompatible(smol(), PROFILES.chromiumCapableLaptop)).toBe('unsupported');
-  });
-
-  it('unsupported on Firefox or Safari', () => {
-    expect(isCompatible(smol(), PROFILES.firefoxDesktop)).toBe('unsupported');
-    expect(isCompatible(smol(), PROFILES.safariDesktop)).toBe('unsupported');
   });
 });
 

@@ -3,6 +3,20 @@
 This file documents the provenance of each backfill record in
 `v1-launch-manual-evidence.json`. Records are grouped by source type.
 
+## Retirements
+
+**2026-07-10 — SmolLM2 (`local/smollm2-1.7b-webllm-q4f16`) retired.** Every SmolLM2
+row was removed from `v1-launch-manual-evidence.json` (both the
+`src/local-ai/evidence/data/` and `src/lib/data/` copies): the
+`routingEvidenceReconciliation` entry, the `finalLabDecision` decision, the
+`launchReadiness.manualEligibleModelIds` id, and the `modelStateMatrix` entry.
+The model was the sole user of the WebLLM/MLC runtime (retired with it, registry
+C1); its last fresh eval rerun failed 4/4 at load with `Quota exceeded.`, so it
+never carried an admitted runtime seed. A boot migration
+(`lifecycle/self-heal.ts`) purges any orphaned per-device state on affected
+clients. The historical provenance line below is kept as a record of the row
+that existed before removal.
+
 ## Runtime Seed Benchmark Records (real hardware measurements)
 
 Refresh correction (2026-06-19 Gemma catalogue closeout): the checked runtime

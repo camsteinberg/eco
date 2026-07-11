@@ -12,7 +12,6 @@ import {
 
 const V1_CATALOG_IDS = [
   "local/phi3-mini-4k-q4f16",
-  "local/smollm2-1.7b-webllm-q4f16",
   "local/bonsai-1.7b-q4",
   "local/qwen3-0.6b",
   "candidate/lfm2.5-1.2b-instruct-onnx",
@@ -22,9 +21,9 @@ const V1_CATALOG_IDS = [
 ] as const;
 
 describe("local model registry (v1 catalog)", () => {
-  it("contains exactly the 8 v1 catalog models", () => {
+  it("contains exactly the 7 v1 catalog models", () => {
     const entries = getLocalModelRegistryEntries();
-    expect(entries).toHaveLength(8);
+    expect(entries).toHaveLength(7);
     expect(entries.map((e) => e.modelId)).toEqual(
       expect.arrayContaining([...V1_CATALOG_IDS]),
     );
@@ -57,13 +56,12 @@ describe("local model registry (v1 catalog)", () => {
 
   it("returns proxy-allowed artifacts for all catalog models with artifacts", () => {
     const proxyArtifacts = getProxyAllowedLocalModelRegistryArtifacts();
-    expect(proxyArtifacts.length).toBeGreaterThanOrEqual(7);
+    expect(proxyArtifacts.length).toBeGreaterThanOrEqual(6);
     expect(proxyArtifacts.map((a) => a.hfId)).toEqual(
       expect.arrayContaining([
         "onnx-community/Qwen3-0.6B-ONNX",
         "onnx-community/Bonsai-1.7B-ONNX",
         "microsoft/Phi-3-mini-4k-instruct-onnx-web",
-        "mlc-ai/SmolLM2-1.7B-Instruct-q4f16_1-MLC",
         "LiquidAI/LFM2.5-1.2B-Instruct-ONNX",
         "onnx-community/LFM2.5-350M-ONNX",
         "onnx-community/Qwen3.5-2B-ONNX-OPT",
@@ -129,16 +127,6 @@ describe("local model registry (v1 catalog)", () => {
     });
     expect(phi3Artifact!.files).toContain("onnx/model_q4f16.onnx");
     expect(phi3Artifact!.files).toContain("onnx/model_q4f16.onnx_data");
-  });
-
-  it("centralizes reviewed artifact identity for SmolLM2 (WebLLM)", () => {
-    const smollm2Artifact = getLocalModelRegistryArtifact("local/smollm2-1.7b-webllm-q4f16");
-    expect(smollm2Artifact).toMatchObject({
-      hfId: "mlc-ai/SmolLM2-1.7B-Instruct-q4f16_1-MLC",
-      revision: "84f57f8580a9d8d623266b600ad4273bb9fd84c1",
-    });
-    expect(smollm2Artifact!.files).toContain("params_shard_0.bin");
-    expect(smollm2Artifact!.files).toContain("ndarray-cache.json");
   });
 
   it("returns null artifact for unknown model ids", () => {

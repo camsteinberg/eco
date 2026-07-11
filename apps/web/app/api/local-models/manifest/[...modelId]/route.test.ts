@@ -32,23 +32,6 @@ describe("GET /api/local-models/manifest/[...modelId]", () => {
     }
   });
 
-  it("returns 200 with correct shape for local/smollm2-1.7b-webllm-q4f16", async () => {
-    const response = await GET(...manifestRequest(["local", "smollm2-1.7b-webllm-q4f16"]));
-    expect(response.status).toBe(200);
-
-    const body = await response.json();
-    expect(body.modelId).toBe("local/smollm2-1.7b-webllm-q4f16");
-    expect(body.hfId).toBe("mlc-ai/SmolLM2-1.7B-Instruct-q4f16_1-MLC");
-    expect(body.revision).toBe("84f57f8580a9d8d623266b600ad4273bb9fd84c1");
-    expect(body.files.length).toBeGreaterThan(0);
-
-    for (const file of body.files) {
-      expect(typeof file.path).toBe("string");
-      expect(file.sizeBytes).toBeGreaterThan(0);
-      expect(file.oid.length).toBeGreaterThan(0);
-    }
-  });
-
   it("returns 200 with correct shape for local/bonsai-1.7b-q4", async () => {
     const response = await GET(...manifestRequest(["local", "bonsai-1.7b-q4"]));
     expect(response.status).toBe(200);

@@ -20,7 +20,6 @@ import artifactMetadata from '../artifact-metadata.json';
 
 const V1_CATALOG_IDS = [
   'local/phi3-mini-4k-q4f16',
-  'local/smollm2-1.7b-webllm-q4f16',
   'local/bonsai-1.7b-q4',
   'local/qwen3-0.6b',
   'candidate/lfm2.5-1.2b-instruct-onnx',
@@ -32,8 +31,8 @@ const V1_CATALOG_IDS = [
 const TECHNICAL_ID_PATTERN = /q4f16|q4f|q4_1|webllm|onnx|fp16|q8|q4\b|q2f16|bnb4|mlc/i;
 
 describe('local-ai catalog (Phase C)', () => {
-  it('ships exactly 8 models', () => {
-    expect(getCatalog()).toHaveLength(8);
+  it('ships exactly 7 models', () => {
+    expect(getCatalog()).toHaveLength(7);
   });
 
   it('ships the locked v1.0 catalog ids in source order', () => {
@@ -47,7 +46,7 @@ describe('local-ai catalog (Phase C)', () => {
     expect(model!.friendlyName, `${id}.friendlyName`).toMatch(/\S/);
     expect(model!.vendor, `${id}.vendor`).toMatch(/\S/);
     expect(model!.sizeGB, `${id}.sizeGB`).toBeGreaterThan(0);
-    expect(['transformers', 'webllm', 'litert']).toContain(model!.runtime);
+    expect(['transformers', 'litert']).toContain(model!.runtime);
     expect(['onnx-q4', 'onnx-q4f16', 'mlc-q4f16', 'litertlm']).toContain(model!.format);
     expect(model!.capabilities.intent.length, `${id}.capabilities.intent`).toBeGreaterThan(0);
     expect(model!.capabilities.tasks.length, `${id}.capabilities.tasks`).toBeGreaterThan(0);
@@ -60,13 +59,12 @@ describe('local-ai catalog (Phase C)', () => {
   // Context windows are per-model MEASURED values, not defaults: 8192 requires
   // real-WebGPU memory-headroom evidence for that exact model (LFM2.5-1.2B +
   // Qwen3.5-2B verified 2026-06-12; both are hybrid-attention = small KV).
-  // The rest stay 4096 deliberately — Phi-3 is natively 4k, SmolLM2 rides the
-  // WebLLM prebuilt config, and the small/legacy models haven't earned a
-  // measurement. Raising any value here means a fresh headroom run first.
+  // The rest stay 4096 deliberately — Phi-3 is natively 4k, and the
+  // small/legacy models haven't earned a measurement. Raising any value here
+  // means a fresh headroom run first.
   it('pins the measured per-model context windows', () => {
     const expected: Record<(typeof V1_CATALOG_IDS)[number], number> = {
       'local/phi3-mini-4k-q4f16': 4096,
-      'local/smollm2-1.7b-webllm-q4f16': 4096,
       'local/bonsai-1.7b-q4': 4096,
       'local/qwen3-0.6b': 4096,
       'candidate/lfm2.5-1.2b-instruct-onnx': 8192,
@@ -118,7 +116,7 @@ describe('local-ai catalog (Phase C)', () => {
     }).toThrow();
     // And the array itself is a copy — mutating it doesn't break the next reader.
     snapshot.length = 0;
-    expect(getCatalog()).toHaveLength(8);
+    expect(getCatalog()).toHaveLength(7);
   });
 
   // The catalog's artifact files must have corresponding entries in

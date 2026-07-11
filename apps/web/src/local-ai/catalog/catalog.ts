@@ -6,15 +6,18 @@
  *
  * Exactly 7 models ship in the user-facing catalog:
  *   1. local/phi3-mini-4k-q4f16    — Phi-3 Mini   (Chromium WebGPU ≥16GB, proven)
- *   2. local/smollm2-1.7b-webllm-q4f16 — SmolLM2  (secondary high-memory, proven)
- *   3. local/bonsai-1.7b-q4        — Bonsai      (capable-laptop, proven; demoted default)
- *   4. local/qwen3-0.6b            — Qwen3       (universal small / Safari WASM, proven)
- *   5. candidate/lfm2.5-1.2b-instruct-onnx — LFM2.5 1.2B (capable-laptop, proven; DEFAULT)
- *   6. candidate/lfm2.5-350m-onnx  — LFM2.5      (starter; f16-less-WebGPU light rung —
+ *   2. local/bonsai-1.7b-q4        — Bonsai      (capable-laptop, proven; demoted default)
+ *   3. local/qwen3-0.6b            — Qwen3       (universal small / Safari WASM, proven)
+ *   4. candidate/lfm2.5-1.2b-instruct-onnx — LFM2.5 1.2B (capable-laptop, proven; DEFAULT)
+ *   5. candidate/lfm2.5-350m-onnx  — LFM2.5      (starter; f16-less-WebGPU light rung —
  *                                    NOT the WASM floor: its block-quant embeddings need
  *                                    GatherBlockQuantized, absent on ort-web's CPU EP)
- *   7. candidate/qwen3.5-2b-onnx   — Qwen3.5 2B  (capable-laptop, proven; SMART PICK,
+ *   6. candidate/qwen3.5-2b-onnx   — Qwen3.5 2B  (capable-laptop, proven; SMART PICK,
  *                                    graduated 2026-06-11 from the chat #7 bake-off)
+ *   7. candidate/gemma-4-e2b-litert — Gemma 4    (LiteRT; f16-less-WebGPU default, proven)
+ *
+ * SmolLM2 (WebLLM/MLC) was retired 2026-07-10 — see the retirement migration in
+ * lifecycle/self-heal.ts and CHANGES.md.
  *
  * Non-shipping evaluation candidates live in
  * `apps/web/src/local-ai/eval/eval-candidates.ts` (the eval-only lane) and are

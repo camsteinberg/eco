@@ -118,10 +118,10 @@ test.describe('Switch your AI dialog structure', () => {
     await openSwitchAIDialog(page);
     await page.getByText(/choose your own/i).click();
 
-    // The flat list should include at least Phi-3 + SmolLM2 (benchmark-proven
+    // The flat list should include at least Phi-3 + Bonsai (benchmark-proven
     // on this profile) plus LFM2.5 (calculated for high-memory).
     await expect(page.getByText(/Phi-3 Mini/i).first()).toBeVisible();
-    await expect(page.getByText(/SmolLM2/i).first()).toBeVisible();
+    await expect(page.getByText(/Bonsai/i).first()).toBeVisible();
     // Exactly one Recommended tag (on the top-ranked entry).
     await expect(page.getByText(/^recommended$/i)).toHaveCount(1);
   });

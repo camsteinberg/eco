@@ -41,7 +41,7 @@ const profileCases: ProfileCase[] = [
     name: "chromium-16gb",
     params:
       "eco-force-capability=webgpu&eco-force-browser=chromium&eco-force-platform=desktop&eco-force-device-memory=16&eco-force-opfs=true",
-    // Seed evidence has Phi-3 Mini and SmolLM2 for high-memory chromium.
+    // Seed evidence has Phi-3 Mini for high-memory chromium.
     // eco-fast falls back to the best acceptable (Phi-3 Mini, full-tier).
     expectedFastModel: /Phi-3 Mini/i,
     expectedWizardText: [/Recommended for your device/i],

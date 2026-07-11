@@ -22,7 +22,7 @@ type LocalGenerationSamplingDefaults = {
 };
 
 type LocalModelFamily =
-  | 'qwen3' | 'qwen3_5' | 'smollm2' | 'bonsai' | 'phi' | 'lfm2';
+  | 'qwen3' | 'qwen3_5' | 'bonsai' | 'phi' | 'lfm2';
 
 type LocalModelIntentFit =
   | 'quick' | 'explain' | 'deep' | 'code' | 'writing' | 'file' | 'research';
@@ -204,22 +204,6 @@ const PHI3_MINI_GEN: GenerationProfileSlice = {
   },
 };
 
-const SMOLLM2_WEBLLM_GEN: GenerationProfileSlice = {
-  generationDefaults: {
-    temperature: 0.45,
-    topP: 0.9,
-    topK: 40,
-    repetitionPenalty: 1.04,
-    intentOverrides: {
-      quick: { temperature: 0.28, topP: 0.84 },
-      explain: { temperature: 0.38, topP: 0.88 },
-      writing: { temperature: 0.44, topP: 0.88, repetitionPenalty: 1.06, noRepeatNgramSize: 4 },
-      code: { temperature: 0.18, topP: 0.82 },
-    },
-  },
-  contextBudget: DEFAULT_CONTEXT_BUDGET,
-};
-
 function bonsaiGenerationProfile(quantization: "q1" | "q2" | "q4" | "q8"): GenerationProfileSlice {
   const q1 = quantization === "q1";
   const q8 = quantization === "q8";
@@ -329,7 +313,6 @@ const GEMMA4_LITERT_GEN: GenerationProfileSlice = {
 
 const PROFILE_BY_MODEL_ID: Record<string, GenerationProfileSlice> = {
   "local/bonsai-1.7b-q4": bonsaiGenerationProfile("q4"),
-  "local/smollm2-1.7b-webllm-q4f16": SMOLLM2_WEBLLM_GEN,
   "local/phi3-mini-4k-q4f16": PHI3_MINI_GEN,
   "local/qwen3-0.6b": QWEN_GEN,
   "candidate/lfm2.5-350m-onnx": LFM25_350M_GEN,
@@ -363,7 +346,6 @@ const PROFILE_BY_MODEL_ID: Record<string, GenerationProfileSlice> = {
 const FAMILY_FALLBACK: Record<LocalModelFamily, GenerationProfileSlice> = {
   qwen3: QWEN_GEN,
   qwen3_5: QWEN35_GEN,
-  smollm2: SMOLLM2_WEBLLM_GEN,
   phi: PHI3_MINI_GEN,
   lfm2: LFM25_350M_GEN,
   bonsai: bonsaiGenerationProfile("q4"),

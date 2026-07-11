@@ -75,12 +75,6 @@ const CHAT_INTENT_MODEL_DATA: Record<string, ChatIntentModelSlice> = {
     qualityTier: "smart",
     maxNewTokens: { webgpu: 1024 },
   },
-  "local/smollm2-1.7b-webllm-q4f16": {
-    id: "local/smollm2-1.7b-webllm-q4f16",
-    family: "smollm2",
-    qualityTier: "smart",
-    maxNewTokens: { webgpu: 1024 },
-  },
   "local/bonsai-1.7b-q4": {
     id: "local/bonsai-1.7b-q4",
     family: "bonsai",

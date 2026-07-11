@@ -181,7 +181,6 @@ describe('loadSeedEvidence — profile-scoped query', () => {
     const evidence = loadSeedEvidence(profile({ deviceMemoryGB: 24 }));
     const ids = evidence.map((e) => e.modelId).sort();
     // After the 2026-06-19 refresh: Qwen3.5 + LFM2.5-1.2B (benchmark) join the prior high-memory rows.
-    // SmolLM2 has a stale contradictory seed row with embedded failure proof and must not count as proven.
     expect(ids).toEqual([
       'candidate/lfm2.5-1.2b-instruct-onnx',
       'candidate/lfm2.5-350m-onnx',
@@ -190,12 +189,28 @@ describe('loadSeedEvidence — profile-scoped query', () => {
     ]);
   });
 
-  it('does not return internally failed rows even when their top-level readiness is ready', () => {
-    const smollm2 = loadSeedEvidenceForModel(
-      'local/smollm2-1.7b-webllm-q4f16',
-      profile({ deviceMemoryGB: 24 }),
-    );
-    expect(smollm2).toBeNull();
+  it('does not surface a reconciliation row that is blocked / compatibility-failed even with a benchmark', () => {
+    // Mirrors the shape of the retired lab-blocked SmolLM2 row (readiness
+    // blocked + compatibilityState fail + a failing lifecycle phase):
+    // isUsableSeedRecord filters it out before it can be surfaced as proof,
+    // regardless of any embedded benchmark numbers. Kept as a synthetic record
+    // so the behavior coverage outlives the retired model's seed data.
+    expect(
+      isUsableSeedRecord({
+        modelId: 'candidate/blocked-shaped-model',
+        browserClass: 'chromium',
+        deviceClass: 'high-memory-laptop',
+        readiness: 'blocked',
+        compatibilityState: 'fail',
+        routingEvidence: {
+          readiness: 'blocked',
+          failureCode: 'smoke-readiness-failed',
+          recentFailures: 3,
+          benchmark: { firstTokenMs: 711, tokensPerSecond: 31.3, reliability: 0.83 },
+          lifecycleProof: { prepare: { status: 'fail' } },
+        },
+      }),
+    ).toBe(false);
   });
 
   it('returns bonsai + qwen3 + lfm2.5 on Chromium WebGPU 8 GB (capable-laptop)', () => {

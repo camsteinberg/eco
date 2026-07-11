@@ -105,11 +105,25 @@ export type RetiredModelMigration = {
 };
 
 /**
- * Retired-model migrations. Empty until a model is actually retired; a real
- * entry MUST land in the same commit that removes the model from the catalog,
- * so the migration never runs against a live catalog id.
+ * Retired-model migrations. A real entry MUST land in the same commit that
+ * removes the model from the catalog, so the migration never runs against a
+ * live catalog id.
+ *
+ * 2026-07-10: SmolLM2 (`local/smollm2-1.7b-webllm-q4f16`) — the sole model on
+ * the retired WebLLM/MLC runtime. Its weights lived in Eco's own
+ * `eco-local-ai-<id>` namespace AND in WebLLM's private Cache API caches
+ * ('webllm/model' | 'webllm/config' | 'webllm/wasm', the lib's default cache
+ * backend), which are disjoint from Eco's namespace and must be named
+ * explicitly to be purged.
  */
-const RETIRED_MODEL_MIGRATIONS: ReadonlyArray<RetiredModelMigration> = [];
+const RETIRED_MODEL_MIGRATIONS: ReadonlyArray<RetiredModelMigration> = [
+  {
+    modelId: 'local/smollm2-1.7b-webllm-q4f16',
+    friendlyLabel: 'SmolLM2',
+    markerKey: 'eco-local-ai-mig-retire-smollm2-v1',
+    extraCacheNames: ['webllm/model', 'webllm/config', 'webllm/wasm'],
+  },
+];
 
 /** Canonical owner: stores/chatStore.ts (SELECTED_MODEL_STORAGE_KEY). */
 const SELECTED_MODEL_KEY = 'eco-selected-model';

@@ -326,7 +326,7 @@ describe('listCatalog', () => {
     expect(ids.size).toBe(r.available.length);
   });
 
-  it('surfaces phi3 benchmark proof while keeping smollm2 unproven on Chromium 24 GB', () => {
+  it('surfaces phi3 benchmark proof on Chromium 24 GB', () => {
     // phi3's seed row is dated 2026-05-13; pin the clock to the snapshot's
     // generation date so the row stays inside its 45-day freshness TTL and the
     // benchmark-confidence path is exercised deterministically (otherwise this
@@ -335,16 +335,13 @@ describe('listCatalog', () => {
     vi.setSystemTime(new Date('2026-06-19T00:00:00.000Z'));
     const r = listCatalog(PROFILE_24GB);
     const phi3 = r.available.find((entry) => entry.model.id === 'local/phi3-mini-4k-q4f16');
-    const smollm2 = r.available.find((entry) => entry.model.id === 'local/smollm2-1.7b-webllm-q4f16');
     expect(phi3?.confidence).toBe('benchmark');
-    expect(smollm2?.confidence).not.toBe('benchmark');
   });
 
   it('omits unsupported models entirely on Firefox', () => {
     const r = listCatalog(PROFILE_FIREFOX);
     const allIds = r.available.map((entry) => entry.model.id);
     expect(allIds).not.toContain('local/phi3-mini-4k-q4f16');
-    expect(allIds).not.toContain('local/smollm2-1.7b-webllm-q4f16');
     expect(allIds).not.toContain('local/bonsai-1.7b-q4');
   });
 

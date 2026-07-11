@@ -527,13 +527,13 @@ describe('buildSnapshotFromEvalExport', () => {
       generatedAt: '2026-05-13T23:05:00.000Z',
       routingEvidenceReconciliation: [
         {
-          modelId: 'local/smollm2-1.7b-webllm-q4f16',
+          modelId: 'local/bonsai-1.7b-q4',
           browserClass: 'chromium',
           deviceClass: 'high-memory-laptop',
           readiness: 'ready',
           compatibilityState: 'fail',
           routingEvidence: {
-            runtimeAdapter: 'webllm-mlc',
+            runtimeAdapter: 'transformers',
             lifecycleProof: {
               prepare: { status: 'fail', reason: 'download-status:not-downloaded' },
             },
@@ -553,7 +553,7 @@ describe('buildSnapshotFromEvalExport', () => {
       ],
     };
 
-    const failedSmollm = run({
+    const failedBonsai = run({
       device: {
         profileKey: 'chromium|high-memory-laptop|webgpu',
         browserClass: 'chromium',
@@ -562,7 +562,7 @@ describe('buildSnapshotFromEvalExport', () => {
       },
       results: [
         result({
-          modelId: 'local/smollm2-1.7b-webllm-q4f16',
+          modelId: 'local/bonsai-1.7b-q4',
           error: 'load failed: network error',
           perf: { ttftMs: null, tokensPerSec: null, totalMs: 1000, completionTokens: 0, smokePass: false },
         }),
@@ -586,7 +586,7 @@ describe('buildSnapshotFromEvalExport', () => {
 
     const snapshot = buildSnapshotFromEvalExport(
       existing,
-      { schemaVersion: 1, dumpedAt: GENERATED_AT, runs: [failedSmollm, failedCalculatedWasm] },
+      { schemaVersion: 1, dumpedAt: GENERATED_AT, runs: [failedBonsai, failedCalculatedWasm] },
       GENERATED_AT,
     );
 

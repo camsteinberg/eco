@@ -419,12 +419,20 @@ describe('runSelfHeal — retired-model migration', () => {
     expect(readRawSlotIdForMigration('eco-fast')).toBe(QWEN);
   });
 
-  it('is a no-op with no migrations configured (default empty module const)', async () => {
-    setSlot('eco-fast', RETIRED_ID);
-    const report = await runSelfHeal({ now: () => nowMs, storage, resolveEcoFastDefault: () => QWEN });
-    expect(report.retiredModelMigrationsRun).toEqual([]);
-    // Untouched: the raw retired binding survives (getSlot still nulls it).
-    expect(readRawSlotIdForMigration('eco-fast')).toBe(RETIRED_ID);
+  it('wires the real SmolLM2 retirement through the default module const (no seam)', async () => {
+    // With no retiredMigrations seam, runSelfHeal uses the shipping const, whose
+    // sole entry is the retired SmolLM2. On a profile that never had it, the
+    // migration still runs to completion (idempotent no-op) and marks itself done.
+    const report = await runSelfHeal({
+      now: () => nowMs,
+      storage,
+      cacheStorage: new CacheApiStorage(new MemoryCacheStorage()),
+      deleteCacheByName: async () => {},
+      resolveEcoFastDefault: () => QWEN,
+    });
+    expect(report.errors).toEqual([]);
+    expect(report.retiredModelMigrationsRun).toEqual(['local/smollm2-1.7b-webllm-q4f16']);
+    expect(storage.getItem('eco-local-ai-mig-retire-smollm2-v1')).not.toBeNull();
   });
 });
 
@@ -827,7 +835,7 @@ describe('reconcileReadySlots', () => {
   it('handles multiple ready slots in one pass', async () => {
     setSlot('eco-fast', MODEL_ID);
     setSlotStatus('eco-fast', 'ready');
-    const smartId = 'local/smollm2-1.7b-webllm-q4f16';
+    const smartId = 'candidate/qwen3.5-2b-onnx';
     setSlot('eco-smart', smartId);
     setSlotStatus('eco-smart', 'ready');
 

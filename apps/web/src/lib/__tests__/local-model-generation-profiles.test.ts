@@ -205,22 +205,6 @@ describe("Qwen3.5 top_p ceiling invariant", () => {
   });
 });
 
-// ─── SmolLM2 1.7B ───────────────────────────────────────────────────────
-
-describe("SmolLM2 1.7B generation profile", () => {
-  const smol = modelSlice("local/smollm2-1.7b-webllm-q4f16", "smollm2");
-
-  it("has a defined repetitionPenalty at base level", () => {
-    const defaults = getLocalModelGenerationDefaults(smol);
-    expect(defaults.repetitionPenalty).toBeDefined();
-  });
-
-  it("has topP defined", () => {
-    const defaults = getLocalModelGenerationDefaults(smol);
-    expect(defaults.topP).toBeDefined();
-  });
-});
-
 // ─── Gemma 4 LiteRT ─────────────────────────────────────────────────────
 
 describe("Gemma 4 LiteRT generation profile", () => {
@@ -342,7 +326,6 @@ describe("isCjkSuppressionEnabled", () => {
     "candidate/lfm2.5-350m-onnx",
     "local/bonsai-1.7b-q4",
     "local/phi3-mini-4k-q4f16",
-    "local/smollm2-1.7b-webllm-q4f16",
     "local/qwen3-0.6b", // qwen3 gen: shared vocab risk but NO measured leak — needs its own gated run
     "candidate/qwen3-1.7b-onnx",
     "candidate/lfm2-2.6b-onnx",

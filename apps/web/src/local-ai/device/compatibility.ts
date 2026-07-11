@@ -55,12 +55,6 @@ const RULES: Readonly<Record<string, CompatibilityRule>> = Object.freeze({
     allowedBrowsers: ['chromium'] as const,
     warnIfMobile: true,
   },
-  'local/smollm2-1.7b-webllm-q4f16': {
-    requireWebgpu: true,
-    minDeviceMemoryGB: 16,
-    allowedBrowsers: ['chromium'] as const,
-    warnIfMobile: true,
-  },
   'local/bonsai-1.7b-q4': {
     requireWebgpu: true,
     minDeviceMemoryGB: 8,
