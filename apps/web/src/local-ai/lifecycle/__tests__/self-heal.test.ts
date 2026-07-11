@@ -318,6 +318,38 @@ describe('runSelfHeal — retired-model migration', () => {
     // Cleared — nothing drives an undriven 'preparing' smart slot.
     expect(readRawSlotIdForMigration('eco-smart')).toBeNull();
     expect(getSlot('eco-smart').status).toBe('empty');
+    // No selection → the user was riding the fast/default slot, NOT the smart
+    // slot that happened to hold the retired id, so no toast fires.
+    expect(storage.getItem(NOTICE_HINT_KEY)).toBeNull();
+  });
+
+  it('does NOT fire the notice when the smart slot holds the retired id but the user explicitly picked another model', async () => {
+    setSlot('eco-smart', RETIRED_ID);
+    setSlotStatus('eco-smart', 'ready');
+    storage.setItem('eco-selected-model', 'candidate/lfm2.5-1.2b-instruct-onnx');
+    storage.setItem('eco-selected-model-explicit', 'true');
+
+    await runSelfHeal(seamOptions());
+
+    // The stranded smart slot is still detoxed…
+    expect(readRawSlotIdForMigration('eco-smart')).toBeNull();
+    // …but "the model you were using (SmolLM2)" would be false — they were on
+    // another model — so the notice stays silent, and their pick is untouched.
+    expect(storage.getItem(NOTICE_HINT_KEY)).toBeNull();
+    expect(storage.getItem('eco-selected-model')).toBe('candidate/lfm2.5-1.2b-instruct-onnx');
+    expect(storage.getItem('eco-selected-model-explicit')).toBe('true');
+  });
+
+  it('fires the notice when the user rode the smart slot (eco-smart selection) while it held the retired id', async () => {
+    setSlot('eco-smart', RETIRED_ID);
+    setSlotStatus('eco-smart', 'ready');
+    storage.setItem('eco-selected-model', 'eco-smart');
+
+    await runSelfHeal(seamOptions());
+
+    expect(readRawSlotIdForMigration('eco-smart')).toBeNull();
+    const hint = JSON.parse(storage.getItem(NOTICE_HINT_KEY) ?? 'null') as { label?: string } | null;
+    expect(hint?.label).toBe('Retired Test Model');
   });
 
   it('drops the eco-fast binding when the device is below the assignable floor (resolver null)', async () => {

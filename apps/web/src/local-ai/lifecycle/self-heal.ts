@@ -253,13 +253,22 @@ async function runRetiredModelMigration(
 ): Promise<void> {
   const { modelId } = migration;
 
-  // Capture "was the user actually ON this model?" BEFORE any detox mutates it.
-  // True for an explicit pick OR for riding the auto-default while a slot held
-  // the id — either way the notice is warranted.
+  // Capture "was the user actually ON this model?" BEFORE any detox mutates it,
+  // and do it SELECTION-AWARE: an explicit pick of the retired id, OR riding a
+  // slot's default while THAT slot held it. A slot that merely held the retired
+  // id while the user was actually on the OTHER slot does NOT warrant the notice
+  // (the "the model you were using" copy would be inaccurate) — its detox still
+  // runs, just silently. `eco-selected-model` reads null / 'auto' / 'eco-fast'
+  // when riding the fast (default) slot, and 'eco-smart' when riding the smart
+  // slot; anything else is an explicit id.
   const selectedRaw = safeGetItem(storage, SELECTED_MODEL_KEY);
   const fastRaw = readRawSlotIdForMigration('eco-fast');
   const smartRaw = readRawSlotIdForMigration('eco-smart');
-  const wasOnRetiredModel = selectedRaw === modelId || fastRaw === modelId || smartRaw === modelId;
+  const rodeFastDefault =
+    (selectedRaw === null || selectedRaw === 'auto' || selectedRaw === 'eco-fast')
+    && fastRaw === modelId;
+  const rodeSmartDefault = selectedRaw === 'eco-smart' && smartRaw === modelId;
+  const wasOnRetiredModel = selectedRaw === modelId || rodeFastDefault || rodeSmartDefault;
 
   // 1. Purge weight bytes, stale evidence, and the retired runtime's own caches.
   clearEvidence(modelId);
