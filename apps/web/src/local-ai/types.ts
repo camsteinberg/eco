@@ -27,7 +27,7 @@ export type DeviceProfile = {
   override: 'user' | 'auto';
   /**
    * Whether the WebGPU adapter exposes the `shader-f16` feature. Every f16
-   * catalog build (`onnx-q4f16` / `onnx-q2f16` / `mlc-q4f16`) needs it to run
+   * catalog build (`onnx-q4f16` / `onnx-q2f16`) needs it to run
    * on the WebGPU EP — an adapter without it loads the model then dies on the
    * first f16 op. Only the setup path (`resolveSetupProfile`) probes and sets
    * this; `undefined` means "not probed → assume capable" so the synchronous
@@ -42,7 +42,7 @@ export type Intent = 'snappy' | 'balanced' | 'quality';
 
 // ─── Catalog model ─────────────────────────────────────────────────────────
 
-export type ModelRuntime = 'transformers' | 'webllm' | 'litert';
+export type ModelRuntime = 'transformers' | 'litert';
 
 /**
  * Concrete download artifact for a catalog model: HuggingFace id, pinned
@@ -65,7 +65,7 @@ export type ModelConfig = {
   vendor: string;
   sizeGB: number;
   runtime: ModelRuntime;
-  format: 'onnx-q4' | 'onnx-q4f16' | 'onnx-q2f16' | 'mlc-q4f16' | 'litertlm';
+  format: 'onnx-q4' | 'onnx-q4f16' | 'onnx-q2f16' | 'litertlm';
   capabilities: {
     intent: Intent[];
     tasks: ('chat' | 'code' | 'writing' | 'reasoning')[];

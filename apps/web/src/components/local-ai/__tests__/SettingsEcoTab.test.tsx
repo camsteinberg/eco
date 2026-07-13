@@ -20,19 +20,6 @@ const MODEL: ModelConfig = {
   evidenceTier: 'proven',
 };
 
-const WEBLLM_MODEL: ModelConfig = {
-  id: 'local/smollm2-1.7b-webllm-q4f16',
-  friendlyName: 'SmolLM2 1.7B',
-  vendor: 'HuggingFace',
-  sizeGB: 1.2,
-  runtime: 'webllm',
-  format: 'mlc-q4f16',
-  capabilities: { intent: ['snappy'], tasks: ['chat'], contextTokens: 2048 },
-  bestFor: 'fast chat',
-  knownLimitation: 'small context',
-  evidenceTier: 'predicted',
-};
-
 describe('SettingsEcoTab — default state', () => {
   afterEach(() => {
     // Restore the default (off) so technical-details state doesn't leak.
@@ -246,19 +233,6 @@ describe('SettingsEcoTab — ready state with model', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: /show technical details/i }));
     expect(screen.getByText('Transformers.js v4')).toBeInTheDocument();
-  });
-
-  it('shows WebLLM runtime in technical details for webllm models', () => {
-    render(
-      <SettingsEcoTab
-        currentModel={WEBLLM_MODEL}
-        storageBytes={null}
-        onSwitchAI={() => undefined}
-        onClearCache={async () => undefined}
-      />,
-    );
-    fireEvent.click(screen.getByRole('button', { name: /show technical details/i }));
-    expect(screen.getByText(/WebLLM.*WebGPU/)).toBeInTheDocument();
   });
 
   it('Switch your AI button triggers onSwitchAI callback', () => {

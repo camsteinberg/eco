@@ -12,14 +12,12 @@ import {
   setDownloadPlanResolver,
 } from '../download/download';
 import { setWorkerFactory } from '../runtime/transformers-adapter';
-import { setWebLLMEngineFactory } from '../runtime/webllm-adapter';
 import { setAdapterFactory } from '../runtime/lifecycle';
 import { setSmokeGenerationFn } from '../lifecycle/smoke';
 
 function resetAllSeams(): void {
   setDownloadPlanResolver(null);
   setWorkerFactory(null);
-  setWebLLMEngineFactory(null);
   setAdapterFactory(null);
   setSmokeGenerationFn(null);
   _resetBootstrapForTesting();

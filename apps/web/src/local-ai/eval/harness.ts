@@ -333,7 +333,8 @@ function resolveDeps(deps?: EvalRunnerDeps): ResolvedDeps {
 }
 
 function runtimeAdapterFor(model: ModelConfig): EvalRuntimeAdapter {
-  if (model.runtime === 'webllm') return 'webllm';
+  // 'webllm' remains in EvalRuntimeAdapter as a historical persisted value, but
+  // no live catalog model runs on it since the WebLLM runtime was retired.
   if (model.runtime === 'transformers') return 'transformers';
   if (model.runtime === 'litert') return 'litert';
   return 'unknown';

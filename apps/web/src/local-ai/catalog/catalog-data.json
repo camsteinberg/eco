@@ -1,10 +1,10 @@
 {
   "_documentation": {
     "source": "docs/design/2026-05-16/vision-and-architecture.md §2.4",
-    "scope": "The 8-model v1.0 user-facing catalog. Additional/experimental models are gated out of the shipped user bundle.",
+    "scope": "The 7-model v1.0 user-facing catalog. Additional/experimental models are gated out of the shipped user bundle.",
     "field_definitions": "apps/web/src/local-ai/types.ts (ModelConfig type)",
-    "last_updated": "2026-06-11",
-    "phase": "chat7-smart-tier-graduation",
+    "last_updated": "2026-07-10",
+    "phase": "smollm2-webllm-retirement",
     "artifact_note": "Each model's `artifact` is the canonical download contract. `hfId` + `revision` + `files` feed the server-side proxy allowlist via apps/web/src/lib/local-model-registry.ts (getProxyAllowedLocalModelRegistryArtifacts), and every file MUST have a matching entry in artifact-metadata.json (the proxy's size/SHA-256 verification source — catalog.test.ts pins this invariant). Bootstrap reads this to build the DownloadPlan; mismatches surface as 403 from the proxy."
   },
   "models": [
@@ -38,74 +38,6 @@
           "tokenizer.json",
           "tokenizer.model",
           "tokenizer_config.json"
-        ]
-      }
-    },
-    {
-      "id": "local/smollm2-1.7b-webllm-q4f16",
-      "friendlyName": "SmolLM2",
-      "vendor": "Hugging Face (via MLC AI)",
-      "sizeGB": 0.97,
-      "runtime": "webllm",
-      "format": "mlc-q4f16",
-      "capabilities": {
-        "intent": ["balanced", "quality"],
-        "tasks": ["chat", "writing", "code"],
-        "contextTokens": 4096
-      },
-      "bestFor": "Strong Smart-slot answers for explanations, writing, and code.",
-      "knownLimitation": "Requires Chromium WebGPU; no WASM fallback for the MLC runtime.",
-      "evidenceTier": "proven",
-      "systemDirective": "Answer directly and satisfy every user constraint. Do not reveal hidden reasoning.",
-      "systemRoleSupport": "native",
-      "artifact": {
-        "hfId": "mlc-ai/SmolLM2-1.7B-Instruct-q4f16_1-MLC",
-        "revision": "84f57f8580a9d8d623266b600ad4273bb9fd84c1",
-        "files": [
-          "merges.txt",
-          "mlc-chat-config.json",
-          "ndarray-cache.json",
-          "params_shard_0.bin",
-          "params_shard_1.bin",
-          "params_shard_2.bin",
-          "params_shard_3.bin",
-          "params_shard_4.bin",
-          "params_shard_5.bin",
-          "params_shard_6.bin",
-          "params_shard_7.bin",
-          "params_shard_8.bin",
-          "params_shard_9.bin",
-          "params_shard_10.bin",
-          "params_shard_11.bin",
-          "params_shard_12.bin",
-          "params_shard_13.bin",
-          "params_shard_14.bin",
-          "params_shard_15.bin",
-          "params_shard_16.bin",
-          "params_shard_17.bin",
-          "params_shard_18.bin",
-          "params_shard_19.bin",
-          "params_shard_20.bin",
-          "params_shard_21.bin",
-          "params_shard_22.bin",
-          "params_shard_23.bin",
-          "params_shard_24.bin",
-          "params_shard_25.bin",
-          "params_shard_26.bin",
-          "params_shard_27.bin",
-          "params_shard_28.bin",
-          "params_shard_29.bin",
-          "params_shard_30.bin",
-          "params_shard_31.bin",
-          "params_shard_32.bin",
-          "params_shard_33.bin",
-          "params_shard_34.bin",
-          "params_shard_35.bin",
-          "params_shard_36.bin",
-          "tensor-cache.json",
-          "tokenizer_config.json",
-          "tokenizer.json",
-          "vocab.json"
         ]
       }
     },

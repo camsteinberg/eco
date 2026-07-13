@@ -300,6 +300,6 @@ function formatBytes(bytes: number): string {
 }
 
 function describeRuntime(model: ModelConfig): string {
-  if (model.runtime === 'webllm') return 'WebLLM (MLC) + WebGPU';
+  if (model.runtime === 'litert') return 'LiteRT-LM + WebGPU';
   return 'Transformers.js v4';
 }

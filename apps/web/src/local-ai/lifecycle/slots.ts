@@ -296,3 +296,31 @@ export function _resetSlotsForTesting(): void {
 export function getLegacyKeyPrefixes(): ReadonlyArray<string> {
   return LEGACY_KEY_PREFIXES;
 }
+
+/**
+ * Raw persisted slot-id read for the retirement migration ONLY.
+ *
+ * Unlike `getSlot()`, this does NOT resolve the id against the catalog — it
+ * returns whatever id string is persisted, INCLUDING one that has just left
+ * the catalog. `getSlot()` nulls a retired id (it resolves to no model), so
+ * the retirement migration in self-heal.ts cannot use it to detect a slot
+ * still bound to a retired model; this raw read is how it sees that binding.
+ *
+ * Checks the canonical `eco-local-ai-slot-<slot>` key first, then the legacy
+ * `eco-model-slot-*` / `eco-slot-*` keys the old ModelManagement surface wrote.
+ * Deliberately READ-ONLY: unlike `readSlotId()`, it does NOT promote a legacy
+ * value to the new key — a migration that is about to clear or rebind the slot
+ * must not first write the retired id forward. The validation-harness slot
+ * override is also ignored: migration acts on persisted user state only.
+ */
+export function readRawSlotIdForMigration(slot: Slot): string | null {
+  const storage = resolveStorage();
+  if (!storage) return null;
+  const direct = readNonEmpty(storage, slotKey(slot));
+  if (direct) return direct;
+  for (const prefix of LEGACY_KEY_PREFIXES) {
+    const legacy = readNonEmpty(storage, prefix + slot);
+    if (legacy) return legacy;
+  }
+  return null;
+}

@@ -7,9 +7,9 @@
  * Tests:
  *   - Every v1.0 catalog model has a compatibility rule (no silent drift if
  *     someone adds a sixth model without updating the table).
- *   - Hardware floor enforced (≥16 GB for Phi-3 / SmolLM2, ≥8 GB for Bonsai,
+ *   - Hardware floor enforced (≥16 GB for Phi-3, ≥8 GB for Bonsai,
  *     ≥4 GB for Qwen3, ≥3 GB for LFM2.5).
- *   - WebGPU floor enforced (Phi-3 / SmolLM2 / Bonsai require WebGPU).
+ *   - WebGPU floor enforced (Phi-3 / Bonsai require WebGPU).
  *   - Browser-engine floor enforced (only Chromium for WebGPU-required models).
  *   - `with-warning` for mobile form factor on desktop-targeted models.
  *   - `isAssignable` agrees with `isCompatible !== 'unsupported'`.
@@ -136,23 +136,6 @@ describe('device/compatibility — Phi-3 Mini (high-memory WebGPU)', () => {
   });
 });
 
-describe('device/compatibility — SmolLM2 (high-memory WebGPU via WebLLM)', () => {
-  const smol = () => model('local/smollm2-1.7b-webllm-q4f16');
-
-  it('supported on Chromium WebGPU ≥16 GB', () => {
-    expect(isCompatible(smol(), PROFILES.chromiumHighMem)).toBe('supported');
-  });
-
-  it('unsupported on Chromium WebGPU 8 GB', () => {
-    expect(isCompatible(smol(), PROFILES.chromiumCapableLaptop)).toBe('unsupported');
-  });
-
-  it('unsupported on Firefox or Safari', () => {
-    expect(isCompatible(smol(), PROFILES.firefoxDesktop)).toBe('unsupported');
-    expect(isCompatible(smol(), PROFILES.safariDesktop)).toBe('unsupported');
-  });
-});
-
 describe('device/compatibility — Bonsai (capable-laptop WebGPU)', () => {
   const bonsai = () => model('local/bonsai-1.7b-q4');
 
@@ -259,7 +242,7 @@ describe('device/compatibility — CPU-EP incompatibility (Finding E)', () => {
 });
 
 describe('device/compatibility — WebGPU adapter without shader-f16', () => {
-  // f16 builds (onnx-q4f16 / onnx-q2f16 / mlc-q4f16) cannot run on the WebGPU EP
+  // f16 builds (onnx-q4f16 / onnx-q2f16) cannot run on the WebGPU EP
   // of an adapter that lacks shader-f16 — they load, then OrtRun dies on the
   // first f16 op. They must be flagged unsupported so the cascade never offers
   // them (and never burns a multi-minute download on a model that can't run).

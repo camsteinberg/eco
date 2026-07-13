@@ -17,12 +17,6 @@ describe('getLocalModelSystemPromptSuffix', () => {
     expect(suffix).toContain('Answer directly');
   });
 
-  it('returns systemDirective for SmolLM2', () => {
-    const suffix = getLocalModelSystemPromptSuffix('local/smollm2-1.7b-webllm-q4f16');
-    expect(suffix).not.toBeNull();
-    expect(suffix).toContain('Answer directly');
-  });
-
   // -- Models WITHOUT catalog systemDirective return null --
 
   it('returns null for Bonsai (no systemDirective in catalog)', () => {
@@ -42,7 +36,6 @@ describe('getLocalModelSystemPromptSuffix', () => {
   it('does NOT contain "numbered lists" for any catalog model (FORMAT_NUDGE removed)', () => {
     const ids = [
       'local/phi3-mini-4k-q4f16',
-      'local/smollm2-1.7b-webllm-q4f16',
       'local/bonsai-1.7b-q4',
       'local/qwen3-0.6b',
       'candidate/lfm2.5-350m-onnx',

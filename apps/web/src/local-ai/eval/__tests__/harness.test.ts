@@ -438,16 +438,16 @@ describe('runEval', () => {
     expect(run.results[0]!.generationOptions.maxTokens).toBe(32);
   });
 
-  it('routes webllm models to the webllm runtime adapter', async () => {
+  it('routes litert models to the litert runtime adapter', async () => {
     const generate = scriptedGenerate([
       { kind: 'token', text: 'x' },
       { kind: 'done', completionTokens: 1 },
     ]);
     const run = await runEval(
       { label: 'baseline', modelIds: ['w'], promptIds: ['fk1'] },
-      baseDeps({ generate, getModel: (id) => fakeModel(id, 'webllm') }),
+      baseDeps({ generate, getModel: (id) => fakeModel(id, 'litert') }),
     );
-    expect(run.results[0]!.runtimeAdapter).toBe('webllm');
+    expect(run.results[0]!.runtimeAdapter).toBe('litert');
   });
 
   it('passes the production system prompt and user prompt to generate', async () => {

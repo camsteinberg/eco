@@ -10,8 +10,13 @@ import {
   type KeyValueStorage as CooldownStorage,
 } from '../../runtime/lifecycle';
 import { CURRENT_LEDGER_VERSION } from '../../evidence/ledger';
-import { reconcileReadySlots, repairModelCache, runSelfHeal } from '../self-heal';
-import { setSlot, setSlotStatus, getSlot } from '../slots';
+import {
+  reconcileReadySlots,
+  repairModelCache,
+  runSelfHeal,
+  type RetiredModelMigration,
+} from '../self-heal';
+import { setSlot, setSlotStatus, getSlot, readRawSlotIdForMigration } from '../slots';
 import type { Slot } from '../../types';
 
 class FakeStorage implements CooldownStorage {
@@ -182,6 +187,321 @@ describe('runSelfHeal — artifact-swap evidence migration', () => {
     expect(report.artifactMigrationsRun).toEqual([]);
     expect(report.errors.some((e) => e.includes('artifact-migration'))).toBe(true);
     expect(storage.getItem(MARKER)).toBeNull();
+  });
+});
+
+// ─── Retired-model migration (generic mechanism; C1 SmolLM2 is the first user) ─
+//
+// Retiring a model from the catalog leaves orphaned per-device state a live id
+// would own: weight bytes, evidence rows, a slot binding, a persisted
+// selection, a pending upgrade record, and (for a retired runtime) its own
+// private caches. This once-per-device migration purges all of it, rebinds/
+// clears the affected slots, and — only when the user was actually on the
+// model — leaves a one-time notice hint. Exercised here via a synthetic entry
+// through the `retiredMigrations` seam so the mechanism is covered without a
+// real catalog removal.
+
+describe('runSelfHeal — retired-model migration', () => {
+  const RETIRED_ID = 'local/retired-model-q4';
+  const MARKER = 'eco-local-ai-mig-retire-test-v1';
+  const NOTICE_HINT_KEY = 'eco-local-ai-retired-notice-v1';
+  const LEDGER_KEY = 'eco-local-ai-ledger-v1';
+  const UPGRADE_KEY = 'eco-local-ai-upgrade-v1';
+  const QWEN = 'candidate/qwen3.5-2b-onnx';
+  // cacheNameFor(): 'eco-local-ai-' + modelId with [^a-zA-Z0-9._-] → '_'.
+  const RETIRED_CACHE = 'eco-local-ai-local_retired-model-q4';
+  const SENTINEL_CACHE = 'eco-local-ai-candidate_gemma-4-e2b-litert';
+
+  const migration: RetiredModelMigration = {
+    modelId: RETIRED_ID,
+    friendlyLabel: 'Retired Test Model',
+    markerKey: MARKER,
+    extraCacheNames: ['ext/cache-a', 'ext/cache-b'],
+  };
+
+  const ledgerRow = (modelId: string) => ({
+    modelId,
+    profileKey: 'chromium|high-memory-laptop|webgpu',
+    outcome: 'smoke-fail',
+    recordedAt: new Date().toISOString(),
+    ledgerVersion: CURRENT_LEDGER_VERSION,
+  });
+
+  function seamOptions(cacheBackend?: MemoryCacheStorage) {
+    const backend = cacheBackend ?? new MemoryCacheStorage();
+    return {
+      now: () => nowMs,
+      storage,
+      cacheStorage: new CacheApiStorage(backend),
+      deleteCacheByName: (name: string) => backend.delete(name).then(() => undefined),
+      retiredMigrations: [migration],
+      resolveEcoFastDefault: () => QWEN,
+    };
+  }
+
+  beforeEach(() => {
+    localStorage.removeItem(LEDGER_KEY);
+  });
+  afterEach(() => {
+    localStorage.removeItem(LEDGER_KEY);
+  });
+
+  it('purges evidence + the model cache + the retired runtime caches and writes the marker last', async () => {
+    localStorage.setItem(
+      LEDGER_KEY,
+      JSON.stringify([ledgerRow(RETIRED_ID), ledgerRow(QWEN)]),
+    );
+    const backend = new MemoryCacheStorage();
+    await backend.open(RETIRED_CACHE);
+    await backend.open('ext/cache-a');
+    await backend.open('ext/cache-b');
+
+    const report = await runSelfHeal(seamOptions(backend));
+
+    expect(report.errors).toEqual([]);
+    expect(report.retiredModelMigrationsRun).toEqual([RETIRED_ID]);
+    expect(storage.getItem(MARKER)).not.toBeNull();
+    // Only the retired model's evidence is dropped.
+    const entries = JSON.parse(localStorage.getItem(LEDGER_KEY) ?? '[]') as Array<{ modelId: string }>;
+    expect(entries.map((e) => e.modelId)).toEqual([QWEN]);
+    // The model namespace and both extra runtime caches are gone.
+    expect(backend.caches.has(RETIRED_CACHE)).toBe(false);
+    expect(backend.caches.has('ext/cache-a')).toBe(false);
+    expect(backend.caches.has('ext/cache-b')).toBe(false);
+  });
+
+  it('NEVER deletes any eco-local-ai-* cache other than the retired model namespace (scoping sentinel)', async () => {
+    const backend = new MemoryCacheStorage();
+    await backend.open(RETIRED_CACHE);
+    await backend.open(SENTINEL_CACHE); // a DIFFERENT model's cache — must survive
+    await backend.open('ext/cache-a');
+
+    await runSelfHeal(seamOptions(backend));
+
+    expect(backend.caches.has(RETIRED_CACHE)).toBe(false);
+    expect(backend.caches.has('ext/cache-a')).toBe(false);
+    // The sentinel — a surviving model's own namespace — is untouched.
+    expect(backend.caches.has(SENTINEL_CACHE)).toBe(true);
+  });
+
+  it('rebinds an eco-fast slot on the retired id to the device default and fires the notice', async () => {
+    setSlot('eco-fast', RETIRED_ID);
+    setSlotStatus('eco-fast', 'ready');
+
+    const report = await runSelfHeal(seamOptions());
+
+    expect(report.retiredModelMigrationsRun).toEqual([RETIRED_ID]);
+    // Rebound to the recommendation, 'preparing' so the pipeline downloads it.
+    expect(readRawSlotIdForMigration('eco-fast')).toBe(QWEN);
+    expect(getSlot('eco-fast').status).toBe('preparing');
+    // Rode the default while the slot held the id → notice warranted.
+    const hint = JSON.parse(storage.getItem(NOTICE_HINT_KEY) ?? 'null') as { label?: string } | null;
+    expect(hint?.label).toBe('Retired Test Model');
+  });
+
+  it('detects the retired id from a LEGACY slot key and rebinds', async () => {
+    storage.setItem('eco-model-slot-eco-fast', RETIRED_ID);
+
+    await runSelfHeal(seamOptions());
+
+    // Canonical key now holds the rebind target (setSlot writes it).
+    expect(readRawSlotIdForMigration('eco-fast')).toBe(QWEN);
+    expect(storage.getItem(NOTICE_HINT_KEY)).not.toBeNull();
+  });
+
+  it('clears (does not rebind) an eco-smart slot on the retired id', async () => {
+    setSlot('eco-smart', RETIRED_ID);
+    setSlotStatus('eco-smart', 'ready');
+
+    await runSelfHeal(seamOptions());
+
+    // Cleared — nothing drives an undriven 'preparing' smart slot.
+    expect(readRawSlotIdForMigration('eco-smart')).toBeNull();
+    expect(getSlot('eco-smart').status).toBe('empty');
+    // No selection → the user was riding the fast/default slot, NOT the smart
+    // slot that happened to hold the retired id, so no toast fires.
+    expect(storage.getItem(NOTICE_HINT_KEY)).toBeNull();
+  });
+
+  it('does NOT fire the notice when the smart slot holds the retired id but the user explicitly picked another model', async () => {
+    setSlot('eco-smart', RETIRED_ID);
+    setSlotStatus('eco-smart', 'ready');
+    storage.setItem('eco-selected-model', 'candidate/lfm2.5-1.2b-instruct-onnx');
+    storage.setItem('eco-selected-model-explicit', 'true');
+
+    await runSelfHeal(seamOptions());
+
+    // The stranded smart slot is still detoxed…
+    expect(readRawSlotIdForMigration('eco-smart')).toBeNull();
+    // …but "the model you were using (SmolLM2)" would be false — they were on
+    // another model — so the notice stays silent, and their pick is untouched.
+    expect(storage.getItem(NOTICE_HINT_KEY)).toBeNull();
+    expect(storage.getItem('eco-selected-model')).toBe('candidate/lfm2.5-1.2b-instruct-onnx');
+    expect(storage.getItem('eco-selected-model-explicit')).toBe('true');
+  });
+
+  it('fires the notice when the user rode the smart slot (eco-smart selection) while it held the retired id', async () => {
+    setSlot('eco-smart', RETIRED_ID);
+    setSlotStatus('eco-smart', 'ready');
+    storage.setItem('eco-selected-model', 'eco-smart');
+
+    await runSelfHeal(seamOptions());
+
+    expect(readRawSlotIdForMigration('eco-smart')).toBeNull();
+    const hint = JSON.parse(storage.getItem(NOTICE_HINT_KEY) ?? 'null') as { label?: string } | null;
+    expect(hint?.label).toBe('Retired Test Model');
+  });
+
+  it('drops the eco-fast binding when the device is below the assignable floor (resolver null)', async () => {
+    setSlot('eco-fast', RETIRED_ID);
+    const report = await runSelfHeal({ ...seamOptions(), resolveEcoFastDefault: () => null });
+    expect(report.errors).toEqual([]);
+    expect(readRawSlotIdForMigration('eco-fast')).toBeNull();
+  });
+
+  it('rewrites an explicit selection of the retired id to eco-fast, demotes the flag, and fires the notice', async () => {
+    storage.setItem('eco-selected-model', RETIRED_ID);
+    storage.setItem('eco-selected-model-explicit', 'true');
+
+    await runSelfHeal(seamOptions());
+
+    expect(storage.getItem('eco-selected-model')).toBe('eco-fast');
+    // Retirement is the sanctioned exception to explicit-choice exemption — a
+    // retired pick cannot be honored, so the flag is demoted.
+    expect(storage.getItem('eco-selected-model-explicit')).toBe('false');
+    expect(storage.getItem(NOTICE_HINT_KEY)).not.toBeNull();
+  });
+
+  it('announces a freshly written notice hint via the window event (same-session toast)', async () => {
+    // The RetiredModelNotice consumer mounts before this async migration runs;
+    // without the event its mount-time read would surface the toast one
+    // session late.
+    storage.setItem('eco-selected-model', RETIRED_ID);
+    let announced = 0;
+    const listener = () => { announced += 1; };
+    window.addEventListener('eco-local-ai-retired-notice', listener);
+    try {
+      await runSelfHeal(seamOptions());
+    } finally {
+      window.removeEventListener('eco-local-ai-retired-notice', listener);
+    }
+    expect(announced).toBe(1);
+    expect(storage.getItem(NOTICE_HINT_KEY)).not.toBeNull();
+  });
+
+  it('does NOT fire the notice for a user who was on a different model', async () => {
+    setSlot('eco-fast', QWEN);
+    setSlotStatus('eco-fast', 'ready');
+    storage.setItem('eco-selected-model', QWEN);
+
+    const report = await runSelfHeal(seamOptions());
+
+    expect(report.retiredModelMigrationsRun).toEqual([RETIRED_ID]);
+    expect(storage.getItem(MARKER)).not.toBeNull();
+    // Never on the retired model → no toast, and their slot/selection are left alone.
+    expect(storage.getItem(NOTICE_HINT_KEY)).toBeNull();
+    expect(readRawSlotIdForMigration('eco-fast')).toBe(QWEN);
+    expect(storage.getItem('eco-selected-model')).toBe(QWEN);
+  });
+
+  it('clears a pending upgrade record that targets or is based on the retired id', async () => {
+    storage.setItem(
+      UPGRADE_KEY,
+      JSON.stringify({ version: 1, phase: 'offered', targetModelId: RETIRED_ID, baseModelId: null }),
+    );
+    await runSelfHeal(seamOptions());
+    expect(storage.getItem(UPGRADE_KEY)).toBeNull();
+  });
+
+  it('leaves a pending upgrade record for a different model untouched', async () => {
+    const record = JSON.stringify({ version: 1, phase: 'offered', targetModelId: QWEN, baseModelId: null });
+    storage.setItem(UPGRADE_KEY, record);
+    await runSelfHeal(seamOptions());
+    expect(storage.getItem(UPGRADE_KEY)).toBe(record);
+  });
+
+  it('is idempotent — the marker guard skips the migration on the second boot', async () => {
+    setSlot('eco-fast', RETIRED_ID);
+    const first = await runSelfHeal(seamOptions());
+    expect(first.retiredModelMigrationsRun).toEqual([RETIRED_ID]);
+
+    // Second boot: marker present → skipped, no re-work.
+    const second = await runSelfHeal(seamOptions());
+    expect(second.retiredModelMigrationsRun).toEqual([]);
+    expect(readRawSlotIdForMigration('eco-fast')).toBe(QWEN);
+  });
+
+  it('records the error and leaves the marker unset when a purge step throws (retries next boot)', async () => {
+    class ExplodingStorage extends CacheApiStorage {
+      override async clearModel(): Promise<void> {
+        throw new Error('cache down');
+      }
+    }
+    setSlot('eco-fast', RETIRED_ID);
+
+    const report = await runSelfHeal({
+      now: () => nowMs,
+      storage,
+      cacheStorage: new ExplodingStorage(new MemoryCacheStorage()),
+      retiredMigrations: [migration],
+      resolveEcoFastDefault: () => QWEN,
+    });
+
+    expect(report.retiredModelMigrationsRun).toEqual([]);
+    expect(report.errors.some((e) => e.includes('retired-migration'))).toBe(true);
+    expect(storage.getItem(MARKER)).toBeNull();
+    // Threw before the notice step — no half-applied hint.
+    expect(storage.getItem(NOTICE_HINT_KEY)).toBeNull();
+  });
+
+  it('reports the error and leaves the marker unset when an extra-cache purge rejects', async () => {
+    // A rejected extra-cache delete must NOT be swallowed — it has to block the
+    // marker, exactly as a failing clearModel does (marker written only on full
+    // success). Retries next boot.
+    setSlot('eco-fast', RETIRED_ID);
+
+    const report = await runSelfHeal({
+      now: () => nowMs,
+      storage,
+      cacheStorage: new CacheApiStorage(new MemoryCacheStorage()),
+      deleteCacheByName: () => Promise.reject(new Error('cache-delete boom')),
+      retiredMigrations: [migration],
+      resolveEcoFastDefault: () => QWEN,
+    });
+
+    expect(report.retiredModelMigrationsRun).toEqual([]);
+    expect(report.errors.some((e) => e.includes('retired-migration'))).toBe(true);
+    expect(storage.getItem(MARKER)).toBeNull();
+  });
+
+  it('runs BEFORE the former-default rebind: a retired eco-fast slot is rebound by THIS migration', async () => {
+    // The retired id is not a former everyday default, so if the retirement
+    // migration did not run first, the former-default block would leave it (and
+    // getSlot would read empty). Instead it rebinds to the recommendation and
+    // the former-default block then sees a current-default binding → no-op.
+    setSlot('eco-fast', RETIRED_ID);
+
+    const report = await runSelfHeal(seamOptions());
+
+    expect(report.retiredModelMigrationsRun).toEqual([RETIRED_ID]);
+    expect(report.staleDefaultSlotMigrated).toBe(false);
+    expect(readRawSlotIdForMigration('eco-fast')).toBe(QWEN);
+  });
+
+  it('wires the real SmolLM2 retirement through the default module const (no seam)', async () => {
+    // With no retiredMigrations seam, runSelfHeal uses the shipping const, whose
+    // sole entry is the retired SmolLM2. On a profile that never had it, the
+    // migration still runs to completion (idempotent no-op) and marks itself done.
+    const report = await runSelfHeal({
+      now: () => nowMs,
+      storage,
+      cacheStorage: new CacheApiStorage(new MemoryCacheStorage()),
+      deleteCacheByName: async () => {},
+      resolveEcoFastDefault: () => QWEN,
+    });
+    expect(report.errors).toEqual([]);
+    expect(report.retiredModelMigrationsRun).toEqual(['local/smollm2-1.7b-webllm-q4f16']);
+    expect(storage.getItem('eco-local-ai-mig-retire-smollm2-v1')).not.toBeNull();
   });
 });
 
@@ -584,7 +904,7 @@ describe('reconcileReadySlots', () => {
   it('handles multiple ready slots in one pass', async () => {
     setSlot('eco-fast', MODEL_ID);
     setSlotStatus('eco-fast', 'ready');
-    const smartId = 'local/smollm2-1.7b-webllm-q4f16';
+    const smartId = 'candidate/qwen3.5-2b-onnx';
     setSlot('eco-smart', smartId);
     setSlotStatus('eco-smart', 'ready');
 

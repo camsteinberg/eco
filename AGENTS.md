@@ -36,7 +36,7 @@ not extended.
 | Payments | Stripe (Supporter tier) |
 | Database | PostgreSQL + Drizzle ORM (auth + billing tables only); Redis (rate limiting) |
 | On-device inference (primary) | Transformers.js v4 + WebGPU |
-| On-device inference (secondary) | LiteRT-LM (Gemma 4 E2B); WebLLM (MLC) for SmolLM2 — being retired |
+| On-device inference (secondary) | LiteRT-LM (Gemma 4 E2B) |
 | ML model storage | Cache API / OPFS dual-backend |
 | Animation | Motion v12 (import from `motion/react`) |
 | Markdown / streaming | `react-markdown` + `rehype-highlight` + KaTeX |

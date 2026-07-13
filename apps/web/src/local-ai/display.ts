@@ -28,11 +28,6 @@ const DISPLAY_MAP: Record<string, Omit<DisplayInfo, 'provenance'> & { provider: 
     qualityPhrase: 'Balanced reasoning · runs on most devices',
     provider: 'ONNX Community',
   },
-  'local/smollm2-1.7b-webllm-q4f16': {
-    friendlyName: 'Eco Quick (Smol)',
-    qualityPhrase: 'Highest throughput · fastest replies',
-    provider: 'Hugging Face',
-  },
   'local/phi3-mini-4k-q4f16': {
     friendlyName: 'Eco Reasoning (Microsoft)',
     qualityPhrase: 'Strongest at math and code',

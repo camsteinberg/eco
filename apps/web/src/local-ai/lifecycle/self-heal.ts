@@ -26,9 +26,11 @@
 import { CacheApiStorage, type Storage } from '../download/storage';
 import {
   SLOTS,
+  clearSlot,
   getAllSlots,
   getLegacyKeyPrefixes,
   getSlot,
+  readRawSlotIdForMigration,
   setSlot,
   setSlotStatus,
   type KeyValueStorage as SlotStorage,
@@ -74,6 +76,69 @@ const ARTIFACT_SWAP_MIGRATIONS: ReadonlyArray<{ modelId: string; markerKey: stri
   },
 ];
 
+/**
+ * A model that has been RETIRED from the catalog and needs a one-time,
+ * per-device cleanup of the state a live catalog id would otherwise own.
+ *
+ * Removing a catalog entry is not enough on its own: a user primed on the
+ * retired model still holds orphaned weight bytes, stale evidence rows, a slot
+ * bound to the id, a persisted `eco-selected-model`, and possibly a pending
+ * upgrade record — none of which the ordinary boot path cleans, because the id
+ * no longer resolves. This migration purges all of it and, when the user was
+ * actually running the model, leaves a one-time hint so the UI can explain the
+ * switch honestly.
+ */
+export type RetiredModelMigration = {
+  /** The retired catalog id (must already be REMOVED from catalog-data.json). */
+  modelId: string;
+  /** Human name for the retired model — the catalog entry is gone, so the
+   *  notice surface reads the name from here. */
+  friendlyLabel: string;
+  /** Once-per-device marker key. Written LAST, only after a fully successful
+   *  migration, so a thrown step retries on the next boot. */
+  markerKey: string;
+  /** VERBATIM Cache API cache names for a retired runtime's own private caches
+   *  (e.g. WebLLM's 'webllm/model' | 'webllm/config' | 'webllm/wasm'), disjoint
+   *  from Eco's own 'eco-local-ai-<id>' namespace. These are exact names, NOT
+   *  prefixes — nothing else is ever deleted. */
+  extraCacheNames?: readonly string[];
+};
+
+/**
+ * Retired-model migrations. A real entry MUST land in the same commit that
+ * removes the model from the catalog, so the migration never runs against a
+ * live catalog id.
+ *
+ * 2026-07-10: SmolLM2 (`local/smollm2-1.7b-webllm-q4f16`) — the sole model on
+ * the retired WebLLM/MLC runtime. Its weights lived in Eco's own
+ * `eco-local-ai-<id>` namespace AND in WebLLM's private Cache API caches
+ * ('webllm/model' | 'webllm/config' | 'webllm/wasm', the lib's default cache
+ * backend), which are disjoint from Eco's namespace and must be named
+ * explicitly to be purged.
+ */
+const RETIRED_MODEL_MIGRATIONS: ReadonlyArray<RetiredModelMigration> = [
+  {
+    modelId: 'local/smollm2-1.7b-webllm-q4f16',
+    friendlyLabel: 'SmolLM2',
+    markerKey: 'eco-local-ai-mig-retire-smollm2-v1',
+    extraCacheNames: ['webllm/model', 'webllm/config', 'webllm/wasm'],
+  },
+];
+
+/** Canonical owner: stores/chatStore.ts (SELECTED_MODEL_STORAGE_KEY). */
+const SELECTED_MODEL_KEY = 'eco-selected-model';
+/** Canonical owner: local-ai/lifecycle/upgrade.ts (UPGRADE_STORAGE_KEY). */
+const UPGRADE_RECORD_KEY = 'eco-local-ai-upgrade-v1';
+/** One-time hint the RetiredModelNotice consumer reads+removes on mount to fire
+ *  the "your model was retired" toast. localStorage (not sessionStorage) so it
+ *  survives to a later session where the consumer actually mounts. */
+const RETIRED_MODEL_NOTICE_HINT_KEY = 'eco-local-ai-retired-notice-v1';
+/** Window event announcing a freshly written notice hint. The consumer mounts
+ *  BEFORE this async self-heal step runs, so without the event its mount-time
+ *  read would surface the toast one session late. Mirror reader:
+ *  components/local-ai/RetiredModelNotice.tsx. */
+const RETIRED_MODEL_NOTICE_EVENT = 'eco-local-ai-retired-notice';
+
 // ─── Report types ──────────────────────────────────────────────────────────
 
 export type SelfHealReport = {
@@ -87,6 +152,9 @@ export type SelfHealReport = {
    *  their catalog artifact was replaced in place (marker-guarded, once per
    *  device per migration). */
   artifactMigrationsRun: string[];
+  /** Retired-model ids whose one-time cleanup migration ran this boot
+   *  (marker-guarded, once per device per migration). */
+  retiredModelMigrationsRun: string[];
   errors: string[];
 };
 
@@ -120,6 +188,19 @@ export type SelfHealOptions = {
    * single-download invariant depends on live leases surviving.
    */
   sweepExpiredLeases?: () => void;
+  /**
+   * Test seam: the retired-model migrations to run. Defaults to the module
+   * const `RETIRED_MODEL_MIGRATIONS`. Tests inject synthetic entries so the
+   * mechanism can be exercised without a real catalog removal.
+   */
+  retiredMigrations?: ReadonlyArray<RetiredModelMigration>;
+  /**
+   * Test seam: delete a Cache API cache by its VERBATIM name. Defaults to
+   * `caches.delete` (a no-op when the Cache API is unavailable, e.g. SSR). The
+   * retirement migration uses this to purge a retired runtime's private caches,
+   * whose names are disjoint from Eco's own 'eco-local-ai-<id>' namespace.
+   */
+  deleteCacheByName?: (name: string) => Promise<void>;
 };
 
 /** Local-only mirror of chatStore's explicit-selection flag key. A user who
@@ -150,6 +231,131 @@ function defaultResolveEcoFastDefault(): string | null {
   }
 }
 
+/** Default cache-name delete: the global Cache API, or a no-op where it's absent
+ *  (SSR / restricted contexts have no caches to purge). A rejection is NOT
+ *  swallowed — it propagates to the migration runner's try/catch so a failed
+ *  purge blocks the marker (marker written LAST, only on full success), exactly
+ *  as a failing clearModel does. */
+async function defaultDeleteCacheByName(name: string): Promise<void> {
+  if (typeof caches === 'undefined') return;
+  await caches.delete(name);
+}
+
+/**
+ * Run one retired-model migration. Each sub-step is individually idempotent so
+ * a partial failure is safe to retry; the caller writes the marker only after
+ * this resolves without throwing.
+ *
+ * NOT explicit-choice exempt (unlike the former-default rebind in step 0): a
+ * retired pick simply cannot be honored — the model is gone from the catalog,
+ * so there is nothing to load. This is the sanctioned exception to the L8
+ * "never re-recommend over an explicit pick" rule; the honest recovery is to
+ * rebind to the current recommendation and tell the user via the notice.
+ */
+async function runRetiredModelMigration(
+  migration: RetiredModelMigration,
+  storage: SlotStorage,
+  options: SelfHealOptions | undefined,
+  now: () => number,
+  resolveEcoFastDefault: () => string | null,
+): Promise<void> {
+  const { modelId } = migration;
+
+  // Capture "was the user actually ON this model?" BEFORE any detox mutates it,
+  // and do it SELECTION-AWARE: an explicit pick of the retired id, OR riding a
+  // slot's default while THAT slot held it. A slot that merely held the retired
+  // id while the user was actually on the OTHER slot does NOT warrant the notice
+  // (the "the model you were using" copy would be inaccurate) — its detox still
+  // runs, just silently. `eco-selected-model` reads null / 'auto' / 'eco-fast'
+  // when riding the fast (default) slot, and 'eco-smart' when riding the smart
+  // slot; anything else is an explicit id.
+  const selectedRaw = safeGetItem(storage, SELECTED_MODEL_KEY);
+  const fastRaw = readRawSlotIdForMigration('eco-fast');
+  const smartRaw = readRawSlotIdForMigration('eco-smart');
+  const rodeFastDefault =
+    (selectedRaw === null || selectedRaw === 'auto' || selectedRaw === 'eco-fast')
+    && fastRaw === modelId;
+  const rodeSmartDefault = selectedRaw === 'eco-smart' && smartRaw === modelId;
+  const wasOnRetiredModel = selectedRaw === modelId || rodeFastDefault || rodeSmartDefault;
+
+  // 1. Purge weight bytes, stale evidence, and the retired runtime's own caches.
+  clearEvidence(modelId);
+  const cacheStorage = options?.cacheStorage
+    ?? (typeof caches !== 'undefined' ? new CacheApiStorage() : null);
+  if (cacheStorage) await cacheStorage.clearModel(modelId);
+  if (migration.extraCacheNames && migration.extraCacheNames.length > 0) {
+    const deleteCacheByName = options?.deleteCacheByName ?? defaultDeleteCacheByName;
+    for (const name of migration.extraCacheNames) {
+      await deleteCacheByName(name);
+    }
+  }
+
+  // 2. Slot detox. eco-fast rebinds to the device-appropriate default (setSlot
+  //    forces 'preparing' on the id change, so the readiness pipeline downloads
+  //    it before first use); below the assignable floor (resolver null) the dead
+  //    binding is dropped so the consumer re-recommends from empty. eco-smart is
+  //    cleared, never rebound — nothing drives an undriven 'preparing' smart
+  //    slot; the upgrade machine re-offers a smart model later.
+  if (fastRaw === modelId) {
+    const target = resolveEcoFastDefault();
+    if (target && target !== modelId) {
+      setSlot('eco-fast', target);
+    } else {
+      clearSlot('eco-fast');
+    }
+  }
+  if (smartRaw === modelId) {
+    clearSlot('eco-smart');
+  }
+
+  // 3. chatStore selection detox: a persisted selection of the retired id
+  //    degrades to the 'eco-fast' auto-slot, and the explicit flag is demoted so
+  //    downstream never treats the (impossible) retired pick as deliberate.
+  if (selectedRaw === modelId) {
+    storage.setItem(SELECTED_MODEL_KEY, 'eco-fast');
+    storage.setItem(SELECTED_MODEL_EXPLICIT_KEY, 'false');
+  }
+
+  // 4. Upgrade-offer detox: drop a pending upgrade record that targets (or was
+  //    based on) the retired id, so the machine can't try to carry the device
+  //    to a model that no longer exists.
+  const upgradeRaw = safeGetItem(storage, UPGRADE_RECORD_KEY);
+  if (upgradeRaw) {
+    let record: { targetModelId?: unknown; baseModelId?: unknown } | null = null;
+    try {
+      record = JSON.parse(upgradeRaw) as { targetModelId?: unknown; baseModelId?: unknown };
+    } catch {
+      record = null;
+    }
+    if (record && (record.targetModelId === modelId || record.baseModelId === modelId)) {
+      storage.removeItem(UPGRADE_RECORD_KEY);
+    }
+  }
+
+  // 5. Notice hint — one-time, only when the user was actually on the model.
+  //    Also announced via a window event: the RetiredModelNotice consumer mounts
+  //    before this async migration runs, so its mount-time read alone would
+  //    surface the toast one session late. The localStorage hint stays the
+  //    source of truth for sessions where the consumer mounts later.
+  if (wasOnRetiredModel) {
+    storage.setItem(
+      RETIRED_MODEL_NOTICE_HINT_KEY,
+      JSON.stringify({ label: migration.friendlyLabel, at: now() }),
+    );
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event(RETIRED_MODEL_NOTICE_EVENT));
+    }
+  }
+}
+
+function safeGetItem(storage: SlotStorage, key: string): string | null {
+  try {
+    return storage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
 // ─── Public API ────────────────────────────────────────────────────────────
 
 export async function runSelfHeal(options?: SelfHealOptions): Promise<SelfHealReport> {
@@ -162,6 +368,7 @@ export async function runSelfHeal(options?: SelfHealOptions): Promise<SelfHealRe
     legacySlotKeysMigrated: 0,
     staleDefaultSlotMigrated: false,
     artifactMigrationsRun: [],
+    retiredModelMigrationsRun: [],
     errors: [],
   };
 
@@ -214,6 +421,25 @@ export async function runSelfHeal(options?: SelfHealOptions): Promise<SelfHealRe
       report.artifactMigrationsRun.push(migration.modelId);
     } catch (err) {
       report.errors.push(`artifact-migration(${migration.modelId}): ${describe(err)}`);
+    }
+  }
+
+  // -0.5. Retired-model migrations. MUST run AFTER the artifact-swap block above
+  //       and BEFORE the former-default rebind below: the rebind reads slots and
+  //       calls recommend(), so a slot still bound to a retired id has to be
+  //       rebound/cleared first (otherwise the rebind operates on a dead id).
+  //       Marker-guarded per device; the marker is written LAST, only after a
+  //       fully successful migration, so a thrown step retries next boot with no
+  //       marker written and no half-applied state trusted.
+  const resolveEcoFastDefault = options?.resolveEcoFastDefault ?? defaultResolveEcoFastDefault;
+  for (const migration of options?.retiredMigrations ?? RETIRED_MODEL_MIGRATIONS) {
+    try {
+      if (storage.getItem(migration.markerKey) !== null) continue;
+      await runRetiredModelMigration(migration, storage, options, now, resolveEcoFastDefault);
+      storage.setItem(migration.markerKey, String(now()));
+      report.retiredModelMigrationsRun.push(migration.modelId);
+    } catch (err) {
+      report.errors.push(`retired-migration(${migration.modelId}): ${describe(err)}`);
     }
   }
 

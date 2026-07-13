@@ -58,6 +58,9 @@ export type LocalAiDiagnostic = {
   recordedAt: string; // ISO
   modelId: string;
   profileKey: string; // from classifyDeviceClass()
+  // `'webllm'` is a historical persisted value — devices hold diagnostic records
+  // from before the WebLLM runtime was retired (2026-07-10). Kept so old records
+  // still parse; no live catalog model produces it now.
   runtimeAdapter: 'webllm' | 'transformers' | 'litert' | 'unknown';
   /**
    * The execution provider the model load ACTUALLY resolved to. Distinct from
