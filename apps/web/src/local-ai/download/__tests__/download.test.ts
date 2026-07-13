@@ -1212,3 +1212,419 @@ describe('downloadByPlan — default fetch receiver', () => {
     expect(fetchSpy).toHaveBeenCalled();
   });
 });
+
+// ─── Mid-file chunk resume (PR-L1) ─────────────────────────────────────────
+//
+// A chunked download persists each completed 32 MiB Range chunk under its own
+// storage entry (key: `${file.url}.ecopart.${stamp}.${offset}`), so an
+// interruption resumes mid-file instead of restarting from byte 0. Parts are
+// swept only AFTER the whole-file store succeeds; a failed store retains them
+// for the next attempt; clearModel reclaims any leftovers.
+
+const PART_MARKER = '.ecopart.';
+
+/** Entries in a model namespace that are chunk-parts (not the final file). */
+function partEntries(
+  list: { url: string; sizeBytes: number | null }[],
+): { url: string; sizeBytes: number | null }[] {
+  return list.filter((e) => e.url.includes(PART_MARKER));
+}
+
+/** Byte offset encoded in a part key url. */
+function partOffset(url: string): number {
+  const tail = url.slice(url.indexOf(PART_MARKER) + PART_MARKER.length);
+  return Number(tail.slice(tail.lastIndexOf('.') + 1));
+}
+
+/** Sorted offsets of the part entries currently in `modelId`'s namespace. */
+async function partOffsets(store: CacheApiStorage, modelId: string): Promise<number[]> {
+  const parts = partEntries(await store.listForModel(modelId));
+  return parts.map((e) => partOffset(e.url)).sort((a, b) => a - b);
+}
+
+type ParsedRange = { start: number; end: number | null; raw: string };
+
+function parseRangeHeader(init?: RequestInit): ParsedRange | null {
+  const header = init?.headers ? new Headers(init.headers).get('range') : null;
+  if (!header) return null;
+  const match = /bytes=(\d+)-(\d+)?/.exec(header);
+  if (!match) return null;
+  return { start: Number(match[1]), end: match[2] != null ? Number(match[2]) : null, raw: header };
+}
+
+function slice206(full: Uint8Array, range: ParsedRange): Response {
+  const end = range.end == null ? full.byteLength - 1 : Math.min(range.end, full.byteLength - 1);
+  const s = full.subarray(range.start, end + 1);
+  return new Response(s as unknown as BodyInit, {
+    status: 206,
+    headers: {
+      'accept-ranges': 'bytes',
+      'content-length': String(s.byteLength),
+      'content-range': `bytes ${range.start}-${end}/${full.byteLength}`,
+    },
+  });
+}
+
+/** A 206 whose body errors mid-stream — simulates a dropped connection. */
+function erroring206(full: Uint8Array, range: ParsedRange): Response {
+  const end = range.end == null ? full.byteLength - 1 : Math.min(range.end, full.byteLength - 1);
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.error(new TypeError('network drop mid-chunk'));
+    },
+  });
+  return new Response(body as unknown as BodyInit, {
+    status: 206,
+    headers: {
+      'accept-ranges': 'bytes',
+      'content-length': String(end - range.start + 1),
+      'content-range': `bytes ${range.start}-${end}/${full.byteLength}`,
+    },
+  });
+}
+
+type RangeHandler = (range: ParsedRange | null, init?: RequestInit) => Response | Promise<Response>;
+
+/** URL-keyed range fetcher that records every {url, range} it is asked for. */
+function rangeDispatch(
+  log: { url: string; range: string }[],
+  handlers: Record<string, RangeHandler>,
+): typeof fetch {
+  return (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === 'string'
+      ? input
+      : input instanceof URL ? input.toString() : input.url;
+    const range = parseRangeHeader(init);
+    log.push({ url, range: range?.raw ?? 'full' });
+    const handler = handlers[url];
+    if (!handler) return new Response(null, { status: 404 });
+    return handler(range, init);
+  }) as typeof fetch;
+}
+
+/** Serves any Range as a 206 slice of `body` (200 full body when unranged). */
+function serveRanges(body: Uint8Array): RangeHandler {
+  return (range) => (range ? slice206(body, range) : new Response(
+    body as unknown as BodyInit,
+    { status: 200, headers: { 'content-length': String(body.byteLength) } },
+  ));
+}
+
+/** Serves ranges below `failFrom`, 503s at/after it — a mid-file interruption. */
+function serveThen503(body: Uint8Array, failFrom: number): RangeHandler {
+  return (range) => {
+    if (range && range.start >= failFrom) return new Response(null, { status: 503 });
+    return range ? slice206(body, range) : new Response(body as unknown as BodyInit, { status: 200 });
+  };
+}
+
+const RESUME_CHUNK = 4; // tiny threshold so small bodies exercise the chunk path
+
+function chunkedFile(url: string, body: Uint8Array, oid?: string): DownloadPlan {
+  return {
+    modelId: MODEL_ID,
+    files: [{ url, sizeBytes: body.byteLength, oid: oid ?? oidOf(body) }],
+  };
+}
+
+function body16(): Uint8Array {
+  return Uint8Array.from({ length: 16 }, (_, i) => (i % 251) + 1);
+}
+
+describe('downloadByPlan — mid-file chunk resume', () => {
+  const URL_A = 'https://test/big.bin';
+
+  it('persists a part entry at each completed chunk boundary mid-run', async () => {
+    const body = body16(); // 4 chunks of 4 bytes
+    await expect(
+      downloadByPlan(chunkedFile(URL_A, body), {
+        storage,
+        estimateStorage: async () => null,
+        rangeChunkBytes: RESUME_CHUNK,
+        // Fail from offset 8 → chunks at 0 and 4 persist, then interrupt.
+        fetcher: rangeDispatch([], { [URL_A]: serveThen503(body, 8) }),
+      }),
+    ).rejects.toBeInstanceOf(DownloadFailedError);
+
+    expect(await partOffsets(storage, MODEL_ID)).toEqual([0, 4]);
+    // No final entry was stamped — only the two parts exist.
+    expect(await storage.has({ modelId: MODEL_ID, url: URL_A })).toBe(false);
+  });
+
+  it('resumes from the persisted offset instead of restarting at byte 0', async () => {
+    const body = body16();
+    // Run 1: interrupt after two chunks (offsets 0, 4 persist).
+    await expect(
+      downloadByPlan(chunkedFile(URL_A, body), {
+        storage,
+        estimateStorage: async () => null,
+        rangeChunkBytes: RESUME_CHUNK,
+        fetcher: rangeDispatch([], { [URL_A]: serveThen503(body, 8) }),
+      }),
+    ).rejects.toBeInstanceOf(DownloadFailedError);
+
+    // Run 2: same storage, healthy fetcher — must resume at bytes=8-.
+    const log: { url: string; range: string }[] = [];
+    const result = await downloadByPlan(chunkedFile(URL_A, body), {
+      storage,
+      estimateStorage: async () => null,
+      rangeChunkBytes: RESUME_CHUNK,
+      fetcher: rangeDispatch(log, { [URL_A]: serveRanges(body) }),
+    });
+
+    expect(result.filesFetched).toBe(1);
+    const ranges = log.map((e) => e.range);
+    expect(ranges[0]).toBe('bytes=8-11'); // first request resumes, not bytes=0-
+    expect(ranges).not.toContain('bytes=0-3');
+    expect(ranges).toEqual(['bytes=8-11', 'bytes=12-15']);
+  });
+
+  it('assembles a SHA-verified file and stores it under the stable url identity', async () => {
+    const body = body16();
+    const oid = oidOf(body);
+    const result = await downloadByPlan(chunkedFile(URL_A, body, oid), {
+      storage,
+      estimateStorage: async () => null,
+      rangeChunkBytes: RESUME_CHUNK,
+      fetcher: rangeDispatch([], { [URL_A]: serveRanges(body) }),
+    });
+
+    expect(result.filesFetched).toBe(1);
+    const cached = await storage.get({ modelId: MODEL_ID, url: URL_A });
+    expect(cached).not.toBeNull();
+    expect(cached!.sizeBytes).toBe(body.byteLength);
+  });
+
+  it('sweeps every part entry after the whole-file store succeeds', async () => {
+    const body = body16();
+    await downloadByPlan(chunkedFile(URL_A, body), {
+      storage,
+      estimateStorage: async () => null,
+      rangeChunkBytes: RESUME_CHUNK,
+      fetcher: rangeDispatch([], { [URL_A]: serveRanges(body) }),
+    });
+
+    expect(await partEntries(await storage.listForModel(MODEL_ID))).toHaveLength(0);
+    expect(await storage.has({ modelId: MODEL_ID, url: URL_A })).toBe(true);
+  });
+
+  it('discards a partial chunk (mid-stream failure) and resumes from the last completed boundary', async () => {
+    const body = body16();
+    // Chunk 0 (0-3) serves; chunk 1 (4-7) errors mid-stream persistently.
+    const failing: RangeHandler = (range) => {
+      if (range && range.start >= 4) return erroring206(body, range);
+      return range ? slice206(body, range) : new Response(body as unknown as BodyInit, { status: 200 });
+    };
+    await expect(
+      downloadByPlan(chunkedFile(URL_A, body), {
+        storage,
+        estimateStorage: async () => null,
+        rangeChunkBytes: RESUME_CHUNK,
+        fetcher: rangeDispatch([], { [URL_A]: failing }),
+      }),
+    ).rejects.toBeInstanceOf(DownloadFailedError);
+
+    // Only the completed chunk 0 was persisted — the mid-stream chunk 1 left nothing.
+    expect(await partOffsets(storage, MODEL_ID)).toEqual([0]);
+
+    const log: { url: string; range: string }[] = [];
+    const result = await downloadByPlan(chunkedFile(URL_A, body), {
+      storage,
+      estimateStorage: async () => null,
+      rangeChunkBytes: RESUME_CHUNK,
+      fetcher: rangeDispatch(log, { [URL_A]: serveRanges(body) }),
+    });
+    expect(result.filesFetched).toBe(1);
+    expect(log[0]!.range).toBe('bytes=4-7'); // resumes from the completed boundary
+  });
+
+  it('ignores and cleans stale-stamp parts when the expected bytes change between runs', async () => {
+    const bodyOld = body16(); // stamp s16 (no oid)
+    // Run 1: interrupt after two chunks under the old size stamp.
+    await expect(
+      downloadByPlan({ modelId: MODEL_ID, files: [{ url: URL_A, sizeBytes: 16 }] }, {
+        storage,
+        estimateStorage: async () => null,
+        rangeChunkBytes: RESUME_CHUNK,
+        fetcher: rangeDispatch([], { [URL_A]: serveThen503(bodyOld, 8) }),
+      }),
+    ).rejects.toBeInstanceOf(DownloadFailedError);
+    expect(await partOffsets(storage, MODEL_ID)).toEqual([0, 4]);
+
+    // Run 2: the file now expects 20 bytes (stamp s20). The s16 parts are stale
+    // and must be swept, not stitched — the download restarts from byte 0.
+    const bodyNew = Uint8Array.from({ length: 20 }, (_, i) => (i % 251) + 100);
+    const log: { url: string; range: string }[] = [];
+    const result = await downloadByPlan({ modelId: MODEL_ID, files: [{ url: URL_A, sizeBytes: 20 }] }, {
+      storage,
+      estimateStorage: async () => null,
+      rangeChunkBytes: RESUME_CHUNK,
+      fetcher: rangeDispatch(log, { [URL_A]: serveRanges(bodyNew) }),
+    });
+
+    expect(result.filesFetched).toBe(1);
+    expect(log[0]!.range).toBe('bytes=0-3'); // fresh start, stale parts ignored
+    // No s16 parts survive; the final entry is the 20-byte file.
+    expect(await partEntries(await storage.listForModel(MODEL_ID))).toHaveLength(0);
+    expect((await storage.get({ modelId: MODEL_ID, url: URL_A }))!.sizeBytes).toBe(20);
+  });
+
+  it('nets persisted parts out of the storage preflight so a resumable file is not false-declined', async () => {
+    const body = body16(); // 16 bytes total
+    // Run 1: interrupt after two chunks → 8 bytes of parts on disk.
+    await expect(
+      downloadByPlan(chunkedFile(URL_A, body), {
+        storage,
+        estimateStorage: async () => null,
+        rangeChunkBytes: RESUME_CHUNK,
+        fetcher: rangeDispatch([], { [URL_A]: serveThen503(body, 8) }),
+      }),
+    ).rejects.toBeInstanceOf(DownloadFailedError);
+
+    // Run 2: only 12 bytes free. Full 16 would decline (16 × 1.1 = 17.6 > 12),
+    // but netting the 8 persisted bytes leaves 8 (× 1.1 = 8.8 ≤ 12) → proceeds.
+    const result = await downloadByPlan(chunkedFile(URL_A, body), {
+      storage,
+      estimateStorage: async () => ({ usage: 0, quota: 12 }),
+      rangeChunkBytes: RESUME_CHUNK,
+      fetcher: rangeDispatch([], { [URL_A]: serveRanges(body) }),
+    });
+    expect(result.filesFetched).toBe(1);
+  });
+
+  it('retains parts when the final whole-file store fails, so the next attempt resumes', async () => {
+    const body = body16();
+    // A cache that throws QuotaExceeded ONLY for the final (non-part) key.
+    class FinalPutQuotaCache extends MemoryCache {
+      override async put(request: RequestInfo | URL, response: Response): Promise<void> {
+        const url = typeof request === 'string'
+          ? request
+          : request instanceof URL ? request.toString() : (request as Request).url;
+        if (!url.includes(PART_MARKER)) {
+          throw new DOMException('quota', 'QuotaExceededError');
+        }
+        return super.put(request, response);
+      }
+    }
+    // One shared cache instance so the parts written during the run are visible
+    // to the post-run assertion (open() must return the SAME cache each call).
+    const sharedCache = new FinalPutQuotaCache();
+    class SharedQuotaStorage extends MemoryCacheStorage {
+      override async open(): Promise<MemoryCache> {
+        return sharedCache;
+      }
+    }
+    const quotaStorage = new CacheApiStorage(new SharedQuotaStorage());
+
+    await expect(
+      downloadByPlan(chunkedFile(URL_A, body), {
+        storage: quotaStorage,
+        estimateStorage: async () => null,
+        rangeChunkBytes: RESUME_CHUNK,
+        fetcher: rangeDispatch([], { [URL_A]: serveRanges(body) }),
+      }),
+    ).rejects.toBeInstanceOf(InsufficientStorageError);
+
+    // Parts survive the failed final store — the resume bytes are preserved.
+    expect(await partOffsets(quotaStorage, MODEL_ID)).toEqual([0, 4, 8, 12]);
+  });
+
+  it('leaves parts on abort, and clearModel sweeps them', async () => {
+    const body = body16();
+    const controller = new AbortController();
+    let onChunk1Entered!: () => void;
+    const chunk1Entered = new Promise<void>((resolve) => { onChunk1Entered = resolve; });
+    // Chunk 0 serves immediately (and is persisted before the loop fetches
+    // chunk 1); chunk 1 hangs until aborted.
+    const handler: RangeHandler = (range, init) => {
+      if (range && range.start >= 4) {
+        return new Promise<Response>((_resolve, reject) => {
+          onChunk1Entered();
+          init?.signal?.addEventListener('abort', () =>
+            reject(new DOMException('Aborted', 'AbortError')),
+          );
+        });
+      }
+      return slice206(body, range!);
+    };
+
+    const promise = downloadByPlan(chunkedFile(URL_A, body), {
+      storage,
+      signal: controller.signal,
+      estimateStorage: async () => null,
+      rangeChunkBytes: RESUME_CHUNK,
+      fetcher: rangeDispatch([], { [URL_A]: handler }),
+    });
+
+    await chunk1Entered;
+    controller.abort();
+    await expect(promise).rejects.toBeInstanceOf(DownloadAbortedError);
+
+    // The completed chunk 0 remains — cancel intentionally preserves resume bytes.
+    expect(await partOffsets(storage, MODEL_ID)).toEqual([0]);
+    // clearModel is the sweep that reclaims them.
+    await storage.clearModel(MODEL_ID);
+    expect(await storage.listForModel(MODEL_ID)).toHaveLength(0);
+  });
+
+  it('completes with zero new range requests when every part is present but the final entry is missing', async () => {
+    const body = body16();
+    const stamp = `s${body.byteLength}`; // no oid → size stamp
+    // Manually persist all four parts (an interrupt between the last chunk write
+    // and the final whole-file store), leaving no final entry.
+    for (let offset = 0; offset < body.byteLength; offset += RESUME_CHUNK) {
+      const slice = body.subarray(offset, offset + RESUME_CHUNK);
+      await storage.put(
+        { modelId: MODEL_ID, url: `${URL_A}${PART_MARKER}${stamp}.${offset}` },
+        new Response(slice as unknown as BodyInit),
+      );
+    }
+
+    const log: { url: string; range: string }[] = [];
+    const result = await downloadByPlan({ modelId: MODEL_ID, files: [{ url: URL_A, sizeBytes: 16 }] }, {
+      storage,
+      estimateStorage: async () => null,
+      rangeChunkBytes: RESUME_CHUNK,
+      fetcher: rangeDispatch(log, { [URL_A]: serveRanges(body) }),
+    });
+
+    expect(result.filesFetched).toBe(1);
+    expect(log).toHaveLength(0); // assembled entirely from persisted parts
+    expect(await storage.has({ modelId: MODEL_ID, url: URL_A })).toBe(true);
+    expect(await partEntries(await storage.listForModel(MODEL_ID))).toHaveLength(0);
+  });
+
+  it('L2 composition: a CDN failure mid-chunked-file resumes on the proxy retry, not from byte 0', async () => {
+    const IDENTITY = 'https://test/proxy/big.bin';
+    const CDN = 'https://cdn.example.com/big.bin';
+    const body = body16();
+    const plan: DownloadPlan = {
+      modelId: MODEL_ID,
+      files: [{ url: IDENTITY, fetchUrl: CDN, sizeBytes: body.byteLength, oid: oidOf(body) }],
+    };
+    const log: { url: string; range: string }[] = [];
+
+    const result = await downloadByPlan(plan, {
+      storage,
+      estimateStorage: async () => null,
+      rangeChunkBytes: RESUME_CHUNK,
+      fetcher: rangeDispatch(log, {
+        // CDN serves the first two chunks (0, 4) then 503s persistently at 8.
+        [CDN]: serveThen503(body, 8),
+        // Proxy serves everything — the fallback transport.
+        [IDENTITY]: serveRanges(body),
+      }),
+    });
+
+    expect(result.filesFetched).toBe(1);
+    // The proxy attempt RESUMED: its first Range is the resume offset, never 0.
+    const firstProxyRange = log.find((e) => e.url === IDENTITY)?.range;
+    expect(firstProxyRange).toBe('bytes=8-11');
+    expect(log.filter((e) => e.url === IDENTITY).map((e) => e.range))
+      .toEqual(['bytes=8-11', 'bytes=12-15']);
+    // The SHA-verified file is stored under the stable identity, parts swept.
+    expect((await storage.get({ modelId: MODEL_ID, url: IDENTITY }))!.sizeBytes)
+      .toBe(body.byteLength);
+    expect(await partEntries(await storage.listForModel(MODEL_ID))).toHaveLength(0);
+  });
+});
