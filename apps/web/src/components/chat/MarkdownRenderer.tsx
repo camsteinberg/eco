@@ -3,7 +3,7 @@
 
 "use client";
 
-import { memo, useRef, useEffect, useMemo, useState } from "react";
+import { memo, useRef, useEffect, useMemo, useState, isValidElement, cloneElement, Fragment } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
@@ -129,6 +129,45 @@ function useMathPlugins(content: string): MathPlugins {
 }
 
 // ---------------------------------------------------------------------------
+// Table-cell line breaks — convert literal `<br>` markers small models emit
+// inside GFM cells into real breaks, scoped to td/th.
+// ---------------------------------------------------------------------------
+
+const CELL_BREAK = /<br\s*\/?>/gi;
+
+// Security: we synthesize only our own <br/> elements — assistant HTML is never
+// parsed (no rehype-raw), so the no-raw-HTML posture is preserved.
+function renderCellBreaks(children: React.ReactNode): React.ReactNode {
+  if (typeof children === "string") {
+    const parts = children.split(CELL_BREAK);
+    if (parts.length === 1) return children;
+    return parts.flatMap((part, i) =>
+      i === 0 ? [part] : [<br key={`cell-br-${String(i)}`} />, part],
+    );
+  }
+  if (Array.isArray(children)) {
+    return children.map((child, i) => {
+      const rendered = renderCellBreaks(child);
+      if (Array.isArray(rendered)) {
+        return <Fragment key={`cell-part-${String(i)}`}>{rendered}</Fragment>;
+      }
+      return rendered;
+    });
+  }
+  if (isValidElement(children)) {
+    const el = children as React.ReactElement<{
+      node?: { tagName?: string };
+      children?: React.ReactNode;
+    }>;
+    // A <br> inside inline code is literal content — never descend into `code`.
+    if (el.props.node?.tagName === "code") return children;
+    if (el.props.children === undefined) return children;
+    return cloneElement(el, undefined, renderCellBreaks(el.props.children));
+  }
+  return children;
+}
+
+// ---------------------------------------------------------------------------
 // Static components (used when NOT streaming, or for reduced motion)
 // ---------------------------------------------------------------------------
 
@@ -178,12 +217,12 @@ const staticComponents: Components = {
   ),
   th: ({ children, ...props }) => (
     <th className="border-b border-[var(--eco-neutral-border)] px-3 py-2 text-left font-semibold" {...props}>
-      {children}
+      {renderCellBreaks(children)}
     </th>
   ),
   td: ({ children, ...props }) => (
     <td className="border-b border-[var(--eco-neutral-border-muted)] px-3 py-2" {...props}>
-      {children}
+      {renderCellBreaks(children)}
     </td>
   ),
   blockquote: ({ children, ...props }) => (
