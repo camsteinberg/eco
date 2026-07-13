@@ -192,6 +192,82 @@ describe('MarkdownRenderer', () => {
 })
 
 // ---------------------------------------------------------------------------
+// Literal <br> in table cells → real line breaks (renderer-side, non-lossy)
+//
+// Small on-device models emit literal `<br>` inside GFM cells. With no
+// rehype-raw / no skipHtml, that would render as junk text. These tests assert
+// the td/th overrides convert only those markers into real <br/> elements,
+// without widening the raw-HTML surface elsewhere.
+// ---------------------------------------------------------------------------
+
+describe('literal <br> in table cells', () => {
+  // The break lives in the second column so it is unambiguous which cell we
+  // assert on. Two-column tables with spaced separators are what real models
+  // emit and pass through the host-side normalizer unchanged.
+  it('renders a single break as a real <br> element with no literal text', () => {
+    const { container } = render(
+      <MarkdownRenderer content={'| K | V |\n| --- | --- |\n| r | A<br>B |'} />,
+    )
+    const cell = container.querySelectorAll('td')[1]!
+    expect(cell.querySelectorAll('br')).toHaveLength(1)
+    expect(cell.textContent).toBe('AB')
+    expect(cell.textContent).not.toContain('<br>')
+  })
+
+  it('converts every break when a cell has multiple <br>', () => {
+    const { container } = render(
+      <MarkdownRenderer content={'| K | V |\n| --- | --- |\n| r | A<br>B<br>C |'} />,
+    )
+    const cell = container.querySelectorAll('td')[1]!
+    expect(cell.querySelectorAll('br')).toHaveLength(2)
+    expect(cell.textContent).toBe('ABC')
+  })
+
+  it('converts the <br/>, <br />, and <BR> variants', () => {
+    const { container } = render(
+      <MarkdownRenderer content={'| K | V |\n| --- | --- |\n| r | A<br/>B<br />C<BR>D |'} />,
+    )
+    const cell = container.querySelectorAll('td')[1]!
+    expect(cell.querySelectorAll('br')).toHaveLength(3)
+    expect(cell.textContent).toBe('ABCD')
+  })
+
+  it('keeps inline formatting around a break', () => {
+    const { container } = render(
+      <MarkdownRenderer content={'| K | V |\n| --- | --- |\n| r | **A**<br>**B** |'} />,
+    )
+    const cell = container.querySelectorAll('td')[1]!
+    expect(cell.querySelectorAll('strong')).toHaveLength(2)
+    expect(cell.querySelectorAll('br')).toHaveLength(1)
+  })
+
+  it('leaves <br> inside inline code as literal content', () => {
+    const { container } = render(
+      <MarkdownRenderer content={'| K | V |\n| --- | --- |\n| r | `a<br>b` |'} />,
+    )
+    const code = container.querySelectorAll('td')[1]!.querySelector('code')
+    expect(code).not.toBeNull()
+    expect(code!.querySelectorAll('br')).toHaveLength(0)
+    expect(code!.textContent).toBe('a<br>b')
+  })
+
+  it('does not convert <br> outside a table (no HTML surface widening)', () => {
+    const { container } = render(<MarkdownRenderer content={'x<br>y'} />)
+    expect(container.querySelector('br')).toBeNull()
+    expect(container).toHaveTextContent('x<br>y')
+  })
+
+  it('applies the same treatment to header (th) cells', () => {
+    const { container } = render(
+      <MarkdownRenderer content={'| K | A<br>B |\n| --- | --- |\n| x | y |'} />,
+    )
+    const th = container.querySelectorAll('th')[1]!
+    expect(th.querySelectorAll('br')).toHaveLength(1)
+    expect(th.textContent).toBe('AB')
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Chat #7 Wave 2.5 — host-side markdown normalization (display path)
 //
 // The renderer applies normalizeStreamMarkdown to the body BEFORE parsing, so
