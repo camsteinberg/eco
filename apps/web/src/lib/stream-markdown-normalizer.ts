@@ -70,8 +70,14 @@ const GLUED_DASH_BULLET = /^(\s*)-([^\s-].*)$/;
  */
 const GLUED_ORDERED_MARKER = /^(\s*)(\d{1,9})\.([^\s\d].*)$/;
 
-/** A GFM table separator row: cells of dashes with optional alignment colons. */
-const TABLE_SEPARATOR_ROW = /^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)+\|?\s*$/;
+/**
+ * A GFM table separator row: cells of dashes with optional alignment colons.
+ * A single dash cell (`| --- |`) must match too — this regex is only ever
+ * consulted on lines inside a pipe-table run (see `insertTableSeparators`),
+ * where an all-dash line is unambiguously the separator; requiring two cells
+ * here made single-column tables grow a duplicate separator per pass.
+ */
+const TABLE_SEPARATOR_ROW = /^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?\s*$/;
 
 /** Two+ spaces strictly between non-space chars → never leading indent or trailing hard-break. */
 const INTERNAL_DOUBLE_SPACE = /(?<=\S) {2,}(?=\S)/g;

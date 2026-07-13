@@ -167,6 +167,24 @@ describe("table separator insertion", () => {
     expect(done(input)).toBe(input);
   });
 
+  // --- single-column tables (regression: duplicate separator insertion) ---
+  it("leaves a single-column table that already has a separator untouched", () => {
+    const input = "| Item |\n| --- |\n| A |";
+    expect(done(input)).toBe(input);
+  });
+
+  it("recognizes tight and alignment-colon single-column separators", () => {
+    expect(done("| Item |\n|---|\n| A |")).toBe("| Item |\n|---|\n| A |");
+    expect(done("| Item |\n| :---: |\n| A |")).toBe(
+      "| Item |\n| :---: |\n| A |",
+    );
+    expect(done("| Item |\n| :-- |\n| A |")).toBe("| Item |\n| :-- |\n| A |");
+  });
+
+  it("inserts a separator for a single-column table that lacks one", () => {
+    expect(done("| Item |\n| A |")).toBe("| Item |\n| --- |\n| A |");
+  });
+
   it("does NOT insert a separator for a single pipe row (ambiguous)", () => {
     const input = "value | other";
     expect(done(input)).toBe(input);
@@ -367,6 +385,8 @@ const FIXTURES: string[] = [
   "1.5 hours later, we left",
   "| Name | Age |\n| Alice | 30 |",
   "| A | B | C |\n| 1 | 2 | 3 |",
+  "| Item |\n| --- |\n| A |",
+  "| Item |\n| A |",
   "Name | Age\nAlice | 30",
   "hello  world",
   "word , word",
