@@ -1,10 +1,10 @@
 {
   "_documentation": {
     "source": "docs/design/2026-05-16/vision-and-architecture.md §2.4",
-    "scope": "The 7-model v1.0 user-facing catalog. Additional/experimental models are gated out of the shipped user bundle.",
+    "scope": "The 6-model v1.0 user-facing catalog. Additional/experimental models are gated out of the shipped user bundle.",
     "field_definitions": "apps/web/src/local-ai/types.ts (ModelConfig type)",
-    "last_updated": "2026-07-10",
-    "phase": "smollm2-webllm-retirement",
+    "last_updated": "2026-07-11",
+    "phase": "bonsai-retirement",
     "artifact_note": "Each model's `artifact` is the canonical download contract. `hfId` + `revision` + `files` feed the server-side proxy allowlist via apps/web/src/lib/local-model-registry.ts (getProxyAllowedLocalModelRegistryArtifacts), and every file MUST have a matching entry in artifact-metadata.json (the proxy's size/SHA-256 verification source — catalog.test.ts pins this invariant). Bootstrap reads this to build the DownloadPlan; mismatches surface as 403 from the proxy."
   },
   "models": [
@@ -37,36 +37,6 @@
           "special_tokens_map.json",
           "tokenizer.json",
           "tokenizer.model",
-          "tokenizer_config.json"
-        ]
-      }
-    },
-    {
-      "id": "local/bonsai-1.7b-q4",
-      "friendlyName": "Bonsai",
-      "vendor": "ONNX Community",
-      "sizeGB": 1.15,
-      "runtime": "transformers",
-      "format": "onnx-q4",
-      "capabilities": {
-        "intent": ["snappy", "balanced"],
-        "tasks": ["chat", "writing", "code", "reasoning"],
-        "contextTokens": 4096
-      },
-      "bestFor": "Quick chat and writing on capable mid-range laptops.",
-      "knownLimitation": "First-token latency above the Eco Fast gate on tested profiles; compact-but-not-instant.",
-      "evidenceTier": "proven",
-      "systemRoleSupport": "merge-first-user",
-      "artifact": {
-        "hfId": "onnx-community/Bonsai-1.7B-ONNX",
-        "revision": "3f3cf1759daf66342d26610488b9931f2fafcb29",
-        "files": [
-          "onnx/model_q4.onnx",
-          "onnx/model_q4.onnx_data",
-          "chat_template.jinja",
-          "config.json",
-          "generation_config.json",
-          "tokenizer.json",
           "tokenizer_config.json"
         ]
       }

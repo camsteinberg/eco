@@ -73,7 +73,10 @@ describe('runSelfHeal — artifact-swap evidence migration', () => {
   const LEDGER_KEY = 'eco-local-ai-ledger-v1';
   // cacheNameFor(): 'eco-local-ai-' + modelId with [^a-zA-Z0-9._-] → '_'.
   const LFM350_CACHE = 'eco-local-ai-candidate_lfm2.5-350m-onnx';
-  const BONSAI_CACHE = 'eco-local-ai-local_bonsai-1.7b-q4';
+  // A non-retired survivor whose evidence + cache must NOT be touched by the
+  // 350M artifact-swap migration (Qwen3.5-2B; formerly Bonsai, now retired).
+  const OTHER_ID = 'candidate/qwen3.5-2b-onnx';
+  const OTHER_CACHE = 'eco-local-ai-candidate_qwen3.5-2b-onnx';
 
   const ledgerRow = (modelId: string) => ({
     modelId,
@@ -94,11 +97,11 @@ describe('runSelfHeal — artifact-swap evidence migration', () => {
   it('clears the model ledger rows + cache namespace once and writes the marker', async () => {
     localStorage.setItem(
       LEDGER_KEY,
-      JSON.stringify([ledgerRow(LFM350), ledgerRow('local/bonsai-1.7b-q4')]),
+      JSON.stringify([ledgerRow(LFM350), ledgerRow(OTHER_ID)]),
     );
     const cacheBackend = new MemoryCacheStorage();
     await cacheBackend.open(LFM350_CACHE);
-    await cacheBackend.open(BONSAI_CACHE);
+    await cacheBackend.open(OTHER_CACHE);
 
     const report = await runSelfHeal({
       now: () => nowMs,
@@ -112,10 +115,10 @@ describe('runSelfHeal — artifact-swap evidence migration', () => {
     expect(storage.getItem(MARKER)).not.toBeNull();
     // Only the migrated model's evidence is touched.
     const entries = JSON.parse(localStorage.getItem(LEDGER_KEY) ?? '[]') as Array<{ modelId: string }>;
-    expect(entries.map((e) => e.modelId)).toEqual(['local/bonsai-1.7b-q4']);
+    expect(entries.map((e) => e.modelId)).toEqual([OTHER_ID]);
     // Only the migrated model's cache namespace is dropped.
     expect(cacheBackend.caches.has(LFM350_CACHE)).toBe(false);
-    expect(cacheBackend.caches.has(BONSAI_CACHE)).toBe(true);
+    expect(cacheBackend.caches.has(OTHER_CACHE)).toBe(true);
   });
 
   it("flips a ready slot bound to the migrated model to 'preparing' (its cache was just wiped)", async () => {
@@ -299,7 +302,7 @@ describe('runSelfHeal — retired-model migration', () => {
     expect(hint?.label).toBe('Retired Test Model');
   });
 
-  it('detects the retired id from a LEGACY slot key and rebinds', async () => {
+  it('detects the retired id from a LEGACY slot key, rebinds, and removes the legacy key', async () => {
     storage.setItem('eco-model-slot-eco-fast', RETIRED_ID);
 
     await runSelfHeal(seamOptions());
@@ -307,6 +310,17 @@ describe('runSelfHeal — retired-model migration', () => {
     // Canonical key now holds the rebind target (setSlot writes it).
     expect(readRawSlotIdForMigration('eco-fast')).toBe(QWEN);
     expect(storage.getItem(NOTICE_HINT_KEY)).not.toBeNull();
+    // The stale legacy key must not keep naming the retired id (walked
+    // 2026-07-11: it was shadowed-but-present before this cleanup).
+    expect(storage.getItem('eco-model-slot-eco-fast')).toBeNull();
+  });
+
+  it('leaves a legacy slot key naming a LIVE model untouched', async () => {
+    storage.setItem('eco-slot-eco-fast', QWEN);
+
+    await runSelfHeal(seamOptions());
+
+    expect(storage.getItem('eco-slot-eco-fast')).toBe(QWEN);
   });
 
   it('clears (does not rebind) an eco-smart slot on the retired id', async () => {
@@ -488,10 +502,10 @@ describe('runSelfHeal — retired-model migration', () => {
     expect(readRawSlotIdForMigration('eco-fast')).toBe(QWEN);
   });
 
-  it('wires the real SmolLM2 retirement through the default module const (no seam)', async () => {
-    // With no retiredMigrations seam, runSelfHeal uses the shipping const, whose
-    // sole entry is the retired SmolLM2. On a profile that never had it, the
-    // migration still runs to completion (idempotent no-op) and marks itself done.
+  it('wires the real SmolLM2 + Bonsai retirements through the default module const (no seam)', async () => {
+    // With no retiredMigrations seam, runSelfHeal uses the shipping const. On a
+    // profile that never had either retired model, both migrations still run to
+    // completion (idempotent no-ops) and mark themselves done.
     const report = await runSelfHeal({
       now: () => nowMs,
       storage,
@@ -500,8 +514,12 @@ describe('runSelfHeal — retired-model migration', () => {
       resolveEcoFastDefault: () => QWEN,
     });
     expect(report.errors).toEqual([]);
-    expect(report.retiredModelMigrationsRun).toEqual(['local/smollm2-1.7b-webllm-q4f16']);
+    expect(report.retiredModelMigrationsRun).toEqual([
+      'local/smollm2-1.7b-webllm-q4f16',
+      'local/bonsai-1.7b-q4',
+    ]);
     expect(storage.getItem('eco-local-ai-mig-retire-smollm2-v1')).not.toBeNull();
+    expect(storage.getItem('eco-local-ai-mig-retire-bonsai-v1')).not.toBeNull();
   });
 });
 
@@ -518,17 +536,24 @@ describe('runSelfHeal — former-default slot migration', () => {
   const LFM = 'candidate/lfm2.5-1.2b-instruct-onnx';
   const BONSAI = 'local/bonsai-1.7b-q4';
 
-  it('rebinds an eco-fast slot stuck on Bonsai (fully demoted) to the device-appropriate default', async () => {
+  it('rebinds an eco-fast slot stuck on the retired Bonsai via the retirement migration', async () => {
+    // Bonsai retired 2026-07-11; its eco-fast rebind is now owned by the
+    // retirement migration (step -0.5, before the former-default step), driven
+    // by the real RETIRED_MODEL_MIGRATIONS entry — not the former-default path.
     setSlot('eco-fast', BONSAI);
     setSlotStatus('eco-fast', 'ready');
 
     const report = await runSelfHeal({ now: () => nowMs, storage, resolveEcoFastDefault: () => QWEN });
 
-    expect(report.staleDefaultSlotMigrated).toBe(true);
+    expect(report.retiredModelMigrationsRun).toContain('local/bonsai-1.7b-q4');
     const fast = getSlot('eco-fast');
     expect(fast.modelId).toBe(QWEN);
     // 'preparing' so the readiness pipeline verifies/downloads before first use.
     expect(fast.status).toBe('preparing');
+    // The retirement migration handled it → the former-default step no-ops.
+    expect(report.staleDefaultSlotMigrated).toBe(false);
+    // Rode the fast default on the retired model → one-time notice hint set.
+    expect(storage.getItem('eco-local-ai-retired-notice-v1')).not.toBeNull();
   });
 
   it('rebinds an eco-fast slot stuck on the superseded LFM2.5 default to Qwen3.5 on capable devices', async () => {
@@ -583,14 +608,14 @@ describe('runSelfHeal — former-default slot migration', () => {
   });
 
   it('does nothing (no crash) when the device is below the assignable floor (resolver returns null)', async () => {
-    setSlot('eco-fast', BONSAI);
+    setSlot('eco-fast', LFM);
     setSlotStatus('eco-fast', 'ready');
 
     const report = await runSelfHeal({ now: () => nowMs, storage, resolveEcoFastDefault: () => null });
 
     expect(report.staleDefaultSlotMigrated).toBe(false);
     expect(report.errors).toEqual([]);
-    expect(getSlot('eco-fast').modelId).toBe(BONSAI);
+    expect(getSlot('eco-fast').modelId).toBe(LFM);
   });
 
   it('does nothing when eco-fast is empty', async () => {
@@ -600,13 +625,13 @@ describe('runSelfHeal — former-default slot migration', () => {
   });
 
   it('does not touch the eco-smart slot', async () => {
-    setSlot('eco-smart', BONSAI);
+    setSlot('eco-smart', LFM);
     setSlotStatus('eco-smart', 'ready');
 
     const report = await runSelfHeal({ now: () => nowMs, storage, resolveEcoFastDefault: () => QWEN });
 
     expect(report.staleDefaultSlotMigrated).toBe(false);
-    expect(getSlot('eco-smart').modelId).toBe(BONSAI);
+    expect(getSlot('eco-smart').modelId).toBe(LFM);
   });
 });
 

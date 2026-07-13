@@ -81,22 +81,21 @@ describe('recommend — WebGPU adapter without shader-f16', () => {
     expect(pick.id).toBe('candidate/gemma-4-e2b-litert');
   });
 
-  it('promotes Gemma 4 ahead of demoted Bonsai but keeps Bonsai selectable', () => {
+  it('promotes Gemma 4 first on an f16-less adapter with LFM2.5-350M as the light fallback', () => {
     const candidates = listCandidates('eco-fast', PROFILE_NO_SHADER_F16);
     expect(candidates[0]!.model.id).toBe('candidate/gemma-4-e2b-litert');
-    // Bonsai is demoted, not removed — it stays in the offered list.
-    expect(candidates.map((c) => c.model.id)).toContain('local/bonsai-1.7b-q4');
+    // The f16-free survivors after Bonsai's retirement (2026-07-11): Gemma 4 +
+    // the 0.28GB LFM2.5-350M starter.
+    expect(candidates.map((c) => c.model.id)).toContain('candidate/lfm2.5-350m-onnx');
   });
 
-  it('ranks the f16-less ladder Gemma 4 → LFM2.5-350M (q4) → Bonsai last', () => {
-    // The cascade walks this ranking on setup failures (selection/cascade.ts),
-    // so the order is load-bearing for weak f16-less devices: when the 2GB
-    // Gemma download fails, the next attempt must be the 0.28GB starter — not
-    // the 1.15GB Bonsai whose cold load times out on weak iGPUs.
+  it('ranks the f16-less ladder Gemma 4 → LFM2.5-350M (q4)', () => {
+    // The cascade walks this ranking on setup failures (selection/cascade.ts):
+    // when the 2GB Gemma download fails, the next attempt is the 0.28GB starter.
+    // Bonsai was the former last rung; it retired 2026-07-11.
     const ids = listCandidates('eco-fast', PROFILE_NO_SHADER_F16).map((c) => c.model.id);
     expect(ids[0]).toBe('candidate/gemma-4-e2b-litert');
-    expect(ids[1]).toBe('candidate/lfm2.5-350m-onnx');
-    expect(ids[ids.length - 1]).toBe('local/bonsai-1.7b-q4');
+    expect(ids[ids.length - 1]).toBe('candidate/lfm2.5-350m-onnx');
   });
 
   it('surfaces Gemma 4 first in the flat catalog dialog on an f16-less adapter', () => {
@@ -342,7 +341,6 @@ describe('listCatalog', () => {
     const r = listCatalog(PROFILE_FIREFOX);
     const allIds = r.available.map((entry) => entry.model.id);
     expect(allIds).not.toContain('local/phi3-mini-4k-q4f16');
-    expect(allIds).not.toContain('local/bonsai-1.7b-q4');
   });
 
   it('returns shape with an empty available array for below-floor profiles', () => {
@@ -368,12 +366,12 @@ describe('listCatalog', () => {
   });
 
   it('auto-hides models with a recent smoke-fail in the ledger', () => {
-    // Pre-seed the ledger with a smoke-fail for Bonsai on this profile.
+    // Pre-seed the ledger with a smoke-fail for Phi-3 on this profile.
     localStorage.setItem(
       'eco-local-ai-ledger-v1',
       JSON.stringify([
         {
-          modelId: 'local/bonsai-1.7b-q4',
+          modelId: 'local/phi3-mini-4k-q4f16',
           profileKey: 'chromium|high-memory-laptop|webgpu',
           outcome: 'smoke-fail',
           recordedAt: new Date().toISOString(),
@@ -383,7 +381,7 @@ describe('listCatalog', () => {
     );
     const r = listCatalog(PROFILE_24GB);
     const ids = r.available.map((e) => e.model.id);
-    expect(ids).not.toContain('local/bonsai-1.7b-q4');
+    expect(ids).not.toContain('local/phi3-mini-4k-q4f16');
     localStorage.clear();
   });
 

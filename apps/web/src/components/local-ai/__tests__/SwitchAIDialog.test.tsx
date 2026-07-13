@@ -24,13 +24,13 @@ const PHI3: ModelConfig = {
   evidenceTier: 'proven',
 };
 
-const BONSAI: ModelConfig = {
-  id: 'local/bonsai-1.7b-q4',
-  friendlyName: 'Bonsai',
-  vendor: 'ONNX Community',
-  sizeGB: 1.1,
+const THIRD_MODEL: ModelConfig = {
+  id: 'local/qwen3-0.6b',
+  friendlyName: 'Qwen3',
+  vendor: 'Alibaba',
+  sizeGB: 0.57,
   runtime: 'transformers',
-  format: 'onnx-q4',
+  format: 'onnx-q4f16',
   capabilities: { intent: ['snappy'], tasks: ['chat'], contextTokens: 2048 },
   bestFor: 'fast chat',
   knownLimitation: 'untested',
@@ -53,12 +53,12 @@ const QWEN: ModelConfig = {
 function makeState(overrides: Partial<UseSwitchAIReturn> = {}): UseSwitchAIReturn {
   const choices: SwitchAIChoice[] = [
     { model: PHI3, confidence: 'benchmark', isTop: true },
-    { model: BONSAI, confidence: 'calculated', isTop: false },
+    { model: THIRD_MODEL, confidence: 'calculated', isTop: false },
   ];
   return {
     recommendation: PHI3,
     choices,
-    selectedId: BONSAI.id,
+    selectedId: THIRD_MODEL.id,
     select: vi.fn(),
     commit: vi.fn(async (): Promise<SwitchAIResult> => ({ success: true })),
     commitWith: vi.fn(async (): Promise<SwitchAIResult> => ({ success: true })),
@@ -72,12 +72,12 @@ describe('SwitchAIDialog — single calm list', () => {
     const onClose = vi.fn();
     const state = makeState();
     render(
-      <SwitchAIDialog open onClose={onClose} currentModel={BONSAI} state={state} />,
+      <SwitchAIDialog open onClose={onClose} currentModel={THIRD_MODEL} state={state} />,
     );
     expect(screen.getByRole('radiogroup', { name: /available ais/i })).toBeInTheDocument();
-    // Display-mapped names (Phi-3 Mini -> Eco Reasoning, Bonsai -> Eco Balanced)
+    // Display-mapped names (Phi-3 Mini -> Eco Reasoning, Qwen3 -> Eco Compact)
     expect(screen.getByText('Eco Reasoning (Microsoft)')).toBeInTheDocument();
-    expect(screen.getByText('Eco Balanced (Bonsai)')).toBeInTheDocument();
+    expect(screen.getByText('Eco Compact (Qwen)')).toBeInTheDocument();
     expect(screen.getAllByRole('radio')).toHaveLength(2);
   });
 
@@ -85,7 +85,7 @@ describe('SwitchAIDialog — single calm list', () => {
     const onClose = vi.fn();
     const state = makeState();
     render(
-      <SwitchAIDialog open onClose={onClose} currentModel={BONSAI} state={state} />,
+      <SwitchAIDialog open onClose={onClose} currentModel={THIRD_MODEL} state={state} />,
     );
     expect(screen.queryByText(/eco picks/i)).toBeNull();
     expect(screen.queryByText(/choose your own/i)).toBeNull();
@@ -95,7 +95,7 @@ describe('SwitchAIDialog — single calm list', () => {
     const onClose = vi.fn();
     const state = makeState();
     render(
-      <SwitchAIDialog open onClose={onClose} currentModel={BONSAI} state={state} />,
+      <SwitchAIDialog open onClose={onClose} currentModel={THIRD_MODEL} state={state} />,
     );
     const recommended = screen.getAllByText(/recommended for your device/i);
     // One sublabel — on PHI3, the isTop:true entry.
@@ -109,7 +109,7 @@ describe('SwitchAIDialog — single calm list', () => {
     const select = vi.fn();
     const state = makeState({ select });
     render(
-      <SwitchAIDialog open onClose={onClose} currentModel={BONSAI} state={state} />,
+      <SwitchAIDialog open onClose={onClose} currentModel={THIRD_MODEL} state={state} />,
     );
     fireEvent.click(screen.getByText('Eco Reasoning (Microsoft)'));
     expect(select).toHaveBeenCalledWith(PHI3.id);
@@ -119,7 +119,7 @@ describe('SwitchAIDialog — single calm list', () => {
     const onClose = vi.fn();
     const state = makeState({ selectedId: PHI3.id });
     render(
-      <SwitchAIDialog open onClose={onClose} currentModel={BONSAI} state={state} />,
+      <SwitchAIDialog open onClose={onClose} currentModel={THIRD_MODEL} state={state} />,
     );
     const radios = screen.getAllByRole('radio');
     const checked = radios.filter((r) => r.getAttribute('aria-checked') === 'true');
@@ -130,7 +130,7 @@ describe('SwitchAIDialog — single calm list', () => {
     const onClose = vi.fn();
     const state = makeState();
     render(
-      <SwitchAIDialog open onClose={onClose} currentModel={BONSAI} state={state} />,
+      <SwitchAIDialog open onClose={onClose} currentModel={THIRD_MODEL} state={state} />,
     );
     // provenance is "ONNX Community · 1.1 GB" / "Microsoft · 2.1 GB" — the
     // GB-suffixed technical line must not leak into the calm list.
@@ -141,7 +141,7 @@ describe('SwitchAIDialog — single calm list', () => {
     const onClose = vi.fn();
     const state = makeState();
     render(
-      <SwitchAIDialog open onClose={onClose} currentModel={BONSAI} state={state} />,
+      <SwitchAIDialog open onClose={onClose} currentModel={THIRD_MODEL} state={state} />,
     );
     expect(screen.queryByText(/untested on this hardware/i)).toBeNull();
     expect(screen.queryByText(/may not work/i)).toBeNull();
@@ -152,7 +152,7 @@ describe('SwitchAIDialog — single calm list', () => {
     const onClose = vi.fn();
     const state = makeState({ choices: [], selectedId: null });
     render(
-      <SwitchAIDialog open onClose={onClose} currentModel={BONSAI} state={state} />,
+      <SwitchAIDialog open onClose={onClose} currentModel={THIRD_MODEL} state={state} />,
     );
     expect(screen.getByText(/no alternative ais are available/i)).toBeInTheDocument();
   });
@@ -161,7 +161,7 @@ describe('SwitchAIDialog — single calm list', () => {
     const onClose = vi.fn();
     const state = makeState();
     render(
-      <SwitchAIDialog open onClose={onClose} currentModel={BONSAI} currentModelReady state={state} />,
+      <SwitchAIDialog open onClose={onClose} currentModel={THIRD_MODEL} currentModelReady state={state} />,
     );
     expect(screen.getByText(/currently running/i)).toBeInTheDocument();
     expect(screen.queryByText(/setting up/i)).toBeNull();
@@ -171,7 +171,7 @@ describe('SwitchAIDialog — single calm list', () => {
     const onClose = vi.fn();
     const state = makeState();
     render(
-      <SwitchAIDialog open onClose={onClose} currentModel={BONSAI} currentModelReady={false} state={state} />,
+      <SwitchAIDialog open onClose={onClose} currentModel={THIRD_MODEL} currentModelReady={false} state={state} />,
     );
     expect(screen.getByText(/setting up/i)).toBeInTheDocument();
     expect(screen.queryByText(/currently running/i)).toBeNull();
@@ -184,7 +184,7 @@ describe('SwitchAIDialog — failure flow with cascade suggestion', () => {
     const commit = vi.fn(async (): Promise<SwitchAIResult> => ({
       success: false,
       reason: 'smoke-failed',
-      failedModel: BONSAI,
+      failedModel: THIRD_MODEL,
       suggestedNext: QWEN,
     }));
     const state = makeState({ commit });
@@ -208,7 +208,7 @@ describe('SwitchAIDialog — failure flow with cascade suggestion', () => {
     const commit = vi.fn(async (): Promise<SwitchAIResult> => ({
       success: false,
       reason: 'smoke-failed',
-      failedModel: BONSAI,
+      failedModel: THIRD_MODEL,
       suggestedNext: QWEN,
     }));
     const state = makeState({ commit, commitWith });
@@ -232,7 +232,7 @@ describe('SwitchAIDialog — failure flow with cascade suggestion', () => {
     const commit = vi.fn(async (): Promise<SwitchAIResult> => ({
       success: false,
       reason: 'smoke-failed',
-      failedModel: BONSAI,
+      failedModel: THIRD_MODEL,
       suggestedNext: QWEN,
     }));
     const state = makeState({ commit });
@@ -255,7 +255,7 @@ describe('SwitchAIDialog — failure flow with cascade suggestion', () => {
     const commit = vi.fn(async (): Promise<SwitchAIResult> => ({
       success: false,
       reason: 'smoke-failed',
-      failedModel: BONSAI,
+      failedModel: THIRD_MODEL,
       suggestedNext: null,
     }));
     const state = makeState({ commit });
@@ -279,7 +279,7 @@ describe('SwitchAIDialog — failure flow with cascade suggestion', () => {
     const commit = vi.fn(async (): Promise<SwitchAIResult> => ({
       success: false,
       reason: 'load-failed',
-      failedModel: BONSAI,
+      failedModel: THIRD_MODEL,
       suggestedNext: null,
     }));
     const state = makeState({ commit });
@@ -300,7 +300,7 @@ describe('SwitchAIDialog — failure flow with cascade suggestion', () => {
     const commit = vi.fn(async (): Promise<SwitchAIResult> => ({
       success: false,
       reason: 'network-failed',
-      failedModel: BONSAI,
+      failedModel: THIRD_MODEL,
       suggestedNext: QWEN,
     }));
     const state = makeState({ commit });
@@ -329,7 +329,7 @@ describe('SwitchAIDialog — failure flow with cascade suggestion', () => {
     const commit = vi.fn(async (): Promise<SwitchAIResult> => ({
       success: false,
       reason: 'smoke-failed',
-      failedModel: BONSAI,
+      failedModel: THIRD_MODEL,
       suggestedNext: QWEN,
       failedConfidence: 'calculated',
     }));
@@ -352,7 +352,7 @@ describe('SwitchAIDialog — failure flow with cascade suggestion', () => {
     const commit = vi.fn(async (): Promise<SwitchAIResult> => ({
       success: false,
       reason: 'smoke-failed',
-      failedModel: BONSAI,
+      failedModel: THIRD_MODEL,
       suggestedNext: null,
       failedConfidence: 'benchmark',
     }));
@@ -378,7 +378,7 @@ describe('SwitchAIDialog — busy runtime (slice 2a)', () => {
       const commit = vi.fn(async (): Promise<SwitchAIResult> => ({
         success: false,
         reason: 'busy',
-        failedModel: BONSAI,
+        failedModel: THIRD_MODEL,
         suggestedNext: null,
         busyMessage: 'Eco is preparing a local model. Wait for it to finish before starting another local model task.',
       }));
@@ -416,7 +416,7 @@ describe('SwitchAIDialog — transient-busy auto-retry (slice 3)', () => {
     return {
       success: false,
       reason: 'busy',
-      failedModel: BONSAI,
+      failedModel: THIRD_MODEL,
       suggestedNext: null,
       busyMessage: 'A readiness check is already running. Wait for it to finish before starting another local model task.',
     };
@@ -498,7 +498,7 @@ describe('SwitchAIDialog — transient-busy auto-retry (slice 3)', () => {
       const commit = vi.fn<() => Promise<SwitchAIResult>>().mockResolvedValue({
         success: false,
         reason: 'load-failed',
-        failedModel: BONSAI,
+        failedModel: THIRD_MODEL,
         suggestedNext: null,
       });
       const state = makeState({ commit });
@@ -633,7 +633,7 @@ describe('SwitchAIDialog — loading progress', () => {
     const commit = vi.fn(async (): Promise<SwitchAIResult> => ({
       success: false,
       reason: 'smoke-failed',
-      failedModel: BONSAI,
+      failedModel: THIRD_MODEL,
       suggestedNext: null,
     }));
     const state = makeState({ commit });

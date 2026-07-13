@@ -10,15 +10,6 @@
     "tokenizer.model": { "sizeBytes": 499723, "oid": "9e556afd44213b6bd1be2b850ebbbd98f5481437a8021afaf58ee7fb1818d347" },
     "tokenizer_config.json": { "sizeBytes": 3299, "oid": "d57e94ca8011c3f8baccf36c54e941e949016349" }
   },
-  "local/bonsai-1.7b-q4": {
-    "chat_template.jinja": { "sizeBytes": 4063, "oid": "0b04cc1ea9799b1be5432e625ee200a6d4710cde" },
-    "config.json": { "sizeBytes": 1981, "oid": "a0c9a1587b832660c9237c7365505dd298520028" },
-    "generation_config.json": { "sizeBytes": 290, "oid": "e1c124073fed6d78e58801bdbe679f5fa60ceb22" },
-    "tokenizer.json": { "sizeBytes": 9117036, "oid": "1463e2eafe9285b80c6a5afb663c5cb58b525ed5" },
-    "tokenizer_config.json": { "sizeBytes": 4598, "oid": "f52ba6f957521244c68b940bd39264e659005207" },
-    "onnx/model_q4.onnx": { "sizeBytes": 370270, "oid": "7bc690903a3985c4429bdb2e5248a91a8c46b84b5c3552032a3f08882c5a9d14" },
-    "onnx/model_q4.onnx_data": { "sizeBytes": 1119057824, "oid": "35046ab257c704b26e28ad2cce12fa8e367e394e82ea85bebe101c07b223ea3e" }
-  },
   "local/qwen3-0.6b": {
     "onnx/model_q4f16.onnx": { "sizeBytes": 569789750, "oid": "9e33a5911974174761d0dfdcc0bec975d9c45af0eae5e9eb647b8ba9442a8f91" },
     "added_tokens.json": { "sizeBytes": 707, "oid": "b54f9135e44c1e81047e8d05cb027af8bc039eed" },

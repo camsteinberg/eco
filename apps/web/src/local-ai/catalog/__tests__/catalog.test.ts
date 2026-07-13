@@ -20,7 +20,6 @@ import artifactMetadata from '../artifact-metadata.json';
 
 const V1_CATALOG_IDS = [
   'local/phi3-mini-4k-q4f16',
-  'local/bonsai-1.7b-q4',
   'local/qwen3-0.6b',
   'candidate/lfm2.5-1.2b-instruct-onnx',
   'candidate/lfm2.5-350m-onnx',
@@ -31,8 +30,8 @@ const V1_CATALOG_IDS = [
 const TECHNICAL_ID_PATTERN = /q4f16|q4f|q4_1|webllm|onnx|fp16|q8|q4\b|q2f16|bnb4|mlc/i;
 
 describe('local-ai catalog (Phase C)', () => {
-  it('ships exactly 7 models', () => {
-    expect(getCatalog()).toHaveLength(7);
+  it('ships exactly 6 models', () => {
+    expect(getCatalog()).toHaveLength(6);
   });
 
   it('ships the locked v1.0 catalog ids in source order', () => {
@@ -65,7 +64,6 @@ describe('local-ai catalog (Phase C)', () => {
   it('pins the measured per-model context windows', () => {
     const expected: Record<(typeof V1_CATALOG_IDS)[number], number> = {
       'local/phi3-mini-4k-q4f16': 4096,
-      'local/bonsai-1.7b-q4': 4096,
       'local/qwen3-0.6b': 4096,
       'candidate/lfm2.5-1.2b-instruct-onnx': 8192,
       'candidate/lfm2.5-350m-onnx': 4096,
@@ -116,7 +114,7 @@ describe('local-ai catalog (Phase C)', () => {
     }).toThrow();
     // And the array itself is a copy — mutating it doesn't break the next reader.
     snapshot.length = 0;
-    expect(getCatalog()).toHaveLength(7);
+    expect(getCatalog()).toHaveLength(6);
   });
 
   // The catalog's artifact files must have corresponding entries in

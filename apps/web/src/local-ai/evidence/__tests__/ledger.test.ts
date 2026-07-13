@@ -104,21 +104,21 @@ describe('recordEvidence + readEvidence', () => {
 describe('hasRecentSuccess / hasRecentFailure', () => {
   it('hasRecentSuccess true for a fresh smoke-pass', () => {
     recordEvidence({
-      modelId: 'local/bonsai-1.7b-q4',
+      modelId: 'local/qwen3-0.6b',
       profile: PROFILE_8GB,
       outcome: 'smoke-pass',
     });
-    expect(hasRecentSuccess('local/bonsai-1.7b-q4', PROFILE_8GB)).toBe(true);
+    expect(hasRecentSuccess('local/qwen3-0.6b', PROFILE_8GB)).toBe(true);
   });
 
   it('hasRecentSuccess false for only-failure history', () => {
     recordEvidence({
-      modelId: 'local/bonsai-1.7b-q4',
+      modelId: 'local/qwen3-0.6b',
       profile: PROFILE_8GB,
       outcome: 'smoke-fail',
     });
-    expect(hasRecentSuccess('local/bonsai-1.7b-q4', PROFILE_8GB)).toBe(false);
-    expect(hasRecentFailure('local/bonsai-1.7b-q4', PROFILE_8GB)).toBe(true);
+    expect(hasRecentSuccess('local/qwen3-0.6b', PROFILE_8GB)).toBe(false);
+    expect(hasRecentFailure('local/qwen3-0.6b', PROFILE_8GB)).toBe(true);
   });
 
   it('treats older-than-window entries as not recent', () => {
@@ -127,7 +127,7 @@ describe('hasRecentSuccess / hasRecentFailure', () => {
       STORAGE_KEY,
       JSON.stringify([
         {
-          modelId: 'local/bonsai-1.7b-q4',
+          modelId: 'local/qwen3-0.6b',
           profileKey: profileKey(PROFILE_8GB),
           outcome: 'smoke-pass',
           recordedAt: oldRecordedAt,
@@ -135,7 +135,7 @@ describe('hasRecentSuccess / hasRecentFailure', () => {
         },
       ]),
     );
-    expect(hasRecentSuccess('local/bonsai-1.7b-q4', PROFILE_8GB, 30)).toBe(false);
+    expect(hasRecentSuccess('local/qwen3-0.6b', PROFILE_8GB, 30)).toBe(false);
   });
 
   it('honors a custom maxAgeDays', () => {
@@ -144,7 +144,7 @@ describe('hasRecentSuccess / hasRecentFailure', () => {
       STORAGE_KEY,
       JSON.stringify([
         {
-          modelId: 'local/bonsai-1.7b-q4',
+          modelId: 'local/qwen3-0.6b',
           profileKey: profileKey(PROFILE_8GB),
           outcome: 'smoke-pass',
           recordedAt: recentlyRecordedAt,
@@ -152,8 +152,8 @@ describe('hasRecentSuccess / hasRecentFailure', () => {
         },
       ]),
     );
-    expect(hasRecentSuccess('local/bonsai-1.7b-q4', PROFILE_8GB, 1)).toBe(false);
-    expect(hasRecentSuccess('local/bonsai-1.7b-q4', PROFILE_8GB, 30)).toBe(true);
+    expect(hasRecentSuccess('local/qwen3-0.6b', PROFILE_8GB, 1)).toBe(false);
+    expect(hasRecentSuccess('local/qwen3-0.6b', PROFILE_8GB, 30)).toBe(true);
   });
 });
 
@@ -226,7 +226,7 @@ describe('v1 → v2 migration', () => {
           recordedAt: new Date().toISOString(),
         },
         {
-          modelId: 'local/bonsai-1.7b-q4',
+          modelId: 'local/qwen3-0.6b',
           profileKey: legacyProfileKey(PROFILE_8GB),
           outcome: 'smoke-pass',
           recordedAt: new Date().toISOString(),
@@ -265,7 +265,7 @@ describe('v1 → v2 migration', () => {
     // The device now reports shader-f16 = true; the migrated unknown row still matches.
     const probed: DeviceProfile = { ...PROFILE_24GB, webgpuShaderF16: true };
     expect(hasRecentFailure('local/phi3-mini-4k-q4f16', probed)).toBe(true);
-    expect(hasRecentSuccess('local/bonsai-1.7b-q4', { ...PROFILE_8GB, webgpuShaderF16: false })).toBe(true);
+    expect(hasRecentSuccess('local/qwen3-0.6b', { ...PROFILE_8GB, webgpuShaderF16: false })).toBe(true);
   });
 });
 

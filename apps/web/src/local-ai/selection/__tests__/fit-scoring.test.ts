@@ -64,10 +64,9 @@ describe('scoreMemoryFit', () => {
   });
 
   it('drops below 1 when model is >25 % of RAM', () => {
-    // Bonsai is 1.15 GB on a 4 GB device — about 29 %, so just under the
-    // headroom band but above the 25 % cliff.
+    // Qwen3.5-2B is 1.4 GB on a 4 GB device — about 35 %, above the 25 % cliff.
     const lowMem: DeviceProfile = { ...PROFILE_24GB, deviceMemoryGB: 4 };
-    expect(scoreMemoryFit(model('local/bonsai-1.7b-q4'), lowMem)).toBeLessThan(1);
+    expect(scoreMemoryFit(model('candidate/qwen3.5-2b-onnx'), lowMem)).toBeLessThan(1);
   });
 
   it('returns neutral 0.6 when memory is unknown', () => {
@@ -147,14 +146,14 @@ describe('scoreFit — reliability tiebreaker', () => {
   it('allowed beats with-warning when otherwise identical', () => {
     const metrics = { firstTokenMs: 1000, tokensPerSec: 15, smokePassRate: 0.9 };
     const allowed = scoreFit({
-      model: model('local/bonsai-1.7b-q4'),
+      model: model('candidate/qwen3.5-2b-onnx'),
       profile: PROFILE_24GB,
       intent: 'balanced',
       metrics,
       reliability: 1,
     });
     const warned = scoreFit({
-      model: model('local/bonsai-1.7b-q4'),
+      model: model('candidate/qwen3.5-2b-onnx'),
       profile: PROFILE_24GB,
       intent: 'balanced',
       metrics,

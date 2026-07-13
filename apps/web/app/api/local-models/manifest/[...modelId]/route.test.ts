@@ -32,23 +32,6 @@ describe("GET /api/local-models/manifest/[...modelId]", () => {
     }
   });
 
-  it("returns 200 with correct shape for local/bonsai-1.7b-q4", async () => {
-    const response = await GET(...manifestRequest(["local", "bonsai-1.7b-q4"]));
-    expect(response.status).toBe(200);
-
-    const body = await response.json();
-    expect(body.modelId).toBe("local/bonsai-1.7b-q4");
-    expect(body.hfId).toBe("onnx-community/Bonsai-1.7B-ONNX");
-    expect(body.revision).toBe("3f3cf1759daf66342d26610488b9931f2fafcb29");
-    expect(body.files.length).toBeGreaterThan(0);
-
-    for (const file of body.files) {
-      expect(typeof file.path).toBe("string");
-      expect(file.sizeBytes).toBeGreaterThan(0);
-      expect(file.oid.length).toBeGreaterThan(0);
-    }
-  });
-
   it("returns 404 with model_not_in_catalog for an unknown model id", async () => {
     const response = await GET(...manifestRequest(["local", "nonexistent"]));
     expect(response.status).toBe(404);

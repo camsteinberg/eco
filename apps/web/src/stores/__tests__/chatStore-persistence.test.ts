@@ -79,12 +79,12 @@ describe("useChatStore selected model persistence", () => {
   });
 
   it("preserves an EXPLICIT pick of a local/ catalog model verbatim", async () => {
-    localStorage.setItem("eco-selected-model", "local/bonsai-1.7b-q4");
+    localStorage.setItem("eco-selected-model", "local/qwen3-0.6b");
     localStorage.setItem("eco-selected-model-explicit", "true");
 
     const { useChatStore } = await import("../chatStore");
 
-    expect(useChatStore.getState().selectedModel).toBe("local/bonsai-1.7b-q4");
+    expect(useChatStore.getState().selectedModel).toBe("local/qwen3-0.6b");
   });
 
   it("preserves an EXPLICIT pick of the graduated Qwen3.5-2B smart pick verbatim (chat #7 graduation sweep)", async () => {

@@ -85,7 +85,7 @@ describe("chat intent quality helpers", () => {
   });
 
   it("returns a working-code hint for code intent regardless of model", () => {
-    const instruction = buildTurnQualityInstruction("code", true, "local/bonsai-1.7b-q4");
+    const instruction = buildTurnQualityInstruction("code", true, "local/qwen3-0.6b");
     expect(instruction).toContain("working code");
   });
 
@@ -99,7 +99,7 @@ describe("chat intent quality helpers", () => {
   });
 
   it("keeps standard quality hints model-independent", () => {
-    const local = buildTurnQualityInstruction("explain", true, "local/bonsai-1.7b-q4");
+    const local = buildTurnQualityInstruction("explain", true, "local/qwen3-0.6b");
     const network = buildTurnQualityInstruction("explain", false, undefined);
     expect(local).toBe(network);
   });
@@ -155,7 +155,7 @@ describe("chat intent quality helpers", () => {
       "quick", "explain", "deep", "code", "writing", "file", "research",
     ];
     for (const intent of intents) {
-      const result = buildTurnQualityInstruction(intent, true, "local/bonsai-1.7b-q4");
+      const result = buildTurnQualityInstruction(intent, true, "local/qwen3-0.6b");
       for (const word of forbidden) {
         expect(result).not.toContain(word);
       }

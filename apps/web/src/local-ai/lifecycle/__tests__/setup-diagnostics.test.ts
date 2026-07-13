@@ -37,7 +37,7 @@ describe('formatSetupAttemptFailure', () => {
     const err = new Error('shader-f16 not enabled');
     err.name = 'OperationError';
     const out = formatSetupAttemptFailure({
-      modelId: 'local/bonsai-1.7b-q4',
+      modelId: 'local/qwen3-0.6b',
       runtime: 'transformers',
       phase: 'download',
       reason: err.message,

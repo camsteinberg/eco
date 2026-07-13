@@ -12,7 +12,6 @@ import {
 
 const V1_CATALOG_IDS = [
   "local/phi3-mini-4k-q4f16",
-  "local/bonsai-1.7b-q4",
   "local/qwen3-0.6b",
   "candidate/lfm2.5-1.2b-instruct-onnx",
   "candidate/lfm2.5-350m-onnx",
@@ -21,9 +20,9 @@ const V1_CATALOG_IDS = [
 ] as const;
 
 describe("local model registry (v1 catalog)", () => {
-  it("contains exactly the 7 v1 catalog models", () => {
+  it("contains exactly the 6 v1 catalog models", () => {
     const entries = getLocalModelRegistryEntries();
-    expect(entries).toHaveLength(7);
+    expect(entries).toHaveLength(6);
     expect(entries.map((e) => e.modelId)).toEqual(
       expect.arrayContaining([...V1_CATALOG_IDS]),
     );
@@ -56,11 +55,10 @@ describe("local model registry (v1 catalog)", () => {
 
   it("returns proxy-allowed artifacts for all catalog models with artifacts", () => {
     const proxyArtifacts = getProxyAllowedLocalModelRegistryArtifacts();
-    expect(proxyArtifacts.length).toBeGreaterThanOrEqual(6);
+    expect(proxyArtifacts.length).toBeGreaterThanOrEqual(5);
     expect(proxyArtifacts.map((a) => a.hfId)).toEqual(
       expect.arrayContaining([
         "onnx-community/Qwen3-0.6B-ONNX",
-        "onnx-community/Bonsai-1.7B-ONNX",
         "microsoft/Phi-3-mini-4k-instruct-onnx-web",
         "LiquidAI/LFM2.5-1.2B-Instruct-ONNX",
         "onnx-community/LFM2.5-350M-ONNX",

@@ -51,7 +51,7 @@ describe("Phi-3 Mini generation profile", () => {
 // ─── Bonsai q4 ───────────────────────────────────────────────────────────
 
 describe("Bonsai 1.7B q4 generation profile", () => {
-  const bonsai = modelSlice("local/bonsai-1.7b-q4", "bonsai");
+  const bonsai = modelSlice("local/bonsai-1.7b-q1", "bonsai");
 
   it("has noRepeatNgramSize guard at base level", () => {
     const defaults = getLocalModelGenerationDefaults(bonsai);
@@ -324,7 +324,7 @@ describe("isCjkSuppressionEnabled", () => {
   it.each([
     "candidate/lfm2.5-1.2b-instruct-onnx", // fast / low-memory fallback — must never pay the scan
     "candidate/lfm2.5-350m-onnx",
-    "local/bonsai-1.7b-q4",
+    "local/bonsai-1.7b-q1",
     "local/phi3-mini-4k-q4f16",
     "local/qwen3-0.6b", // qwen3 gen: shared vocab risk but NO measured leak — needs its own gated run
     "candidate/qwen3-1.7b-onnx",

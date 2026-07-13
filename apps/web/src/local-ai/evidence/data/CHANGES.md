@@ -17,6 +17,17 @@ never carried an admitted runtime seed. A boot migration
 clients. The historical provenance line below is kept as a record of the row
 that existed before removal.
 
+**2026-07-11 — Bonsai (`local/bonsai-1.7b-q4`) retired.** Every Bonsai row was
+removed from `v1-launch-manual-evidence.json` (both copies): the
+`routingEvidenceReconciliation` entry, the
+`launchReadiness.manualEligibleModelIds` id, and the `modelStateMatrix` entry.
+Bonsai was the dev-era former everyday default — quality-demoted and loop-prone;
+its f16-less WebGPU floor role is now served by Gemma 4 E2B (LiteRT). A boot
+migration (`lifecycle/self-heal.ts`) purges any orphaned per-device state. The
+eval-lane `bonsai` generation profile and the `candidate/ternary-bonsai-1.7b-onnx`
+records are a DIFFERENT model and are left intact. The historical benchmark line
+below is kept as a record of the row that existed before removal.
+
 ## Runtime Seed Benchmark Records (real hardware measurements)
 
 Refresh correction (2026-06-19 Gemma catalogue closeout): the checked runtime

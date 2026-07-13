@@ -6,7 +6,6 @@ import type { NextRequest } from "next/server";
 import { DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT } from "./route";
 
 const QWEN_REVIEWED_REVISION = "da1453100cf3ff33ef56d17983fc7a8648706db6";
-const BONSAI_REVIEWED_REVISION = "3f3cf1759daf66342d26610488b9931f2fafcb29";
 const LFM25_350M_REVIEWED_REVISION = "2c07371c2e84776cad597f3d813b7d306d292aea";
 
 describe("GET /api/local-models/[...slug]", () => {
@@ -373,10 +372,10 @@ describe("GET /api/local-models/[...slug]", () => {
   });
 
   it("fails a full reviewed LFS response stream when the upstream body digest does not match the Eco manifest", async () => {
-    // Body size must match the reviewed sizeBytes (370270) so the byte-size
+    // Body size must match the reviewed sizeBytes (183442) so the byte-size
     // check passes and the SHA-256 digest check is what actually fails.
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(new Uint8Array(370_270), {
+      new Response(new Uint8Array(183_442), {
         status: 200,
         headers: {
           "content-type": "application/octet-stream",
@@ -387,7 +386,7 @@ describe("GET /api/local-models/[...slug]", () => {
     const request = {
       headers: new Headers(),
       nextUrl: new URL(
-        `http://127.0.0.1:3000/api/local-models/onnx-community/Bonsai-1.7B-ONNX/resolve/${BONSAI_REVIEWED_REVISION}/onnx/model_q4.onnx`,
+        `http://127.0.0.1:3000/api/local-models/onnx-community/LFM2.5-350M-ONNX/resolve/${LFM25_350M_REVIEWED_REVISION}/onnx/model_q4.onnx`,
       ),
     } as NextRequest;
 
@@ -395,9 +394,9 @@ describe("GET /api/local-models/[...slug]", () => {
       params: Promise.resolve({
         slug: [
           "onnx-community",
-          "Bonsai-1.7B-ONNX",
+          "LFM2.5-350M-ONNX",
           "resolve",
-          BONSAI_REVIEWED_REVISION,
+          LFM25_350M_REVIEWED_REVISION,
           "onnx",
           "model_q4.onnx",
         ],
@@ -441,7 +440,7 @@ describe("GET /api/local-models/[...slug]", () => {
     expect(response.status).toBe(200);
   });
 
-  it("allows Bonsai sidecar files required by Transformers.js advanced local setup", async () => {
+  it("allows LFM2.5-350M sidecar files required by Transformers.js advanced local setup", async () => {
     const fetchMock = vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValue(new Response(null, { status: 200 }));
@@ -449,7 +448,7 @@ describe("GET /api/local-models/[...slug]", () => {
     const request = {
       headers: new Headers(),
       nextUrl: new URL(
-        "http://127.0.0.1:3000/api/local-models/onnx-community/Bonsai-1.7B-ONNX/resolve/main/generation_config.json",
+        "http://127.0.0.1:3000/api/local-models/onnx-community/LFM2.5-350M-ONNX/resolve/main/generation_config.json",
       ),
     } as NextRequest;
 
@@ -457,7 +456,7 @@ describe("GET /api/local-models/[...slug]", () => {
       params: Promise.resolve({
         slug: [
           "onnx-community",
-          "Bonsai-1.7B-ONNX",
+          "LFM2.5-350M-ONNX",
           "resolve",
           "main",
           "generation_config.json",
@@ -466,7 +465,7 @@ describe("GET /api/local-models/[...slug]", () => {
     });
 
     expect(fetchMock).toHaveBeenCalledWith(
-      `https://huggingface.co/onnx-community/Bonsai-1.7B-ONNX/resolve/${BONSAI_REVIEWED_REVISION}/generation_config.json`,
+      `https://huggingface.co/onnx-community/LFM2.5-350M-ONNX/resolve/${LFM25_350M_REVIEWED_REVISION}/generation_config.json`,
       expect.objectContaining({
         method: "HEAD",
       }),
@@ -474,7 +473,7 @@ describe("GET /api/local-models/[...slug]", () => {
     expect(response.status).toBe(200);
   });
 
-  it("resolves Bonsai main alias to the reviewed revision for the v1 catalog q4 variant", async () => {
+  it("resolves the main alias to the reviewed revision for a v1 catalog q4 variant", async () => {
     const fetchMock = vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValue(new Response(null, { status: 200 }));
@@ -482,7 +481,7 @@ describe("GET /api/local-models/[...slug]", () => {
     const request = {
       headers: new Headers(),
       nextUrl: new URL(
-        `http://127.0.0.1:3000/api/local-models/onnx-community/Bonsai-1.7B-ONNX/resolve/main/onnx/model_q4.onnx`,
+        `http://127.0.0.1:3000/api/local-models/onnx-community/LFM2.5-350M-ONNX/resolve/main/onnx/model_q4.onnx`,
       ),
     } as NextRequest;
 
@@ -490,7 +489,7 @@ describe("GET /api/local-models/[...slug]", () => {
       params: Promise.resolve({
         slug: [
           "onnx-community",
-          "Bonsai-1.7B-ONNX",
+          "LFM2.5-350M-ONNX",
           "resolve",
           "main",
           "onnx",
@@ -503,7 +502,7 @@ describe("GET /api/local-models/[...slug]", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0]![0]).toBe(
-      `https://huggingface.co/onnx-community/Bonsai-1.7B-ONNX/resolve/${BONSAI_REVIEWED_REVISION}/onnx/model_q4.onnx`,
+      `https://huggingface.co/onnx-community/LFM2.5-350M-ONNX/resolve/${LFM25_350M_REVIEWED_REVISION}/onnx/model_q4.onnx`,
     );
   });
 

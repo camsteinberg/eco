@@ -6,9 +6,9 @@ import { getDisplayInfo } from '../display';
 import { getCatalog } from '../catalog/catalog';
 
 describe('getDisplayInfo', () => {
-  it('returns branded names for all 7 catalog models', () => {
+  it('returns branded names for all 6 catalog models', () => {
     const catalog = getCatalog();
-    expect(catalog.length).toBe(7);
+    expect(catalog.length).toBe(6);
 
     for (const model of catalog) {
       const info = getDisplayInfo(model.id, model);
@@ -30,16 +30,6 @@ describe('getDisplayInfo', () => {
     expect(info.provenance).toBe('Microsoft · 2.1 GB');
   });
 
-  it('maps Bonsai to Eco Balanced (Bonsai)', () => {
-    const info = getDisplayInfo('local/bonsai-1.7b-q4', {
-      friendlyName: 'Bonsai',
-      vendor: 'ONNX Community',
-      sizeGB: 1.15,
-    });
-    expect(info.friendlyName).toBe('Eco Balanced (Bonsai)');
-    expect(info.qualityPhrase).toBe('Balanced reasoning · runs on most devices');
-    expect(info.provenance).toBe('ONNX Community · 1.1 GB');
-  });
 
   it('maps Qwen3 to Eco Compact (Qwen)', () => {
     const info = getDisplayInfo('local/qwen3-0.6b', {

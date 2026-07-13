@@ -14,7 +14,7 @@ const POPULATED: StorageBreakdown = {
   ecoTotalBytes: 2 * ONE_GB,
   models: [
     { id: 'local/phi3-mini-4k-q4f16', friendlyName: 'Phi-3 Mini', vendor: 'Microsoft', sizeBytes: 1.4 * ONE_GB },
-    { id: 'local/bonsai-1.7b-q4', friendlyName: 'Bonsai 1.7B', vendor: 'Hugging Face', sizeBytes: 0.6 * ONE_GB },
+    { id: 'local/qwen3-0.6b', friendlyName: 'Qwen3 0.6B', vendor: 'Hugging Face', sizeBytes: 0.6 * ONE_GB },
   ],
 };
 
@@ -46,13 +46,13 @@ describe('LocalAiStoragePanel — populated state', () => {
       />,
     );
     expect(screen.getByText('Phi-3 Mini')).toBeInTheDocument();
-    expect(screen.getByText('Bonsai 1.7B')).toBeInTheDocument();
+    expect(screen.getByText('Qwen3 0.6B')).toBeInTheDocument();
 
     const phiCard = screen.getByTestId('storage-model-card-local/phi3-mini-4k-q4f16');
     expect(phiCard).toHaveTextContent(/Made by Microsoft/);
     expect(phiCard).toHaveTextContent(/1\.4 GB/);
 
-    const bonsaiCard = screen.getByTestId('storage-model-card-local/bonsai-1.7b-q4');
+    const bonsaiCard = screen.getByTestId('storage-model-card-local/qwen3-0.6b');
     expect(bonsaiCard).toHaveTextContent(/Made by Hugging Face/);
     // formatBytes uses MB below 1024^3 — 0.6 GiB ≈ 614 MB.
     expect(bonsaiCard).toHaveTextContent(/614 MB/);

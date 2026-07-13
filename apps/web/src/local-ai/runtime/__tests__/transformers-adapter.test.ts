@@ -197,7 +197,7 @@ describe('TransformersAdapter — load', () => {
     await adapter.unload();
     const q4Model: ModelConfig = {
       ...MODEL,
-      id: 'local/bonsai-1.7b-q4',
+      id: 'local/qwen3-0.6b',
       format: 'onnx-q4',
       artifact: {
         hfId: 'onnx-community/Bonsai-1.7B-ONNX',
@@ -691,7 +691,7 @@ describe('TransformersAdapter — revision propagation', () => {
   it('propagates different revision values faithfully', async () => {
     const altRevModel: ModelConfig = {
       ...MODEL,
-      id: 'local/bonsai-1.7b-q4',
+      id: 'local/qwen3-0.6b',
       format: 'onnx-q4',
       artifact: {
         hfId: 'onnx-community/Bonsai-1.7B-ONNX',

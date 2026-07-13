@@ -24,7 +24,7 @@ vi.mock("../../../local-ai/index", () => ({
     override: "auto",
   }),
   isBelowFloor: () => false,
-  recommend: () => ({ id: "local/bonsai-1.7b-q4" }),
+  recommend: () => ({ id: "candidate/qwen3.5-2b-onnx" }),
   listCatalog: vi.fn(),
 }));
 
@@ -78,23 +78,24 @@ describe("ModelSelector (composer)", () => {
 
     const listbox = getListbox();
     const options = within(listbox).getAllByRole("option");
-    // Exactly the 7 catalog models — one option per catalog entry.
+    // Exactly the 6 catalog models — one option per catalog entry.
     expect(options).toHaveLength(getCatalog().length);
-    expect(options).toHaveLength(7);
+    expect(options).toHaveLength(6);
 
     // Branded friendly names are surfaced; no "Eco Network" / network copy.
-    expect(within(listbox).getByText("Eco Balanced (Bonsai)")).toBeInTheDocument();
+    expect(within(listbox).getByText("Eco (Qwen)")).toBeInTheDocument();
     expect(within(listbox).queryByText(/eco network/i)).not.toBeInTheDocument();
     expect(within(listbox).queryByText(/coming soon/i)).not.toBeInTheDocument();
   });
 
   it("offers only the AIs this device can run (an f16-less device sees no f16 models)", async () => {
     // listCatalog already filters by capability; on a WebGPU adapter without
-    // shader-f16 only the non-f16 Bonsai survives. The selector must surface
-    // exactly that set — never a model that would fail to load.
-    const bonsai = getCatalog().find((m) => m.id === "local/bonsai-1.7b-q4")!;
+    // shader-f16 only non-f16 models survive — Gemma 4 (LiteRT) is the default.
+    // The selector must surface exactly that set — never a model that would fail
+    // to load. (Bonsai, the former non-f16 rung, retired 2026-07-11.)
+    const gemma = getCatalog().find((m) => m.id === "candidate/gemma-4-e2b-litert")!;
     vi.mocked(listCatalog).mockReturnValue({
-      available: [{ model: bonsai, confidence: "calculated", scoreTotal: 100 }],
+      available: [{ model: gemma, confidence: "calculated", scoreTotal: 100 }],
     });
 
     const user = userEvent.setup();
@@ -105,12 +106,12 @@ describe("ModelSelector (composer)", () => {
     const listbox = getListbox();
     const options = within(listbox).getAllByRole("option");
     expect(options).toHaveLength(1);
-    expect(within(listbox).getByText("Eco Balanced (Bonsai)")).toBeInTheDocument();
+    expect(within(listbox).getByText("Eco Capable (Gemma)")).toBeInTheDocument();
     // The f16-only models (e.g. Phi-3) are not offered on this device.
     expect(within(listbox).queryByText("Eco Reasoning (Microsoft)")).not.toBeInTheDocument();
   });
 
-  it("marks the recommended (Bonsai) model", async () => {
+  it("marks the recommended (Qwen3.5) model", async () => {
     const user = userEvent.setup();
     render(<ModelSelector variant="composer" />);
 
@@ -119,9 +120,9 @@ describe("ModelSelector (composer)", () => {
     const listbox = getListbox();
     const recommendedTag = within(listbox).getByText("Recommended");
     expect(recommendedTag).toBeInTheDocument();
-    // The Recommended tag sits on the Bonsai row.
-    const bonsaiRow = within(listbox).getByText("Eco Balanced (Bonsai)").closest("button");
-    expect(bonsaiRow).toContainElement(recommendedTag);
+    // The Recommended tag sits on the recommended Qwen3.5 row.
+    const qwenRow = within(listbox).getByText("Eco (Qwen)").closest("button");
+    expect(qwenRow).toContainElement(recommendedTag);
   });
 
   it("sets the active model when a row is selected", async () => {
@@ -142,7 +143,7 @@ describe("ModelSelector (composer)", () => {
 
     const trigger = screen.getByTestId("model-selector");
     expect(trigger).toHaveClass("rounded-full");
-    // With selectedModel="auto", the recommended Bonsai name shows.
-    expect(trigger).toHaveTextContent("Eco Balanced (Bonsai)");
+    // With selectedModel="auto", the recommended Qwen3.5 name shows.
+    expect(trigger).toHaveTextContent("Eco (Qwen)");
   });
 });
