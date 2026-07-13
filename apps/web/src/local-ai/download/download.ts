@@ -40,6 +40,7 @@ import { bytesToHex } from '@noble/hashes/utils.js';
 import type { ModelConfig } from '../types';
 import {
   pickStorage,
+  type CachedEntry,
   type Storage,
 } from './storage';
 import { requestPersistentStorage } from './persistent-storage';
@@ -504,7 +505,16 @@ export async function downloadByPlan(
     // a doomed download that can never finish). Fails open when no confident
     // estimate is available — real corruption is still caught downstream.
     const remainingBytes = remaining.reduce((sum, file) => sum + file.sizeBytes, 0);
-    await assertStorageHeadroom(remainingBytes, estimateStorage);
+    // Net out chunk-parts already on disk for the files we're about to fetch:
+    // each remaining file's preflight counts its FULL size, but a resumed file's
+    // persisted parts already occupy (and are subtracted from) available space —
+    // so without this a big resumable file would false-decline. Current-stamp
+    // parts only; the netted figure never goes below zero.
+    const persistedPartBytes = await sumPersistedPartBytes(storage, plan.modelId, remaining);
+    await assertStorageHeadroom(
+      Math.max(0, remainingBytes - persistedPartBytes),
+      estimateStorage,
+    );
 
     // Dev-only validation seam: only when there is something to fetch (a
     // fully-cached model has no download to fail). No-op in production.
@@ -532,11 +542,17 @@ export async function downloadByPlan(
       signal: controller.signal,
       modelId: plan.modelId,
       rangeChunkBytes,
+      storage,
+      remainingBytes,
     };
     for (const file of remaining) {
       throwIfAborted(controller.signal, plan.modelId);
 
-      const blob = await fetchFileToBlobWithFallback(file, loadedBytes, fetchContext);
+      const { blob, partKeys } = await fetchFileToBlobWithFallback(
+        file,
+        loadedBytes,
+        fetchContext,
+      );
 
       loadedBytes += blob.size;
 
@@ -548,10 +564,17 @@ export async function downloadByPlan(
       } catch (err) {
         // A late quota failure (estimate was optimistic, or space vanished
         // mid-download) becomes the same honest storage error as the preflight.
+        // The chunk-parts are deliberately NOT swept here: the final put is the
+        // likeliest transient-quota moment, and retained parts let the next
+        // attempt resume rather than restart. clearModel is the eventual sweep.
         if (isQuotaExceeded(err)) throw new InsufficientStorageError(remainingBytes);
         throw err;
       }
       filesFetched += 1;
+
+      // Sweep this file's chunk-parts ONLY after the whole-file store succeeds —
+      // deleting earlier would destroy the resume bytes on a failed store.
+      await deletePartsBestEffort(storage, plan.modelId, partKeys);
     }
 
     // Final progress flush so the consumer sees exactly 1.0 on completion.
@@ -638,7 +661,136 @@ type FetchFileContext = {
   signal: AbortSignal;
   modelId: string;
   rangeChunkBytes: number;
+  /** Storage backend — chunked downloads persist/resume completed chunks through it. */
+  storage: Storage;
+  /**
+   * Total bytes still to fetch across the plan. Used only to convert a
+   * QuotaExceededError from a chunk-part write into the same honest
+   * InsufficientStorageError the final storage.put raises.
+   */
+  remainingBytes: number;
 };
+
+/**
+ * A fetched file plus the storage keys of the chunk-parts that back it (empty
+ * for the whole-file path). The caller sweeps these keys AFTER the final
+ * `storage.put({url: file.url})` succeeds — see the deletion-ordering note in
+ * `downloadByPlan`.
+ */
+type FetchedFile = { blob: Blob; partKeys: string[] };
+
+// ─── Chunk-part persistence (mid-file resume) ────────────────────────────────
+//
+// A chunked download persists each completed 32 MiB Range chunk under its own
+// storage entry so an interruption (tab close, abort, network death) resumes
+// mid-file instead of restarting the ~2 GB largest weight from byte 0. Parts
+// live in the model's own storage namespace under a key derived from the file
+// identity, a stamp binding them to the exact expected bytes, and their byte
+// offset. They are invisible to self-heal's reconcile pass (repairModelCache
+// only inspects the known plan-file keys, never enumerates part keys) and are
+// swept by clearModel and after a successful whole-file store.
+
+/**
+ * PATH suffix (not a query string) marking a chunk-part entry. OPFS's
+ * safeFileName strips queries, so a query-based scheme would collide across
+ * offsets; a path suffix survives it.
+ */
+const PART_MARKER = '.ecopart.';
+
+/**
+ * Stamp binding a part to the exact bytes it belongs to: the reviewed LFS
+ * SHA-256 when present (a 64-hex oid, the same shape the SHA verify trusts),
+ * else the declared size. A catalog/revision bump changes the stamp, so parts
+ * from a superseded revision can never be stitched into the new file (the
+ * full-file SHA remains the ultimate backstop).
+ */
+function partStamp(file: DownloadFileSpec): string {
+  return file.oid?.length === 64 ? file.oid : `s${file.sizeBytes}`;
+}
+
+/** Storage key url for the part of `file` beginning at byte `offset`. */
+function partKeyUrl(file: DownloadFileSpec, offset: number): string {
+  return `${file.url}${PART_MARKER}${partStamp(file)}.${offset}`;
+}
+
+/** True when `url` is a chunk-part key belonging to `file` (any stamp). */
+function isPartUrlFor(url: string, file: DownloadFileSpec): boolean {
+  const marker = url.indexOf(PART_MARKER);
+  if (marker < 0) return false;
+  // `storage.listForModel` may return an absolutized url while `file.url` is a
+  // relative proxy path, so match by suffix rather than equality.
+  const base = url.slice(0, marker);
+  return base === file.url || base.endsWith(file.url);
+}
+
+/** The stamp segment of a part key url, or null when it isn't a part key. */
+function partStampOf(url: string): string | null {
+  const marker = url.indexOf(PART_MARKER);
+  if (marker < 0) return null;
+  const tail = url.slice(marker + PART_MARKER.length);
+  const dot = tail.lastIndexOf('.');
+  if (dot < 0) return null;
+  return tail.slice(0, dot);
+}
+
+/** The byte offset encoded in a part key url, or null when it isn't parseable. */
+function partOffsetOf(url: string): number | null {
+  const marker = url.indexOf(PART_MARKER);
+  if (marker < 0) return null;
+  const tail = url.slice(marker + PART_MARKER.length);
+  const dot = tail.lastIndexOf('.');
+  if (dot < 0) return null;
+  const raw = tail.slice(dot + 1);
+  if (!/^\d+$/.test(raw)) return null;
+  const offset = Number(raw);
+  return Number.isInteger(offset) && offset >= 0 ? offset : null;
+}
+
+/** Best-effort removal of part entries — failures are non-fatal. */
+async function deletePartsBestEffort(
+  storage: Storage,
+  modelId: string,
+  urls: Iterable<string>,
+): Promise<void> {
+  for (const url of urls) {
+    try {
+      await storage.remove({ modelId, url });
+    } catch {
+      // Non-fatal: a leftover part costs disk until clearModel, never correctness.
+    }
+  }
+}
+
+/**
+ * Sum the bytes of current-stamp chunk-parts already on disk for the given
+ * files — the figure the preflight nets out of `remainingBytes` so a resumable
+ * download isn't false-declined. Best-effort: an enumeration failure returns 0
+ * (the preflight then sees the full figure and stays conservative).
+ */
+async function sumPersistedPartBytes(
+  storage: Storage,
+  modelId: string,
+  files: ReadonlyArray<DownloadFileSpec>,
+): Promise<number> {
+  if (files.length === 0) return 0;
+  let entries: { url: string; sizeBytes: number | null }[];
+  try {
+    entries = await storage.listForModel(modelId);
+  } catch {
+    return 0;
+  }
+  let sum = 0;
+  for (const entry of entries) {
+    if (entry.sizeBytes == null || entry.sizeBytes <= 0) continue;
+    for (const file of files) {
+      if (isPartUrlFor(entry.url, file) && partStampOf(entry.url) === partStamp(file)) {
+        sum += entry.sizeBytes;
+        break;
+      }
+    }
+  }
+  return sum;
+}
 
 /**
  * Fetch one file into a (disk-backed) Blob. Files above the chunk threshold
@@ -650,7 +802,7 @@ async function fetchFileToBlob(
   file: DownloadFileSpec,
   baseLoaded: number,
   ctx: FetchFileContext,
-): Promise<Blob> {
+): Promise<FetchedFile> {
   if (file.sizeBytes > ctx.rangeChunkBytes) {
     return downloadFileInChunks(file, baseLoaded, ctx);
   }
@@ -682,7 +834,7 @@ async function fetchFileToBlobWithFallback(
   file: DownloadFileSpec,
   baseLoaded: number,
   ctx: FetchFileContext,
-): Promise<Blob> {
+): Promise<FetchedFile> {
   try {
     return await fetchFileToBlob(file, baseLoaded, ctx);
   } catch (err) {
@@ -690,6 +842,10 @@ async function fetchFileToBlobWithFallback(
     console.warn('[eco] CDN fetch failed, falling back to proxy', { url: file.url });
     // Pin the transport source to the stable proxy identity for the retry. If
     // this attempt also fails, its error propagates normally (no third try).
+    // The retry re-enters the chunked path, which resumes from any parts the
+    // CDN attempt persisted before failing — a dead CDN mid-file is continued,
+    // not restarted. (A corrupt-bytes CDN failure cleaned its parts before
+    // throwing, so the proxy retry starts clean rather than re-stitching them.)
     return fetchFileToBlob({ ...file, fetchUrl: file.url }, baseLoaded, ctx);
   }
 }
@@ -743,7 +899,7 @@ async function downloadFileWhole(
   file: DownloadFileSpec,
   baseLoaded: number,
   ctx: FetchFileContext,
-): Promise<Blob> {
+): Promise<FetchedFile> {
   const source = file.fetchUrl ?? file.url;
   let response: Response;
   try {
@@ -792,7 +948,7 @@ async function downloadFileWhole(
     }
   }
 
-  return blob;
+  return { blob, partKeys: [] };
 }
 
 /**
@@ -811,20 +967,37 @@ async function downloadFileInChunks(
   file: DownloadFileSpec,
   baseLoaded: number,
   ctx: FetchFileContext,
-): Promise<Blob> {
+): Promise<FetchedFile> {
   const parts: Blob[] = [];
+  // Storage keys of the parts backing `parts`, in the same order. Returned to
+  // the caller for post-store sweeping and used for assembly-failure cleanup.
+  const partKeys: string[] = [];
   let received = 0;
   // Provisional total from the plan; corrected by the first 206 Content-Range
   // so a wrong heuristic estimate cannot truncate or over-run the download.
   let total = file.sizeBytes;
 
+  // Resume: adopt any previously-persisted contiguous parts for this file's
+  // current stamp, and sweep stale (superseded-revision) or non-contiguous ones.
+  received = await resumeFromPersistedParts(file, ctx, parts, partKeys);
+  if (received > 0) {
+    // Seed the bar to the resumed offset once. The tracker is absolute and
+    // clamped, so this neither double-counts nor regresses a later sample.
+    ctx.tracker.reportDownloadProgress(baseLoaded + received, ctx.totalBytes);
+  }
+
+  // When every part is already present (received >= total) the while loop is
+  // skipped and we fall straight through to assembly — this covers an interrupt
+  // between the last chunk write and the final whole-file store.
   while (received < total) {
     throwIfAborted(ctx.signal, ctx.modelId);
     const end = Math.min(received + ctx.rangeChunkBytes, total) - 1;
     const chunk = await fetchRangeChunk(file, received, end, baseLoaded + received, ctx);
 
     if (chunk.status === 200) {
-      // Origin ignored Range and returned the whole file — take it as-is.
+      // Origin ignored Range and returned the whole file — take it as-is. The
+      // resumed parts are abandoned here but remain in storage; their keys stay
+      // in partKeys so the caller still sweeps them after the whole-file store.
       parts.length = 0;
       parts.push(chunk.blob);
       received = chunk.blob.size;
@@ -839,12 +1012,31 @@ async function downloadFileInChunks(
         { url: file.url },
       );
     }
+
+    // Persist the validated chunk BEFORE advancing so an interruption resumes
+    // from this boundary. A quota failure here surfaces as the same honest
+    // InsufficientStorageError the final store raises.
+    const key = partKeyUrl(file, received);
+    try {
+      await ctx.storage.put(
+        { modelId: ctx.modelId, url: key },
+        new Response(chunk.blob),
+      );
+    } catch (err) {
+      if (isQuotaExceeded(err)) throw new InsufficientStorageError(ctx.remainingBytes);
+      throw err;
+    }
     parts.push(chunk.blob);
+    partKeys.push(key);
     received += chunk.blob.size;
   }
 
   const assembled = new Blob(parts);
   if (assembled.size !== total) {
+    // Persisted parts are inconsistent with the authoritative total — clean
+    // them so a resumed attempt (or the L2 proxy fallback) starts fresh rather
+    // than re-stitching the same bad bytes forever.
+    await deletePartsBestEffort(ctx.storage, ctx.modelId, partKeys);
     throw new DownloadFailedError(
       `Incomplete download for ${file.url}: assembled ${assembled.size} of ${total} bytes`,
       { url: file.url },
@@ -854,6 +1046,9 @@ async function downloadFileInChunks(
   if (file.oid?.length === 64) {
     const digest = await sha256OfBlob(assembled);
     if (digest !== file.oid) {
+      // Corrupt persisted bytes — never trust a resume over them. Clean before
+      // throwing so the fallback/retry re-downloads instead of re-failing.
+      await deletePartsBestEffort(ctx.storage, ctx.modelId, partKeys);
       throw new DownloadIntegrityError(
         `SHA-256 mismatch for ${file.url}: expected ${file.oid}, got ${digest}`,
         { url: file.url },
@@ -861,7 +1056,69 @@ async function downloadFileInChunks(
     }
   }
 
-  return assembled;
+  return { blob: assembled, partKeys };
+}
+
+/**
+ * Adopt previously-persisted chunk-parts for `file` so a resumed download
+ * continues mid-file. Enumerates the model namespace, walks the current-stamp
+ * parts contiguously from offset 0 into `parts`/`partKeys`, and best-effort
+ * sweeps stale-stamp parts and any non-contiguous leftovers beyond the walk.
+ * Returns the resumed byte count (0 when nothing usable is present).
+ */
+async function resumeFromPersistedParts(
+  file: DownloadFileSpec,
+  ctx: FetchFileContext,
+  parts: Blob[],
+  partKeys: string[],
+): Promise<number> {
+  let entries: { url: string; sizeBytes: number | null }[];
+  try {
+    entries = await ctx.storage.listForModel(ctx.modelId);
+  } catch {
+    return 0; // Enumeration failed — treat as a cold start.
+  }
+
+  const stamp = partStamp(file);
+  const stale: string[] = [];
+  const mine: { url: string; offset: number; sizeBytes: number }[] = [];
+  for (const entry of entries) {
+    if (!isPartUrlFor(entry.url, file)) continue;
+    if (partStampOf(entry.url) !== stamp) {
+      stale.push(entry.url); // Superseded revision — bytes bound to a different oid/size.
+      continue;
+    }
+    const offset = partOffsetOf(entry.url);
+    if (offset == null || entry.sizeBytes == null || entry.sizeBytes <= 0) continue;
+    mine.push({ url: entry.url, offset, sizeBytes: entry.sizeBytes });
+  }
+
+  mine.sort((a, b) => a.offset - b.offset);
+
+  let received = 0;
+  const walked = new Set<string>();
+  for (const part of mine) {
+    if (part.offset !== received) break; // Gap: the rest is non-contiguous.
+    const key = partKeyUrl(file, received);
+    let entry: CachedEntry | null;
+    try {
+      entry = await ctx.storage.get({ modelId: ctx.modelId, url: key });
+    } catch {
+      entry = null;
+    }
+    if (!entry) break; // Missing bytes for a supposedly-present part — stop.
+    parts.push(await entry.response.blob());
+    partKeys.push(key);
+    walked.add(part.url);
+    received += entry.sizeBytes;
+  }
+
+  // Everything not consumed by the contiguous walk (past a gap, or after an
+  // unreadable part) is unusable — sweep it along with the stale-stamp set.
+  const orphans = mine.filter((p) => !walked.has(p.url)).map((p) => p.url);
+  await deletePartsBestEffort(ctx.storage, ctx.modelId, [...stale, ...orphans]);
+
+  return received;
 }
 
 type RangeChunk = { status: number; total: number | null; blob: Blob };
