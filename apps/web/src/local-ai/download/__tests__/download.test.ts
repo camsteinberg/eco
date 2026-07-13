@@ -334,6 +334,241 @@ describe('downloadByPlan — fetchUrl transport + single-GET SHA', () => {
   });
 });
 
+// ─── CDN → proxy transport fallback ────────────────────────────────────────
+//
+// A file's bytes normally come from `fetchUrl` (the R2 CDN when configured);
+// `url` is the stable same-origin proxy path Eco always serves. On a
+// transport-level CDN failure the download retries ONCE against the proxy,
+// pinning fetchUrl to url — so a CDN outage no longer fails downloads with no
+// client-side recovery. Integrity and storage identity are unchanged.
+
+describe('downloadByPlan — CDN → proxy transport fallback', () => {
+  const IDENTITY = 'https://test/proxy/w.bin'; // stable storage identity (proxy path in prod)
+  const CDN = 'https://cdn.example.com/w.bin'; // distinct transport source (R2 in prod)
+
+  /**
+   * A fetcher that dispatches per-URL and records every requested URL. Each
+   * handler receives the RequestInit and returns a Response (or throws / rejects
+   * to simulate a network error). Unmapped URLs 404.
+   */
+  function dispatch(
+    log: string[],
+    handlers: Record<string, (init?: RequestInit) => Response | Promise<Response>>,
+  ): typeof fetch {
+    return (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string'
+        ? input
+        : input instanceof URL ? input.toString() : input.url;
+      log.push(url);
+      const handler = handlers[url];
+      if (!handler) return new Response(null, { status: 404 });
+      return handler(init);
+    }) as typeof fetch;
+  }
+
+  function okBody(body: Uint8Array): Response {
+    return new Response(body as unknown as BodyInit, {
+      status: 200,
+      headers: { 'content-length': String(body.byteLength) },
+    });
+  }
+
+  /** Answer a Range request with a 206 slice (or the full 200 body when unranged). */
+  function rangeResponse(full: Uint8Array, init?: RequestInit): Response {
+    const rangeHeader = init?.headers ? new Headers(init.headers).get('range') : null;
+    if (!rangeHeader) return okBody(full);
+    const match = /bytes=(\d+)-(\d+)?/.exec(rangeHeader);
+    const start = match ? Number(match[1]) : 0;
+    const end = match && match[2] != null
+      ? Math.min(Number(match[2]), full.byteLength - 1)
+      : full.byteLength - 1;
+    const slice = full.subarray(start, end + 1);
+    return new Response(slice as unknown as BodyInit, {
+      status: 206,
+      headers: {
+        'accept-ranges': 'bytes',
+        'content-length': String(slice.byteLength),
+        'content-range': `bytes ${start}-${end}/${full.byteLength}`,
+      },
+    });
+  }
+
+  it('falls back to the proxy when the CDN whole-file fetch returns 503', async () => {
+    const body = byteArr(1, 2, 3, 4, 5);
+    const plan: DownloadPlan = {
+      modelId: MODEL_ID,
+      files: [{ url: IDENTITY, fetchUrl: CDN, sizeBytes: body.byteLength }],
+    };
+    const log: string[] = [];
+
+    const result = await downloadByPlan(plan, {
+      storage,
+      fetcher: dispatch(log, {
+        [CDN]: () => new Response(null, { status: 503 }),
+        [IDENTITY]: () => okBody(body),
+      }),
+    });
+
+    expect(result.filesFetched).toBe(1);
+    // Stored under the stable identity, never the CDN url.
+    expect(await storage.has({ modelId: MODEL_ID, url: IDENTITY })).toBe(true);
+    expect(await storage.has({ modelId: MODEL_ID, url: CDN })).toBe(false);
+    // Both sources were exercised: CDN first, then the proxy fallback.
+    expect(log).toContain(CDN);
+    expect(log).toContain(IDENTITY);
+  });
+
+  it('falls back to the proxy when the CDN fetch throws a network error', async () => {
+    const body = byteArr(9, 9, 9);
+    const plan: DownloadPlan = {
+      modelId: MODEL_ID,
+      files: [{ url: IDENTITY, fetchUrl: CDN, sizeBytes: body.byteLength }],
+    };
+    const log: string[] = [];
+
+    const result = await downloadByPlan(plan, {
+      storage,
+      fetcher: dispatch(log, {
+        [CDN]: () => { throw new TypeError('Failed to fetch'); },
+        [IDENTITY]: () => okBody(body),
+      }),
+    });
+
+    expect(result.filesFetched).toBe(1);
+    expect(await storage.has({ modelId: MODEL_ID, url: IDENTITY })).toBe(true);
+    expect(log).toContain(CDN);
+    expect(log).toContain(IDENTITY);
+  });
+
+  it('falls back on a CDN Range-chunk failure after per-chunk retries are spent', async () => {
+    const CHUNK = 4; // tiny threshold so the small body exercises the chunk path
+    const body = Uint8Array.from({ length: 10 }, (_, i) => (i % 251) + 1);
+    const plan: DownloadPlan = {
+      modelId: MODEL_ID,
+      files: [{ url: IDENTITY, fetchUrl: CDN, sizeBytes: body.byteLength, oid: oidOf(body) }],
+    };
+    const log: string[] = [];
+
+    const result = await downloadByPlan(plan, {
+      storage,
+      rangeChunkBytes: CHUNK,
+      fetcher: dispatch(log, {
+        [CDN]: () => new Response(null, { status: 503 }),
+        [IDENTITY]: (init) => rangeResponse(body, init),
+      }),
+    });
+
+    expect(result.filesFetched).toBe(1);
+    expect((await storage.get({ modelId: MODEL_ID, url: IDENTITY }))!.sizeBytes)
+      .toBe(body.byteLength);
+    // The CDN was retried (transient 503) before the proxy served the chunks.
+    expect(log.filter((u) => u === CDN).length).toBeGreaterThanOrEqual(1);
+    expect(log.filter((u) => u === IDENTITY).length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('does NOT fall back on a hard CDN 404 (proxy never requested)', async () => {
+    const body = byteArr(1, 2, 3, 4);
+    const plan: DownloadPlan = {
+      modelId: MODEL_ID,
+      files: [{ url: IDENTITY, fetchUrl: CDN, sizeBytes: body.byteLength }],
+    };
+    const log: string[] = [];
+
+    await expect(
+      downloadByPlan(plan, {
+        storage,
+        fetcher: dispatch(log, {
+          [CDN]: () => new Response(null, { status: 404 }),
+          [IDENTITY]: () => okBody(body),
+        }),
+      }),
+    ).rejects.toBeInstanceOf(DownloadFailedError);
+
+    expect(log).toContain(CDN);
+    expect(log).not.toContain(IDENTITY);
+  });
+
+  it('makes a single request and propagates the error when fetchUrl is unset', async () => {
+    const body = byteArr(1, 2, 3);
+    const plan: DownloadPlan = {
+      modelId: MODEL_ID,
+      files: [{ url: IDENTITY, sizeBytes: body.byteLength }],
+    };
+    const log: string[] = [];
+
+    await expect(
+      downloadByPlan(plan, {
+        storage,
+        fetcher: dispatch(log, { [IDENTITY]: () => new Response(null, { status: 503 }) }),
+      }),
+    ).rejects.toBeInstanceOf(DownloadFailedError);
+
+    // Exactly one request to the single source — no phantom second attempt.
+    expect(log).toEqual([IDENTITY]);
+  });
+
+  it('does not fall back when aborted mid-fetch (no proxy request)', async () => {
+    const body = byteArr(1, 2, 3, 4);
+    const plan: DownloadPlan = {
+      modelId: MODEL_ID,
+      files: [{ url: IDENTITY, fetchUrl: CDN, sizeBytes: body.byteLength }],
+    };
+    const controller = new AbortController();
+    const log: string[] = [];
+
+    // Signals when the CDN fetch is actually entered, so the abort lands
+    // mid-fetch (not during the earlier verify/preflight passes) — the case
+    // the guarantee is about.
+    let onCdnEntered: () => void;
+    const cdnEntered = new Promise<void>((resolve) => { onCdnEntered = resolve; });
+    // The CDN fetch hangs until aborted, then rejects like a real cancelled fetch.
+    const cdnHang = (init?: RequestInit): Promise<Response> =>
+      new Promise((_resolve, reject) => {
+        onCdnEntered();
+        init?.signal?.addEventListener('abort', () =>
+          reject(new DOMException('Aborted', 'AbortError')),
+        );
+      });
+
+    const promise = downloadByPlan(plan, {
+      storage,
+      signal: controller.signal,
+      fetcher: dispatch(log, { [CDN]: cdnHang, [IDENTITY]: () => okBody(body) }),
+    });
+
+    await cdnEntered;
+    controller.abort();
+
+    await expect(promise).rejects.toBeInstanceOf(DownloadAbortedError);
+    expect(log).toContain(CDN);
+    expect(log).not.toContain(IDENTITY);
+  });
+
+  it('falls back to the proxy when the CDN serves bytes that fail the SHA check', async () => {
+    const correct = byteArr(5, 6, 7, 8);
+    const wrong = byteArr(1, 1, 1, 1); // same length → passes the size check, fails SHA
+    const plan: DownloadPlan = {
+      modelId: MODEL_ID,
+      files: [{ url: IDENTITY, fetchUrl: CDN, sizeBytes: correct.byteLength, oid: oidOf(correct) }],
+    };
+    const log: string[] = [];
+
+    const result = await downloadByPlan(plan, {
+      storage,
+      fetcher: dispatch(log, {
+        [CDN]: () => okBody(wrong),
+        [IDENTITY]: () => okBody(correct),
+      }),
+    });
+
+    expect(result.filesFetched).toBe(1);
+    // The correct (proxy) bytes are what got stored — a corrupt CDN never wins.
+    expect(await storage.has({ modelId: MODEL_ID, url: IDENTITY })).toBe(true);
+    expect(log).toContain(CDN);
+    expect(log).toContain(IDENTITY);
+  });
+});
+
 // ─── Resumable: warm cache ─────────────────────────────────────────────────
 
 describe('downloadByPlan — warm cache (resumable)', () => {

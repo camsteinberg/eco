@@ -536,7 +536,7 @@ export async function downloadByPlan(
     for (const file of remaining) {
       throwIfAborted(controller.signal, plan.modelId);
 
-      const blob = await fetchFileToBlob(file, loadedBytes, fetchContext);
+      const blob = await fetchFileToBlobWithFallback(file, loadedBytes, fetchContext);
 
       loadedBytes += blob.size;
 
@@ -655,6 +655,87 @@ async function fetchFileToBlob(
     return downloadFileInChunks(file, baseLoaded, ctx);
   }
   return downloadFileWhole(file, baseLoaded, ctx);
+}
+
+/**
+ * Fetch one file, falling back from the CDN to the same-origin proxy on a
+ * transport failure.
+ *
+ * A file's bytes are normally pulled from `file.fetchUrl` (the direct R2 CDN
+ * URL when configured); `file.url` is the stable same-origin proxy path — Eco's
+ * own re-emit of the HF object, which always resolves. A CDN outage should not
+ * fail the download when the proxy can still serve, so on a transport-level
+ * error (5xx/408/429/network, or a CDN serving corrupt bytes) this retries ONCE
+ * against the proxy by pinning `fetchUrl` to `url`.
+ *
+ * This is a second recovery axis, distinct from the per-chunk retry inside
+ * `fetchRangeChunk`: that retries the SAME source on a blip; this switches
+ * SOURCE after those retries are spent (chunked) or immediately (whole-file).
+ * It composes with — and does not consume — the setup cascade's one
+ * model-level retry, so a whole download attempt can survive a dead CDN.
+ *
+ * Integrity is unchanged: the proxy attempt is a normal `fetchFileToBlob`, so
+ * its assembled bytes are SHA-verified against `file.oid` before storage exactly
+ * as the CDN attempt would be, and the storage identity stays `file.url`.
+ */
+async function fetchFileToBlobWithFallback(
+  file: DownloadFileSpec,
+  baseLoaded: number,
+  ctx: FetchFileContext,
+): Promise<Blob> {
+  try {
+    return await fetchFileToBlob(file, baseLoaded, ctx);
+  } catch (err) {
+    if (!shouldFallbackToProxy(err, file, ctx.signal)) throw err;
+    console.warn('[eco] CDN fetch failed, falling back to proxy', { url: file.url });
+    // Pin the transport source to the stable proxy identity for the retry. If
+    // this attempt also fails, its error propagates normally (no third try).
+    return fetchFileToBlob({ ...file, fetchUrl: file.url }, baseLoaded, ctx);
+  }
+}
+
+/**
+ * Whether a failed CDN fetch of `file` should be retried against the proxy.
+ *
+ * False (rethrow the original error) when:
+ *   - the download was aborted (a user/tab cancel is not a transport failure);
+ *   - no distinct CDN is in use (`fetchUrl` unset or equal to `url`), so the
+ *     proxy IS the source that just failed — a retry cannot differ;
+ *   - the error is a hard 4xx (missing/forbidden object): the same path won't
+ *     resolve on the proxy either. 408/429 are excluded — those are transient;
+ *   - the error is non-transport (e.g. `InsufficientStorageError`): a different
+ *     source can't create disk space.
+ *
+ * True (fall back) for a `DownloadFailedError` carrying a 5xx/408/429 status or
+ * no status (a network error), and for a `DownloadIntegrityError` — a CDN
+ * serving corrupt bytes is worth re-fetching through the proxy, whose full-GET
+ * path carries a server-side SHA guard.
+ */
+function shouldFallbackToProxy(
+  err: unknown,
+  file: DownloadFileSpec,
+  signal: AbortSignal,
+): boolean {
+  if (signal.aborted) return false;
+  if (err instanceof DownloadAbortedError) return false;
+  if (file.fetchUrl == null || file.fetchUrl === file.url) return false;
+  // Integrity failures carry no status, so check the subclass before the
+  // status-gated 4xx branch below (DownloadIntegrityError extends DownloadFailedError).
+  if (err instanceof DownloadIntegrityError) return true;
+  if (err instanceof DownloadFailedError) {
+    const { status } = err;
+    if (
+      status != null
+      && status >= 400
+      && status < 500
+      && status !== 408
+      && status !== 429
+    ) {
+      return false;
+    }
+    return true;
+  }
+  return false;
 }
 
 /** Single-GET path: one streaming fetch of the whole file. */
