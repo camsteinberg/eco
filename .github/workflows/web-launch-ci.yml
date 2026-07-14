@@ -24,13 +24,27 @@ name: Web Launch CI
 #   - `web-checks`: type-check, lint, Vitest, `next build`, and
 #     `verify:no-lab-bundle` (build-output proof that apps/web/src/lab/
 #     eval-only model surface never reaches a production chunk).
-#   - `web-e2e`: the launch-critical functional Playwright specs —
-#     `csp.spec.ts` (CSP/connect-src + clickjacking headers the privacy
-#     and browser-direct-grounding story depend on) and
-#     `local-runtime-launch-confidence.spec.ts` (the no-egress proof:
-#     web-lookups-off + local-fixture chat emit zero prompt egress / zero
-#     Wikipedia/Wikidata/Open-Meteo requests). Before this, no workflow
-#     ran the functional E2E suite at all.
+#   - `web-e2e`: the launch-critical functional Playwright specs, all
+#     fully stubbed/harness-driven and deterministic (no model download,
+#     no database):
+#       * `csp.spec.ts` — CSP/connect-src + clickjacking headers the
+#         privacy and browser-direct-grounding story depend on.
+#       * `local-runtime-launch-confidence.spec.ts` — the no-egress proof:
+#         web-lookups-off + local-fixture chat emit zero prompt egress /
+#         zero Wikipedia/Wikidata/Open-Meteo requests.
+#       * `first-run-journey.spec.ts` — the first-touch tripwire:
+#         gate → Stage A wait surface → ready → greeting → local
+#         generation, plus the below-floor screen.
+#       * `crash-resilience.spec.ts` — error boundaries degrade honestly
+#         and recover (inference crash + setup-failure surfaces).
+#       * `accessibility-launch-critical-sweep.spec.ts` — settings tabs
+#         are keyboard-operable and honor reduced motion.
+#       * `local-ai-switch-ai-dialog.spec.ts` — the Switch-your-AI dialog's
+#         flat confident list, honest current row, and no warning gate.
+#     Held out of CI on purpose (local-only): `xss-audit` (long fuzz
+#     sweep), `launch-trust-smoke`, `download-*`, and the visual suite
+#     (its own sharded workflow). Before this, no workflow ran the
+#     functional E2E suite at all.
 #
 # Out of this workflow on purpose:
 #
@@ -201,13 +215,14 @@ jobs:
 
       # playwright.config.ts boots both the web (Next/Turbopack) and api (tsx)
       # dev servers itself (reuseExistingServer is false under CI) and waits on
-      # the api's /health/ready, which returns 200 in dev without DB/Redis. Both
-      # specs are self-contained: csp.spec.ts is pure HTTP header assertions, and
-      # local-runtime-launch-confidence.spec.ts mocks /api/auth + /v1 and uses the
-      # local-generation fixture, so neither downloads a model or needs a database.
-      - name: Run launch-critical E2E (CSP + no-egress local runtime)
+      # the api's /health/ready, which returns 200 in dev without DB/Redis. Every
+      # spec below is self-contained: csp.spec.ts is pure HTTP header assertions,
+      # and the rest mock /api/auth + /v1 and drive the setup state machine via
+      # the validation harness + local-generation fixture, so none downloads a
+      # model or needs a database.
+      - name: Run launch-critical E2E (CSP + first-run + resilience + a11y + switch dialog)
         working-directory: apps/web
-        run: pnpm exec playwright test e2e/csp.spec.ts e2e/local-runtime-launch-confidence.spec.ts
+        run: pnpm exec playwright test e2e/csp.spec.ts e2e/local-runtime-launch-confidence.spec.ts e2e/first-run-journey.spec.ts e2e/crash-resilience.spec.ts e2e/accessibility-launch-critical-sweep.spec.ts e2e/local-ai-switch-ai-dialog.spec.ts
 
       - name: Upload E2E report
         if: always()
