@@ -7,7 +7,9 @@
  * These tests start as `it.todo` placeholders during Phase A. As each
  * implementation phase lands, the tests are converted to real assertions.
  *
- * The list maps 1:1 to docs/design/2026-05-16/vision-and-architecture.md §2.2.
+ * These are the ARCHITECTURAL invariants (export/ownership greps). The
+ * VALUE-LEVEL state invariants (I1–I7) live in state-invariants.test.ts and
+ * are documented in docs/design/local-ai-state-model.md.
  * Each invariant has a "turns green in Phase X" annotation.
  */
 
