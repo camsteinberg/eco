@@ -10,7 +10,7 @@ import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { BottomSheet } from "../ui/BottomSheet";
 import { getCatalog } from "../../local-ai/catalog/catalog";
 import { getDisplayInfo } from "../../local-ai/display";
-import { isBelowFloor, listCatalog, recommend } from "../../local-ai/index";
+import { canServe, listCatalog, recommend } from "../../local-ai/index";
 import { useDeviceProfile } from "../../hooks/local-ai/useDeviceProfile";
 import { getSlotForModel } from "../../local-ai/lifecycle/slots";
 import { isLocalAiSlot } from "../../local-ai/util";
@@ -63,7 +63,7 @@ export function ModelSelector({ variant = "header" }: ModelSelectorProps) {
 
   // The recommendation depends on the device profile.
   const recommendedId = useMemo(() => {
-    if (isBelowFloor(profile)) return null;
+    if (!canServe(profile)) return null;
     try {
       return recommend("eco-fast", profile).id;
     } catch {
@@ -177,7 +177,7 @@ export function ModelSelector({ variant = "header" }: ModelSelectorProps) {
   const models = useMemo(() => {
     if (!hasMounted) return getCatalog();
     try {
-      if (isBelowFloor(profile)) return [];
+      if (!canServe(profile)) return [];
       const { available } = listCatalog(profile, {
         currentlyBoundModelId: resolvedSelectedId,
       });

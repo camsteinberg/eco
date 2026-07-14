@@ -23,7 +23,7 @@ vi.mock("../../../local-ai/index", () => ({
     isMobile: false,
     override: "auto",
   }),
-  isBelowFloor: () => false,
+  canServe: () => true,
   recommend: () => ({ id: "candidate/qwen3.5-2b-onnx" }),
   listCatalog: vi.fn(),
 }));

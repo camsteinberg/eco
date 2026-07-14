@@ -33,6 +33,7 @@ import {
 import {
   recommend as recommendImpl,
   listCatalog as listCatalogImpl,
+  canServe as canServeImpl,
   type ListCandidatesOptions,
 } from './selection/recommend';
 
@@ -62,6 +63,16 @@ export function listCatalog(
   options?: { currentlyBoundModelId?: string | null },
 ): ReturnType<typeof listCatalogImpl> {
   return listCatalogImpl(profile, options);
+}
+
+/**
+ * Whether any catalog model is assignable to this device (the complete "can we
+ * serve this device" gate — see `selection/recommend.canServe`). Prefer
+ * `!canServe(profile)` over `isBelowFloor(profile)` alone at surfaces that offer
+ * models, so the "no assignable model" band is handled uniformly (audit COV-1).
+ */
+export function canServe(profile: DeviceProfile): boolean {
+  return canServeImpl(profile);
 }
 
 // ─── Device ───────────────────────────────────────────────────────────────

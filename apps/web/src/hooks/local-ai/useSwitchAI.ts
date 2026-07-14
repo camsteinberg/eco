@@ -4,7 +4,7 @@
 'use client';
 
 import { useCallback, useMemo, useState } from 'react';
-import { isBelowFloor, listCatalog, recommend } from '../../local-ai/index';
+import { canServe, listCatalog, recommend } from '../../local-ai/index';
 import { useDeviceProfile } from './useDeviceProfile';
 import type { SwitchModelResult } from '../../local-ai/lifecycle/switch-model';
 import type { ModelConfig, Slot } from '../../local-ai/types';
@@ -88,10 +88,10 @@ export function useSwitchAI(options: UseSwitchAIOptions): UseSwitchAIReturn {
   // reflect the real adapter capability the instant the probe resolves, even
   // if the dialog opened mid-probe (the frozen useMemo never recomputed).
   const profile = useDeviceProfile();
-  const belowFloor = useMemo(() => isBelowFloor(profile), [profile]);
+  const cannotServe = useMemo(() => !canServe(profile), [profile]);
 
   const recommendation = useMemo<ModelConfig | null>(() => {
-    if (belowFloor) return null;
+    if (cannotServe) return null;
     try {
       return recommend(options.slot, profile, undefined, {
         currentlyBoundModelId: options.currentModel?.id,
@@ -99,10 +99,10 @@ export function useSwitchAI(options: UseSwitchAIOptions): UseSwitchAIReturn {
     } catch {
       return null;
     }
-  }, [belowFloor, profile, options.slot, options.currentModel?.id]);
+  }, [cannotServe, profile, options.slot, options.currentModel?.id]);
 
   const choices = useMemo<SwitchAIChoice[]>(() => {
-    if (belowFloor) return [];
+    if (cannotServe) return [];
     const { available } = listCatalog(profile, {
       currentlyBoundModelId: options.currentModel?.id ?? null,
     });
@@ -111,7 +111,7 @@ export function useSwitchAI(options: UseSwitchAIOptions): UseSwitchAIReturn {
       confidence: entry.confidence,
       isTop: index === 0,
     }));
-  }, [belowFloor, profile, options.currentModel?.id]);
+  }, [cannotServe, profile, options.currentModel?.id]);
 
   const [selectedId, setSelectedId] = useState<string | null>(
     options.currentModel?.id ?? recommendation?.id ?? null,

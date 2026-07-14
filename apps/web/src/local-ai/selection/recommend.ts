@@ -296,6 +296,23 @@ export function recommend(
   return candidates[0]!.model;
 }
 
+/**
+ * Hardware-level "can this device be served at all" gate: true iff SOME catalog
+ * model is assignable to the device (compatibility only — ignores admission /
+ * ledger, matching `isBelowFloor`'s purity). This is the COMPLETE complement of
+ * the below-floor decision. `isBelowFloor` trips only on the no-capability +
+ * low-memory subset, so it returns false for two bands where nothing is
+ * nonetheless assignable — no-capability + adequate/unknown memory, and
+ * sub-floor memory on a WebGPU/WASM device — exactly where `recommend()` throws
+ * `NoAssignableModelError`. Surfaces deciding whether to offer models should
+ * gate on `!canServe(profile)` rather than `isBelowFloor(profile)` alone, so
+ * that "no assignable model" band is handled uniformly instead of slipping
+ * through a partial gate (device-coverage audit, finding COV-1).
+ */
+export function canServe(profile: DeviceProfile): boolean {
+  return getCatalog().some((model) => isAssignable(model, profile));
+}
+
 export function listCandidates(
   slot: Slot,
   profile: DeviceProfile,

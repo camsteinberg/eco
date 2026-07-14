@@ -19,7 +19,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getCatalog } from '../../catalog/catalog';
 import { isAssignable } from '../../device/compatibility';
 import { CURRENT_LEDGER_VERSION } from '../../evidence/ledger';
-import { listCandidates, listCatalog, NoAssignableModelError, recommend, starterModelForSlot } from '../recommend';
+import { canServe, listCandidates, listCatalog, NoAssignableModelError, recommend, starterModelForSlot } from '../recommend';
+import { isBelowFloor } from '../../device/below-floor';
 import type { DeviceProfile } from '../../types';
 
 const PROFILE_24GB: DeviceProfile = {
@@ -50,6 +51,52 @@ const PROFILE_BELOW_FLOOR: DeviceProfile = {
   isMobile: false,
   override: 'auto',
 };
+
+describe('canServe — hardware-level assignability gate (COV-1)', () => {
+  // isBelowFloor only trips on low memory + no capability, so it MISSES these
+  // two bands even though no model is assignable — the gap the coverage audit
+  // surfaced. canServe must be false for both.
+  const PROFILE_B1_NO_CAP_HIGH_MEM: DeviceProfile = {
+    browserClass: 'chromium',
+    webgpuSupport: 'none',
+    deviceMemoryGB: 16,
+    isMobile: false,
+    override: 'auto',
+  };
+  const PROFILE_B2_WEBGPU_2GB: DeviceProfile = {
+    browserClass: 'chromium',
+    webgpuSupport: 'webgpu',
+    deviceMemoryGB: 2,
+    isMobile: false,
+    webgpuShaderF16: true,
+    override: 'auto',
+  };
+
+  it('is true for a capable device (has an assignable model)', () => {
+    expect(canServe(PROFILE_24GB)).toBe(true);
+  });
+
+  it('is false for a genuine below-floor device', () => {
+    expect(canServe(PROFILE_BELOW_FLOOR)).toBe(false);
+  });
+
+  it('covers the B1 band isBelowFloor misses: no capability + high memory', () => {
+    expect(isBelowFloor(PROFILE_B1_NO_CAP_HIGH_MEM)).toBe(false);
+    expect(canServe(PROFILE_B1_NO_CAP_HIGH_MEM)).toBe(false);
+  });
+
+  it('covers the B2 band isBelowFloor misses: 2GB WebGPU', () => {
+    expect(isBelowFloor(PROFILE_B2_WEBGPU_2GB)).toBe(false);
+    expect(canServe(PROFILE_B2_WEBGPU_2GB)).toBe(false);
+  });
+
+  it('when canServe is false, recommend() throws NoAssignableModelError', () => {
+    for (const p of [PROFILE_BELOW_FLOOR, PROFILE_B1_NO_CAP_HIGH_MEM, PROFILE_B2_WEBGPU_2GB]) {
+      expect(canServe(p)).toBe(false);
+      expect(() => recommend('eco-fast', p)).toThrow(NoAssignableModelError);
+    }
+  });
+});
 
 describe('recommend — WebGPU adapter without shader-f16', () => {
   // The setup path resolves the eco-fast slot. On an f16-less adapter every
