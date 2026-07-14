@@ -3,40 +3,46 @@
 
 /**
  * Outcome classifier for the coverage audit. Drives each MatrixCell through the
- * REAL first-run decision path — `isBelowFloor`, then the real `runSetupCascade`
- * (with `recommend`/`nextInCascade` bound to this profile and an injected
- * `runAttempt` derived from the cell's download/smoke fields) — and maps the
- * terminal result to a coverage outcome.
+ * REAL first-run flow — `executeSetup` (setup-runner.ts) — with injected seams
+ * (profile, download/smoke result, cache miss) and a fake actions-recorder, then
+ * classifies by which terminal action the shipped runner fires:
  *
- * The guarantee under audit: every cell resolves to `served` or `declined`; the
- * `silent-broken` class must be empty (or exactly the tracked KNOWN_UNCOVERED
- * allowlist). `silent-broken` here means the selection path either threw an
- * unhandled error or reached "no assignable model" WITHOUT the below-floor gate
- * that is supposed to precede it — i.e. a cell the shipped UI has no designed
- * surface for.
+ *   setReady      → served
+ *   setBelowFloor → declined (below-floor / "coming to your device")
+ *   setError      → declined (recoverable setup-error surface)
+ *   nothing / throw → silent-broken (the class the guarantee must keep empty)
  *
- * Honest limitation: the `ledger` dimension is not simulated here. The real
- * admission engine reads persisted evidence, which is empty in a unit context,
- * so every cell classifies as if the ledger were fresh. Non-fresh ledger cells
- * therefore collapse onto their fresh equivalent — recorded in the audit
- * findings, NOT papered over with a fabricated ledger effect.
+ * Driving the real runner (not a hand-rolled trace) is deliberate: it captures
+ * the runner's own routing — including the `NoAssignableModelError` catch at
+ * setup-runner.ts:261 that converts "not below-floor yet nothing assignable"
+ * into a below-floor decline. A lower-fidelity trace that stopped at the
+ * selection layer would mislabel those cells silent-broken; end-to-end through
+ * `executeSetup` reflects what the user actually gets. If that catch is ever
+ * removed, this classifier reports the regression instead of hiding it.
+ *
+ * Honest limitation: the `ledger` dimension is not simulated (getSlot is a fresh
+ * empty stub and recordEvidence is a no-op), so non-fresh ledger cells collapse
+ * onto their fresh equivalent — recorded in the audit findings, not papered over.
  */
 
-import type { ModelConfig, Slot } from '../types';
+import type { Slot } from '../types';
 import type { MatrixCell } from './device-matrix';
-import { isBelowFloor } from '../device/below-floor';
-import { recommend, NoAssignableModelError } from '../selection/recommend';
-import { nextInCascade } from '../selection/cascade';
-import { runSetupCascade, type AttemptResult } from '../lifecycle/setup-cascade';
+import type { AttemptResult } from '../lifecycle/setup-cascade';
+import {
+  executeSetup,
+  type SetupRunnerActions,
+  type SetupSeams,
+} from '../lifecycle/setup-runner';
+import type { SlotState } from '../lifecycle/slots';
 
 export type CoverageOutcome =
   | { kind: 'served'; modelId: string; via: 'setup-ladder' }
-  | { kind: 'declined'; surface: 'below-floor' | 'diagnosis' }
+  | { kind: 'declined'; surface: 'below-floor' | 'setup-error' }
   | { kind: 'silent-broken'; reason: string };
 
 /** Injected attempt outcome for the setup ladder, derived from the cell. */
-function injectedAttempt(cell: MatrixCell): (model: ModelConfig) => Promise<AttemptResult> {
-  return () => {
+function injectedAttempt(cell: MatrixCell): SetupSeams['runAttempt'] {
+  return (): Promise<AttemptResult> => {
     if (cell.download === 'storage-fail') {
       return Promise.resolve({
         ok: false,
@@ -55,38 +61,52 @@ function injectedAttempt(cell: MatrixCell): (model: ModelConfig) => Promise<Atte
   };
 }
 
+const noop = (): void => {
+  /* intentional no-op: classification observes routing, not side effects */
+};
+
 export async function classifyCell(cell: MatrixCell): Promise<CoverageOutcome> {
-  const { profile } = cell;
   const slot: Slot = 'eco-fast';
+  const emptySlot: SlotState = { slot, modelId: null, model: null, status: 'empty' };
 
-  // 1. Below-floor is the intended graceful decline for devices that run nothing.
-  if (isBelowFloor(profile)) {
-    return { kind: 'declined', surface: 'below-floor' };
-  }
+  // Boxed so the terminal outcome is read at its declared type — a bare `let`
+  // assigned only inside the action callbacks reads (to TS/eslint's flow
+  // analysis) as never-reassigned, making the later null-check look "always
+  // true". The box keeps the null-check honest.
+  const result: { outcome: CoverageOutcome | null } = { outcome: null };
+  const actions: SetupRunnerActions = {
+    onProgressEvent: noop,
+    setBelowFloor: () => {
+      result.outcome = { kind: 'declined', surface: 'below-floor' };
+    },
+    setReady: (model) => {
+      result.outcome = { kind: 'served', modelId: model.id, via: 'setup-ladder' };
+    },
+    setError: () => {
+      result.outcome = { kind: 'declined', surface: 'setup-error' };
+    },
+    markPriorAttemptFailed: noop,
+    markFindingFit: noop,
+    markResuming: noop,
+  };
 
-  // 2. Drive the REAL setup cascade with the injected download/smoke outcome.
+  // Inject the side-effecting seams; leave the routing seams (recommend,
+  // nextInCascade, starterModelForSlot, isBelowFloor) as their real defaults so
+  // the classification reflects the shipped decision logic.
+  const seams: Partial<SetupSeams> = {
+    resolveProfile: () => Promise.resolve(cell.profile),
+    getSlot: () => emptySlot,
+    setSlot: noop,
+    setSlotStatus: noop,
+    recordEvidence: noop,
+    runAttempt: injectedAttempt(cell),
+    isModelCached: () => Promise.resolve(false),
+  };
+
   try {
-    const result = await runSetupCascade({
-      slot,
-      profile,
-      recommend: (s, p) => recommend(s, p),
-      nextInCascade: (failed, s, p, intent, opts) => nextInCascade(failed, s, p, intent, opts),
-      runAttempt: injectedAttempt(cell),
-      recordFailure: () => {},
-      recordSuccess: () => {},
-    });
-    if (result.kind === 'ready') {
-      return { kind: 'served', modelId: result.model.id, via: 'setup-ladder' };
-    }
-    // exhausted → the app surfaces recovery + diagnosis (diagnoseUnsupportedProfile
-    // always yields guidance): an honest decline, not a dead-end.
-    return { kind: 'declined', surface: 'diagnosis' };
+    await executeSetup(actions, { slot, skipBootstrap: true, starterFirst: true, seams });
   } catch (err) {
-    if (err instanceof NoAssignableModelError) {
-      // Not below-floor, yet nothing assignable — the H1 seam. The pure layer
-      // flags it; Layer-2 confirms whether the shipped setup-runner catches it.
-      return { kind: 'silent-broken', reason: 'empty-not-belowfloor' };
-    }
-    return { kind: 'silent-broken', reason: `unhandled: ${(err as Error).message}` };
+    return { kind: 'silent-broken', reason: `executeSetup threw: ${(err as Error).message}` };
   }
+  return result.outcome ?? { kind: 'silent-broken', reason: 'no terminal action fired' };
 }
