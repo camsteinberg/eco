@@ -16,7 +16,7 @@ import type { BrowserClass, DeviceProfile, WebGPUSupport } from '../types';
 
 const BROWSERS: readonly BrowserClass[] = ['chromium', 'safari', 'firefox', 'mobile', 'unknown'];
 const CAPS: readonly WebGPUSupport[] = ['webgpu', 'wasm-only', 'none'];
-// 0 = navigator.deviceMemory absent (Safari/Firefox/unknown). 8 = Chromium cap.
+// 0 = deviceMemory unreported (Safari/Firefox/unknown). 8 = Chromium cap.
 const MEMS: readonly number[] = [0, 2, 4, 8, 16];
 const SHADER_F16: readonly (boolean | undefined)[] = [true, false, undefined];
 const MOBILE: readonly boolean[] = [false, true];
