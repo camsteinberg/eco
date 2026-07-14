@@ -30,7 +30,7 @@
 
 import { test, expect, type Page } from "@playwright/test";
 
-// ─── Auth + API route stubs (mirrors local-ai-v1-gate.spec.ts) ──────────────────
+// ─── Auth + API route stubs ─────────────────────────────────────────────────────
 
 test.beforeEach(async ({ page }) => {
   await page.route("**/api/auth/get-session", (route) =>
@@ -79,7 +79,6 @@ const FORCED_DEVICE_PROFILE =
  */
 async function seedReadySlot(page: Page): Promise<void> {
   await page.addInitScript(() => {
-    window.localStorage.setItem("eco-local-ai-v1", "on");
     // Phi-3 Mini is in the v1.0 catalog (catalog-data.json).
     window.localStorage.setItem(
       "eco-local-ai-slot-eco-fast",
@@ -118,7 +117,6 @@ async function seedReadySlot(page: Page): Promise<void> {
  */
 async function seedFreshNoSlot(page: Page): Promise<void> {
   await page.addInitScript(() => {
-    window.localStorage.setItem("eco-local-ai-v1", "on");
     window.localStorage.setItem(
       "eco-onboarding",
       JSON.stringify({
@@ -172,7 +170,7 @@ test.describe("crash resilience", () => {
       // Slot is primed 'ready' with no cache bytes — mark the cache verified so
       // boot reconcile leaves it 'ready' and the gate passes through to the
       // ChatWorkspace tree where the crash boundary is mounted.
-      `/chat?local-ai-v1=1&eco-force-local-runtime=crash&eco-force-cache-verified=1&${FORCED_DEVICE_PROFILE}`,
+      `/chat?eco-force-local-runtime=crash&eco-force-cache-verified=1&${FORCED_DEVICE_PROFILE}`,
       { waitUntil: "networkidle" },
     );
 
@@ -201,7 +199,7 @@ test.describe("crash resilience", () => {
     await retry.click();
 
     await expect(
-      page.getByRole("heading", { name: /How can I help today/i }),
+      page.getByRole("heading", { name: /Good (morning|afternoon|evening)/ }),
     ).toBeVisible({ timeout: 15_000 });
     await expect(
       page.getByText(/On-device AI ran into a problem/i),
@@ -218,7 +216,7 @@ test.describe("crash resilience", () => {
     await page.route("**/api/local-models/**", (route) => route.abort());
 
     await page.goto(
-      `/chat?local-ai-v1=1&${FORCED_DEVICE_PROFILE}`,
+      `/chat?${FORCED_DEVICE_PROFILE}`,
       { waitUntil: "domcontentloaded" },
     );
 
@@ -247,7 +245,7 @@ test.describe("crash resilience", () => {
     await page.route("**/api/local-models/**", (route) => route.abort());
 
     await page.goto(
-      `/chat?local-ai-v1=1&${FORCED_DEVICE_PROFILE}`,
+      `/chat?${FORCED_DEVICE_PROFILE}`,
       { waitUntil: "domcontentloaded" },
     );
 

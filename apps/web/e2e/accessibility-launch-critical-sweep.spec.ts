@@ -42,10 +42,10 @@ test("settings tabs are keyboard-operable and honor reduced motion", async ({ pa
   const tablist = page.getByRole("tablist", { name: "Settings sections" });
   await expect(tablist).toBeVisible();
 
-  const modelsTab = page.getByRole("tab", { name: "Models" });
+  const modelsTab = page.getByRole("tab", { name: "Eco" });
   await expect(modelsTab).toHaveAttribute("aria-selected", "true");
   await expect(modelsTab).toHaveAttribute("aria-controls", "settings-panel-models");
-  await expect(page.getByRole("tabpanel", { name: "Models" })).toBeVisible();
+  await expect(page.getByRole("tabpanel", { name: "Eco" })).toBeVisible();
 
   await modelsTab.focus();
   await page.keyboard.press("ArrowRight");
