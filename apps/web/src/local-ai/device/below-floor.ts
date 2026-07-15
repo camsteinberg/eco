@@ -24,15 +24,24 @@ import { getDeviceProfile } from './profile';
 const MOBILE_LOW_MEMORY_GB = 2;
 const LOW_MEMORY_GB = 4;
 
-export function isBelowFloor(profile: DeviceProfile = getDeviceProfile()): boolean {
-  if (profile.webgpuSupport !== 'none') return false;
-
+/**
+ * The memory half of the floor: too little RAM for a model to run well,
+ * independent of runtime support. Split out so the decline surface can name
+ * "not enough memory" as a distinct reason for a capable browser that still
+ * can't be served — without duplicating the exact GB thresholds.
+ */
+export function failsMemoryFloor(profile: DeviceProfile = getDeviceProfile()): boolean {
   const reportedMemory = profile.deviceMemoryGB;
   const lowMemory = reportedMemory > 0 && reportedMemory <= LOW_MEMORY_GB;
   const mobileLowMemory =
     profile.isMobile && reportedMemory > 0 && reportedMemory <= MOBILE_LOW_MEMORY_GB;
 
   return lowMemory || mobileLowMemory;
+}
+
+export function isBelowFloor(profile: DeviceProfile = getDeviceProfile()): boolean {
+  if (profile.webgpuSupport !== 'none') return false;
+  return failsMemoryFloor(profile);
 }
 
 export function getBelowFloorReason(

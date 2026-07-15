@@ -6,7 +6,8 @@
 import { type ReactNode, useEffect } from 'react';
 import { useLocalAiSetup } from '../../hooks/local-ai/useLocalAiSetup';
 import { useDeviceProfile } from '../../hooks/local-ai/useDeviceProfile';
-import { describeDevice, getDeviceProfile } from '../../local-ai/index';
+import { describeDevice, failsMemoryFloor, getDeviceProfile } from '../../local-ai/index';
+import type { BelowFloorReasonKind } from './BelowFloorScreen';
 import { useChatStore } from '../../stores/chatStore';
 import { WelcomeSetup } from './WelcomeSetup';
 import { SetupErrorState } from './SetupErrorState';
@@ -58,10 +59,23 @@ export function LocalAiSetupGate({
   }, [setupStatus]);
 
   if (setup.status === 'below-floor') {
-    const deviceLabel = describeDevice(getDeviceProfile());
+    const profile = getDeviceProfile();
+    const deviceLabel = describeDevice(profile);
+    // Tell the truth per population: a device with no runtime blames the
+    // browser; a capable browser short on memory blames memory (never the
+    // browser); anything else falls back to an honest "not ready for this
+    // setup yet". Runtime is checked first because `webgpuSupport === 'none'`
+    // subsumes the low-memory genuine-below-floor case.
+    const reason: BelowFloorReasonKind =
+      profile.webgpuSupport === 'none'
+        ? 'runtime'
+        : failsMemoryFloor(profile)
+          ? 'memory'
+          : 'fallback';
     return (
       <BelowFloorScreen
         deviceLabel={deviceLabel}
+        reason={reason}
         onSignup={onBelowFloorSignup ?? noopSignup}
       />
     );
