@@ -50,6 +50,34 @@ const nextConfig: NextConfig = {
     // every real-prod Gemma load instantly (founder device, 2026-07-03).
     '/api/litert-wasm/[file]': ['./node_modules/@litert-lm/core/wasm/**/*'],
   },
+  async headers() {
+    // Cross-origin isolation unlocks SharedArrayBuffer, which is what lets
+    // onnxruntime-web size its WASM thread pool above 1 (it keys numThreads on
+    // `crossOriginIsolated`; the threaded artifact already ships via
+    // /api/ort/[file]). Measured ~1.3× generation throughput on the WASM floor
+    // model — larger models gain more.
+    //
+    // COEP is `require-corp`, not `credentialless`: Safari (through 27) does
+    // not implement `credentialless`, and Safari is exactly the browser class
+    // the WASM path serves most. The strictness is affordable because the CSP
+    // pins subresources to 'self' — but it means any FUTURE cross-origin
+    // embedded resource (image/script/font) must send
+    // Cross-Origin-Resource-Policy, and cross-origin fetches must use CORS
+    // (the model CDN already does).
+    //
+    // Applied globally, not just to /chat: /chat is reached by client-side
+    // navigation, and isolation is a property of the document that first
+    // loaded — a route-scoped header would leave SPA-nav users single-threaded.
+    return [
+      {
+        source: '/:path*',
+        headers: [
+          { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
+          { key: 'Cross-Origin-Embedder-Policy', value: 'require-corp' },
+        ],
+      },
+    ]
+  },
   async redirects() {
     return [
       {
