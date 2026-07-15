@@ -23,7 +23,7 @@ vi.mock("../../../local-ai/index", () => ({
     isMobile: false,
     override: "auto",
   }),
-  isBelowFloor: () => false,
+  canServe: () => true,
   recommend: () => ({ id: "candidate/qwen3.5-2b-onnx" }),
   listCatalog: vi.fn(),
 }));
@@ -143,7 +143,11 @@ describe("ModelSelector (composer)", () => {
 
     const trigger = screen.getByTestId("model-selector");
     expect(trigger).toHaveClass("rounded-full");
-    // With selectedModel="auto", the recommended Qwen3.5 name shows.
-    expect(trigger).toHaveTextContent("Eco (Qwen)");
+    // One identity in the composer: the visible label is always "Eco". The
+    // branded model name ("Eco (Qwen)") is demoted to the hover/aria detail —
+    // present for transparency, but never chrome the user carries.
+    expect(trigger).toHaveTextContent("Eco");
+    expect(trigger).not.toHaveTextContent("Qwen");
+    expect(trigger).toHaveAttribute("title", "Eco (Qwen)");
   });
 });

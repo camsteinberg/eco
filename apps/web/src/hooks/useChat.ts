@@ -640,7 +640,7 @@ export function useChat() {
           );
           return { ok: false };
         }
-        const slotLabel = selectedModelChoice === 'eco-fast' ? 'Eco Fast' : 'Eco Smart';
+        const slotLabel = 'Eco';
         writeDispatchError(
           assistantId,
           `${slotLabel} needs setup before it can run on this device. Go to Settings → Models to set it up.`,

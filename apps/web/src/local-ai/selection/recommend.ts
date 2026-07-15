@@ -134,11 +134,20 @@ export const FORMER_EVERYDAY_DEFAULT_IDS: ReadonlyArray<string> = [
 export const PREFERRED_F16LESS_DEFAULT_MODEL_ID = 'candidate/gemma-4-e2b-litert';
 
 /**
- * The universal instant-start floor: the smallest, f16-free starter rung every
- * device falls back to. It is EXEMPT from the download-fail auto-demotion
+ * The default instant-start floor: the smallest, f16-free starter rung most
+ * devices fall back to. It is EXEMPT from the download-fail auto-demotion
  * (slice 3) — demoting the floor would leave a device with nothing offerable
  * and break instant-start. Repeated download failures of even this model are an
  * environmental dead-end the demotion can't fix, so we never remove it.
+ *
+ * NOT literally universal: on a `wasm-only` device this build is unassignable
+ * (its block-quantized embeddings emit GatherBlockQuantized, unimplemented on
+ * the CPU EP — see compatibility `cpuEpIncompatible`), so qwen3-0.6b is the
+ * effective floor there. The demotion exemption below is keyed to THIS id, so
+ * the wasm-only floor (qwen3-0.6b) is not itself exempt and can be demoted on
+ * transient download failures, over-declining a runnable device until the 7-day
+ * window clears (device-coverage audit, finding COV-3 — backlog, device-keyed
+ * fix deferred).
  */
 export const STARTER_FLOOR_MODEL_ID = 'candidate/lfm2.5-350m-onnx';
 
@@ -294,6 +303,23 @@ export function recommend(
     throw new NoAssignableModelError(slot, profile);
   }
   return candidates[0]!.model;
+}
+
+/**
+ * Hardware-level "can this device be served at all" gate: true iff SOME catalog
+ * model is assignable to the device (compatibility only — ignores admission /
+ * ledger, matching `isBelowFloor`'s purity). This is the COMPLETE complement of
+ * the below-floor decision. `isBelowFloor` trips only on the no-capability +
+ * low-memory subset, so it returns false for two bands where nothing is
+ * nonetheless assignable — no-capability + adequate/unknown memory, and
+ * sub-floor memory on a WebGPU/WASM device — exactly where `recommend()` throws
+ * `NoAssignableModelError`. Surfaces deciding whether to offer models should
+ * gate on `!canServe(profile)` rather than `isBelowFloor(profile)` alone, so
+ * that "no assignable model" band is handled uniformly instead of slipping
+ * through a partial gate (device-coverage audit, finding COV-1).
+ */
+export function canServe(profile: DeviceProfile): boolean {
+  return getCatalog().some((model) => isAssignable(model, profile));
 }
 
 export function listCandidates(
