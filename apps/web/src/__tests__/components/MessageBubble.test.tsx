@@ -55,10 +55,6 @@ vi.mock("../../components/chat/ToolCallBlock", () => ({
   ToolCallBlock: () => null,
 }));
 
-vi.mock("../../components/chat/AutoModelTag", () => ({
-  AutoModelTag: () => null,
-}));
-
 vi.mock("../../components/chat/LocalConfidenceCTA", () => ({
   LocalConfidenceCTA: () => null,
 }));
