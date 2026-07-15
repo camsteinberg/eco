@@ -179,9 +179,15 @@ export function clearAllSlots(): void {
 
 // ─── Slot display info ────────────────────────────────────────────────────
 
+// The two slots are ROLES of one evolving Eco, not separate products. The
+// labels describe what each role does for the person — the instant-on model
+// that answers the moment they arrive, and the strongest model their device
+// can run — so nothing here reads as a second assistant. Branded model names
+// (e.g. "Eco (Qwen)") stay as secondary transparency in `display.ts`, surfaced
+// as the "Currently running" name and behind hover, not as slot identities.
 const SLOT_DISPLAY: Record<Slot, { displayName: string; description: string }> = {
-  'eco-fast': { displayName: 'Eco Fast', description: 'Quick private replies' },
-  'eco-smart': { displayName: 'Eco Smart', description: 'Deeper local answers' },
+  'eco-fast': { displayName: 'Instant start', description: 'Answers the moment you arrive' },
+  'eco-smart': { displayName: 'Main model', description: 'The strongest Eco for this device' },
 };
 
 export type SlotDisplayInfo = SlotState & {
