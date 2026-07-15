@@ -8,8 +8,7 @@ import type { SlotStatus } from "../local-ai/lifecycle/slots";
 import type { SlotState } from "../local-ai/lifecycle/slots";
 
 export type LocalReadinessSlotLabel =
-  | "Eco Fast"
-  | "Eco Smart"
+  | "Eco"
   | "this local model";
 
 export type LocalReadinessStatus =
@@ -21,12 +20,12 @@ export function getLocalReadinessSlotLabel(
   selection: string,
   modelId: string,
 ): LocalReadinessSlotLabel {
-  if (selection === "eco-fast") return "Eco Fast";
-  if (selection === "eco-smart") return "Eco Smart";
+  // One identity: both on-device slots present to the user as "Eco". The
+  // internal eco-fast / eco-smart split is never surfaced in copy.
+  if (selection === "eco-fast" || selection === "eco-smart") return "Eco";
 
   const slot = getSlotForModel(modelId);
-  if (slot === "eco-fast") return "Eco Fast";
-  if (slot === "eco-smart") return "Eco Smart";
+  if (slot === "eco-fast" || slot === "eco-smart") return "Eco";
 
   return "this local model";
 }
@@ -103,8 +102,8 @@ export function buildLocalReadinessFailureV2({
   readinessStatus: LocalReadinessStatus;
   slotId: "eco-fast" | "eco-smart";
 } {
-  const slotLabel: LocalReadinessSlotLabel =
-    slot.slot === "eco-fast" ? "Eco Fast" : "Eco Smart";
+  // Unified identity — the internal slot never shows in user copy.
+  const slotLabel: LocalReadinessSlotLabel = "Eco";
 
   const modelName = slot.model?.friendlyName ?? slotLabel;
 

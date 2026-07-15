@@ -55,13 +55,13 @@ describe('buildLocalReadinessFailureV2', () => {
     expect(result.message).toMatch(/one-time setup/i);
   });
 
-  it('uses the friendly slot label "Eco Fast" / "Eco Smart"', () => {
+  it('presents both on-device slots as the unified "Eco" identity', () => {
     expect(
       buildLocalReadinessFailureV2({ slot: slot({ slot: 'eco-fast', status: 'empty' }) }).slotLabel,
-    ).toBe('Eco Fast');
+    ).toBe('Eco');
     expect(
       buildLocalReadinessFailureV2({ slot: slot({ slot: 'eco-smart', status: 'empty' }) }).slotLabel,
-    ).toBe('Eco Smart');
+    ).toBe('Eco');
   });
 
   it('renders modelName from friendlyName, never a technical id', () => {
@@ -77,7 +77,7 @@ describe('buildLocalReadinessFailureV2', () => {
     const result = buildLocalReadinessFailureV2({
       slot: slot({ slot: 'eco-fast', model: null, modelId: null, status: 'empty' }),
     });
-    expect(result.modelName).toBe('Eco Fast');
+    expect(result.modelName).toBe('Eco');
   });
 
   it('always carries the slot id (V1 builder made it optional; V2 always knows)', () => {

@@ -395,7 +395,7 @@ describe('chat helper seams', () => {
     expect(research.v1Slot.slot).toBe('eco-fast');
   });
 
-  it('builds local readiness recovery copy and metadata for Eco Fast', () => {
+  it('builds local readiness recovery copy and metadata, unified as Eco', () => {
     const failure = buildLocalReadinessFailure({
       selectedModelChoice: 'eco-fast',
       model: 'local/qwen3-0.6b',
@@ -403,10 +403,10 @@ describe('chat helper seams', () => {
     });
 
     expect(failure).toMatchObject({
-      message: expect.stringContaining('Eco Fast is only partly downloaded'),
+      message: expect.stringContaining('Eco is only partly downloaded'),
       modelName: 'Qwen3',
       slotId: 'eco-fast',
-      slotLabel: 'Eco Fast',
+      slotLabel: 'Eco',
       readinessStatus: 'partial',
     });
   });

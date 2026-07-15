@@ -64,7 +64,7 @@ describe('Stage 5a wiring — readiness branch', () => {
     };
     const failure = buildLocalReadinessFailureV2({ slot: emptySlot });
     expect(failure.slotId).toBe('eco-fast');
-    expect(failure.slotLabel).toBe('Eco Fast');
+    expect(failure.slotLabel).toBe('Eco');
     expect(failure.readinessStatus).toBe('not-downloaded');
     expect(failure.message).toMatch(/Settings → Models/);
   });
