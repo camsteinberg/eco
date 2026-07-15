@@ -150,7 +150,7 @@ export function createLocalAiLegacyInference(): LocalAiLegacyInference {
       return errorStream(
         new LocalInferenceStreamError(
           'NOT_IN_CATALOG',
-          `${modelId} isn't available on this device in v1.0. Choose Eco Fast or Eco Smart in Settings → Models.`,
+          'That model isn\'t available on this device. Choose an available model in Settings → Models.',
           true,
         ),
       );

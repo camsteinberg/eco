@@ -48,13 +48,16 @@ describe('ModelUpgradeCard', () => {
     expect(screen.queryByTestId('model-upgrade-card')).toBeNull();
   });
 
-  it('offer: names the model, states the honest size, and wires consent', () => {
+  it('offer: presents one Eco, states the honest size, and wires consent', () => {
     const upgrade = upgradeStub({ kind: 'offer', target: TARGET });
     render(<ModelUpgradeCard upgrade={upgrade} isStreaming={false} />);
 
-    expect(screen.getByText('A stronger AI for this device')).toBeTruthy();
+    const heading = screen.getByText('A stronger AI for this device');
+    expect(heading).toBeTruthy();
     expect(screen.getByText(/1\.4 GB/)).toBeTruthy();
-    expect(screen.getByText(/Qwen 3\.5/)).toBeTruthy();
+    // The branded name is hover/screen-reader transparency, never body chrome.
+    expect(screen.queryByText(/Qwen 3\.5/)).toBeNull();
+    expect(heading.getAttribute('title')).toBe('Qwen 3.5');
 
     fireEvent.click(screen.getByRole('button', { name: /download in background/i }));
     expect(upgrade.accept).toHaveBeenCalledTimes(1);

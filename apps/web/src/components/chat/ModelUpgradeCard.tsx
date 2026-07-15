@@ -78,7 +78,8 @@ export function ModelUpgradeCard({ upgrade, isStreaming }: ModelUpgradeCardProps
         <CardBody
           glyph={<SproutIllustration size={46} className="text-[var(--eco-primary)]" />}
           title="A stronger AI for this device"
-          body={`${ui.target.friendlyName} runs well on your hardware. Eco can bring it in quietly while you chat — about ${downloadSizeCopy(ui.target)}, stored on your device.`}
+          titleHint={ui.target.friendlyName}
+          body={`Eco can bring it in quietly while you chat — about ${downloadSizeCopy(ui.target)}, stored on your device.`}
         >
           <div className="mt-3 flex items-center gap-2">
             <Button size="sm" onClick={upgrade.accept}>
@@ -212,11 +213,14 @@ function FloatingCardShell({
 function CardBody({
   glyph,
   title,
+  titleHint,
   body,
   children,
 }: {
   glyph: React.ReactNode;
   title: string;
+  /** Branded model name surfaced on hover/SR only — transparency, never chrome. */
+  titleHint?: string;
   body: string;
   children?: React.ReactNode;
 }) {
@@ -226,7 +230,11 @@ function CardBody({
         {glyph}
       </span>
       <div className="min-w-0">
-        <h3 className="text-sm font-semibold" style={{ color: "var(--eco-text)" }}>
+        <h3
+          className="text-sm font-semibold"
+          style={{ color: "var(--eco-text)" }}
+          title={titleHint}
+        >
           {title}
         </h3>
         <p className="mt-1 text-xs leading-relaxed" style={{ color: "var(--eco-text-secondary)" }}>
