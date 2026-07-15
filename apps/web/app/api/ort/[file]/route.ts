@@ -9,9 +9,17 @@ import { Readable } from "node:stream";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+// Kept in sync with RUNTIME_ASSET_COPIES (scripts/copy-runtime-assets.mjs) and
+// the `/ort/` variants selectable via ?eco-force-ort-artifact. This route is a
+// legacy/offline-SW fallback (prod serves the static public/ort/ copies), but
+// both must list the same files so a forced variant is never 404 on either path.
 const ALLOWED_ORT_FILES = new Set([
   "ort-wasm-simd-threaded.asyncify.mjs",
   "ort-wasm-simd-threaded.asyncify.wasm",
+  "ort-wasm-simd-threaded.mjs",
+  "ort-wasm-simd-threaded.wasm",
+  "ort-wasm-simd-threaded.jspi.mjs",
+  "ort-wasm-simd-threaded.jspi.wasm",
 ]);
 
 type RouteContext = {

@@ -52,6 +52,10 @@ const EXPECTED_RUNTIME_ASSETS: Asset[] = [
   { path: '/litert-wasm/litertlm_wasm_internal.wasm', kind: 'wasm' },
   { path: '/ort/ort-wasm-simd-threaded.asyncify.mjs', kind: 'js' },
   { path: '/ort/ort-wasm-simd-threaded.asyncify.wasm', kind: 'wasm' },
+  { path: '/ort/ort-wasm-simd-threaded.jspi.mjs', kind: 'js' },
+  { path: '/ort/ort-wasm-simd-threaded.jspi.wasm', kind: 'wasm' },
+  { path: '/ort/ort-wasm-simd-threaded.mjs', kind: 'js' },
+  { path: '/ort/ort-wasm-simd-threaded.wasm', kind: 'wasm' },
 ];
 
 /** Expected assets from copy-runtime-assets.mjs RUNTIME_ASSET_COPIES. */

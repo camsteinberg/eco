@@ -66,9 +66,19 @@ export const RUNTIME_ASSET_COPIES = [
     package: 'onnxruntime-web',
     fromSubdir: 'dist',
     publicDir: 'ort',
+    // `asyncify` is the default artifact (also the WebGPU/JSEP carrier on TJS's
+    // `onnxruntime-web/webgpu` path). `standard` and `jspi` are served so the
+    // per-device serving matrix can force a leaner WASM-EP artifact via
+    // `?eco-force-ort-artifact` (runtime/ort-artifact.ts) — the asyncify build's
+    // instrumentation ~doubles the WASM binary, a working-set hypothesis for the
+    // WebKit tab-kills. Selection is opt-in; nothing loads these by default.
     files: [
       'ort-wasm-simd-threaded.asyncify.mjs',
       'ort-wasm-simd-threaded.asyncify.wasm',
+      'ort-wasm-simd-threaded.mjs',
+      'ort-wasm-simd-threaded.wasm',
+      'ort-wasm-simd-threaded.jspi.mjs',
+      'ort-wasm-simd-threaded.jspi.wasm',
     ],
   },
 ];
