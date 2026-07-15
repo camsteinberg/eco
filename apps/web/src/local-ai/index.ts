@@ -28,6 +28,7 @@ import {
 } from './device/profile';
 import {
   isBelowFloor as isBelowFloorImpl,
+  failsMemoryFloor as failsMemoryFloorImpl,
   getBelowFloorReason as getBelowFloorReasonImpl,
 } from './device/below-floor';
 import {
@@ -87,6 +88,16 @@ export function describeDevice(profile: DeviceProfile): string | undefined {
 
 export function isBelowFloor(profile?: DeviceProfile): boolean {
   return isBelowFloorImpl(profile);
+}
+
+/**
+ * Whether the device is short on memory for a model to run well — the memory
+ * half of the floor, independent of runtime support. Used to tell a
+ * capable-browser-but-low-memory device the truth instead of blaming the
+ * browser.
+ */
+export function failsMemoryFloor(profile?: DeviceProfile): boolean {
+  return failsMemoryFloorImpl(profile);
 }
 
 export function getBelowFloorReason(): BelowFloorReason {
