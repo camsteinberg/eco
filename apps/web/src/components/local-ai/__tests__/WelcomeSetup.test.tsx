@@ -106,4 +106,31 @@ describe('WelcomeSetup', () => {
     render(<WelcomeSetup phase="downloading" percent={20} etaSeconds={90} reassuranceIndex={0} />);
     expect(screen.getByRole('main')).toHaveAttribute('data-eco-setup-surface');
   });
+
+  // The composer is present from first paint (germinating), so a painted setup
+  // page never reads as a broken page with no place to type.
+  it('renders a disabled germinating composer while setting up (not ready)', () => {
+    render(<WelcomeSetup phase="downloading" percent={20} etaSeconds={90} reassuranceIndex={0} />);
+    const composer = screen.getByPlaceholderText(/Eco is getting ready on this device/i);
+    expect(composer).toBeInTheDocument();
+    expect(composer).toBeDisabled();
+    // Quiet, non-narrating: no live send button yet, and no progress text inside
+    // the composer (download detail lives on the surface above).
+    expect(screen.queryByRole('button', { name: /send message/i })).toBeNull();
+  });
+
+  it('keeps the germinating composer disabled in the smoke (cold-load) phase', () => {
+    render(<WelcomeSetup phase="smoke" percent={95} etaSeconds={5} reassuranceIndex={0} />);
+    expect(screen.getByPlaceholderText(/Eco is getting ready on this device/i)).toBeDisabled();
+  });
+
+  // When the model is ready, the composer springs to its live form: the seedling
+  // in the send slot becomes the real send button and the placeholder swaps.
+  it('brings the composer to life when the model is ready (phase done)', () => {
+    render(<WelcomeSetup phase="done" percent={100} etaSeconds={0} reassuranceIndex={0} />);
+    expect(screen.getByPlaceholderText(/Ask Eco anything/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/send message/i)).toBeInTheDocument();
+    // The germinating placeholder is gone once ready.
+    expect(screen.queryByPlaceholderText(/getting ready on this device/i)).toBeNull();
+  });
 });
