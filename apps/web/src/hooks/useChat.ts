@@ -525,7 +525,7 @@ export function useChat() {
 
       if (err.code === "OOM") {
         const message =
-          "This device needs a lighter local load. Eco paused this model for a few minutes to protect this browser. Try Eco Fast or shorten the prompt, then try again.";
+          "This device needs a lighter local load. Eco paused this model for a few minutes to protect this browser. Try a faster model or shorten the prompt, then try again.";
         updateMessage(assistantId, {
           status: "error",
           errorMessage: message,
