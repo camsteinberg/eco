@@ -15,6 +15,9 @@ import { useDeviceProfile } from "../../hooks/local-ai/useDeviceProfile";
 import { getSlotForModel } from "../../local-ai/lifecycle/slots";
 import { isLocalAiSlot } from "../../local-ai/util";
 import type { ModelConfig } from "../../local-ai/types";
+import { motion, useReducedMotion } from "motion/react";
+import { SaplingIllustration, SeedlingIllustration } from "@eco/ui";
+import { useModelUpgradeUi } from "../../hooks/local-ai/useModelUpgrade";
 
 type DropdownPosition = {
   left: number;
@@ -60,6 +63,14 @@ export function ModelSelector({ variant = "header" }: ModelSelectorProps) {
   // the runnable list below converge to the truth without an unrelated
   // re-render — instead of being frozen at the optimistic pre-probe guess.
   const profile = useDeviceProfile();
+
+  // Read-only reflection of the shared upgrade lifecycle — the composer glyph
+  // grows (settled sapling → seedling) while a better model downloads. This
+  // NEVER drives the upgrade machine (that single driver lives in
+  // useChatPageEffects); it only subscribes to the shared state.
+  const upgradeUi = useModelUpgradeUi();
+  const isUpgrading = upgradeUi.kind === "downloading";
+  const reducedMotion = useReducedMotion();
 
   // The recommendation depends on the device profile.
   const recommendedId = useMemo(() => {
@@ -188,9 +199,13 @@ export function ModelSelector({ variant = "header" }: ModelSelectorProps) {
   }, [hasMounted, resolvedSelectedId, profile]);
 
   const currentModel = models.find((m) => m.id === resolvedSelectedId) ?? null;
-  const displayName = hasMounted && currentModel
+  // One identity in the composer: the model is always "Eco". Its branded name
+  // (e.g. "Eco Reasoning") is a hover/screen-reader transparency detail — we
+  // never hide what's running, but we don't make the user carry it as chrome.
+  const brandedName = hasMounted && currentModel
     ? getDisplayInfo(currentModel.id, currentModel).friendlyName
-    : "Choose AI";
+    : null;
+  const displayName = hasMounted && currentModel ? "Eco" : "Choose AI";
 
   const handleSelect = useCallback(
     (model: ModelConfig) => {
@@ -242,16 +257,21 @@ export function ModelSelector({ variant = "header" }: ModelSelectorProps) {
           >
             <div className="flex-1 min-w-0 [overflow-wrap:anywhere]">
               <div className="flex items-center gap-2">
-                <span className="truncate text-sm font-medium">{display.friendlyName}</span>
+                {/* Lead with what the model does for the user; the branded name
+                    is demoted to a quiet secondary line (see below). Falls back
+                    to the branded name when a model has no quality phrase. */}
+                <span className="truncate text-sm font-medium">
+                  {display.qualityPhrase || display.friendlyName}
+                </span>
                 {isRecommended && (
-                  <span className="inline-flex items-center rounded-full bg-[var(--eco-primary-soft)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--eco-primary)]">
+                  <span className="inline-flex shrink-0 items-center whitespace-nowrap rounded-full bg-[var(--eco-primary-soft)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--eco-primary)]">
                     Recommended
                   </span>
                 )}
               </div>
               {display.qualityPhrase && (
-                <div className="truncate text-xs text-[var(--eco-text-secondary)]">
-                  {display.qualityPhrase}
+                <div className="truncate text-xs text-[var(--eco-text-muted)]">
+                  {display.friendlyName}
                 </div>
               )}
             </div>
@@ -293,12 +313,23 @@ export function ModelSelector({ variant = "header" }: ModelSelectorProps) {
         data-tour-target="model-selector"
         aria-expanded={open}
         aria-haspopup="listbox"
-        aria-label={`Select model, ${displayName}`}
+        title={brandedName ?? undefined}
+        aria-label={brandedName ? `Select model — Eco, running ${brandedName}` : `Select model, ${displayName}`}
       >
-        <span
-          className="h-2 w-2 shrink-0 rounded-full bg-[var(--eco-primary)] shadow-[0_0_0_3px_color-mix(in_srgb,currentColor,transparent_86%)]"
+        <motion.span
+          key={isUpgrading ? "growing" : "settled"}
+          className="inline-flex shrink-0 text-[var(--eco-primary)]"
           aria-hidden="true"
-        />
+          initial={reducedMotion ? false : { scale: 0.72, opacity: 0.5 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={reducedMotion ? { duration: 0 } : { type: "spring", stiffness: 320, damping: 26 }}
+        >
+          {isUpgrading ? (
+            <SeedlingIllustration size={15} />
+          ) : (
+            <SaplingIllustration size={15} />
+          )}
+        </motion.span>
         <span
           className={`min-w-0 truncate ${isComposer ? "hidden sm:inline" : ""}`}
         >

@@ -350,6 +350,17 @@ function userDismiss(): void {
 
 // ─── The hook ───────────────────────────────────────────────────────────────
 
+/**
+ * Read-only subscription to the shared upgrade UI state. Unlike
+ * `useModelUpgrade`, this NEVER drives the upgrade machine (no boot flow, no
+ * downloads) — it only reads the module store. Surfaces that merely REFLECT
+ * upgrade progress (e.g. the composer's evolving glyph) use this so they never
+ * mount a second driver; the single driver stays `useChatPageEffects`.
+ */
+export function useModelUpgradeUi(): ModelUpgradeUi {
+  return useSyncExternalStore(subscribeUi, getUiSnapshot, getServerSnapshot);
+}
+
 export function useModelUpgrade(options: UseModelUpgradeOptions): UseModelUpgradeReturn {
   const ui = useSyncExternalStore(subscribeUi, getUiSnapshot, getServerSnapshot);
 
