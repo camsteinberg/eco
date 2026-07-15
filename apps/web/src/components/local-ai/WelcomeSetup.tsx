@@ -5,6 +5,7 @@
 
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { BotanicalAnimation } from './BotanicalAnimation';
+import { GerminatingComposer } from '../chat/GerminatingComposer';
 
 /**
  * Welcome + setup wait — the v1.0 first-touch surface.
@@ -207,6 +208,14 @@ export function WelcomeSetup({
             </motion.span>
           </AnimatePresence>
         </div>
+      </div>
+
+      {/* The composer, present from first paint. It sits in the live composer's
+          box geometry (same width, same shell) so the input reads as "here,
+          warming up" rather than missing — and springs to life when the model
+          is ready. Download detail stays above; the composer never narrates it. */}
+      <div className="mt-8 w-full max-w-2xl px-4">
+        <GerminatingComposer ready={phase === 'done'} />
       </div>
     </main>
   );
