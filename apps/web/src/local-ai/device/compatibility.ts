@@ -61,10 +61,16 @@ const RULES: Readonly<Record<string, CompatibilityRule>> = Object.freeze({
     allowedBrowsers: ['chromium'] as const,
     warnIfMobile: true,
   },
+  // 'unknown' is included: a user-agent we cannot classify gets the same
+  // unvalidated-browser tier as safari/firefox rather than a categorical
+  // rejection. The capability probes (WebGPU/WASM, memory floor, CPU-EP) plus
+  // the first-use smoke gate are the real gate — the UA class was the only thing
+  // wholesale-declining these users. Premium models stay engine-validated
+  // (chromium-only), so this only opens the conservative floor tier.
   'local/qwen3-0.6b': {
     requireWebgpu: false,
     minDeviceMemoryGB: 4,
-    allowedBrowsers: ['chromium', 'safari', 'firefox', 'mobile'] as const,
+    allowedBrowsers: ['chromium', 'safari', 'firefox', 'mobile', 'unknown'] as const,
     warnIfMobile: false,
   },
   // LFM2.5-350M (onnx-q4). Runs on the WebGPU EP (incl. f16-less adapters — it's
@@ -74,10 +80,14 @@ const RULES: Readonly<Record<string, CompatibilityRule>> = Object.freeze({
   // keeps it out of the WASM setup cascade (Finding E), leaving qwen3-0.6b as the
   // sole WASM floor. requireWebgpu stays false so it remains offerable on the
   // f16-less-but-WebGPU tier where it genuinely loads.
+  // 'unknown' included for the same policy as qwen3-0.6b: an unclassifiable UA
+  // gets the floor tier, not a wholesale decline. Capability probes + the smoke
+  // gate remain the real protection (and cpuEpIncompatible still keeps this out
+  // of the wasm-only cascade, unknown UA or not).
   'candidate/lfm2.5-350m-onnx': {
     requireWebgpu: false,
     minDeviceMemoryGB: 3,
-    allowedBrowsers: ['chromium', 'safari', 'firefox', 'mobile'] as const,
+    allowedBrowsers: ['chromium', 'safari', 'firefox', 'mobile', 'unknown'] as const,
     warnIfMobile: false,
     cpuEpIncompatible: true,
   },

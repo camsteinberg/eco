@@ -90,6 +90,29 @@ const PROFILES = {
     isMobile: true,
     override: 'auto',
   },
+  // Unclassifiable user-agent on otherwise-capable hardware. Post-change these
+  // get the floor tier (safari/firefox parity), gated only by real capability.
+  unknownWebgpu: {
+    browserClass: 'unknown',
+    webgpuSupport: 'webgpu',
+    deviceMemoryGB: 8,
+    isMobile: false,
+    override: 'auto',
+  },
+  unknownWasmOnly: {
+    browserClass: 'unknown',
+    webgpuSupport: 'wasm-only',
+    deviceMemoryGB: 8,
+    isMobile: false,
+    override: 'auto',
+  },
+  unknownNoCapability: {
+    browserClass: 'unknown',
+    webgpuSupport: 'none',
+    deviceMemoryGB: 8,
+    isMobile: false,
+    override: 'auto',
+  },
   belowFloor: {
     browserClass: 'unknown',
     webgpuSupport: 'none',
@@ -265,6 +288,41 @@ describe('device/compatibility — WebGPU adapter without shader-f16', () => {
     // The gate is WebGPU-EP-specific: a wasm-only device runs f16 models on the
     // CPU WASM backend, which supports f16. qwen3-0.6b stays supported there.
     expect(isCompatible(model('local/qwen3-0.6b'), PROFILES.chromiumWasmOnly)).toBe('supported');
+  });
+});
+
+describe('device/compatibility — unclassifiable browser (unknown UA)', () => {
+  // An unknown UA no longer categorically rejects: it gets the floor tier
+  // (qwen3-0.6b, and lfm2.5-350m on WebGPU), the same as safari/firefox. Its
+  // real capability probes + the first-use smoke gate remain the gate.
+  const qwen = () => model('local/qwen3-0.6b');
+  const lfm = () => model('candidate/lfm2.5-350m-onnx');
+
+  it('serves the WASM floor (qwen3-0.6b) on a capable WebGPU device', () => {
+    expect(isCompatible(qwen(), PROFILES.unknownWebgpu)).toBe('supported');
+    expect(isAssignable(qwen(), PROFILES.unknownWebgpu)).toBe(true);
+  });
+
+  it('serves qwen3-0.6b on a wasm-only device (the sole WASM floor)', () => {
+    expect(isCompatible(qwen(), PROFILES.unknownWasmOnly)).toBe('supported');
+    expect(isAssignable(qwen(), PROFILES.unknownWasmOnly)).toBe(true);
+  });
+
+  it('offers lfm2.5-350m on WebGPU but not wasm-only (CPU-EP incompatible)', () => {
+    expect(isAssignable(lfm(), PROFILES.unknownWebgpu)).toBe(true);
+    expect(isAssignable(lfm(), PROFILES.unknownWasmOnly)).toBe(false);
+  });
+
+  it('assigns NOTHING when the device has no WebGPU and no viable WASM', () => {
+    for (const m of getCatalog()) {
+      expect(isAssignable(m, PROFILES.unknownNoCapability), `${m.id} must stay unassignable`).toBe(false);
+    }
+  });
+
+  it('does NOT open premium models to unknown UAs (they stay chromium-only)', () => {
+    for (const id of ['candidate/qwen3.5-2b-onnx', 'candidate/lfm2.5-1.2b-instruct-onnx', 'local/phi3-mini-4k-q4f16', 'candidate/gemma-4-e2b-litert']) {
+      expect(isAssignable(model(id), PROFILES.unknownWebgpu), `${id} must stay chromium-only`).toBe(false);
+    }
   });
 });
 
