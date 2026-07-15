@@ -70,8 +70,14 @@ export function BelowFloorScreen({ deviceLabel, reason = 'runtime', onSignup }: 
 
   return (
     <main
-      className="min-h-screen w-full flex flex-col items-center justify-center px-6 py-12"
+      className="min-h-screen w-full flex flex-col items-center justify-center px-6 pt-12"
       style={{
+        // The dismissable cookie notice is a fixed bottom element; on /chat it
+        // anchors bottom-right and used to sit over the "What works today"
+        // disclosure. Reserve its band (plus the safe-area inset) below the
+        // centered content so the two never collide.
+        paddingBottom:
+          'calc(var(--eco-space-3xl) + var(--eco-space-2xl) + env(safe-area-inset-bottom))',
         background: 'var(--eco-surface)',
         color: 'var(--eco-text)',
         fontFamily: 'var(--eco-font-body)',
