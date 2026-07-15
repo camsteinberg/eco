@@ -82,6 +82,11 @@ export default tseslint.config(
       // has built locally gets a red lint gate on vendored Emscripten JS.
       "public/litert-wasm/**",
       "public/ort/**",
+      // Local Playwright artifacts (gitignored, never in CI) — their minified
+      // trace bundles otherwise turn any dev machine's lint gate red after a
+      // local E2E run.
+      "playwright-report/**",
+      "test-results/**",
       "*.config.*",
       "next-env.d.ts",
     ],
