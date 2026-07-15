@@ -81,8 +81,8 @@ vi.mock('../../local-ai/lifecycle/slots', () => ({
     status: 'empty' as const,
   }),
   getSlotDisplayInfos: () => [
-    { slot: 'eco-fast', modelId: null, model: null, status: 'empty' as const, displayName: 'Eco Fast', description: 'Quick private replies' },
-    { slot: 'eco-smart', modelId: null, model: null, status: 'empty' as const, displayName: 'Eco Smart', description: 'Deeper local answers' },
+    { slot: 'eco-fast', modelId: null, model: null, status: 'empty' as const, displayName: 'Instant start', description: 'Answers the moment you arrive' },
+    { slot: 'eco-smart', modelId: null, model: null, status: 'empty' as const, displayName: 'Main model', description: 'The strongest Eco for this device' },
   ],
 }));
 
@@ -152,7 +152,7 @@ describe('recommendModel', () => {
 });
 
 describe('recommendModelSlots', () => {
-  it('returns held Eco Fast and Eco Smart slots until default eligibility clears', () => {
+  it('returns both held Eco role slots until default eligibility clears', () => {
     const slots = recommendModelSlots('webgpu', 16);
     expect(slots.map((slot) => slot.slot)).toEqual(['eco-fast', 'eco-smart']);
     expect(slots[0]!.model).toBeNull();
