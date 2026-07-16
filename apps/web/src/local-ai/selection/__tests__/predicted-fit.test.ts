@@ -135,8 +135,12 @@ describe('recommend() — universal coverage for non-below-floor profiles', () =
     expect(recommend('eco-smart', PROFILE_FIREFOX_16GB)).not.toBeNull();
   });
 
-  it('returns a model for mobile Safari WASM 4 GB eco-fast', () => {
-    expect(recommend('eco-fast', PROFILE_MOBILE)).not.toBeNull();
+  it('throws NoAssignableModelError for mobile Safari (iOS WebKit gated before load)', () => {
+    // D1 designed tier: iOS WebKit has WebGPU but the model LOAD crash-loops the
+    // tab, so every model is unsupported there → recommend finds nothing and
+    // throws, routing the user to the designed handoff surface instead of a
+    // doomed load. (Was previously served the WASM floor.)
+    expect(() => recommend('eco-fast', PROFILE_MOBILE)).toThrow(NoAssignableModelError);
   });
 
   it('throws NoAssignableModelError for a below-floor profile', () => {

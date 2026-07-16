@@ -123,3 +123,48 @@ describe('below-floor gate completeness (B1/B2 regression pin)', () => {
     expect(out).toEqual({ kind: 'declined', surface: 'below-floor' });
   });
 });
+
+describe('WebKit-mobile designed tier (D1 regression pins)', () => {
+  beforeAll(() => {
+    vi.spyOn(logger, 'debug').mockImplementation(() => {});
+  });
+  afterAll(() => {
+    vi.restoreAllMocks();
+  });
+
+  const cell = (over: Partial<MatrixCell['profile']>): MatrixCell => ({
+    profile: {
+      browserClass: 'chromium',
+      webgpuSupport: 'webgpu',
+      deviceMemoryGB: 8,
+      isMobile: false,
+      webgpuShaderF16: true,
+      override: 'auto',
+      ...over,
+    },
+    ledger: 'fresh',
+    download: 'success',
+    smoke: 'pass',
+  });
+
+  // iOS WebKit has WebGPU but the model LOAD crash-loops the tab, so it must be
+  // gated before load → below-floor. If the gate regresses, this flips to served
+  // (a crash loop shipped) and fails here.
+  it('safari + isMobile + webgpu + 8GB declines via below-floor (gate-before-load)', async () => {
+    const out = await classifyCell(cell({ browserClass: 'safari', isMobile: true }));
+    expect(out).toEqual({ kind: 'declined', surface: 'below-floor' });
+  });
+
+  // Android guard: Android Chrome is NOT implicated and must keep serving. This
+  // pin protects it from an over-broad mobile gate.
+  it('chromium + isMobile + webgpu + 8GB stays SERVED (Android is unaffected)', async () => {
+    const out = await classifyCell(cell({ browserClass: 'chromium', isMobile: true }));
+    expect(out.kind).toBe('served');
+  });
+
+  // The UA-stripped 'mobile' class is untouched by the WebKit-mobile gate.
+  it("'mobile'-class + webgpu + 8GB behavior is unchanged (still served)", async () => {
+    const out = await classifyCell(cell({ browserClass: 'mobile', isMobile: true }));
+    expect(out.kind).toBe('served');
+  });
+});
