@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Bos Computing LLC
 
-import { describe, expect, it, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { BelowFloorScreen } from '../BelowFloorScreen';
 
 const noopSignup = (): Promise<void> => Promise.resolve();
@@ -98,5 +98,68 @@ describe('BelowFloorScreen — honest device-capability messaging', () => {
     expect(
       screen.getByText(/this browser \(Safari on iPhone\) can't do that yet/i),
     ).toBeInTheDocument();
+  });
+});
+
+describe('BelowFloorScreen — mobile designed tier (handoff surface)', () => {
+  const ORIGINAL_SHARE = Object.getOwnPropertyDescriptor(navigator, 'share');
+  const ORIGINAL_CLIPBOARD = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+
+  afterEach(() => {
+    // Restore/remove the navigator overrides so cases don't leak into each other.
+    if (ORIGINAL_SHARE) Object.defineProperty(navigator, 'share', ORIGINAL_SHARE);
+    else delete (navigator as { share?: unknown }).share;
+    if (ORIGINAL_CLIPBOARD) Object.defineProperty(navigator, 'clipboard', ORIGINAL_CLIPBOARD);
+    else delete (navigator as { clipboard?: unknown }).clipboard;
+  });
+
+  const setShare = (fn: unknown): void => {
+    Object.defineProperty(navigator, 'share', { value: fn, configurable: true });
+  };
+  const setClipboard = (writeText: unknown): void => {
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+  };
+
+  it('tells the phone→computer story with the mobile-specific email promise', () => {
+    delete (navigator as { share?: unknown }).share;
+    render(<BelowFloorScreen reason="mobile" onSignup={noopSignup} />);
+
+    expect(screen.getByText(/Phones don't have the memory for that yet/i)).toBeInTheDocument();
+    expect(screen.getByText(/Your computer does: open Eco there and it just works/i)).toBeInTheDocument();
+    expect(screen.getByText(/We'll email you when Eco comes to phones\./i)).toBeInTheDocument();
+  });
+
+  it('invokes the native share sheet when Web Share is available', () => {
+    const share = vi.fn().mockResolvedValue(undefined);
+    setShare(share);
+    render(<BelowFloorScreen reason="mobile" onSignup={noopSignup} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /send eco to your computer/i }));
+    expect(share).toHaveBeenCalledWith({ title: 'Eco', url: 'https://econetwork.ai' });
+  });
+
+  it('swallows a cancelled share (AbortError) without surfacing an error', async () => {
+    const share = vi.fn().mockRejectedValue(
+      Object.assign(new Error('cancelled'), { name: 'AbortError' }),
+    );
+    setShare(share);
+    render(<BelowFloorScreen reason="mobile" onSignup={noopSignup} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /send eco to your computer/i }));
+    await waitFor(() => expect(share).toHaveBeenCalled());
+    // The button is still there; nothing broke and no error copy appeared.
+    expect(screen.getByRole('button', { name: /send eco to your computer/i })).toBeInTheDocument();
+  });
+
+  it('falls back to Copy link when Web Share is absent, confirming "Link copied"', async () => {
+    delete (navigator as { share?: unknown }).share;
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    setClipboard(writeText);
+    render(<BelowFloorScreen reason="mobile" onSignup={noopSignup} />);
+
+    const button = screen.getByRole('button', { name: /copy link/i });
+    fireEvent.click(button);
+    expect(writeText).toHaveBeenCalledWith('https://econetwork.ai');
+    expect(await screen.findByText(/link copied/i)).toBeInTheDocument();
   });
 });
