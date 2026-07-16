@@ -4,7 +4,9 @@
 import { getModel } from "../../../../../src/local-ai/catalog/catalog";
 import {
   getLocalModelRegistryEntry,
+  getValidationLocalModelRegistryEntry,
 } from "../../../../../src/lib/local-model-registry";
+import { isValidationHarnessRequestAllowed } from "../../../../../src/lib/validation-harness-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,7 +43,7 @@ type ManifestResponse = {
 };
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: RouteContext,
 ): Promise<Response> {
   const { modelId: segments } = await params;
@@ -54,15 +56,25 @@ export async function GET(
     );
   }
 
-  const catalogModel = getModel(modelId);
-  if (!catalogModel) {
+  // Two-tier lookup, mirroring the proxy route: catalog models always
+  // resolve; validation-lane eval candidates resolve ONLY for harness
+  // requests (loopback + explicit env — 404 in production). Without this,
+  // eval candidates fall to the client's heuristic-size plan, and the
+  // sustained probe's weights-cached verification (exact reviewed sizes)
+  // can never pass for a fully-downloaded candidate.
+  const isCatalogModel = Boolean(getModel(modelId));
+  const registryEntry = isCatalogModel
+    ? getLocalModelRegistryEntry(modelId)
+    : isValidationHarnessRequestAllowed(request.headers)
+      ? getValidationLocalModelRegistryEntry(modelId)
+      : undefined;
+  if (!isCatalogModel && !registryEntry) {
     return Response.json(
       { error: "model_not_in_catalog" },
       { status: 404 },
     );
   }
 
-  const registryEntry = getLocalModelRegistryEntry(modelId);
   const artifact = registryEntry?.artifact;
   if (!artifact || !artifact.fileMetadata) {
     return Response.json(

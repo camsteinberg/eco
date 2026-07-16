@@ -94,4 +94,40 @@ describe("GET /api/local-models/manifest/[...modelId]", () => {
     expect(response.status).toBe(405);
     expect(response.headers.get("Allow")).toBe("GET");
   });
+
+  // ── Validation-lane eval candidates (two-tier lookup, mirrors the proxy
+  // route). Harness gating keys on the host header: loopback = allowed
+  // (NODE_ENV=test maps to development), production hosts = denied.
+  describe("validation-lane eval candidates", () => {
+    function candidateRequest(host: string): Parameters<typeof GET> {
+      const segments = ["candidate", "qwen3-0.6b-q4"];
+      return [
+        new Request(`http://${host}/api/local-models/manifest/${segments.join("/")}`, {
+          headers: { host },
+        }),
+        { params: Promise.resolve({ modelId: segments }) },
+      ];
+    }
+
+    it("serves reviewed sizes for a harness (loopback) request", async () => {
+      const response = await GET(...candidateRequest("localhost:3000"));
+      expect(response.status).toBe(200);
+
+      const body = await response.json();
+      expect(body.modelId).toBe("candidate/qwen3-0.6b-q4");
+      expect(body.hfId).toBe("onnx-community/Qwen3-0.6B-ONNX");
+      const weights = body.files.find(
+        (file: { path: string }) => file.path === "onnx/model_q4.onnx",
+      );
+      // Exact reviewed size — this is what the sustained probe's
+      // weights-cached verification compares against the Cache API.
+      expect(weights).toMatchObject({ sizeBytes: 919096585 });
+    });
+
+    it("stays invisible (404) for a production-host request", async () => {
+      const response = await GET(...candidateRequest("econetwork.ai"));
+      expect(response.status).toBe(404);
+      await expect(response.json()).resolves.toEqual({ error: "model_not_in_catalog" });
+    });
+  });
 });
