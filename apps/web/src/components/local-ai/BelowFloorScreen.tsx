@@ -4,6 +4,7 @@
 'use client';
 
 import { useState } from 'react';
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { Button } from '@eco/ui';
 import { SeedlingIllustration } from '@eco/ui';
 
@@ -26,8 +27,14 @@ import { SeedlingIllustration } from '@eco/ui';
  *                  a model well.
  *   - `fallback` : capable-but-unclassified — no model was assignable for some
  *                  other reason.
+ *   - `mobile`   : iOS WebKit (phone/tablet). Gated BEFORE any load because the
+ *                  model load itself crash-loops the tab (working-set vs iOS
+ *                  memory ceiling). A designed handoff surface, not a dead end.
  */
-export type BelowFloorReasonKind = 'runtime' | 'memory' | 'fallback';
+export type BelowFloorReasonKind = 'runtime' | 'memory' | 'fallback' | 'mobile';
+
+/** Where we send people to run Eco. Kept in one place for the handoff + copy. */
+const ECO_URL = 'https://econetwork.ai';
 
 export type BelowFloorScreenProps = {
   /** The user-friendly device/browser tag — e.g. "Safari on iPhone". */
@@ -91,7 +98,11 @@ export function BelowFloorScreen({ deviceLabel, reason = 'runtime', onSignup }: 
         <h1 className="font-display text-3xl tracking-tight">Eco</h1>
 
         <p className="text-base leading-relaxed" style={{ color: 'var(--eco-text)' }}>
-          {reason === 'memory' ? (
+          {reason === 'mobile' ? (
+            <>
+              Eco&apos;s AI runs entirely on your device — nothing goes to a server. Phones don&apos;t have the memory for that yet. Your computer does: open Eco there and it just works.
+            </>
+          ) : reason === 'memory' ? (
             <>
               Eco&apos;s AI runs entirely on your device — and this device doesn&apos;t have enough memory for it to run well. On a computer with more memory, Eco just works.
             </>
@@ -111,6 +122,8 @@ export function BelowFloorScreen({ deviceLabel, reason = 'runtime', onSignup }: 
           )}
         </p>
 
+        {reason === 'mobile' && <MobileHandoff />}
+
         {confirmed ? (
           <p className="text-sm" style={{ color: 'var(--eco-success)' }}>
             Thanks — we&apos;ll let you know when Eco arrives on your device.
@@ -118,9 +131,11 @@ export function BelowFloorScreen({ deviceLabel, reason = 'runtime', onSignup }: 
         ) : (
           <form onSubmit={submit} className="flex flex-col gap-3 w-full max-w-xs">
             <p className="text-sm" style={{ color: 'var(--eco-text-secondary)' }}>
-              {reason === 'memory'
-                ? "We'll email you when lighter models arrive."
-                : "We'll email you when Eco arrives."}
+              {reason === 'mobile'
+                ? "We'll email you when Eco comes to phones."
+                : reason === 'memory'
+                  ? "We'll email you when lighter models arrive."
+                  : "We'll email you when Eco arrives."}
             </p>
             <input
               type="email"
@@ -138,7 +153,15 @@ export function BelowFloorScreen({ deviceLabel, reason = 'runtime', onSignup }: 
               }}
               aria-label="Email address"
             />
-            <Button type="submit" variant="primary" disabled={submitting}>
+            {/* On the mobile branch the native handoff is the one primary CTA;
+                the notify action drops to the quiet outline (secondary) variant so
+                two same-weight green buttons don't compete. Other reason branches
+                have no competing CTA, so Sign me up stays primary there. */}
+            <Button
+              type="submit"
+              variant={reason === 'mobile' ? 'secondary' : 'primary'}
+              disabled={submitting}
+            >
               {submitting ? 'Saving...' : 'Sign me up'}
             </Button>
             {error && (
@@ -182,5 +205,87 @@ export function BelowFloorScreen({ deviceLabel, reason = 'runtime', onSignup }: 
         </div>
       </div>
     </main>
+  );
+}
+
+/**
+ * Native handoff — the signature of the mobile surface. The premise: the user
+ * is on a phone, but Eco runs great on their computer, so the fastest path is
+ * to send the link to it. On iOS `navigator.share` opens the system share sheet
+ * (AirDrop / Messages / Mail / Notes) — the native, premiere-feeling mechanism.
+ *
+ * When Web Share is unavailable (desktop browsers, some engines) we fall back to
+ * copy-to-clipboard with a confirmed "Link copied" state. A share the user
+ * cancels rejects with AbortError — that is not an error, so we swallow it.
+ */
+function MobileHandoff() {
+  const reduceMotion = useReducedMotion();
+  // Lazy, client-only: this surface renders only after async setup resolves in
+  // the browser, so there is no SSR pass to mismatch against.
+  const [canShare] = useState(
+    () => typeof navigator !== 'undefined' && typeof navigator.share === 'function',
+  );
+  const [copied, setCopied] = useState(false);
+
+  const share = async (): Promise<void> => {
+    try {
+      await navigator.share({ title: 'Eco', url: ECO_URL });
+    } catch {
+      // User dismissed the share sheet (AbortError) or the engine refused —
+      // either way there is nothing to report. Stay silent.
+    }
+  };
+
+  const copy = async (): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(ECO_URL);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2400);
+    } catch {
+      // Clipboard blocked (permissions / insecure context). Leave the label as
+      // "Copy link" — the visible URL below is still there to type by hand.
+    }
+  };
+
+  return (
+    <div className="flex flex-col items-center gap-2 w-full max-w-xs">
+      {canShare ? (
+        <Button
+          type="button"
+          variant="primary"
+          className="w-full"
+          onClick={() => {
+            void share();
+          }}
+        >
+          Send Eco to your computer
+        </Button>
+      ) : (
+        <Button
+          type="button"
+          variant="primary"
+          className="w-full"
+          onClick={() => {
+            void copy();
+          }}
+          aria-live="polite"
+        >
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.span
+              key={copied ? 'copied' : 'copy'}
+              initial={reduceMotion ? false : { opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={reduceMotion ? { opacity: 1 } : { opacity: 0, y: -4 }}
+              transition={reduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 500, damping: 32 }}
+            >
+              {copied ? 'Link copied' : 'Copy link'}
+            </motion.span>
+          </AnimatePresence>
+        </Button>
+      )}
+      <p className="text-xs" style={{ color: 'var(--eco-text-secondary)' }}>
+        econetwork.ai
+      </p>
+    </div>
   );
 }

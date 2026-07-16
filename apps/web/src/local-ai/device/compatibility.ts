@@ -118,9 +118,50 @@ const RULES: Readonly<Record<string, CompatibilityRule>> = Object.freeze({
   },
 });
 
+/**
+ * WebKit on a mobile form factor — iOS Safari, and in fact EVERY iOS browser
+ * (Chrome/CriOS, Firefox/FxiOS) since they all render through WebKit and
+ * classify `'safari'` + `isMobile` in `device/profile.ts`. So this predicate is
+ * "iOS WebKit" exactly.
+ *
+ * Why it gates before any load: the real-device spike (iPhone 13, iOS Safari)
+ * showed every model LOAD crashes the tab in a restart loop — onnxruntime-web
+ * fully materializes the model weights into the WASM heap (~5× working set),
+ * which blows past iOS's ~2GB per-tab memory ceiling before a single token is
+ * generated. The structural fix (Phase A/B working-set reduction) is pursued
+ * separately; until a phone-validated config exists, iOS must be declined
+ * BEFORE any download/load attempt and welcomed with the designed handoff
+ * surface, never a crash loop.
+ *
+ * Scope: this is WebKit-mobile only. Android Chrome classifies `'chromium'` +
+ * `isMobile` and is unaffected (it keeps serving with-warning); the UA-stripped
+ * `'mobile'` class is likewise untouched.
+ */
+export function isWebKitMobile(profile: DeviceProfile): boolean {
+  return profile.isMobile && profile.browserClass === 'safari';
+}
+
+/**
+ * Model ids proven to LOAD and run within the WebKit-mobile memory envelope.
+ * Empty today: the iPhone-13 spike proved every current catalog build
+ * crash-loops on load there. This is the retest trigger — when the Phase A/B
+ * working-set fix lands, add a model id here ONLY after a real-device iOS
+ * retest confirms it loads without the tab-restart loop. Until an id is listed,
+ * WebKit-mobile declines to the designed handoff surface.
+ */
+export const WEBKIT_MOBILE_VALIDATED_MODEL_IDS: readonly string[] = [];
+
 export function isCompatible(model: ModelConfig, profile: DeviceProfile): CompatibilityResult {
   const rule = RULES[model.id];
   if (!rule) return 'unsupported';
+
+  // WebKit-mobile (iOS) gate — BEFORE any capability probe so no model is ever
+  // load-attempted on a device where the load itself crash-loops the tab (see
+  // isWebKitMobile). A model graduates out of this decline only by being added
+  // to WEBKIT_MOBILE_VALIDATED_MODEL_IDS after a phone-validated retest.
+  if (isWebKitMobile(profile) && !WEBKIT_MOBILE_VALIDATED_MODEL_IDS.includes(model.id)) {
+    return 'unsupported';
+  }
 
   if (rule.requireWebgpu && profile.webgpuSupport !== 'webgpu') {
     return 'unsupported';

@@ -7,6 +7,8 @@ import { type ReactNode, useEffect } from 'react';
 import { useLocalAiSetup } from '../../hooks/local-ai/useLocalAiSetup';
 import { useDeviceProfile } from '../../hooks/local-ai/useDeviceProfile';
 import { describeDevice, failsMemoryFloor, getDeviceProfile } from '../../local-ai/index';
+import type { DeviceProfile } from '../../local-ai/index';
+import { isWebKitMobile } from '../../local-ai/device/compatibility';
 import type { BelowFloorReasonKind } from './BelowFloorScreen';
 import { useChatStore } from '../../stores/chatStore';
 import { WelcomeSetup } from './WelcomeSetup';
@@ -61,17 +63,7 @@ export function LocalAiSetupGate({
   if (setup.status === 'below-floor') {
     const profile = getDeviceProfile();
     const deviceLabel = describeDevice(profile);
-    // Tell the truth per population: a device with no runtime blames the
-    // browser; a capable browser short on memory blames memory (never the
-    // browser); anything else falls back to an honest "not ready for this
-    // setup yet". Runtime is checked first because `webgpuSupport === 'none'`
-    // subsumes the low-memory genuine-below-floor case.
-    const reason: BelowFloorReasonKind =
-      profile.webgpuSupport === 'none'
-        ? 'runtime'
-        : failsMemoryFloor(profile)
-          ? 'memory'
-          : 'fallback';
+    const reason = deriveBelowFloorReason(profile);
     return (
       <BelowFloorScreen
         deviceLabel={deviceLabel}
@@ -112,6 +104,25 @@ export function LocalAiSetupGate({
 
   // status === 'ready' → pass children through.
   return <>{children}</>;
+}
+
+/**
+ * Which below-floor explanation this device gets. Order matters and is the point:
+ *   1. iOS WebKit is gated BEFORE any load (it has WebGPU, but the load itself
+ *      crash-loops the tab), so `mobile` must be decided FIRST — otherwise a
+ *      capable-looking iOS profile would fall through to the runtime/memory
+ *      branches and get the wrong message.
+ *   2. No runtime at all → blame the browser (`runtime`).
+ *   3. Capable browser but short on memory → blame memory, never the browser.
+ *   4. Otherwise an honest "not ready for this setup yet" (`fallback`).
+ * Runtime precedes memory because `webgpuSupport === 'none'` subsumes the
+ * low-memory genuine-below-floor case.
+ */
+export function deriveBelowFloorReason(profile: DeviceProfile): BelowFloorReasonKind {
+  if (isWebKitMobile(profile)) return 'mobile';
+  if (profile.webgpuSupport === 'none') return 'runtime';
+  if (failsMemoryFloor(profile)) return 'memory';
+  return 'fallback';
 }
 
 async function noopSignup(_email: string): Promise<void> {

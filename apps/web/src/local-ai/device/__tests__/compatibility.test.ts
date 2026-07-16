@@ -17,7 +17,13 @@
 
 import { describe, expect, it } from 'vitest';
 import { getCatalog, getModel } from '../../catalog/catalog';
-import { hasCompatibilityRule, isAssignable, isCompatible } from '../compatibility';
+import {
+  hasCompatibilityRule,
+  isAssignable,
+  isCompatible,
+  isWebKitMobile,
+  WEBKIT_MOBILE_VALIDATED_MODEL_IDS,
+} from '../compatibility';
 import type { DeviceProfile, ModelConfig } from '../../types';
 
 const PROFILES = {
@@ -226,7 +232,10 @@ describe('device/compatibility — CPU-EP incompatibility (Finding E)', () => {
   // qwen3-0.6b is the ONLY genuinely WASM-viable model: its q4f16 build has no
   // block-quant embeddings, so it runs on the CPU EP. It must stay the WASM floor.
   it('keeps qwen3-0.6b assignable on every wasm-only profile', () => {
-    for (const p of [PROFILES.chromiumWasmOnly, PROFILES.firefoxDesktop, PROFILES.safariDesktop, PROFILES.mobileIphone]) {
+    // mobileIphone is excluded: iOS WebKit is now gated before load entirely
+    // (see the WebKit-mobile gate suite below), so no model — qwen included —
+    // is assignable there regardless of CPU-EP viability.
+    for (const p of [PROFILES.chromiumWasmOnly, PROFILES.firefoxDesktop, PROFILES.safariDesktop]) {
       expect(isAssignable(model('local/qwen3-0.6b'), p)).toBe(true);
     }
   });
@@ -346,5 +355,79 @@ describe('device/compatibility — unknown model id', () => {
     };
     expect(isCompatible(fakeModel, PROFILES.chromiumHighMem)).toBe('unsupported');
     expect(isAssignable(fakeModel, PROFILES.chromiumHighMem)).toBe(false);
+  });
+});
+
+describe('device/compatibility — WebKit-mobile gate (D1 designed tier)', () => {
+  // iOS WebKit (Safari and every iOS browser, all classify safari+isMobile) has
+  // WebGPU, but the model LOAD crash-loops the tab (iPhone-13 spike). It must be
+  // declined BEFORE any load, and no model may be attempted until a
+  // phone-validated config lands in WEBKIT_MOBILE_VALIDATED_MODEL_IDS.
+  const iosSafariWebgpu: DeviceProfile = {
+    browserClass: 'safari',
+    webgpuSupport: 'webgpu',
+    deviceMemoryGB: 8,
+    isMobile: true,
+    override: 'auto',
+  };
+  const safariDesktop: DeviceProfile = {
+    browserClass: 'safari',
+    webgpuSupport: 'wasm-only',
+    deviceMemoryGB: 16,
+    isMobile: false,
+    override: 'auto',
+  };
+  const androidChrome: DeviceProfile = {
+    browserClass: 'chromium',
+    webgpuSupport: 'webgpu',
+    deviceMemoryGB: 8,
+    isMobile: true,
+    override: 'auto',
+  };
+  const strippedMobile: DeviceProfile = {
+    browserClass: 'mobile',
+    webgpuSupport: 'webgpu',
+    deviceMemoryGB: 8,
+    isMobile: true,
+    override: 'auto',
+  };
+
+  it('isWebKitMobile truth table', () => {
+    expect(isWebKitMobile(iosSafariWebgpu)).toBe(true); // safari + mobile
+    expect(isWebKitMobile(safariDesktop)).toBe(false); // safari, desktop
+    expect(isWebKitMobile(androidChrome)).toBe(false); // chromium + mobile
+    expect(isWebKitMobile(strippedMobile)).toBe(false); // 'mobile' class
+  });
+
+  it('declines EVERY catalog model on iOS WebKit (no load ever attempted)', () => {
+    for (const m of getCatalog()) {
+      expect(isCompatible(m, iosSafariWebgpu), `${m.id} must decline on iOS WebKit`).toBe('unsupported');
+      expect(isAssignable(m, iosSafariWebgpu)).toBe(false);
+    }
+  });
+
+  it('the validated-list override lets a listed model serve on iOS WebKit', () => {
+    // The retest trigger: adding an id to WEBKIT_MOBILE_VALIDATED_MODEL_IDS
+    // (after a real-device pass) must flip that model from declined to offerable.
+    const id = 'local/qwen3-0.6b';
+    (WEBKIT_MOBILE_VALIDATED_MODEL_IDS as string[]).push(id);
+    try {
+      expect(isCompatible(model(id), iosSafariWebgpu)).not.toBe('unsupported');
+    } finally {
+      (WEBKIT_MOBILE_VALIDATED_MODEL_IDS as string[]).length = 0;
+    }
+  });
+
+  it('does NOT gate Android Chrome — chromium+mobile keeps serving with-warning', () => {
+    // The regression net for the Android guard: Android is not implicated and
+    // must keep serving. qwen3-0.6b (warnIfMobile: false) stays 'supported';
+    // a warn-on-mobile model stays offerable as 'with-warning'.
+    expect(isCompatible(model('local/qwen3-0.6b'), androidChrome)).toBe('supported');
+    expect(isCompatible(model('candidate/qwen3.5-2b-onnx'), androidChrome)).toBe('with-warning');
+    expect(isAssignable(model('candidate/qwen3.5-2b-onnx'), androidChrome)).toBe(true);
+  });
+
+  it('starts with an empty validated list (every current build crash-loops on load)', () => {
+    expect(WEBKIT_MOBILE_VALIDATED_MODEL_IDS).toEqual([]);
   });
 });
