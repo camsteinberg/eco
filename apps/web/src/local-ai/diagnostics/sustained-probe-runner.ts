@@ -13,6 +13,7 @@
 
 import type { ModelConfig } from '../types';
 import type { ChatMessage } from '../runtime/types';
+import type { DownloadPlan } from '../download/download';
 import {
   SUSTAINED_PROBE_DEFAULT_TARGET_TOKENS,
   SUSTAINED_PROBE_DEFAULT_TURNS,
@@ -61,6 +62,44 @@ function nowMs(): number {
   return typeof performance !== 'undefined' && typeof performance.now === 'function'
     ? performance.now()
     : Date.now();
+}
+
+/** A plan file counts as weights when it is ONNX-shaped or simply large —
+ *  either way, a fall-through download of it is what the guard exists to
+ *  prevent. 32 MiB comfortably clears every config/tokenizer file (≤ ~10 MB)
+ *  while catching every weights shard in the catalog. */
+const WEIGHTS_FILE_MIN_BYTES = 32 * 1024 * 1024;
+
+function isWeightsFile(url: string, sizeBytes: number): boolean {
+  return /\.onnx($|_data)/.test(url) || sizeBytes >= WEIGHTS_FILE_MIN_BYTES;
+}
+
+/**
+ * True when every weights-class file in the model's download plan verifies in
+ * the same storage the runtime's cache bridge reads (Cache API by default).
+ * Injected plan/storage come from the runner's dynamic imports; kept as
+ * parameters so tests drive it through the same seams.
+ */
+async function probeWeightsCached(
+  model: ModelConfig,
+  peekPlan: (m: ModelConfig) => Promise<DownloadPlan | null>,
+  getStorage: () => { verify(key: { modelId: string; url: string }, expectedSizeBytes: number): Promise<boolean> },
+): Promise<boolean> {
+  try {
+    const plan = await peekPlan(model);
+    if (!plan) return false;
+    const weights = plan.files.filter((f) => isWeightsFile(f.url, f.sizeBytes));
+    if (weights.length === 0) return false;
+    const storage = getStorage();
+    for (const file of weights) {
+      if (!(await storage.verify({ modelId: plan.modelId, url: file.url }, file.sizeBytes))) {
+        return false;
+      }
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -133,17 +172,24 @@ export async function runSustainedProbe(
 
   try {
     const { loadModel, generate } = await import('../runtime/lifecycle');
-    const { isModelFullyCached } = await import('../download/download');
+    const { peekDownloadPlan } = await import('../download/download');
+    const { pickStorage } = await import('../download/storage');
     onProgress?.({ phase: 'loading' });
 
-    // A probe NEVER downloads. Without this guard, loading an un-cached model
-    // falls through to TJS's internal remote fetch — a silent multi-hundred-MB
-    // single-GET (observed 504ing through the dev proxy, s32). Measurement
-    // tooling must refuse honestly instead.
-    if (!(await isModelFullyCached(model))) {
+    // A probe never downloads WEIGHTS. Without this guard, loading an
+    // un-cached model falls through to TJS's internal remote fetch — a silent
+    // multi-hundred-MB single-GET (observed 504ing through the dev proxy,
+    // s32). Deliberately scoped to weights-class files rather than
+    // `isModelFullyCached`: the manifest plan lists files TJS never requests
+    // (vocab.json, merges.txt, …), so full-plan completeness reads false on a
+    // cache populated by real loads. Small config/tokenizer fall-throughs are
+    // bounded and cannot distort a memory measurement; the weights are what
+    // wedge. Fails closed: no plan, no weights entry, or a verify error all
+    // refuse.
+    if (!(await probeWeightsCached(model, peekDownloadPlan, pickStorage))) {
       return finalize(
         'error',
-        'Model weights are not fully downloaded on this device — the probe never downloads. Download the model first, then re-run.',
+        'Model weights are not fully downloaded on this device — the probe never downloads them. Download the model first, then re-run.',
       );
     }
 

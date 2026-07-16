@@ -22,6 +22,9 @@ import {
   probeWebgpuSupport,
   readForcedWasm,
   readForcedOrtArtifact,
+  readForcedOrtArena,
+  readForcedOrtMemPattern,
+  readForcedOrtGraphOpt,
   readForcedThreads,
   resetProbedWebgpuCapability,
   resolveSetupProfile,
@@ -475,6 +478,64 @@ describe('readForcedThreads — ?eco-force-threads override', () => {
   it.each(['0', '-2', '2.5', 'many', ''])('rejects non-positive-integer value %s', (value) => {
     setSearch(`?eco-force-threads=${value}`);
     expect(readForcedThreads()).toBeNull();
+  });
+});
+
+describe('readForcedOrtArena — ?eco-force-ort-arena override', () => {
+  it('returns null with no param', () => {
+    setSearch('?');
+    expect(readForcedOrtArena()).toBeNull();
+  });
+
+  it('honors on/off', () => {
+    setSearch('?eco-force-ort-arena=off');
+    expect(readForcedOrtArena()).toBe(false);
+    setSearch('?eco-force-ort-arena=on');
+    expect(readForcedOrtArena()).toBe(true);
+  });
+
+  it('ignores unrecognized values', () => {
+    setSearch('?eco-force-ort-arena=maybe');
+    expect(readForcedOrtArena()).toBeNull();
+  });
+});
+
+describe('readForcedOrtMemPattern — ?eco-force-ort-mem-pattern override', () => {
+  it('returns null with no param', () => {
+    setSearch('?');
+    expect(readForcedOrtMemPattern()).toBeNull();
+  });
+
+  it('honors on/off', () => {
+    setSearch('?eco-force-ort-mem-pattern=off');
+    expect(readForcedOrtMemPattern()).toBe(false);
+    setSearch('?eco-force-ort-mem-pattern=on');
+    expect(readForcedOrtMemPattern()).toBe(true);
+  });
+
+  it('ignores unrecognized values', () => {
+    setSearch('?eco-force-ort-mem-pattern=1');
+    expect(readForcedOrtMemPattern()).toBeNull();
+  });
+});
+
+describe('readForcedOrtGraphOpt — ?eco-force-ort-graph-opt override', () => {
+  it('returns null with no param', () => {
+    setSearch('?');
+    expect(readForcedOrtGraphOpt()).toBeNull();
+  });
+
+  it.each(['disabled', 'basic', 'extended', 'all'] as const)(
+    'honors ?eco-force-ort-graph-opt=%s',
+    (value) => {
+      setSearch(`?eco-force-ort-graph-opt=${value}`);
+      expect(readForcedOrtGraphOpt()).toBe(value);
+    },
+  );
+
+  it('ignores an unknown level', () => {
+    setSearch('?eco-force-ort-graph-opt=max');
+    expect(readForcedOrtGraphOpt()).toBeNull();
   });
 });
 

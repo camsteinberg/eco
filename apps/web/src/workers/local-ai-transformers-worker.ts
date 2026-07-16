@@ -413,6 +413,18 @@ async function handleInit(msg: Extract<WorkerInbound, { type: 'init' }>): Promis
     if (msg.externalDataChunks && Object.keys(msg.externalDataChunks).length > 0) {
       modelOptions.use_external_data_format = msg.externalDataChunks;
     }
+    // ── ORT session-option overrides (A-3 measurement levers) ─────────────
+    // TJS spreads `options.session_options` into the ORT session it creates,
+    // so present levers reach InferenceSession.create verbatim. With none
+    // present, no session_options key is set at all — stock ORT defaults,
+    // byte-for-byte unchanged.
+    const sessionOptions: Record<string, unknown> = {};
+    if (typeof msg.ortArena === 'boolean') sessionOptions.enableCpuMemArena = msg.ortArena;
+    if (typeof msg.ortMemPattern === 'boolean') sessionOptions.enableMemPattern = msg.ortMemPattern;
+    if (msg.ortGraphOpt) sessionOptions.graphOptimizationLevel = msg.ortGraphOpt;
+    if (Object.keys(sessionOptions).length > 0) {
+      modelOptions.session_options = sessionOptions;
+    }
 
     const model = await AutoModelForCausalLM.from_pretrained(
       msg.hfId,

@@ -38,7 +38,15 @@ import type { SystemRoleSupport } from './chat-template-adapter';
 import type { CjkSuppressionTelemetry } from './cjk-suppression';
 import type { KvReuseTelemetry } from './kv-cache';
 import type { Storage } from '../download/storage';
-import { readForcedWasm, readForcedOrtArtifact, readForcedThreads } from '../device/profile';
+import {
+  readForcedWasm,
+  readForcedOrtArtifact,
+  readForcedThreads,
+  readForcedOrtArena,
+  readForcedOrtMemPattern,
+  readForcedOrtGraphOpt,
+  type OrtGraphOptLevel,
+} from '../device/profile';
 import type { OrtArtifact } from './ort-artifact';
 
 // ─── Worker message protocol ───────────────────────────────────────────────
@@ -72,6 +80,16 @@ export type WorkerInbound =
        * (ort's crossOriginIsolated-keyed default).
        */
       numThreads?: number;
+      /**
+       * ORT session-option measurement levers (A-3 load-peak matrix). Present
+       * fields become `session_options` on TJS `from_pretrained`, which flows
+       * verbatim into `InferenceSession.create`; when ALL are absent the worker
+       * passes no session_options at all — today's stock-ORT default,
+       * byte-for-byte unchanged.
+       */
+      ortArena?: boolean;
+      ortMemPattern?: boolean;
+      ortGraphOpt?: OrtGraphOptLevel;
       storageBridgeId: string;
       externalDataChunks?: Record<string, number>;
       revision?: string;
@@ -296,11 +314,15 @@ export class TransformersAdapter implements RuntimeAdapter {
         // Explicit caller intent wins; otherwise the ?eco-force-wasm override
         // applies so the CPU path can be exercised on any device.
         forceWasm: options?.forceWasm ?? (readForcedWasm() || undefined),
-        // Measurement levers (?eco-force-ort-artifact / ?eco-force-threads),
-        // read on the main thread and threaded across the worker boundary —
-        // absent ⇒ the worker sets nothing and today's defaults stand.
+        // Measurement levers (?eco-force-ort-artifact / ?eco-force-threads /
+        // ?eco-force-ort-{arena,mem-pattern,graph-opt}), read on the main
+        // thread and threaded across the worker boundary — absent ⇒ the worker
+        // sets nothing and today's defaults stand.
         ortArtifact: readForcedOrtArtifact() ?? undefined,
         numThreads: readForcedThreads() ?? undefined,
+        ortArena: readForcedOrtArena() ?? undefined,
+        ortMemPattern: readForcedOrtMemPattern() ?? undefined,
+        ortGraphOpt: readForcedOrtGraphOpt() ?? undefined,
         storageBridgeId: getCacheBridgeId(model),
         externalDataChunks: Object.keys(externalDataChunks).length > 0 ? externalDataChunks : undefined,
         revision: model.artifact?.revision,
