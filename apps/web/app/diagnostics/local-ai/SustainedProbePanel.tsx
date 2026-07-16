@@ -320,6 +320,11 @@ function describeLevers(levers: SustainedProbeLevers | null): string {
   parts.push(`artifact=${levers.ortArtifact ?? 'default'}`);
   parts.push(`threads=${levers.numThreads ?? 'default'}`);
   if (levers.forceWasm) parts.push('wasm');
+  // Session-option levers appear only when set — absence IS the signal
+  // (stock ORT), and these are rare A-3 matrix knobs.
+  if (levers.ortArena != null) parts.push(`arena=${levers.ortArena ? 'on' : 'off'}`);
+  if (levers.ortMemPattern != null) parts.push(`mem-pattern=${levers.ortMemPattern ? 'on' : 'off'}`);
+  if (levers.ortGraphOpt != null) parts.push(`graph-opt=${levers.ortGraphOpt}`);
   return parts.join(' · ');
 }
 

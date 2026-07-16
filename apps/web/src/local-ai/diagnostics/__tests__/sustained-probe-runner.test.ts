@@ -26,7 +26,8 @@ import type { TokenEvent } from '../../runtime/types';
 
 const loadModelMock = vi.hoisted(() => vi.fn());
 const generateMock = vi.hoisted(() => vi.fn());
-const isModelFullyCachedMock = vi.hoisted(() => vi.fn());
+const peekDownloadPlanMock = vi.hoisted(() => vi.fn());
+const verifyMock = vi.hoisted(() => vi.fn());
 
 vi.mock('../../runtime/lifecycle', () => ({
   loadModel: loadModelMock,
@@ -34,10 +35,32 @@ vi.mock('../../runtime/lifecycle', () => ({
 }));
 
 vi.mock('../../download/download', () => ({
-  isModelFullyCached: isModelFullyCachedMock,
+  peekDownloadPlan: peekDownloadPlanMock,
+}));
+
+vi.mock('../../download/storage', () => ({
+  pickStorage: () => ({ verify: verifyMock }),
 }));
 
 const MODEL = { id: 'test/probe-model', sizeGB: 0.5 } as unknown as ModelConfig;
+
+/** A plan shaped like real manifests: weights + small files TJS may skip. */
+const PLAN = {
+  modelId: 'test/probe-model',
+  files: [
+    { url: 'proxy/onnx/model_q4f16.onnx', sizeBytes: 543 * 1024 * 1024 },
+    { url: 'proxy/tokenizer.json', sizeBytes: 9 * 1024 * 1024 },
+    { url: 'proxy/vocab.json', sizeBytes: 2 * 1024 * 1024 },
+  ],
+};
+
+/** Weights verify; small files DON'T (never downloaded — TJS never asks). */
+function cacheWithWeightsOnly(): void {
+  peekDownloadPlanMock.mockResolvedValue(PLAN);
+  verifyMock.mockImplementation((key: { url: string }) =>
+    Promise.resolve(key.url.includes('.onnx')),
+  );
+}
 
 async function* tokenStream(): AsyncIterable<TokenEvent> {
   yield { kind: 'token', text: 'hello' } as TokenEvent;
@@ -49,7 +72,8 @@ beforeEach(() => {
   clearSustainedProbes();
   loadModelMock.mockReset();
   generateMock.mockReset();
-  isModelFullyCachedMock.mockReset();
+  peekDownloadPlanMock.mockReset();
+  verifyMock.mockReset();
 });
 
 afterEach(() => {
@@ -59,8 +83,9 @@ afterEach(() => {
 });
 
 describe('runSustainedProbe — never-download guard', () => {
-  it('refuses an un-cached model with an error record and never calls loadModel', async () => {
-    isModelFullyCachedMock.mockResolvedValue(false);
+  it('refuses a model whose weights are un-cached and never calls loadModel', async () => {
+    peekDownloadPlanMock.mockResolvedValue(PLAN);
+    verifyMock.mockResolvedValue(false);
 
     const { runSustainedProbe } = await import('../sustained-probe-runner');
     const record = await runSustainedProbe({ model: MODEL, turns: 2 });
@@ -72,6 +97,30 @@ describe('runSustainedProbe — never-download guard', () => {
     expect(loadSustainedProbes().at(-1)?.outcome).toBe('error');
     expect(readMarker()).toBeNull();
   });
+
+  it('accepts a cache holding the weights even when small plan files were never downloaded', async () => {
+    // Real caches are populated by TJS's actual requests, which skip several
+    // manifest files (vocab.json, merges.txt, ...). Only weights gate the probe.
+    cacheWithWeightsOnly();
+    loadModelMock.mockResolvedValue({ backend: 'wasm' });
+    generateMock.mockImplementation(() => tokenStream());
+
+    const { runSustainedProbe } = await import('../sustained-probe-runner');
+    const record = await runSustainedProbe({ model: MODEL, turns: 1 });
+
+    expect(record.outcome).toBe('completed');
+    expect(loadModelMock).toHaveBeenCalled();
+  });
+
+  it('fails closed when no download plan resolves', async () => {
+    peekDownloadPlanMock.mockResolvedValue(null);
+
+    const { runSustainedProbe } = await import('../sustained-probe-runner');
+    const record = await runSustainedProbe({ model: MODEL, turns: 1 });
+
+    expect(record.outcome).toBe('error');
+    expect(loadModelMock).not.toHaveBeenCalled();
+  });
 });
 
 describe('runSustainedProbe — load deadline', () => {
@@ -79,7 +128,7 @@ describe('runSustainedProbe — load deadline', () => {
   // via real module I/O, which fake-timer clock advances race past (the timer
   // would be registered only after the advance already completed).
   it('aborts a never-settling load at the budget and records an honest error (marker cleared)', async () => {
-    isModelFullyCachedMock.mockResolvedValue(true);
+    cacheWithWeightsOnly();
     // A load that only settles when its abort signal fires — the wedge shape
     // observed in s32 (worker never posts back; only the abort path settles).
     loadModelMock.mockImplementation(
@@ -102,7 +151,7 @@ describe('runSustainedProbe — load deadline', () => {
   });
 
   it('passes an abort signal through to loadModel so the underlying load is actually cancelled', async () => {
-    isModelFullyCachedMock.mockResolvedValue(true);
+    cacheWithWeightsOnly();
     let sawSignal: AbortSignal | undefined;
     loadModelMock.mockImplementation(
       (_model: ModelConfig, options?: { signal?: AbortSignal }) =>
@@ -120,7 +169,7 @@ describe('runSustainedProbe — load deadline', () => {
   });
 
   it('propagates an already-aborted external signal to the load (abort never fires retroactively)', async () => {
-    isModelFullyCachedMock.mockResolvedValue(true);
+    cacheWithWeightsOnly();
     let sawSignal: AbortSignal | undefined;
     loadModelMock.mockImplementation(
       (_model: ModelConfig, options?: { signal?: AbortSignal }) =>
@@ -151,7 +200,7 @@ describe('runSustainedProbe — load deadline', () => {
 
 describe('runSustainedProbe — happy path', () => {
   it('records completed with the marker cleared when load and turns succeed', async () => {
-    isModelFullyCachedMock.mockResolvedValue(true);
+    cacheWithWeightsOnly();
     loadModelMock.mockResolvedValue({ backend: 'wasm' });
     generateMock.mockImplementation(() => tokenStream());
 

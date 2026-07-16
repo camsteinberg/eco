@@ -41,6 +41,40 @@ afterEach(() => {
   clearSustainedProbes();
 });
 
+describe('readActiveLevers — echoes the s32 ORT session-option levers', () => {
+  const originalSearch = window.location.search;
+
+  afterEach(() => {
+    window.history.replaceState({}, '', `/${originalSearch}`);
+  });
+
+  it('carries arena / mem-pattern / graph-opt from the URL into the levers snapshot', async () => {
+    window.history.replaceState(
+      {},
+      '',
+      '/?eco-force-wasm=true&eco-force-ort-arena=off&eco-force-ort-mem-pattern=off&eco-force-ort-graph-opt=basic',
+    );
+    const { readActiveLevers } = await import('../sustained-probe');
+    expect(readActiveLevers()).toEqual({
+      ortArtifact: null,
+      numThreads: null,
+      forceWasm: true,
+      ortArena: false,
+      ortMemPattern: false,
+      ortGraphOpt: 'basic',
+    });
+  });
+
+  it('reads null for every session-option lever when the params are absent', async () => {
+    window.history.replaceState({}, '', '/?');
+    const { readActiveLevers } = await import('../sustained-probe');
+    const levers = readActiveLevers();
+    expect(levers.ortArena).toBeNull();
+    expect(levers.ortMemPattern).toBeNull();
+    expect(levers.ortGraphOpt).toBeNull();
+  });
+});
+
 describe('bytesToMB', () => {
   it('converts bytes to MB rounded to 1 dp', () => {
     expect(bytesToMB(1_048_576)).toBe(1);

@@ -26,7 +26,15 @@
  * gate (lifecycle/smoke.ts) — it never blocks a real user's model load.
  */
 
-import { readForcedOrtArtifact, readForcedThreads, readForcedWasm } from '../device/profile';
+import {
+  readForcedOrtArtifact,
+  readForcedThreads,
+  readForcedWasm,
+  readForcedOrtArena,
+  readForcedOrtMemPattern,
+  readForcedOrtGraphOpt,
+  type OrtGraphOptLevel,
+} from '../device/profile';
 import { safeStorage } from '../../lib/local-storage';
 import type { OrtArtifact } from '../runtime/ort-artifact';
 
@@ -45,11 +53,16 @@ export const SUSTAINED_PROBE_SAMPLE_INTERVAL_MS = 1_000;
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-/** The measurement levers a probe ran under (echoed for the shared JSON). */
+/** The measurement levers a probe ran under (echoed for the shared JSON).
+ *  The three ORT session-option fields are optional so records written before
+ *  the s32 seam parse unchanged. */
 export type SustainedProbeLevers = {
   ortArtifact: OrtArtifact | null;
   numThreads: number | null;
   forceWasm: boolean;
+  ortArena?: boolean | null;
+  ortMemPattern?: boolean | null;
+  ortGraphOpt?: OrtGraphOptLevel | null;
 };
 
 /** Which memory APIs the current environment exposes. */
@@ -201,6 +214,9 @@ export function readActiveLevers(): SustainedProbeLevers {
     ortArtifact: readForcedOrtArtifact(),
     numThreads: readForcedThreads(),
     forceWasm: readForcedWasm(),
+    ortArena: readForcedOrtArena(),
+    ortMemPattern: readForcedOrtMemPattern(),
+    ortGraphOpt: readForcedOrtGraphOpt(),
   };
 }
 

@@ -35,6 +35,9 @@ const URL_PARAM_FORCE_SHADER_F16 = 'eco-force-shader-f16';
 const URL_PARAM_FORCE_WASM = 'eco-force-wasm';
 const URL_PARAM_FORCE_ORT_ARTIFACT = 'eco-force-ort-artifact';
 const URL_PARAM_FORCE_THREADS = 'eco-force-threads';
+const URL_PARAM_FORCE_ORT_ARENA = 'eco-force-ort-arena';
+const URL_PARAM_FORCE_ORT_MEM_PATTERN = 'eco-force-ort-mem-pattern';
+const URL_PARAM_FORCE_ORT_GRAPH_OPT = 'eco-force-ort-graph-opt';
 
 // Tiny WASM module that uses the `v128.const` SIMD opcode. If
 // `WebAssembly.validate` accepts these bytes, the runtime supports SIMD —
@@ -292,6 +295,56 @@ export function readForcedThreads(): number | null {
   if (v == null) return null;
   const n = Number(v);
   return Number.isInteger(n) && n >= 1 ? n : null;
+}
+
+/**
+ * ORT graph-optimization levels accepted by `?eco-force-ort-graph-opt` — the
+ * onnxruntime-common `graphOptimizationLevel` session-option values.
+ */
+export type OrtGraphOptLevel = 'disabled' | 'basic' | 'extended' | 'all';
+const ORT_GRAPH_OPT_LEVELS: readonly OrtGraphOptLevel[] = ['disabled', 'basic', 'extended', 'all'];
+
+/**
+ * Forced ?eco-force-ort-arena=on|off override, or null when absent/invalid —
+ * sets ORT's `enableCpuMemArena` session option (A-3 measurement lever: the
+ * BFC-style arena's growth policy is a load-peak suspect). Absent ⇒ the worker
+ * passes no session_options and ORT's default stands. WASM-EP measurement
+ * lever only; no-op for LiteRT/WebLLM.
+ */
+export function readForcedOrtArena(): boolean | null {
+  return readOnOffParam(URL_PARAM_FORCE_ORT_ARENA);
+}
+
+/**
+ * Forced ?eco-force-ort-mem-pattern=on|off override, or null when absent/invalid —
+ * sets ORT's `enableMemPattern` session option (A-3 measurement lever: memory
+ * patterns pre-plan/pre-allocate activation buffers at session init). Same
+ * default-untouched semantics as the arena lever.
+ */
+export function readForcedOrtMemPattern(): boolean | null {
+  return readOnOffParam(URL_PARAM_FORCE_ORT_MEM_PATTERN);
+}
+
+/**
+ * Forced ?eco-force-ort-graph-opt=disabled|basic|extended|all override, or null
+ * when absent/invalid — sets ORT's `graphOptimizationLevel` session option.
+ * A-3 measurement lever: constant folding at higher levels can MATERIALIZE
+ * fp32 copies of fp16 initializers during session init (the prime load-spike
+ * suspect for q4f16-on-CPU-EP), so comparing levels isolates that cost.
+ */
+export function readForcedOrtGraphOpt(): OrtGraphOptLevel | null {
+  const v = readUrlParamsSafe().get(URL_PARAM_FORCE_ORT_GRAPH_OPT);
+  return (ORT_GRAPH_OPT_LEVELS as readonly string[]).includes(v ?? '')
+    ? (v as OrtGraphOptLevel)
+    : null;
+}
+
+/** Shared on|off param shape (mirrors readForcedShaderF16's strictness). */
+function readOnOffParam(param: string): boolean | null {
+  const v = readUrlParamsSafe().get(param);
+  if (v === 'on') return true;
+  if (v === 'off') return false;
+  return null;
 }
 
 function detectWebgpuSupport(): WebGPUSupport {
