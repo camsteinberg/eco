@@ -38,6 +38,11 @@ export type SustainedProbeConfig = {
   turns?: number;
   /** Target tokens per turn (default ~200). */
   targetTokensPerTurn?: number;
+  /**
+   * Load-phase budget override (tests pass small values). Defaults to the
+   * smoke gate's adaptive cold-load budget for this model + device.
+   */
+  loadTimeoutMs?: number;
 };
 
 export type SustainedProbeProgress =
@@ -128,8 +133,55 @@ export async function runSustainedProbe(
 
   try {
     const { loadModel, generate } = await import('../runtime/lifecycle');
+    const { isModelFullyCached } = await import('../download/download');
     onProgress?.({ phase: 'loading' });
-    const adapter = await loadModel(model, { signal });
+
+    // A probe NEVER downloads. Without this guard, loading an un-cached model
+    // falls through to TJS's internal remote fetch — a silent multi-hundred-MB
+    // single-GET (observed 504ing through the dev proxy, s32). Measurement
+    // tooling must refuse honestly instead.
+    if (!(await isModelFullyCached(model))) {
+      return finalize(
+        'error',
+        'Model weights are not fully downloaded on this device — the probe never downloads. Download the model first, then re-run.',
+      );
+    }
+
+    // Load-phase deadline, same physics as the smoke gate's cold-load budget.
+    // The observed wedge (s32): a load whose failure never settles the promise
+    // leaves the panel at "Running…" with a LIVE crash-evidence marker — and an
+    // orphaned marker fabricates a false `killed` record on next mount. The
+    // deadline aborts through the same signal the adapter honors, so the load
+    // settles even when the worker never reports back.
+    const { defaultLoadBudgetMs } = await import('../lifecycle/smoke');
+    const loadBudgetMs = config.loadTimeoutMs ?? defaultLoadBudgetMs(model);
+    const loadController = new AbortController();
+    const onExternalAbort = (): void => loadController.abort();
+    // An already-aborted external signal must propagate too — the 'abort'
+    // event never fires retroactively.
+    if (signal?.aborted) loadController.abort();
+    signal?.addEventListener('abort', onExternalAbort, { once: true });
+    let loadDeadlineHit = false;
+    const loadTimer = setTimeout(() => {
+      loadDeadlineHit = true;
+      loadController.abort();
+    }, loadBudgetMs);
+
+    let adapter;
+    try {
+      adapter = await loadModel(model, { signal: loadController.signal });
+    } catch (err) {
+      if (loadDeadlineHit) {
+        return finalize(
+          'error',
+          `Model load exceeded its ${Math.round(loadBudgetMs / 1000)}s budget and was aborted — recorded as a load error, not a tab kill.`,
+        );
+      }
+      throw err;
+    } finally {
+      clearTimeout(loadTimer);
+      signal?.removeEventListener('abort', onExternalAbort);
+    }
     backend = adapter.backend;
 
     takeSample(0);

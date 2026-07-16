@@ -144,8 +144,12 @@ export function computeSmokeLoadBudgetMs(input: SmokeLoadBudgetInput): number {
  * Default cold-load budget for `model` on the current device. Reads device
  * signals through `device/profile.ts` (Invariant 5) and falls back to the MIN
  * floor's inputs if the profile read throws.
+ *
+ * Exported for the sustained-probe runner, which enforces the same budget on
+ * its load phase — a probe load that never settles must fail by deadline, not
+ * wedge with a live crash-evidence marker.
  */
-function defaultLoadBudgetMs(model: ModelConfig): number {
+export function defaultLoadBudgetMs(model: ModelConfig): number {
   let deviceMemoryGB = 0;
   let isMobile = false;
   try {
