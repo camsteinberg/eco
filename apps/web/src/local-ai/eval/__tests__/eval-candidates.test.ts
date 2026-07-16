@@ -15,6 +15,7 @@ import {
 // gemma-4-e2b-litert (f16-less C2/C3 answer, model-offering overhaul 2026-06-29).
 const CANDIDATE_IDS = [
   "candidate/qwen3-1.7b-onnx",
+  "candidate/qwen3-0.6b-q4",
   "candidate/lfm2-2.6b-onnx",
   "candidate/qwen3.5-4b-onnx",
   "candidate/gemma-4-e2b-onnx",
@@ -88,6 +89,26 @@ describe("eval-candidate lane (Phase 2 + chat #7 bake-off)", () => {
     );
     expect(getEvalCandidateModel("local/phi3-mini-4k-q4f16")).toBeNull();
     expect(getEvalCandidateModel("nonexistent")).toBeNull();
+  });
+
+  it("the A-3 q4 load-peak cell selects the fp32-initializer artifact", () => {
+    const model = getEvalCandidateModel("candidate/qwen3-0.6b-q4");
+    expect(model).not.toBeNull();
+    // format 'onnx-q4' → dtype 'q4' → TJS requests onnx/model_q4.onnx (the whole
+    // point: fp32 initializers, no fp16 cast at ORT session-build).
+    expect(model!.format).toBe("onnx-q4");
+    expect(model!.artifact!.files).toContain("onnx/model_q4.onnx");
+    expect(model!.artifact!.files).not.toContain("onnx/model_q4f16.onnx");
+    // Same shipping Qwen3-0.6B weights (pinned revision as the catalog entry).
+    expect(model!.artifact!.hfId).toBe("onnx-community/Qwen3-0.6B-ONNX");
+    expect(model!.artifact!.revision).toBe(
+      "da1453100cf3ff33ef56d17983fc7a8648706db6",
+    );
+    const meta = EVAL_CANDIDATE_ARTIFACT_METADATA["candidate/qwen3-0.6b-q4"];
+    expect(meta?.["onnx/model_q4.onnx"]).toEqual({
+      sizeBytes: 919096585,
+      oid: "d43d836fc5e240df9013733ccd214972c5d21bd9ec47e574e4f1e359cf90aed0",
+    });
   });
 
   it("zero-leak guard: no candidate appears in the shipping catalog", () => {

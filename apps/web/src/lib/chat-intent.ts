@@ -123,6 +123,23 @@ const CHAT_INTENT_MODEL_DATA: Record<string, ChatIntentModelSlice> = {
       repetitionPenalty: 1.08,
     },
   },
+  // A-3 load-peak cell (2026-07-16): the shipping Qwen3-0.6B in the fp32-initializer
+  // q4 build. Same qwen3 family / fast tier / sampling as local/qwen3-0.6b so the
+  // measurement runs the real generation profile, not the baseline fallback.
+  "candidate/qwen3-0.6b-q4": {
+    id: "candidate/qwen3-0.6b-q4",
+    family: "qwen3",
+    qualityTier: "fast",
+    maxNewTokens: { webgpu: 512 },
+    generationDefaults: {
+      topP: 0.95,
+      topK: 20,
+      repetitionPenalty: 1.08,
+      intentOverrides: {
+        writing: { topP: 0.92 },
+      },
+    },
+  },
   // Smart-tier eval candidate (#4 Phase 2 follow-up); lfm2 family is in the union.
   "candidate/lfm2-2.6b-onnx": {
     id: "candidate/lfm2-2.6b-onnx",

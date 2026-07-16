@@ -94,6 +94,27 @@ describe("local model registry (v1 catalog)", () => {
     }
   });
 
+  it("keeps the A-3 q4 file (model_q4.onnx) validation-only, never proxy-allowed", () => {
+    // The q4 load-peak cell shares hfId onnx-community/Qwen3-0.6B-ONNX with the
+    // shipping catalog model, but the proxy matches at FILE granularity within an
+    // hfId group. The catalog serves onnx/model_q4f16.onnx; only the eval-lane
+    // candidate carries onnx/model_q4.onnx — so it must be reachable through the
+    // validation lane and stay 403 in production (proxy-allowed set).
+    const HF_ID = "onnx-community/Qwen3-0.6B-ONNX";
+    const Q4_FILE = "onnx/model_q4.onnx";
+
+    const proxyFiles = getProxyAllowedLocalModelRegistryArtifacts()
+      .filter((a) => a.hfId === HF_ID)
+      .flatMap((a) => a.files);
+    const validationFiles = getValidationAllowedLocalModelRegistryArtifacts()
+      .filter((a) => a.hfId === HF_ID)
+      .flatMap((a) => a.files);
+
+    expect(proxyFiles).toContain("onnx/model_q4f16.onnx");
+    expect(proxyFiles).not.toContain(Q4_FILE);
+    expect(validationFiles).toContain(Q4_FILE);
+  });
+
   it("centralizes reviewed artifact identity for the graduated Qwen3.5-2B smart pick", () => {
     const artifact = getLocalModelRegistryArtifact("candidate/qwen3.5-2b-onnx");
     expect(artifact).toMatchObject({

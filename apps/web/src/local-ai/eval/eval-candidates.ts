@@ -103,6 +103,53 @@ const QWEN3_1_7B: ModelConfig = {
   },
 };
 
+// A-3 load-peak decomposition cell (2026-07-16): the SAME Qwen3-0.6B weights the
+// shipping catalog serves as q4f16, but selecting the repo's fp32-initializer q4
+// artifact (onnx/model_q4.onnx) instead. ORT session init for the q4f16 build
+// spikes ~3.1GB RSS to materialize 543MB of weights; the prime suspect is the
+// fp16→fp32 initializer conversion the CPU EP runs at session-build. This cell
+// exists so the diagnostics sustained-memory probe can measure the load peak of
+// the q4 (fp32) artifact and compare it against the catalog q4f16 build — if the
+// spike disappears, the fp16 cast is the cause. format 'onnx-q4' resolves dtype
+// 'q4' in transformers-adapter, so TJS requests onnx/model_q4.onnx. Dev-only: it
+// rides the validation-allowed lane (403 in production) and never enters the
+// shipping catalog, ModelSelector, or recommendation engine.
+const QWEN3_0_6B_Q4: ModelConfig = {
+  id: 'candidate/qwen3-0.6b-q4',
+  friendlyName: 'Qwen3 0.6B (q4)',
+  vendor: 'Alibaba',
+  sizeGB: 0.86,
+  runtime: 'transformers',
+  format: 'onnx-q4',
+  capabilities: {
+    intent: ['snappy', 'balanced'],
+    tasks: ['chat', 'writing', 'reasoning'],
+    contextTokens: 4096,
+  },
+  bestFor:
+    'A-3 measurement cell: the shipping Qwen3-0.6B weights in the fp32-initializer q4 build, to profile ORT session-init load peak without fp16 initializers.',
+  knownLimitation:
+    'Dev-only load-peak measurement cell — not a shipping default. The q4 artifact is ~0.86GB (larger on disk than the q4f16 build) and exists only to test whether removing fp16 initializers at the source kills the ORT session-init RSS spike.',
+  evidenceTier: 'predicted',
+  systemRoleSupport: 'native',
+  artifact: {
+    hfId: 'onnx-community/Qwen3-0.6B-ONNX',
+    revision: 'da1453100cf3ff33ef56d17983fc7a8648706db6',
+    files: [
+      'onnx/model_q4.onnx',
+      'added_tokens.json',
+      'chat_template.jinja',
+      'config.json',
+      'generation_config.json',
+      'merges.txt',
+      'special_tokens_map.json',
+      'tokenizer.json',
+      'tokenizer_config.json',
+      'vocab.json',
+    ],
+  },
+};
+
 // Smart-tier candidate (#4 Phase 2 follow-up): a higher-quality default for the
 // eco-smart slot. Single text causal-LM in external-data q4f16 (model_q4f16.onnx +
 // .onnx_data) — same family/format as the graduated LFM2.5-1.2B fast default, so it
@@ -327,6 +374,7 @@ const GEMMA4_E4B_LITERT: ModelConfig = {
 
 const MODELS: readonly ModelConfig[] = Object.freeze([
   Object.freeze(QWEN3_1_7B),
+  Object.freeze(QWEN3_0_6B_Q4),
   Object.freeze(LFM2_2_6B),
   Object.freeze(QWEN35_4B),
   Object.freeze(GEMMA4_E2B),
@@ -353,6 +401,22 @@ export const EVAL_CANDIDATE_ARTIFACT_METADATA: Readonly<
     'added_tokens.json': { sizeBytes: 707, oid: 'b54f9135e44c1e81047e8d05cb027af8bc039eed' },
     'chat_template.jinja': { sizeBytes: 4116, oid: '699ff8df401fe4788525e9c1f9b86a99eadd6230' },
     'config.json': { sizeBytes: 943, oid: '29522daabd113d097e62390bacec58f0fca04428' },
+    'generation_config.json': { sizeBytes: 219, oid: 'f0e014517edce509b5d5f07cfa4855d79fad3bcf' },
+    'merges.txt': { sizeBytes: 1671853, oid: '31349551d90c7606f325fe0f11bbb8bd5fa0d7c7' },
+    'special_tokens_map.json': { sizeBytes: 613, oid: 'ac23c0aaa2434523c494330aeb79c58395378103' },
+    'tokenizer.json': { sizeBytes: 9117040, oid: 'e7a95fce95bf5b0946d0ddb3f9d7caa030b7e850bbe92b0edb26bcf563e9f3d5' },
+    'tokenizer_config.json': { sizeBytes: 9705, oid: '7ea8b974de6450e023f8e4977a8b7f30902cc3be' },
+    'vocab.json': { sizeBytes: 2776833, oid: '4783fe10ac3adce15ac8f358ef5462739852c569' },
+  }),
+  // A-3 load-peak cell: fp32-initializer q4 build of the shipping Qwen3-0.6B
+  // weights (same pinned revision as the catalog local/qwen3-0.6b entry, but the
+  // model_q4.onnx artifact). Non-weights files are byte-identical to the catalog
+  // entry (same revision) — config.json is 912 bytes here.
+  'candidate/qwen3-0.6b-q4': Object.freeze({
+    'onnx/model_q4.onnx': { sizeBytes: 919096585, oid: 'd43d836fc5e240df9013733ccd214972c5d21bd9ec47e574e4f1e359cf90aed0' },
+    'added_tokens.json': { sizeBytes: 707, oid: 'b54f9135e44c1e81047e8d05cb027af8bc039eed' },
+    'chat_template.jinja': { sizeBytes: 4116, oid: '699ff8df401fe4788525e9c1f9b86a99eadd6230' },
+    'config.json': { sizeBytes: 912, oid: '5618bd85d36283349a0cb4a99ab15454691f355b' },
     'generation_config.json': { sizeBytes: 219, oid: 'f0e014517edce509b5d5f07cfa4855d79fad3bcf' },
     'merges.txt': { sizeBytes: 1671853, oid: '31349551d90c7606f325fe0f11bbb8bd5fa0d7c7' },
     'special_tokens_map.json': { sizeBytes: 613, oid: 'ac23c0aaa2434523c494330aeb79c58395378103' },
