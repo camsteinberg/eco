@@ -64,6 +64,19 @@ export function SustainedProbePanel() {
         const models = getCatalog()
           .filter((m) => m.artifact)
           .map((m) => ({ id: m.id, friendlyName: m.friendlyName }));
+
+        // In the validation harness (dev-only), also offer the eval-lane
+        // candidates so A-3 measurement cells (e.g. the q4 load-peak build) are
+        // pickable. They are marked " (eval)" so they read as non-catalog; the
+        // model config itself is never mutated.
+        const { isValidationHarnessEnabled } = await import('../../../src/lib/validation-harness');
+        if (isValidationHarnessEnabled()) {
+          const { getEvalCandidateModels } = await import('../../../src/local-ai/eval/eval-candidates');
+          const candidates = getEvalCandidateModels()
+            .filter((m) => m.artifact)
+            .map((m) => ({ id: m.id, friendlyName: `${m.friendlyName} (eval)` }));
+          models.push(...candidates);
+        }
         setPickerModels(models);
 
         const { SLOTS, getSlot } = await import('../../../src/local-ai/lifecycle/slots');
@@ -106,9 +119,13 @@ export function SustainedProbePanel() {
       const { bootstrapLocalAi } = await import('../../../src/local-ai/bootstrap');
       await bootstrapLocalAi();
       const { getModel } = await import('../../../src/local-ai/catalog/catalog');
-      const model = getModel(modelId);
+      // Eval-lane candidates (harness-only picker entries, e.g. the A-3 q4 cell)
+      // are not in the catalog; resolve them from the candidate lane so the probe
+      // can actually load and measure them. loadModel takes a ModelConfig directly.
+      const { getEvalCandidateModel } = await import('../../../src/local-ai/eval/eval-candidates');
+      const model = getModel(modelId) ?? getEvalCandidateModel(modelId);
       if (!model) {
-        setLiveLine(`Model ${modelId} not found in catalog.`);
+        setLiveLine(`Model ${modelId} not found.`);
         return;
       }
       const { runSustainedProbe } = await import('../../../src/local-ai/diagnostics/sustained-probe-runner');
