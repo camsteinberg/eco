@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Button } from '@eco/ui';
 import { EvalHarnessPanel } from './EvalHarnessPanel';
+import { SustainedProbePanel } from './SustainedProbePanel';
 import type { LocalAiDiagnostic } from '../../../src/local-ai/diagnostics/capture';
 import {
   clearDiagnostics,
@@ -779,6 +780,9 @@ export function DiagnosticsClient() {
             </div>
           </section>
         )}
+
+        {/* Sustained memory probe */}
+        <SustainedProbePanel />
 
         {/* Eval harness panel */}
         <EvalHarnessPanel />

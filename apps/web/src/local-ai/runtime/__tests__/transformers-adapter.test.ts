@@ -162,6 +162,33 @@ describe('TransformersAdapter — load', () => {
     }
   });
 
+  it('omits the ORT levers when no ?eco-force-* override is present (default path unchanged)', async () => {
+    const loadPromise = adapter.load(MODEL);
+    await Promise.resolve();
+    const init = worker.inbox[0]!;
+    if (init.type !== 'init') throw new Error('expected init');
+    expect(init.ortArtifact).toBeUndefined();
+    expect(init.numThreads).toBeUndefined();
+    worker.emit({ type: 'ready', backend: 'webgpu' });
+    await loadPromise;
+  });
+
+  it('threads ?eco-force-ort-artifact and ?eco-force-threads into init', async () => {
+    window.history.replaceState({}, '', '/?eco-force-ort-artifact=jspi&eco-force-threads=4');
+    try {
+      const loadPromise = adapter.load(MODEL);
+      await Promise.resolve();
+      const init = worker.inbox[0]!;
+      if (init.type !== 'init') throw new Error('expected init');
+      expect(init.ortArtifact).toBe('jspi');
+      expect(init.numThreads).toBe(4);
+      worker.emit({ type: 'ready', backend: 'wasm' });
+      await loadPromise;
+    } finally {
+      window.history.replaceState({}, '', '/');
+    }
+  });
+
   it('reports progress via onLoadProgress', async () => {
     const progress: number[] = [];
     const loadPromise = adapter.load(MODEL, { onLoadProgress: (p) => progress.push(p) });

@@ -21,6 +21,8 @@ import {
   getServerDeviceProfileSnapshot,
   probeWebgpuSupport,
   readForcedWasm,
+  readForcedOrtArtifact,
+  readForcedThreads,
   resetProbedWebgpuCapability,
   resolveSetupProfile,
   subscribeDeviceProfile,
@@ -439,6 +441,40 @@ describe('readForcedWasm — ?eco-force-wasm override', () => {
   it('ignores unrecognized values', () => {
     setSearch('?eco-force-wasm=off');
     expect(readForcedWasm()).toBe(false);
+  });
+});
+
+describe('readForcedOrtArtifact — ?eco-force-ort-artifact override', () => {
+  it('returns null with no param', () => {
+    setSearch('?');
+    expect(readForcedOrtArtifact()).toBeNull();
+  });
+
+  it.each(['standard', 'asyncify', 'jspi'] as const)('honors ?eco-force-ort-artifact=%s', (value) => {
+    setSearch(`?eco-force-ort-artifact=${value}`);
+    expect(readForcedOrtArtifact()).toBe(value);
+  });
+
+  it('ignores an unknown artifact value', () => {
+    setSearch('?eco-force-ort-artifact=jsep');
+    expect(readForcedOrtArtifact()).toBeNull();
+  });
+});
+
+describe('readForcedThreads — ?eco-force-threads override', () => {
+  it('returns null with no param', () => {
+    setSearch('?');
+    expect(readForcedThreads()).toBeNull();
+  });
+
+  it.each([['1', 1], ['4', 4], ['16', 16]])('parses ?eco-force-threads=%s as %i', (value, expected) => {
+    setSearch(`?eco-force-threads=${value}`);
+    expect(readForcedThreads()).toBe(expected);
+  });
+
+  it.each(['0', '-2', '2.5', 'many', ''])('rejects non-positive-integer value %s', (value) => {
+    setSearch(`?eco-force-threads=${value}`);
+    expect(readForcedThreads()).toBeNull();
   });
 });
 

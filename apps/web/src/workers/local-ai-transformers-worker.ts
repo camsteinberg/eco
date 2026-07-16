@@ -62,6 +62,7 @@ import {
   type CjkTokenScan,
 } from '../local-ai/runtime/cjk-suppression';
 import { classifyGenerationError } from './classify-generation-error';
+import { ortWasmPaths, clampThreads, type OrtArtifact } from '../local-ai/runtime/ort-artifact';
 
 // ─── Local self typing ─────────────────────────────────────────────────────
 
@@ -72,7 +73,7 @@ type WorkerSelf = {
     listener: (event: MessageEvent<WorkerInbound>) => void,
   ): void;
   location: { origin: string };
-  navigator: { gpu?: unknown };
+  navigator: { gpu?: unknown; hardwareConcurrency?: number };
 };
 
 declare const self: WorkerSelf;
@@ -82,6 +83,33 @@ declare const self: WorkerSelf;
 /** Extract the constructor name from a tokenizer (or any unknown value). */
 function tokenizerName(t: unknown): string {
   return (t as { constructor?: { name?: string } } | null)?.constructor?.name ?? 'unknown';
+}
+
+/**
+ * Apply the ORT artifact + thread-pool measurement overrides to Transformers.js's
+ * shared onnxruntime-web env. `env.backends.onnx.wasm` aliases ort's live
+ * `ONNX_ENV.wasm` (TJS spreads the top level but keeps the nested `wasm` object
+ * by reference), so mutating it here is exactly what ort reads at session create.
+ *
+ * - `artifact` → a `wasmPaths` OBJECT pointing at the same-origin `/ort/` variant.
+ *   The object form is required to force a specific variant; a bare string prefix
+ *   would just append the bundle's own default filename.
+ * - `numThreads` → clamped to `[1, hardwareConcurrency]`. ort still falls back to
+ *   1 without cross-origin isolation; the clamp only keeps the request honest.
+ *
+ * Invoked only when a lever is present, so the default path never touches env.
+ */
+function applyOrtRuntimeOverrides(artifact?: OrtArtifact, numThreads?: number): void {
+  const wasmEnv = (env as unknown as {
+    backends?: { onnx?: { wasm?: { wasmPaths?: unknown; numThreads?: number } } };
+  }).backends?.onnx?.wasm;
+  if (!wasmEnv) return;
+  if (artifact) {
+    wasmEnv.wasmPaths = ortWasmPaths(artifact);
+  }
+  if (typeof numThreads === 'number') {
+    wasmEnv.numThreads = clampThreads(numThreads, self.navigator.hardwareConcurrency ?? 1);
+  }
 }
 
 // ─── Worker state ──────────────────────────────────────────────────────────
@@ -229,6 +257,13 @@ async function handleInit(msg: Extract<WorkerInbound, { type: 'init' }>): Promis
   (env as unknown as { remoteHost?: string }).remoteHost = self.location.origin;
   (env as unknown as { remotePathTemplate?: string }).remotePathTemplate =
     '/api/local-models/{model}/resolve/{revision}/';
+
+  // ── ORT artifact / thread-pool overrides (measurement levers) ─────────
+  // Applied ONLY when the adapter forwarded a lever. With neither present the
+  // worker touches nothing here, so onnxruntime-web resolves its WASM artifact
+  // and thread count exactly as it does today (bundler import.meta.url asset +
+  // crossOriginIsolated-keyed numThreads) — a byte-for-byte-unchanged default.
+  applyOrtRuntimeOverrides(msg.ortArtifact, msg.numThreads);
 
   const wantsWasm = msg.forceWasm === true || !(await hasUsableWebGPU());
   const backend: 'webgpu' | 'wasm' = wantsWasm ? 'wasm' : 'webgpu';

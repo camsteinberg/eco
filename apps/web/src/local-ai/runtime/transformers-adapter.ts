@@ -38,7 +38,8 @@ import type { SystemRoleSupport } from './chat-template-adapter';
 import type { CjkSuppressionTelemetry } from './cjk-suppression';
 import type { KvReuseTelemetry } from './kv-cache';
 import type { Storage } from '../download/storage';
-import { readForcedWasm } from '../device/profile';
+import { readForcedWasm, readForcedOrtArtifact, readForcedThreads } from '../device/profile';
+import type { OrtArtifact } from './ort-artifact';
 
 // ─── Worker message protocol ───────────────────────────────────────────────
 
@@ -58,6 +59,19 @@ export type WorkerInbound =
       dtype: 'q4' | 'q4f16' | 'q2f16';
       modelFriendlyName: string;
       forceWasm?: boolean;
+      /**
+       * Force a specific onnxruntime-web WASM artifact (measurement lever). When
+       * present the worker points `env.backends.onnx.wasm.wasmPaths` at the
+       * same-origin `/ort/` variant; when absent it sets nothing (today's
+       * default resolution — byte-for-byte unchanged).
+       */
+      ortArtifact?: OrtArtifact;
+      /**
+       * Force the onnxruntime-web WASM thread-pool size (measurement lever).
+       * Clamped to hardwareConcurrency in the worker. Absent ⇒ set nothing
+       * (ort's crossOriginIsolated-keyed default).
+       */
+      numThreads?: number;
       storageBridgeId: string;
       externalDataChunks?: Record<string, number>;
       revision?: string;
@@ -282,6 +296,11 @@ export class TransformersAdapter implements RuntimeAdapter {
         // Explicit caller intent wins; otherwise the ?eco-force-wasm override
         // applies so the CPU path can be exercised on any device.
         forceWasm: options?.forceWasm ?? (readForcedWasm() || undefined),
+        // Measurement levers (?eco-force-ort-artifact / ?eco-force-threads),
+        // read on the main thread and threaded across the worker boundary —
+        // absent ⇒ the worker sets nothing and today's defaults stand.
+        ortArtifact: readForcedOrtArtifact() ?? undefined,
+        numThreads: readForcedThreads() ?? undefined,
         storageBridgeId: getCacheBridgeId(model),
         externalDataChunks: Object.keys(externalDataChunks).length > 0 ? externalDataChunks : undefined,
         revision: model.artifact?.revision,

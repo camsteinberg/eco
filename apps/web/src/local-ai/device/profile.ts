@@ -25,6 +25,7 @@
  */
 
 import type { DeviceProfile, BrowserClass, WebGPUSupport } from '../types';
+import { isOrtArtifact, type OrtArtifact } from '../runtime/ort-artifact';
 
 const URL_PARAM_FORCE_CAPABILITY = 'eco-force-capability';
 const URL_PARAM_FORCE_BROWSER = 'eco-force-browser';
@@ -32,6 +33,8 @@ const URL_PARAM_FORCE_PLATFORM = 'eco-force-platform';
 const URL_PARAM_FORCE_DEVICE_MEMORY = 'eco-force-device-memory';
 const URL_PARAM_FORCE_SHADER_F16 = 'eco-force-shader-f16';
 const URL_PARAM_FORCE_WASM = 'eco-force-wasm';
+const URL_PARAM_FORCE_ORT_ARTIFACT = 'eco-force-ort-artifact';
+const URL_PARAM_FORCE_THREADS = 'eco-force-threads';
 
 // Tiny WASM module that uses the `v128.const` SIMD opcode. If
 // `WebAssembly.validate` accepts these bytes, the runtime supports SIMD —
@@ -261,6 +264,34 @@ export function readForcedWasm(): boolean {
   // '' = bare `?eco-force-wasm` (URLSearchParams returns '' for a valueless
   // param, null when absent) — a natural debug-URL shorthand, treated as on.
   return v === '' || v === '1' || v === 'on' || v === 'true';
+}
+
+/**
+ * Forced ?eco-force-ort-artifact=standard|asyncify|jspi override, or null when
+ * absent/invalid — selects which onnxruntime-web WASM artifact the Transformers.js
+ * runtime loads (see runtime/ort-artifact.ts). Measurement tooling for the
+ * per-device serving matrix: the adapter reads this at load time and threads it
+ * across the worker boundary via the init message (the worker never reads URL
+ * params). A non-asyncify artifact removes the WebGPU/JSEP kernels, so it is only
+ * meaningful on the WASM EP (pair with ?eco-force-wasm). No-op for LiteRT/WebLLM.
+ */
+export function readForcedOrtArtifact(): OrtArtifact | null {
+  const v = readUrlParamsSafe().get(URL_PARAM_FORCE_ORT_ARTIFACT);
+  return isOrtArtifact(v) ? v : null;
+}
+
+/**
+ * Forced ?eco-force-threads=N override, or null when absent/invalid — sets the
+ * onnxruntime-web WASM thread-pool size (`env.wasm.numThreads`). Only a positive
+ * integer is honored; the worker clamps to hardwareConcurrency. Threading needs
+ * cross-origin isolation (ort falls back to 1 without it). Measurement lever for
+ * the serving matrix; applies to the Transformers.js WASM path only.
+ */
+export function readForcedThreads(): number | null {
+  const v = readUrlParamsSafe().get(URL_PARAM_FORCE_THREADS);
+  if (v == null) return null;
+  const n = Number(v);
+  return Number.isInteger(n) && n >= 1 ? n : null;
 }
 
 function detectWebgpuSupport(): WebGPUSupport {

@@ -33,6 +33,21 @@ describe("/api/ort/[file]", () => {
     expect(Number(response.headers.get("content-length"))).toBeGreaterThan(0);
   });
 
+  it.each([
+    "ort-wasm-simd-threaded.mjs",
+    "ort-wasm-simd-threaded.wasm",
+    "ort-wasm-simd-threaded.jspi.mjs",
+    "ort-wasm-simd-threaded.jspi.wasm",
+  ])("serves the %s measurement-matrix variant", async (file) => {
+    const response = await HEAD(
+      new Request(`http://localhost/api/ort/${file}`),
+      routeContext(file),
+    );
+
+    expect(response.status).toBe(200);
+    expect(Number(response.headers.get("content-length"))).toBeGreaterThan(0);
+  });
+
   it("rejects unknown runtime assets", async () => {
     const response = await HEAD(
       new Request("http://localhost/api/ort/other.wasm"),
