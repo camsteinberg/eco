@@ -27,6 +27,12 @@
 import type { RuntimeBackend } from '../runtime/types';
 import { getDiagnosticEnv } from '../device/profile';
 import { safeStorage } from '../../lib/local-storage';
+import {
+  loadSustainedProbes,
+  readActiveLevers,
+  type SustainedProbeLevers,
+  type SustainedProbeRecord,
+} from './sustained-probe';
 
 const STORAGE_KEY = 'eco-local-ai-diagnostics-v1';
 const MAX_ENTRIES = 50;
@@ -145,6 +151,17 @@ export type DiagnosticDump = {
     bitness?: string;
   };
   entries: LocalAiDiagnostic[];
+  /**
+   * The measurement levers active on the URL at export time (additive, always
+   * present). Lets a shared dump say which artifact/threads the device ran.
+   */
+  activeLevers?: SustainedProbeLevers;
+  /**
+   * Sustained-memory probe records (additive). Separate from `entries` because
+   * they carry a different shape (per-turn samples + tab-kill evidence) and
+   * their own versioning — the smoke `schemaVersion` is unaffected.
+   */
+  sustainedProbes?: SustainedProbeRecord[];
 };
 
 export async function exportDiagnostics(): Promise<string> {
@@ -154,6 +171,8 @@ export async function exportDiagnostics(): Promise<string> {
     dumpedAt: new Date().toISOString(),
     env: await getDiagnosticEnv(),
     entries,
+    activeLevers: readActiveLevers(),
+    sustainedProbes: loadSustainedProbes(),
   };
   return JSON.stringify(dump, null, 2);
 }
