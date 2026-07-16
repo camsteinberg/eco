@@ -41,6 +41,8 @@ import {
 } from '../selection/recommend';
 import { clearEvidence } from '../evidence/ledger';
 import { getDeviceProfile } from '../device/profile';
+import { isWebKitMobile, WEBKIT_MOBILE_VALIDATED_MODEL_IDS } from '../device/compatibility';
+import type { DeviceProfile } from '../types';
 import { getActiveLocalHeavyWorkLease } from '../../lib/local-heavy-work-owner';
 import { isCacheVerificationForced } from '../../lib/validation-harness';
 import type { Slot } from '../types';
@@ -167,6 +169,11 @@ export type SelfHealReport = {
   /** Retired-model ids whose one-time cleanup migration ran this boot
    *  (marker-guarded, once per device per migration). */
   retiredModelMigrationsRun: string[];
+  /** Slots demoted this boot because the device is iOS WebKit and the bound
+   *  model is not on the WebKit-mobile validated list — cleared so the next
+   *  setup run re-enters recommend → below-floor instead of resuming a load
+   *  that crash-loops the tab. */
+  webkitMobileSlotsRegated: Slot[];
   errors: string[];
 };
 
@@ -213,6 +220,12 @@ export type SelfHealOptions = {
    * whose names are disjoint from Eco's own 'eco-local-ai-<id>' namespace.
    */
   deleteCacheByName?: (name: string) => Promise<void>;
+  /**
+   * Test seam: the device profile for the WebKit-mobile re-gate step. Defaults
+   * to the sync `getDeviceProfile()`. Injected in tests so the re-gate can be
+   * exercised for an iOS-WebKit profile without spoofing navigator/URL params.
+   */
+  resolveDeviceProfile?: () => DeviceProfile;
 };
 
 /** Local-only mirror of chatStore's explicit-selection flag key. A user who
@@ -393,12 +406,48 @@ export async function runSelfHeal(options?: SelfHealOptions): Promise<SelfHealRe
     staleDefaultSlotMigrated: false,
     artifactMigrationsRun: [],
     retiredModelMigrationsRun: [],
+    webkitMobileSlotsRegated: [],
     errors: [],
   };
 
   if (!storage) {
     // No browser storage (SSR or restricted environments). Nothing to do.
     return report;
+  }
+
+  // -2. WebKit-mobile re-gate. A device primed BEFORE the WebKit-mobile gate
+  //     shipped (the founder's iPhone was bound during the pre-gate crash-loop
+  //     spike; prod still serves that population) holds a slot bound to a model
+  //     that crash-loops the tab on load. Nothing else re-checks it: boot
+  //     reconcile only flips 'ready'→'preparing' on missing bytes, and a
+  //     'preparing' slot with cached partial bytes RESUMES the doomed load. So
+  //     re-gate here: on iOS WebKit, clear any slot bound to a model NOT on the
+  //     validated list (both slots), and drop its download-in-progress marker so
+  //     nothing resumes. The next setup run then re-enters recommend →
+  //     NoAssignableModelError → the designed mobile handoff surface. Cached
+  //     model BYTES are left alone — harmless dead weight that reconcile/repair
+  //     owns; this step only touches the slot binding + resume markers.
+  //
+  //     Runs FIRST (before the former-default rebind and marker sweeps) so a
+  //     cleared slot is already empty when those steps read it. No-op on every
+  //     non-WebKit-mobile profile. Never crashes boot (wrapped).
+  try {
+    const profile = (options?.resolveDeviceProfile ?? getDeviceProfile)();
+    if (isWebKitMobile(profile)) {
+      const slotState = getAllSlots();
+      for (const slot of SLOTS) {
+        const boundId = slotState[slot].modelId;
+        if (!boundId || WEBKIT_MOBILE_VALIDATED_MODEL_IDS.includes(boundId)) continue;
+        clearSlot(slot);
+        // Drop resume markers for the demoted model so a stale
+        // download-in-progress record can't drive a re-fetch of it.
+        storage.removeItem(DOWNLOAD_IN_PROGRESS_PREFIX_NEW + boundId);
+        storage.removeItem(DOWNLOAD_IN_PROGRESS_PREFIX_LEGACY + boundId);
+        report.webkitMobileSlotsRegated.push(slot);
+      }
+    }
+  } catch (err) {
+    report.errors.push(`webkit-mobile-regate: ${describe(err)}`);
   }
 
   // -1. Artifact-swap evidence migration. MUST run before the former-default

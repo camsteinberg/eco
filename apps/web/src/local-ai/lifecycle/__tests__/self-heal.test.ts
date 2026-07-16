@@ -17,7 +17,8 @@ import {
   type RetiredModelMigration,
 } from '../self-heal';
 import { setSlot, setSlotStatus, getSlot, readRawSlotIdForMigration } from '../slots';
-import type { Slot } from '../../types';
+import { WEBKIT_MOBILE_VALIDATED_MODEL_IDS } from '../../device/compatibility';
+import type { DeviceProfile, Slot } from '../../types';
 
 class FakeStorage implements CooldownStorage {
   map = new Map<string, string>();
@@ -632,6 +633,134 @@ describe('runSelfHeal — former-default slot migration', () => {
 
     expect(report.staleDefaultSlotMigrated).toBe(false);
     expect(getSlot('eco-smart').modelId).toBe(LFM);
+  });
+});
+
+// ─── WebKit-mobile re-gate (D1 designed tier) ──────────────────────────────
+//
+// A device primed BEFORE the WebKit-mobile gate shipped (the founder's iPhone,
+// bound during the pre-gate crash-loop spike; prod still serves that population)
+// holds a slot bound to a model that crash-loops the tab on load. Boot must
+// demote it so the next setup run re-enters recommend → below-floor, instead of
+// resuming the doomed load off cached partial bytes.
+
+describe('runSelfHeal — WebKit-mobile re-gate', () => {
+  const QWEN_FLOOR = 'local/qwen3-0.6b';
+  const SMART = 'candidate/qwen3.5-2b-onnx';
+  const iosWebKit: DeviceProfile = {
+    browserClass: 'safari',
+    webgpuSupport: 'webgpu',
+    deviceMemoryGB: 4,
+    isMobile: true,
+    override: 'auto',
+  };
+  const safariDesktop: DeviceProfile = {
+    browserClass: 'safari',
+    webgpuSupport: 'wasm-only',
+    deviceMemoryGB: 16,
+    isMobile: false,
+    override: 'auto',
+  };
+  const chromiumDesktop: DeviceProfile = {
+    browserClass: 'chromium',
+    webgpuSupport: 'webgpu',
+    deviceMemoryGB: 16,
+    isMobile: false,
+    override: 'auto',
+  };
+
+  it('clears both bound slots on iOS WebKit so the next setup re-enters below-floor', async () => {
+    setSlot('eco-fast', QWEN_FLOOR);
+    setSlotStatus('eco-fast', 'ready');
+    setSlot('eco-smart', SMART);
+    setSlotStatus('eco-smart', 'preparing');
+
+    const report = await runSelfHeal({
+      now: () => nowMs,
+      storage,
+      resolveDeviceProfile: () => iosWebKit,
+    });
+
+    expect(report.errors).toEqual([]);
+    expect(report.webkitMobileSlotsRegated).toEqual(['eco-fast', 'eco-smart']);
+    // Both slots are now empty → the setup runner re-runs recommend, which
+    // throws NoAssignableModelError on iOS WebKit → the designed mobile surface.
+    expect(getSlot('eco-fast').modelId).toBeNull();
+    expect(getSlot('eco-fast').status).toBe('empty');
+    expect(getSlot('eco-smart').modelId).toBeNull();
+    expect(getSlot('eco-smart').status).toBe('empty');
+  });
+
+  it('drops the demoted model\'s download-in-progress marker so nothing resumes', async () => {
+    setSlot('eco-fast', QWEN_FLOOR);
+    setSlotStatus('eco-fast', 'preparing');
+    storage.setItem('eco-local-ai-download-in-progress-' + QWEN_FLOOR, String(nowMs));
+    storage.setItem('eco-model-download-in-progress:' + QWEN_FLOOR, String(nowMs));
+
+    await runSelfHeal({ now: () => nowMs, storage, resolveDeviceProfile: () => iosWebKit });
+
+    expect(storage.getItem('eco-local-ai-download-in-progress-' + QWEN_FLOOR)).toBeNull();
+    expect(storage.getItem('eco-model-download-in-progress:' + QWEN_FLOOR)).toBeNull();
+  });
+
+  it('leaves a desktop Safari slot untouched (not WebKit-mobile)', async () => {
+    setSlot('eco-fast', QWEN_FLOOR);
+    setSlotStatus('eco-fast', 'ready');
+
+    const report = await runSelfHeal({
+      now: () => nowMs,
+      storage,
+      resolveDeviceProfile: () => safariDesktop,
+    });
+
+    expect(report.webkitMobileSlotsRegated).toEqual([]);
+    expect(getSlot('eco-fast').modelId).toBe(QWEN_FLOOR);
+    expect(getSlot('eco-fast').status).toBe('ready');
+  });
+
+  it('is a no-op on a non-WebKit-mobile profile (Chromium desktop)', async () => {
+    setSlot('eco-fast', SMART);
+    setSlotStatus('eco-fast', 'ready');
+
+    const report = await runSelfHeal({
+      now: () => nowMs,
+      storage,
+      resolveDeviceProfile: () => chromiumDesktop,
+    });
+
+    expect(report.webkitMobileSlotsRegated).toEqual([]);
+    expect(getSlot('eco-fast').modelId).toBe(SMART);
+  });
+
+  it('respects the validated-list override — a listed model keeps its slot', async () => {
+    (WEBKIT_MOBILE_VALIDATED_MODEL_IDS as string[]).push(QWEN_FLOOR);
+    try {
+      setSlot('eco-fast', QWEN_FLOOR);
+      setSlotStatus('eco-fast', 'ready');
+
+      const report = await runSelfHeal({
+        now: () => nowMs,
+        storage,
+        resolveDeviceProfile: () => iosWebKit,
+      });
+
+      expect(report.webkitMobileSlotsRegated).toEqual([]);
+      expect(getSlot('eco-fast').modelId).toBe(QWEN_FLOOR);
+      expect(getSlot('eco-fast').status).toBe('ready');
+    } finally {
+      (WEBKIT_MOBILE_VALIDATED_MODEL_IDS as string[]).length = 0;
+    }
+  });
+
+  it('does nothing (no crash) when both slots are empty on iOS WebKit', async () => {
+    const report = await runSelfHeal({
+      now: () => nowMs,
+      storage,
+      resolveDeviceProfile: () => iosWebKit,
+    });
+
+    expect(report.errors).toEqual([]);
+    expect(report.webkitMobileSlotsRegated).toEqual([]);
   });
 });
 
