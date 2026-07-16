@@ -151,6 +151,28 @@ describe('BelowFloorScreen — mobile designed tier (handoff surface)', () => {
     expect(screen.getByRole('button', { name: /send eco to your computer/i })).toBeInTheDocument();
   });
 
+  it('keeps the handoff the only primary CTA — Sign me up drops to the secondary variant', () => {
+    // Two stacked same-weight green buttons compete and dilute the handoff.
+    // Force Web Share absent so the handoff renders as the "Copy link" primary,
+    // then assert Sign me up is the quiet outline (secondary) @eco/ui variant.
+    delete (navigator as { share?: unknown }).share;
+    render(<BelowFloorScreen reason="mobile" onSignup={noopSignup} />);
+
+    const handoff = screen.getByRole('button', { name: /copy link/i });
+    const signup = screen.getByRole('button', { name: /sign me up/i });
+
+    // Primary (@eco/ui) fills the primary background; secondary is outline-only.
+    expect(handoff.className).toContain('bg-[var(--eco-primary)]');
+    expect(signup.className).toContain('border-[var(--eco-primary)]');
+    expect(signup.className).not.toContain('bg-[var(--eco-primary)]');
+  });
+
+  it('keeps Sign me up primary on the non-mobile reasons (no competing CTA there)', () => {
+    render(<BelowFloorScreen reason="runtime" onSignup={noopSignup} />);
+    const signup = screen.getByRole('button', { name: /sign me up/i });
+    expect(signup.className).toContain('bg-[var(--eco-primary)]');
+  });
+
   it('falls back to Copy link when Web Share is absent, confirming "Link copied"', async () => {
     delete (navigator as { share?: unknown }).share;
     const writeText = vi.fn().mockResolvedValue(undefined);

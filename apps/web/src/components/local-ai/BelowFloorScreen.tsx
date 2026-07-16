@@ -153,7 +153,15 @@ export function BelowFloorScreen({ deviceLabel, reason = 'runtime', onSignup }: 
               }}
               aria-label="Email address"
             />
-            <Button type="submit" variant="primary" disabled={submitting}>
+            {/* On the mobile branch the native handoff is the one primary CTA;
+                the notify action drops to the quiet outline (secondary) variant so
+                two same-weight green buttons don't compete. Other reason branches
+                have no competing CTA, so Sign me up stays primary there. */}
+            <Button
+              type="submit"
+              variant={reason === 'mobile' ? 'secondary' : 'primary'}
+              disabled={submitting}
+            >
               {submitting ? 'Saving...' : 'Sign me up'}
             </Button>
             {error && (
