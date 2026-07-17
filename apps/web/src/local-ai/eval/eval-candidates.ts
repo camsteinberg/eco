@@ -157,7 +157,9 @@ const QWEN3_0_6B_Q4: ModelConfig = {
 // entry was removed — a model must never live in both sets, or the registry
 // emits duplicate proxy artifacts. The old single-file build stays reachable as
 // the paired A/B baseline below (resident is pressure-dependent → paired cells
-// only); the graduation IS the servability fix that lets Cam's iPhone reach it.
+// only). Catalog membership is also what makes the artifact proxy-allowed on
+// real devices — the eval lane is loopback-gated, so graduation is the only
+// path to a real-device (WebKit-mobile) retest.
 
 // A-3 single-file baseline cell (retained 2026-07-17 at graduation): the SAME
 // Qwen3-0.6B q4f16 weights the catalog now serves as an external-data pair, but
