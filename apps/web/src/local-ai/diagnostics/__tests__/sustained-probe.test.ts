@@ -7,6 +7,7 @@ import {
   clearMarker,
   clearSustainedProbes,
   detectMemoryApis,
+  detectWebGpuApi,
   loadSustainedProbes,
   measureUserAgentMemoryMB,
   peakUsedJSHeap,
@@ -15,7 +16,7 @@ import {
   reconstructKilledRecord,
   recordSustainedProbe,
   recoverOrphanedMarker,
-  updateMarkerProgress,
+  updateMarker,
   writeMarker,
   type MemorySample,
   type SustainedProbeMarker,
@@ -119,6 +120,13 @@ describe('detectMemoryApis + readMemorySample', () => {
   });
 });
 
+describe('detectWebGpuApi', () => {
+  it('is false in jsdom, where navigator.gpu is absent', () => {
+    // No WebGPU in jsdom — the null-safe check must simply report absence.
+    expect(detectWebGpuApi()).toBe(false);
+  });
+});
+
 describe('measureUserAgentMemoryMB', () => {
   it('returns MB when the API resolves', async () => {
     const perf = { measureUserAgentSpecificMemory: async () => ({ bytes: 10_485_760 }) };
@@ -163,10 +171,24 @@ describe('marker lifecycle', () => {
     expect(readMarker()).toEqual(MARKER);
   });
 
-  it('updates only the completed-turn count', () => {
+  it('round-trips the phase / backend / webgpuApiPresent fields', () => {
+    const phased: SustainedProbeMarker = {
+      ...MARKER,
+      phase: 'turn-in-flight',
+      backend: 'webgpu',
+      webgpuApiPresent: true,
+    };
+    writeMarker(phased);
+    expect(readMarker()).toEqual(phased);
+  });
+
+  it('reads a legacy marker (no phase field) as valid', () => {
+    // MARKER carries no phase/backend/webgpuApiPresent — the shape older builds
+    // wrote. isMarker must not require the new fields.
     writeMarker(MARKER);
-    updateMarkerProgress(5);
-    expect(readMarker()?.turnsCompleted).toBe(5);
+    const read = readMarker();
+    expect(read).toEqual(MARKER);
+    expect(read?.phase).toBeUndefined();
   });
 
   it('clears the marker', () => {
@@ -181,6 +203,32 @@ describe('marker lifecycle', () => {
   });
 });
 
+describe('updateMarker', () => {
+  it('patches only the given fields and preserves the rest', () => {
+    writeMarker(MARKER);
+    updateMarker({ turnsCompleted: 5, phase: 'turn-complete' });
+    const marker = readMarker();
+    expect(marker?.turnsCompleted).toBe(5);
+    expect(marker?.phase).toBe('turn-complete');
+    // Untouched fields survive the patch.
+    expect(marker?.modelId).toBe(MARKER.modelId);
+    expect(marker?.levers).toEqual(MARKER.levers);
+  });
+
+  it('records the confirmed backend without disturbing the phase', () => {
+    writeMarker({ ...MARKER, phase: 'loading' });
+    updateMarker({ backend: 'webgpu' });
+    const marker = readMarker();
+    expect(marker?.backend).toBe('webgpu');
+    expect(marker?.phase).toBe('loading');
+  });
+
+  it('is a no-op when no marker exists', () => {
+    updateMarker({ turnsCompleted: 2 });
+    expect(readMarker()).toBeNull();
+  });
+});
+
 describe('orphaned-marker recovery (tab-kill evidence)', () => {
   it('reconstructs a killed record carrying the turn it died on', () => {
     const record = reconstructKilledRecord(MARKER);
@@ -190,6 +238,65 @@ describe('orphaned-marker recovery (tab-kill evidence)', () => {
     expect(record.reconstructedFromMarker).toBe(true);
     expect(record.error).toContain('3/6');
     expect(record.levers).toEqual(MARKER.levers);
+  });
+
+  it('uses the legacy wording for a marker with no phase', () => {
+    // MARKER predates the phase field — its death point is only the turn count.
+    expect(reconstructKilledRecord(MARKER).error).toBe(
+      'Tab was killed during a sustained probe at turn 3/6.',
+    );
+  });
+
+  it("reads 'died during load' for a loading-phase kill", () => {
+    const record = reconstructKilledRecord({ ...MARKER, phase: 'loading', backend: null });
+    expect(record.error).toBe('Tab was killed during model load — the model never finished loading.');
+  });
+
+  it('appends the WebGPU-present hint when the backend never confirmed', () => {
+    const record = reconstructKilledRecord({
+      ...MARKER,
+      phase: 'loading',
+      backend: null,
+      webgpuApiPresent: true,
+    });
+    expect(record.error).toContain('during model load');
+    expect(record.error).toContain('WebGPU API was present at start (backend never confirmed).');
+  });
+
+  it('appends the WebGPU-absent hint when the backend never confirmed', () => {
+    const record = reconstructKilledRecord({
+      ...MARKER,
+      phase: 'loading',
+      backend: null,
+      webgpuApiPresent: false,
+    });
+    expect(record.error).toContain('WebGPU API was absent at start (backend never confirmed).');
+  });
+
+  it('omits the WebGPU hint when presence is unknown (null)', () => {
+    const record = reconstructKilledRecord({
+      ...MARKER,
+      phase: 'loading',
+      backend: null,
+      webgpuApiPresent: null,
+    });
+    expect(record.error).toBe('Tab was killed during model load — the model never finished loading.');
+  });
+
+  it('reports the in-flight turn (N+1) for a turn-in-flight kill', () => {
+    // turnsCompleted 3 ⇒ it died generating turn 4.
+    const record = reconstructKilledRecord({ ...MARKER, phase: 'turn-in-flight' });
+    expect(record.error).toBe('Tab was killed while generating turn 4/6 — the model loaded fine.');
+  });
+
+  it('reports the last completed turn for a turn-complete kill', () => {
+    const record = reconstructKilledRecord({ ...MARKER, phase: 'turn-complete' });
+    expect(record.error).toBe('Tab was killed between turns, after completing turn 3/6.');
+  });
+
+  it('carries the marker backend onto the reconstructed record', () => {
+    const record = reconstructKilledRecord({ ...MARKER, phase: 'turn-in-flight', backend: 'webgpu' });
+    expect(record.backend).toBe('webgpu');
   });
 
   it('recoverOrphanedMarker records the kill and clears the marker', () => {

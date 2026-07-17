@@ -118,6 +118,10 @@ export type SustainedProbeRecord = {
   reconstructedFromMarker?: boolean;
 };
 
+/** Where a live probe currently is. A surviving (orphaned) marker's phase IS the
+ *  death point — the only phase evidence WebKit gives us. */
+export type SustainedProbeMarkerPhase = 'loading' | 'turn-in-flight' | 'turn-complete';
+
 /** The live marker written at start and updated per turn. */
 export type SustainedProbeMarker = {
   startedAt: string; // ISO
@@ -127,6 +131,15 @@ export type SustainedProbeMarker = {
   levers: SustainedProbeLevers;
   /** Turns fully completed so far — the "killed at turn X" evidence. */
   turnsCompleted: number;
+  /** Phase at last write. Absent on markers from builds before this field —
+   *  those reconstruct with the legacy "killed at turn X" wording. */
+  phase?: SustainedProbeMarkerPhase;
+  /** Confirmed backend once the model load settles; null before. */
+  backend?: string | null;
+  /** Whether `navigator.gpu` existed at probe start — the best available hint
+   *  at which EP the load was attempting when a kill precedes backend
+   *  confirmation. Presence ≠ used: it is evidence, not a conclusion. */
+  webgpuApiPresent?: boolean | null;
 };
 
 // ─── Memory sampling (pure, feature-detected) ────────────────────────────────
@@ -150,6 +163,13 @@ export function detectMemoryApis(perf: PerformanceMemoryLike | undefined = safeP
     performanceMemory: !!perf && typeof perf.memory === 'object',
     measureUserAgent: !!perf && typeof perf.measureUserAgentSpecificMemory === 'function',
   };
+}
+
+/** True when the WebGPU API exists (navigator.gpu) — recorded on the marker at
+ *  probe start as the likely-attempted EP when a kill precedes backend
+ *  confirmation. Presence is a hint, not proof the EP was actually used. */
+export function detectWebGpuApi(): boolean {
+  return typeof navigator !== 'undefined' && 'gpu' in navigator;
 }
 
 /**
@@ -226,11 +246,14 @@ export function writeMarker(marker: SustainedProbeMarker): void {
   safeStorage.set(MARKER_KEY, JSON.stringify(marker));
 }
 
-/** Update just the completed-turn count on the live marker (best-effort). */
-export function updateMarkerProgress(turnsCompleted: number): void {
+/** Patch the live marker in place (best-effort; no-op when absent). Called at
+ *  every phase transition so an abrupt tab kill leaves the freshest evidence. */
+export function updateMarker(
+  patch: Partial<Pick<SustainedProbeMarker, 'phase' | 'backend' | 'turnsCompleted'>>,
+): void {
   const marker = readMarker();
   if (!marker) return;
-  writeMarker({ ...marker, turnsCompleted });
+  writeMarker({ ...marker, ...patch });
 }
 
 export function readMarker(): SustainedProbeMarker | null {
@@ -269,7 +292,7 @@ export function reconstructKilledRecord(marker: SustainedProbeMarker): Sustained
     version: 1,
     recordedAt: new Date().toISOString(),
     modelId: marker.modelId,
-    backend: null,
+    backend: marker.backend ?? null,
     outcome: 'killed',
     turnsRequested: marker.turnsRequested,
     turnsCompleted: marker.turnsCompleted,
@@ -280,9 +303,35 @@ export function reconstructKilledRecord(marker: SustainedProbeMarker): Sustained
     turns: [],
     samples: [],
     peakUsedJSHeapMB: null,
-    error: `Tab was killed during a sustained probe at turn ${marker.turnsCompleted}/${marker.turnsRequested}.`,
+    error: killedDeathPoint(marker),
     reconstructedFromMarker: true,
   };
+}
+
+/**
+ * The death-point message for a killed record, selected by the marker's phase —
+ * the phase at the last synchronous write IS where the tab died. Legacy markers
+ * (no phase) keep the original turn-count wording so old evidence still reads.
+ */
+function killedDeathPoint(marker: SustainedProbeMarker): string {
+  const { phase, turnsCompleted, turnsRequested } = marker;
+  switch (phase) {
+    case 'loading': {
+      let msg = 'Tab was killed during model load — the model never finished loading.';
+      // Before the backend confirms, whether navigator.gpu existed is the only
+      // hint at which EP the load was attempting — evidence, not a conclusion.
+      if (marker.backend == null && marker.webgpuApiPresent != null) {
+        msg += ` WebGPU API was ${marker.webgpuApiPresent ? 'present' : 'absent'} at start (backend never confirmed).`;
+      }
+      return msg;
+    }
+    case 'turn-in-flight':
+      return `Tab was killed while generating turn ${turnsCompleted + 1}/${turnsRequested} — the model loaded fine.`;
+    case 'turn-complete':
+      return `Tab was killed between turns, after completing turn ${turnsCompleted}/${turnsRequested}.`;
+    default:
+      return `Tab was killed during a sustained probe at turn ${turnsCompleted}/${turnsRequested}.`;
+  }
 }
 
 /**

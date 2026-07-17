@@ -21,6 +21,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { clearMarker, clearSustainedProbes, loadSustainedProbes, readMarker } from '../sustained-probe';
+import type { SustainedProbeMarker } from '../sustained-probe';
 import type { ModelConfig } from '../../types';
 import type { TokenEvent } from '../../runtime/types';
 
@@ -150,6 +151,28 @@ describe('runSustainedProbe — load deadline', () => {
     expect(loadSustainedProbes().at(-1)?.outcome).toBe('error');
   });
 
+  it("holds the marker at phase 'loading' with backend null while the load is pending", async () => {
+    cacheWithWeightsOnly();
+    // Snapshot the marker at the moment loadModel is entered — the load hasn't
+    // settled, so the backend is not yet confirmed. A kill here would reconstruct
+    // as a load-phase death, falling back to the WebGPU-presence hint.
+    let markerDuringLoad: SustainedProbeMarker | null = null;
+    loadModelMock.mockImplementation(
+      (_model: ModelConfig, options?: { signal?: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          markerDuringLoad = readMarker();
+          options?.signal?.addEventListener('abort', () => reject(new Error('Load aborted')), { once: true });
+        }),
+    );
+
+    const { runSustainedProbe } = await import('../sustained-probe-runner');
+    await runSustainedProbe({ model: MODEL, turns: 2, loadTimeoutMs: 50 });
+
+    expect(markerDuringLoad).not.toBeNull();
+    expect(markerDuringLoad!.phase).toBe('loading');
+    expect(markerDuringLoad!.backend).toBeNull();
+  });
+
   it('passes an abort signal through to loadModel so the underlying load is actually cancelled', async () => {
     cacheWithWeightsOnly();
     let sawSignal: AbortSignal | undefined;
@@ -212,5 +235,36 @@ describe('runSustainedProbe — happy path', () => {
     expect(record.backend).toBe('wasm');
     expect(readMarker()).toBeNull();
     expect(loadSustainedProbes().at(-1)?.outcome).toBe('completed');
+  });
+
+  it("drives the marker phase loading → turn-in-flight → turn-complete and stamps the backend after load", async () => {
+    cacheWithWeightsOnly();
+    loadModelMock.mockResolvedValue({ backend: 'wasm' });
+    generateMock.mockImplementation(() => tokenStream());
+
+    // Read the live marker at each progress event — the freshest evidence a tab
+    // kill would leave behind. (At 'done' the marker is already cleared.)
+    const snapshots: Array<{ progressPhase: string; markerPhase?: string; backend?: string | null }> = [];
+    const { runSustainedProbe } = await import('../sustained-probe-runner');
+    await runSustainedProbe(
+      { model: MODEL, turns: 1 },
+      {
+        onProgress: (p) => {
+          const m = readMarker();
+          snapshots.push({ progressPhase: p.phase, markerPhase: m?.phase, backend: m?.backend });
+        },
+      },
+    );
+
+    const loading = snapshots.find((s) => s.progressPhase === 'loading');
+    expect(loading?.markerPhase).toBe('loading');
+    expect(loading?.backend).toBeNull();
+
+    const turnStart = snapshots.find((s) => s.progressPhase === 'turn-start');
+    expect(turnStart?.markerPhase).toBe('turn-in-flight');
+    expect(turnStart?.backend).toBe('wasm');
+
+    const turnComplete = snapshots.find((s) => s.progressPhase === 'turn-complete');
+    expect(turnComplete?.markerPhase).toBe('turn-complete');
   });
 });
