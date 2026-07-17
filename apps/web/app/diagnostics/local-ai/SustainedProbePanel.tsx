@@ -98,6 +98,13 @@ export function SustainedProbePanel() {
   // Set from a persisted `done:false` weights-download record — the on-device
   // report of where a previous (tab-killed) download stopped for the picked model.
   const [deathNote, setDeathNote] = useState<string | null>(null);
+  // Live storage diagnosis line (quota/usage + per-model enumeration) — see
+  // refreshStorageInfo.
+  const [storageNote, setStorageNote] = useState<string | null>(null);
+  // True after an insufficient-storage download failure: offer to free the
+  // model's stranded bytes (parts from dead attempts) and retry — the
+  // guaranteed unblock when the quota is half-full of unusable state.
+  const [offerClearRetry, setOfferClearRetry] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const downloadAbortRef = useRef<AbortController | null>(null);
   // The in-flight (or last) attempt record, mirrored here so the throttled
@@ -221,11 +228,43 @@ export function SustainedProbePanel() {
     }
   }, [modelId]);
 
+  // Storage readout: quota/usage plus what enumeration actually sees for the
+  // picked model. On a devtools-less device this line IS the diagnosis — a
+  // quota half-full of parts that enumeration reports as zero entries is how
+  // a broken cache.keys() (or evicted parts) shows itself after a tab kill.
+  const refreshStorageInfo = useCallback(async (id: string) => {
+    try {
+      const mb = (n: number) => Math.round(n / (1024 * 1024));
+      let quotaLine = 'estimate unavailable';
+      if (typeof navigator !== 'undefined' && navigator.storage?.estimate) {
+        const { usage, quota } = await navigator.storage.estimate();
+        if (typeof usage === 'number' && typeof quota === 'number') {
+          quotaLine = `${mb(usage)} MB used of ${mb(quota)} MB site quota`;
+        }
+      }
+      const { pickStorage } = await import('../../../src/local-ai/download/storage');
+      const entries = await pickStorage().listForModel(id);
+      const parts = entries.filter((e) => e.url.includes('.ecopart.'));
+      const partBytes = parts.reduce((sum, e) => sum + (e.sizeBytes ?? 0), 0);
+      setStorageNote(
+        `Storage: ${quotaLine} · this model: ${entries.length} entries`
+        + (parts.length > 0 ? ` (${parts.length} parts, ${mb(partBytes)} MB)` : ''),
+      );
+    } catch (err) {
+      setStorageNote(`Storage: enumeration failed — ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (modelId) void refreshStorageInfo(modelId);
+  }, [modelId, refreshStorageInfo]);
+
   const downloadWeights = useCallback(async () => {
     if (!modelId || downloading) return;
     setDownloading(true);
     setDownloadLine('Preparing download…');
     setDeathNote(null); // A fresh attempt supersedes any prior death report.
+    setOfferClearRetry(false);
     const controller = new AbortController();
     downloadAbortRef.current = controller;
     // Open a `done:false` attempt row up front: if the tab is killed before
@@ -285,11 +324,37 @@ export function SustainedProbePanel() {
       // A genuine error (or abort) leaves the row `done:false` on purpose — only
       // an uninterrupted success or an explicit stop resolves it.
       setDownloadLine(`Download failed: ${err instanceof Error ? err.message : String(err)}`);
+      // Insufficient storage has a guaranteed unblock on this panel: stranded
+      // bytes from dead attempts occupy quota the preflight can't always
+      // credit — offer to free the model's storage and retry from clean.
+      if (err instanceof Error && err.name === 'InsufficientStorageError') {
+        setOfferClearRetry(true);
+      }
     } finally {
       setDownloading(false);
       downloadAbortRef.current = null;
+      if (modelId) void refreshStorageInfo(modelId);
     }
-  }, [modelId, downloading, resolveModel]);
+  }, [modelId, downloading, resolveModel, refreshStorageInfo]);
+
+  // Free every byte the picked model holds (parts, manifests, whole files) and
+  // start a fresh download. The nuclear-but-safe option when the quota is
+  // occupied by state a dead attempt left behind: a fresh parts-native download
+  // needs only 1× the file, so clean + retry always fits where resume can't.
+  const clearAndRetry = useCallback(async () => {
+    if (!modelId || downloading) return;
+    setOfferClearRetry(false);
+    setDownloadLine('Freeing this model’s storage…');
+    try {
+      const { pickStorage } = await import('../../../src/local-ai/download/storage');
+      await pickStorage().clearModel(modelId);
+      await refreshStorageInfo(modelId);
+    } catch (err) {
+      setDownloadLine(`Could not free storage: ${err instanceof Error ? err.message : String(err)}`);
+      return;
+    }
+    await downloadWeights();
+  }, [modelId, downloading, refreshStorageInfo, downloadWeights]);
 
   const stopDownload = useCallback(() => {
     downloadAbortRef.current?.abort();
@@ -453,6 +518,21 @@ export function SustainedProbePanel() {
       {downloadLine && (
         <p className="mb-4 text-sm" style={MONO} role="status">
           {downloadLine}
+        </p>
+      )}
+      {offerClearRetry && !downloading && (
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          <span className="text-sm" style={LABEL}>
+            Stranded bytes from an earlier attempt may be occupying the site quota.
+          </span>
+          <Button onClick={clearAndRetry} variant="secondary">
+            Free this model’s storage and retry
+          </Button>
+        </div>
+      )}
+      {storageNote && (
+        <p className="mb-4 text-xs" style={{ ...MONO, color: 'var(--eco-text-secondary)' }}>
+          {storageNote}
         </p>
       )}
       {liveLine && (

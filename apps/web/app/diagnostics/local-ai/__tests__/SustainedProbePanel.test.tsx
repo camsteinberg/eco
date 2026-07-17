@@ -84,6 +84,17 @@ vi.mock('../../../../src/local-ai/download/progress', () => ({
   },
 }));
 
+// Storage seam for the panel's storage readout + clear-and-retry affordance.
+const clearModelMock = vi.fn(async () => {});
+vi.mock('../../../../src/local-ai/download/storage', () => ({
+  pickStorage: () => ({
+    listForModel: async () => [
+      { url: 'https://x/api/f.onnx.ecopart.abc.0', sizeBytes: 4 },
+    ],
+    clearModel: clearModelMock,
+  }),
+}));
+
 import { fireEvent } from '@testing-library/react';
 import { SustainedProbePanel } from '../SustainedProbePanel';
 
@@ -190,6 +201,29 @@ describe('SustainedProbePanel — weights staging', () => {
           'Previous weights download died at 120 of 543 MB — resume continues from persisted chunks.',
         ),
       ).toBeInTheDocument();
+    });
+  });
+
+  it('offers clear-and-retry on an insufficient-storage failure and retries from clean', async () => {
+    // Stranded parts from a dead attempt occupy quota the preflight can't
+    // always credit (observed on iOS Safari) — freeing the model's storage and
+    // retrying is the guaranteed unblock, so the panel offers exactly that.
+    weightsCached = false;
+    const quotaError = new Error('Eco needs about 0.5 GB of free space for this model.');
+    quotaError.name = 'InsufficientStorageError';
+    downloadModelMock.mockRejectedValueOnce(quotaError);
+    render(<SustainedProbePanel />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Download weights' }));
+    const retry = await screen.findByRole('button', { name: 'Free this model’s storage and retry' });
+
+    fireEvent.click(retry);
+    await waitFor(() => {
+      expect(clearModelMock).toHaveBeenCalledTimes(1);
+    });
+    // The retry re-enters the normal download flow (second downloadModel call).
+    await waitFor(() => {
+      expect(downloadModelMock).toHaveBeenCalledTimes(2);
     });
   });
 
