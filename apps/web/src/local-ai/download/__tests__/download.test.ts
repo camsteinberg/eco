@@ -34,6 +34,7 @@ import {
   type CacheStorageLike,
   countCached,
   type FileSpec,
+  type Storage,
 } from '../storage';
 import {
   type DownloadPlan,
@@ -77,7 +78,18 @@ class MemoryCache implements CacheLike {
 
   async put(request: RequestInfo | URL, response: Response): Promise<void> {
     const url = requestKey(request);
-    this.store.set(url, response.clone());
+    // Model real Cache.put: it reads the response body to completion before the
+    // promise resolves. Buffer here rather than storing a lazy stream clone —
+    // otherwise a streamed body (putStreamed) wouldn't be consumed until a much
+    // later match(), after the caller has already swept its source parts. The
+    // zero-retention streamed store relies on this drain-before-resolve.
+    const headers = new Headers(response.headers);
+    const buffered = await response.blob();
+    this.store.set(url, new Response(buffered, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    }));
   }
 
   async match(request: RequestInfo | URL): Promise<Response | undefined> {
@@ -1673,4 +1685,114 @@ describe('downloadByPlan — mid-file chunk resume', () => {
       .toBe(body.byteLength);
     expect(await partEntries(await storage.listForModel(MODEL_ID))).toHaveLength(0);
   });
+
+  it('stores the chunked file via putStreamed — never assembling it in memory', async () => {
+    // Zero-retention proof: the final store must go through putStreamed (which
+    // streams the persisted parts one at a time), NOT put (which would take an
+    // assembled whole-file Blob). No oid so the only get() calls are the
+    // stream's per-part reads — letting us assert they happen in offset order.
+    const body = body16();
+    const getCalls: string[] = [];
+    const putUrls: string[] = [];
+    const streamed: { url: string; sizeBytes: number; drained: Promise<Uint8Array> }[] = [];
+
+    // A Storage that delegates to the real CacheApiStorage but observes the
+    // store calls. putStreamed tees the incoming stream: one branch is drained
+    // for the byte assertion, the other feeds the real backend so the download
+    // completes and sweeps normally.
+    const spy: Storage = {
+      backend: storage.backend,
+      async put(key, response) { putUrls.push(key.url); return storage.put(key, response); },
+      async putStreamed(key, streamBody, sizeBytes) {
+        const [a, b] = streamBody.tee();
+        streamed.push({ url: key.url, sizeBytes, drained: drainStream(a) });
+        return storage.putStreamed!(key, b, sizeBytes);
+      },
+      async get(key) { getCalls.push(key.url); return storage.get(key); },
+      has: (key) => storage.has(key),
+      verify: (key, size) => storage.verify(key, size),
+      remove: (key) => storage.remove(key),
+      listForModel: (id) => storage.listForModel(id),
+      clearModel: (id) => storage.clearModel(id),
+    };
+
+    const result = await downloadByPlan(
+      { modelId: MODEL_ID, files: [{ url: URL_A, sizeBytes: body.byteLength }] },
+      {
+        storage: spy,
+        estimateStorage: async () => null,
+        rangeChunkBytes: RESUME_CHUNK,
+        fetcher: rangeDispatch([], { [URL_A]: serveRanges(body) }),
+      },
+    );
+
+    expect(result.filesFetched).toBe(1);
+    // The identity was stored by streaming, with the authoritative total size…
+    expect(streamed).toHaveLength(1);
+    expect(streamed[0]!.url).toBe(URL_A);
+    expect(streamed[0]!.sizeBytes).toBe(body.byteLength);
+    // …and never by a whole-file put (put is used only for the chunk-parts).
+    expect(putUrls).not.toContain(URL_A);
+    expect(putUrls.every((u) => u.includes(PART_MARKER))).toBe(true);
+    // Draining the stream the caller handed putStreamed yields the exact bytes.
+    expect([...(await streamed[0]!.drained)]).toEqual([...body]);
+    // The parts were read back sequentially, in byte-offset order.
+    const partGets = getCalls.filter((u) => u.includes(PART_MARKER));
+    expect(partGets.map(partOffset)).toEqual([0, 4, 8, 12]);
+  });
+
+  it('fails closed when a persisted part is corrupt — DownloadIntegrityError, parts swept, nothing stored', async () => {
+    const body = body16();
+    const oid = oidOf(body);
+    // Manually stage all four parts under the oid stamp, but tamper one part's
+    // bytes (same length → passes size/contiguity, fails the streamed SHA). No
+    // final entry exists, so resume adopts the parts and the integrity pass runs
+    // before any store — the corrupt-download-never-stamps invariant.
+    for (let offset = 0; offset < body.byteLength; offset += RESUME_CHUNK) {
+      const slice = offset === 8
+        ? Uint8Array.from({ length: RESUME_CHUNK }, () => 0)
+        : body.subarray(offset, offset + RESUME_CHUNK);
+      await storage.put(
+        { modelId: MODEL_ID, url: `${URL_A}${PART_MARKER}${oid}.${offset}` },
+        new Response(slice as unknown as BodyInit),
+      );
+    }
+
+    const log: { url: string; range: string }[] = [];
+    await expect(
+      downloadByPlan(chunkedFile(URL_A, body, oid), {
+        storage,
+        estimateStorage: async () => null,
+        rangeChunkBytes: RESUME_CHUNK,
+        fetcher: rangeDispatch(log, { [URL_A]: serveRanges(body) }),
+      }),
+    ).rejects.toBeInstanceOf(DownloadIntegrityError);
+
+    // The whole file was reconstructed from parts (no refetch), so the integrity
+    // check — not a size shortfall — is what caught the corruption.
+    expect(log).toHaveLength(0);
+    // Corrupt parts are swept and the identity is never stamped.
+    expect(await partEntries(await storage.listForModel(MODEL_ID))).toHaveLength(0);
+    expect(await storage.has({ modelId: MODEL_ID, url: URL_A })).toBe(false);
+  });
 });
+
+/** Read a ReadableStream fully into one Uint8Array (test helper). */
+async function drainStream(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> {
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    total += value.byteLength;
+  }
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, at);
+    at += chunk.byteLength;
+  }
+  return out;
+}

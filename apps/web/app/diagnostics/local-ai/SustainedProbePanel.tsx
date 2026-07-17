@@ -13,6 +13,51 @@ import type {
 } from '../../../src/local-ai/diagnostics/sustained-probe';
 import type { SustainedProbeProgress } from '../../../src/local-ai/diagnostics/sustained-probe-runner';
 
+// ─── Weights-download attempt log (devtools-less death-point diagnostics) ─────
+//
+// A compatibility-declined device (iPhone) has no devtools, and the WebKit tab
+// is killed MID-DOWNLOAD of large weights — so the download's own progress is
+// lost with the tab. We persist a single per-attempt record to localStorage as
+// the download advances; if the tab dies, the next mount reads a `done:false`
+// record and reports exactly where it stopped. The record is left in place
+// (never cleared on read) until a later attempt overwrites it.
+
+const WEIGHTS_ATTEMPT_KEY = 'eco-probe-weights-attempt-v1';
+
+type WeightsAttempt = {
+  modelId: string;
+  startedAt: string;
+  lastLoaded: number;
+  total: number;
+  done: boolean;
+};
+
+function readWeightsAttempt(): WeightsAttempt | null {
+  try {
+    const raw = localStorage.getItem(WEIGHTS_ATTEMPT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<WeightsAttempt>;
+    if (typeof parsed?.modelId !== 'string' || typeof parsed.done !== 'boolean') return null;
+    return {
+      modelId: parsed.modelId,
+      startedAt: typeof parsed.startedAt === 'string' ? parsed.startedAt : '',
+      lastLoaded: typeof parsed.lastLoaded === 'number' ? parsed.lastLoaded : 0,
+      total: typeof parsed.total === 'number' ? parsed.total : 0,
+      done: parsed.done,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeWeightsAttempt(attempt: WeightsAttempt): void {
+  try {
+    localStorage.setItem(WEIGHTS_ATTEMPT_KEY, JSON.stringify(attempt));
+  } catch {
+    // Best-effort diagnostics — a storage hiccup must never break the download.
+  }
+}
+
 // ─── Static metadata (heavy imports are dynamic, inside handlers/effects) ─────
 
 type PickerModel = { id: string; friendlyName: string };
@@ -50,8 +95,14 @@ export function SustainedProbePanel() {
   const [weightsReady, setWeightsReady] = useState<boolean | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [downloadLine, setDownloadLine] = useState<string | null>(null);
+  // Set from a persisted `done:false` weights-download record — the on-device
+  // report of where a previous (tab-killed) download stopped for the picked model.
+  const [deathNote, setDeathNote] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const downloadAbortRef = useRef<AbortController | null>(null);
+  // The in-flight (or last) attempt record, mirrored here so the throttled
+  // progress writer and the success/stop transitions extend the same row.
+  const attemptRef = useRef<WeightsAttempt | null>(null);
 
   // Catalog models and eval-lane candidates resolve from different sets; the
   // probe and the weights download both need the same lookup.
@@ -153,12 +204,41 @@ export function SustainedProbePanel() {
     };
   }, [modelId, resolveModel]);
 
+  // Death-point report: on mount and whenever the pick changes, surface a
+  // persisted `done:false` attempt for THIS model — where a previous download
+  // stopped (most usefully after a WebKit tab-kill, which leaves the record
+  // behind because the tab died before it could be marked done).
+  useEffect(() => {
+    const attempt = readWeightsAttempt();
+    if (attempt && !attempt.done && attempt.modelId === modelId) {
+      const mb = (n: number) => Math.round(n / (1024 * 1024));
+      setDeathNote(
+        `Previous weights download died at ${mb(attempt.lastLoaded)} of ${mb(attempt.total)} MB`
+        + ' — resume continues from persisted chunks.',
+      );
+    } else {
+      setDeathNote(null);
+    }
+  }, [modelId]);
+
   const downloadWeights = useCallback(async () => {
     if (!modelId || downloading) return;
     setDownloading(true);
     setDownloadLine('Preparing download…');
+    setDeathNote(null); // A fresh attempt supersedes any prior death report.
     const controller = new AbortController();
     downloadAbortRef.current = controller;
+    // Open a `done:false` attempt row up front: if the tab is killed before
+    // completion, this is the record the next mount reports the death point from.
+    const started: WeightsAttempt = {
+      modelId,
+      startedAt: new Date().toISOString(),
+      lastLoaded: 0,
+      total: 0,
+      done: false,
+    };
+    attemptRef.current = started;
+    writeWeightsAttempt(started);
     try {
       const { bootstrapLocalAi } = await import('../../../src/local-ai/bootstrap');
       await bootstrapLocalAi();
@@ -171,11 +251,20 @@ export function SustainedProbePanel() {
       const { ProgressTracker } = await import('../../../src/local-ai/download/progress');
       const tracker = new ProgressTracker();
       const megabytes = (n: number) => Math.round(n / (1024 * 1024));
+      const ONE_MB = 1024 * 1024;
       const unsubscribe = tracker.subscribe((event) => {
         if (event.kind === 'progress' && event.phase === 'downloading') {
           setDownloadLine(
             `Downloading… ${Math.round(event.percent * 100)}% (${megabytes(event.loaded)}/${megabytes(event.total)} MB)`,
           );
+          // Throttle to ~1MB steps: localStorage writes are synchronous, and a
+          // per-chunk write would churn the main thread on a 500MB+ download.
+          const prev = attemptRef.current;
+          if (prev && (event.loaded - prev.lastLoaded >= ONE_MB || event.loaded >= event.total)) {
+            const next = { ...prev, lastLoaded: event.loaded, total: event.total };
+            attemptRef.current = next;
+            writeWeightsAttempt(next);
+          }
         }
       });
       try {
@@ -185,7 +274,16 @@ export function SustainedProbePanel() {
       }
       setWeightsReady(true);
       setDownloadLine('Weights ready — run the probe.');
+      // Completed cleanly — mark the row done so it is never reported as a death.
+      const prev = attemptRef.current;
+      if (prev) {
+        const done = { ...prev, done: true };
+        attemptRef.current = done;
+        writeWeightsAttempt(done);
+      }
     } catch (err) {
+      // A genuine error (or abort) leaves the row `done:false` on purpose — only
+      // an uninterrupted success or an explicit stop resolves it.
       setDownloadLine(`Download failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setDownloading(false);
@@ -196,6 +294,10 @@ export function SustainedProbePanel() {
   const stopDownload = useCallback(() => {
     downloadAbortRef.current?.abort();
     setDownloadLine('Stopping download…');
+    // An explicit stop is a user choice, not a death — resolve the row so the
+    // next mount doesn't misreport it as a tab-kill.
+    const prev = attemptRef.current ?? readWeightsAttempt();
+    if (prev) writeWeightsAttempt({ ...prev, done: true });
   }, []);
 
   const run = useCallback(async () => {
@@ -265,6 +367,16 @@ export function SustainedProbePanel() {
           role="status"
         >
           {killedNote}
+        </div>
+      )}
+
+      {deathNote && (
+        <div
+          className="mb-4 rounded-lg px-3 py-2 text-sm"
+          style={{ background: 'var(--eco-error-soft, rgba(199, 92, 74, 0.12))', color: 'var(--eco-error, #c75c4a)' }}
+          role="status"
+        >
+          {deathNote}
         </div>
       )}
 

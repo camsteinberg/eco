@@ -40,7 +40,6 @@ import { bytesToHex } from '@noble/hashes/utils.js';
 import type { ModelConfig } from '../types';
 import {
   pickStorage,
-  type CachedEntry,
   type Storage,
 } from './storage';
 import { requestPersistentStorage } from './persistent-storage';
@@ -522,19 +521,18 @@ export async function downloadByPlan(
       injectForcedDownloadFailure(remainingBytes);
     }
 
-    // Second pass: fetch + store the missing files, streaming each body
-    // straight into a (disk-backed) Blob so we never hold a whole file — let
-    // alone a 2–3× materialization of it — in the JS heap. The old path
-    // accumulated every chunk, allocated ONE contiguous Uint8Array for the
-    // whole file, then copied it AGAIN in stampCacheSize() → a ~2–3× peak that
-    // throws `RangeError: Array buffer allocation failed` on large single-file
-    // weights (e.g. a 1.1 GB .onnx_data) on memory-constrained devices.
-    // `new Response(stream).blob()` keeps the JS heap at O(chunk): the browser
-    // streams the body into Blob storage (which spills to disk). storage.put()
-    // then stamps the ACTUAL blob size, so the size-trust contract (verify
-    // reads only Eco-Cache-Size) and the heuristic-plan-size tolerance (no
-    // throw on size mismatch — verify catches it on the next pass) are
-    // unchanged.
+    // Second pass: fetch + store the missing files. Each fetch returns one of
+    // two shapes (FetchedFile): the small single-GET path streams its body into
+    // one disk-backed Blob (`kind: 'whole'`), while the chunked path persists
+    // each Range chunk and returns only the part keys (`kind: 'parts'`) — never
+    // an assembled Blob, so no whole file is ever materialized in the JS heap on
+    // ANY engine (the zero-retention contract; see downloadFileInChunks). The
+    // 'whole' path is stored with storage.put; the 'parts' path streams the
+    // persisted chunks into storage.putStreamed one part at a time. storage.put
+    // stamps the ACTUAL blob size and putStreamed stamps the vouched total, so
+    // the size-trust contract (verify reads only Eco-Cache-Size) and the
+    // heuristic-plan-size tolerance (verify catches a mismatch on the next pass)
+    // are unchanged.
     const fetchContext: FetchFileContext = {
       fetcher,
       tracker,
@@ -548,19 +546,51 @@ export async function downloadByPlan(
     for (const file of remaining) {
       throwIfAborted(controller.signal, plan.modelId);
 
-      const { blob, partKeys } = await fetchFileToBlobWithFallback(
+      const fetched = await fetchFileToBlobWithFallback(
         file,
         loadedBytes,
         fetchContext,
       );
 
-      loadedBytes += blob.size;
+      const identity = { modelId: plan.modelId, url: file.url };
+      // Chunk-part keys to sweep after a successful store (empty on the
+      // whole-file path). Declared out here so the sweep below covers both kinds.
+      const partKeys = fetched.kind === 'parts' ? fetched.partKeys : [];
+
+      if (fetched.kind === 'whole') {
+        loadedBytes += fetched.blob.size;
+      } else {
+        loadedBytes += fetched.sizeBytes;
+      }
 
       try {
-        await storage.put(
-          { modelId: plan.modelId, url: file.url },
-          new Response(blob),
-        );
+        if (fetched.kind === 'whole') {
+          await storage.put(identity, new Response(fetched.blob));
+        } else if (storage.putStreamed) {
+          // Zero-retention store: stream the persisted parts straight into
+          // storage without ever assembling the whole file in the heap.
+          await storage.putStreamed(
+            identity,
+            partsStream(storage, plan.modelId, fetched.partKeys),
+            fetched.sizeBytes,
+          );
+        } else {
+          // Test-fake fallback: backends without putStreamed (never the real
+          // Cache API path) compose the part blobs the old way. Real backends
+          // implement putStreamed, so shipping devices never hit this.
+          const parts: Blob[] = [];
+          for (const key of fetched.partKeys) {
+            const entry = await storage.get({ modelId: plan.modelId, url: key });
+            if (!entry) {
+              throw new DownloadFailedError(
+                `Persisted chunk unreadable at ${key} for ${file.url}`,
+                { url: file.url },
+              );
+            }
+            parts.push(await entry.response.blob());
+          }
+          await storage.put(identity, new Response(new Blob(parts)));
+        }
       } catch (err) {
         // A late quota failure (estimate was optimistic, or space vanished
         // mid-download) becomes the same honest storage error as the preflight.
@@ -672,12 +702,20 @@ type FetchFileContext = {
 };
 
 /**
- * A fetched file plus the storage keys of the chunk-parts that back it (empty
- * for the whole-file path). The caller sweeps these keys AFTER the final
- * `storage.put({url: file.url})` succeeds — see the deletion-ordering note in
- * `downloadByPlan`.
+ * A fetched file, in one of two shapes the caller stores differently:
+ *
+ *   - `'whole'` — the single-GET path streamed the body into one disk-backed
+ *     Blob; the caller stores it with `storage.put(new Response(blob))`.
+ *   - `'parts'` — the chunked path left the bytes as persisted chunk-parts and
+ *     never assembled them in memory (the zero-retention contract). The caller
+ *     stores them by streaming the parts straight into `storage.putStreamed`,
+ *     then sweeps `partKeys` AFTER that store succeeds (see the deletion-ordering
+ *     note in `downloadByPlan`). `sizeBytes` is the authoritative total the
+ *     store stamps as Eco-Cache-Size.
  */
-type FetchedFile = { blob: Blob; partKeys: string[] };
+type FetchedFile =
+  | { kind: 'whole'; blob: Blob }
+  | { kind: 'parts'; sizeBytes: number; partKeys: string[] };
 
 // ─── Chunk-part persistence (mid-file resume) ────────────────────────────────
 //
@@ -948,61 +986,50 @@ async function downloadFileWhole(
     }
   }
 
-  return { blob, partKeys: [] };
-}
-
-/**
- * Re-read a just-persisted part from storage, yielding the disk-backed blob
- * handle assembly retains instead of the network-response blob (see the memory
- * note on downloadFileInChunks). A read-back miss means storage lied about the
- * write — fail the download honestly rather than silently re-holding the
- * network blob in memory.
- */
-async function readBackPart(
-  ctx: FetchFileContext,
-  key: string,
-  file: DownloadFileSpec,
-): Promise<Blob> {
-  const entry = await ctx.storage.get({ modelId: ctx.modelId, url: key });
-  if (!entry) {
-    throw new DownloadFailedError(
-      `Persisted chunk unreadable at ${key} for ${file.url}`,
-      { url: file.url },
-    );
-  }
-  return entry.response.blob();
+  return { kind: 'whole', blob };
 }
 
 /**
  * Range-chunked path: pull the file in sequential `bytes=start-end` requests
- * (each retried on transient failure), then assemble the parts into one
- * disk-backed Blob via `new Blob([...])` (by-reference — no contiguous copy).
+ * (each retried on transient failure), persisting each chunk to storage as it
+ * arrives and returning ONLY the ordered part keys — never an assembled Blob.
  *
- * MEMORY (the WebKit-mobile kill, 2026-07-17): a network-response Blob is not
- * reliably disk-backed on iOS Safari, so retaining each chunk's response blob
- * until assembly grows tab memory linearly with the file — a ~543 MB download
- * crossed the WebKit tab budget and crash-looped mid-download on iPhone.
- * Every chunk is persisted to storage for resume anyway, so after the put we
- * immediately re-read the part from storage and retain only that disk-backed
- * handle (the same shape the resume path yields); the response blob goes out
- * of scope with the loop iteration. Peak in-flight memory is O(chunk),
- * independent of file size, on every engine.
+ * ZERO-RETENTION CONTRACT (the WebKit-mobile kill, 2026-07-17): no code path
+ * here may reference more than one chunk's bytes at any time, on any engine,
+ * regardless of how that engine backs a Blob. Each fetched chunk is streamed
+ * into storage and then goes out of scope with its loop iteration; the parts
+ * are never read back into an in-memory array, and the whole file is never
+ * assembled with `new Blob([...])`. The caller streams the persisted parts
+ * straight into `storage.putStreamed` (one part open at a time), so the file's
+ * bytes are never materialized in the JS heap between the wire and cache
+ * storage.
+ *
+ * Why the earlier fixes were partial: #186 stopped the download's own
+ * full-file materialization but still assembled `new Blob(parts)` from
+ * network-response blobs; #35 read the parts back from storage before
+ * assembling. Both trusted that a Blob handle (network- or cache-read) is
+ * disk-backed rather than heap-resident — an assumption iOS Safari violates,
+ * so a ~543 MB download still crossed the tab budget and crash-looped
+ * mid-download. Retaining zero assembled bytes is the only design that holds
+ * without that assumption.
  *
  * Integrity: Range requests bypass the proxy's full-GET SHA verification, so
- * the assembled blob is size-checked against the authoritative total (from the
- * first 206 Content-Range) and, when an LFS SHA-256 oid is known, verified by
- * streaming the disk-backed blob through an incremental hasher — O(chunk)
- * memory and decoupled from per-chunk retry. A failed check throws before
- * anything is stored, so a corrupt download never stamps a cache entry.
+ * before returning (BEFORE any whole-file store) the persisted parts are
+ * size-checked against the authoritative total (from the first 206
+ * Content-Range) and, when an LFS SHA-256 oid is known, hashed by streaming
+ * each part through an incremental hasher one at a time — O(chunk) memory. A
+ * failed check throws before anything is stored under the file identity, so a
+ * corrupt download never stamps a cache entry.
  */
 async function downloadFileInChunks(
   file: DownloadFileSpec,
   baseLoaded: number,
   ctx: FetchFileContext,
 ): Promise<FetchedFile> {
-  const parts: Blob[] = [];
-  // Storage keys of the parts backing `parts`, in the same order. Returned to
-  // the caller for post-store sweeping and used for assembly-failure cleanup.
+  // Storage keys of the persisted parts, in byte order. This is the ONLY thing
+  // the loop accumulates — no `parts: Blob[]`, so no chunk's bytes outlive its
+  // iteration. Returned to the caller for the streamed store and post-store
+  // sweep, and used for integrity/failure cleanup.
   const partKeys: string[] = [];
   let received = 0;
   // Provisional total from the plan; corrected by the first 206 Content-Range
@@ -1011,7 +1038,7 @@ async function downloadFileInChunks(
 
   // Resume: adopt any previously-persisted contiguous parts for this file's
   // current stamp, and sweep stale (superseded-revision) or non-contiguous ones.
-  received = await resumeFromPersistedParts(file, ctx, parts, partKeys);
+  received = await resumeFromPersistedParts(file, ctx, partKeys);
   if (received > 0) {
     // Seed the bar to the resumed offset once. The tracker is absolute and
     // clamped, so this neither double-counts nor regresses a later sample.
@@ -1019,19 +1046,19 @@ async function downloadFileInChunks(
   }
 
   // When every part is already present (received >= total) the while loop is
-  // skipped and we fall straight through to assembly — this covers an interrupt
-  // between the last chunk write and the final whole-file store.
+  // skipped and we fall straight through to the integrity pass — this covers an
+  // interrupt between the last chunk write and the final whole-file store.
   while (received < total) {
     throwIfAborted(ctx.signal, ctx.modelId);
     const end = Math.min(received + ctx.rangeChunkBytes, total) - 1;
     const chunk = await fetchRangeChunk(file, received, end, baseLoaded + received, ctx);
 
     if (chunk.status === 200) {
-      // Origin ignored Range and returned the whole file — take it as-is. The
-      // resumed parts are abandoned here but remain in storage; their keys stay
-      // in partKeys so the caller still sweeps them after the whole-file store.
-      // Persist-then-read-back like any other part: the whole-file response
-      // blob is the largest possible in-memory retention (the WebKit kill).
+      // Origin ignored Range and returned the whole file — persist it as a
+      // single part. The resumed parts are abandoned here but remain in storage;
+      // their keys stay in partKeys so the caller still sweeps them after the
+      // whole-file store. The chunk blob is not read back — its bytes drop with
+      // this iteration.
       const wholeKey = partKeyUrl(file, 0);
       try {
         await ctx.storage.put(
@@ -1042,8 +1069,6 @@ async function downloadFileInChunks(
         if (isQuotaExceeded(err)) throw new InsufficientStorageError(ctx.remainingBytes);
         throw err;
       }
-      parts.length = 0;
-      parts.push(await readBackPart(ctx, wholeKey, file));
       partKeys.push(wholeKey);
       received = chunk.blob.size;
       total = chunk.blob.size;
@@ -1071,27 +1096,44 @@ async function downloadFileInChunks(
       if (isQuotaExceeded(err)) throw new InsufficientStorageError(ctx.remainingBytes);
       throw err;
     }
-    // Retain the disk-backed storage copy, NOT the network-response blob —
-    // see the memory note in the function doc (the WebKit-mobile kill).
-    parts.push(await readBackPart(ctx, key, file));
     partKeys.push(key);
     received += chunk.blob.size;
   }
 
-  const assembled = new Blob(parts);
-  if (assembled.size !== total) {
+  if (received !== total) {
     // Persisted parts are inconsistent with the authoritative total — clean
     // them so a resumed attempt (or the L2 proxy fallback) starts fresh rather
     // than re-stitching the same bad bytes forever.
     await deletePartsBestEffort(ctx.storage, ctx.modelId, partKeys);
     throw new DownloadFailedError(
-      `Incomplete download for ${file.url}: assembled ${assembled.size} of ${total} bytes`,
+      `Incomplete download for ${file.url}: received ${received} of ${total} bytes`,
       { url: file.url },
     );
   }
 
   if (file.oid?.length === 64) {
-    const digest = await sha256OfBlob(assembled);
+    // Hash the persisted parts one at a time — never materialize the whole
+    // file. Each part is streamed (its own body, or its blob's stream as a
+    // fallback) through the incremental hasher, so peak memory stays O(chunk).
+    const hasher = sha256.create();
+    for (const key of partKeys) {
+      const entry = await ctx.storage.get({ modelId: ctx.modelId, url: key });
+      if (!entry) {
+        await deletePartsBestEffort(ctx.storage, ctx.modelId, partKeys);
+        throw new DownloadFailedError(
+          `Persisted chunk unreadable at ${key} for ${file.url}`,
+          { url: file.url },
+        );
+      }
+      const body = entry.response.body ?? (await entry.response.blob()).stream();
+      const reader = body.getReader();
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        hasher.update(value);
+      }
+    }
+    const digest = bytesToHex(hasher.digest());
     if (digest !== file.oid) {
       // Corrupt persisted bytes — never trust a resume over them. Clean before
       // throwing so the fallback/retry re-downloads instead of re-failing.
@@ -1103,20 +1145,73 @@ async function downloadFileInChunks(
     }
   }
 
-  return { blob: assembled, partKeys };
+  return { kind: 'parts', sizeBytes: total, partKeys };
+}
+
+/**
+ * Compose persisted chunk-parts into a single readable stream for a streamed
+ * store — pull-based, so `cache.put`'s consumption paces the reads and only ONE
+ * part is open at a time (the zero-retention contract extended to the store).
+ * A missing part mid-stream errors the stream rather than silently truncating.
+ */
+function partsStream(
+  storage: Storage,
+  modelId: string,
+  partKeys: readonly string[],
+): ReadableStream<Uint8Array> {
+  let index = 0;
+  let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      for (;;) {
+        if (!reader) {
+          if (index >= partKeys.length) {
+            controller.close();
+            return;
+          }
+          const entry = await storage.get({ modelId, url: partKeys[index]! });
+          if (!entry) {
+            controller.error(
+              new DownloadFailedError(
+                `Persisted chunk unreadable at ${partKeys[index]} for streamed store`,
+                { url: partKeys[index]! },
+              ),
+            );
+            return;
+          }
+          const body = entry.response.body ?? (await entry.response.blob()).stream();
+          reader = body.getReader();
+        }
+        const { done, value } = await reader.read();
+        if (done) {
+          reader = null;
+          index += 1;
+          continue;
+        }
+        controller.enqueue(value);
+        return;
+      }
+    },
+    cancel() {
+      void reader?.cancel();
+    },
+  });
 }
 
 /**
  * Adopt previously-persisted chunk-parts for `file` so a resumed download
  * continues mid-file. Enumerates the model namespace, walks the current-stamp
- * parts contiguously from offset 0 into `parts`/`partKeys`, and best-effort
- * sweeps stale-stamp parts and any non-contiguous leftovers beyond the walk.
- * Returns the resumed byte count (0 when nothing usable is present).
+ * parts contiguously from offset 0 into `partKeys`, and best-effort sweeps
+ * stale-stamp parts and any non-contiguous leftovers beyond the walk. Returns
+ * the resumed byte count (0 when nothing usable is present).
+ *
+ * Zero-retention: the walk confirms each part exists and reads its stamped size
+ * from the enumeration — it never reads a part's BYTES. The bytes are streamed
+ * only later, one at a time, by the integrity pass and the streamed store.
  */
 async function resumeFromPersistedParts(
   file: DownloadFileSpec,
   ctx: FetchFileContext,
-  parts: Blob[],
   partKeys: string[],
 ): Promise<number> {
   let entries: { url: string; sizeBytes: number | null }[];
@@ -1147,17 +1242,16 @@ async function resumeFromPersistedParts(
   for (const part of mine) {
     if (part.offset !== received) break; // Gap: the rest is non-contiguous.
     const key = partKeyUrl(file, received);
-    let entry: CachedEntry | null;
+    let present: boolean;
     try {
-      entry = await ctx.storage.get({ modelId: ctx.modelId, url: key });
+      present = await ctx.storage.has({ modelId: ctx.modelId, url: key });
     } catch {
-      entry = null;
+      present = false;
     }
-    if (!entry) break; // Missing bytes for a supposedly-present part — stop.
-    parts.push(await entry.response.blob());
+    if (!present) break; // Missing bytes for a supposedly-present part — stop.
     partKeys.push(key);
     walked.add(part.url);
-    received += entry.sizeBytes;
+    received += part.sizeBytes;
   }
 
   // Everything not consumed by the contiguous walk (past a gap, or after an

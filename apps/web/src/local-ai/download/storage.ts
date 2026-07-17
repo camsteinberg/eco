@@ -56,6 +56,14 @@ export type StorageBackendName = 'opfs' | 'cache-api';
 export interface Storage {
   readonly backend: StorageBackendName;
   put(key: StorageKey, response: Response): Promise<void>;
+  /**
+   * Stream a body of KNOWN size directly into storage without ever
+   * materializing it (put() must read the whole body to stamp its size —
+   * an engine-defined memory cost for large composites). The caller vouches
+   * for sizeBytes; it is stamped as Eco-Cache-Size verbatim. Optional so
+   * test fakes stay minimal — callers must fall back to put().
+   */
+  putStreamed?(key: StorageKey, body: ReadableStream<Uint8Array>, sizeBytes: number): Promise<void>;
   get(key: StorageKey): Promise<CachedEntry | null>;
   has(key: StorageKey): Promise<boolean>;
   verify(key: StorageKey, expectedSizeBytes: number): Promise<boolean>;
@@ -108,6 +116,22 @@ export class CacheApiStorage implements Storage {
     const cache = await this.cacheStorage.open(cacheNameFor(key.modelId));
     const stamped = await stampCacheSize(response);
     await cache.put(key.url, stamped);
+  }
+
+  async putStreamed(
+    key: StorageKey,
+    body: ReadableStream<Uint8Array>,
+    sizeBytes: number,
+  ): Promise<void> {
+    // cache.put consumes the stream itself — the browser streams the body into
+    // cache storage, so the web process only ever holds the in-flight enqueued
+    // chunks. Size is stamped from the caller's vouched figure rather than by
+    // reading the body (which is exactly the materialization put() pays and
+    // this path exists to avoid).
+    const cache = await this.cacheStorage.open(cacheNameFor(key.modelId));
+    const headers = new Headers();
+    headers.set(ECO_CACHE_SIZE_HEADER, String(sizeBytes));
+    await cache.put(key.url, new Response(body, { headers }));
   }
 
   async get(key: StorageKey): Promise<CachedEntry | null> {
