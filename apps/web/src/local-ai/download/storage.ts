@@ -36,6 +36,33 @@ import type { ModelConfig } from '../types';
 
 export const ECO_CACHE_SIZE_HEADER = 'x-eco-cache-size-bytes';
 
+/**
+ * Marks a cache entry as a PARTS-NATIVE manifest: the identity key holds no
+ * whole-file body, and the file's bytes live permanently as its chunk-parts
+ * (see `finalizeParts`). Presence flags parts-native; the value is the part
+ * count (informational). The ordered part-key list lives in the manifest BODY
+ * (small JSON) rather than a header — a ~2 GB weight has ~64 part keys, which
+ * would push a header past its length limits on some engines, so the body is
+ * the safe home for the list.
+ */
+export const ECO_PARTS_NATIVE_HEADER = 'x-eco-parts-native';
+
+/**
+ * A listed chunk-part was gone while composing a parts-native read. Thrown into
+ * the composition stream so the consumer's existing corrupted-entry handling
+ * (re-download) fires. Defined here (not imported from download.ts) so storage
+ * stays free of a download → storage → download import cycle; a plain Error
+ * subclass matches this module's existing error style.
+ */
+export class StoragePartMissingError extends Error {
+  readonly partKey: string;
+  constructor(partKey: string) {
+    super(`Persisted chunk-part is missing: ${partKey}`);
+    this.name = 'StoragePartMissingError';
+    this.partKey = partKey;
+  }
+}
+
 export type StorageKey = {
   modelId: string;
   url: string;
@@ -64,12 +91,80 @@ export interface Storage {
    * test fakes stay minimal — callers must fall back to put().
    */
   putStreamed?(key: StorageKey, body: ReadableStream<Uint8Array>, sizeBytes: number): Promise<void>;
+  /**
+   * Declare a chunked file COMPLETE with its parts as the terminal storage —
+   * no whole-file entry is ever written (a single huge put is not survivable
+   * on WebKit, and doubling the bytes cannot fit an iOS origin quota). Writes
+   * a zero-length manifest at the identity key carrying the aggregate size,
+   * so verify()/get() serve the file transparently: verify reads the stamped
+   * total; get composes the parts as a pull-based stream, one part open at a
+   * time. Optional: backends without it keep the whole-file finalize.
+   */
+  finalizeParts?(key: StorageKey, partKeys: readonly string[], sizeBytes: number): Promise<void>;
   get(key: StorageKey): Promise<CachedEntry | null>;
   has(key: StorageKey): Promise<boolean>;
   verify(key: StorageKey, expectedSizeBytes: number): Promise<boolean>;
   remove(key: StorageKey): Promise<void>;
+  /**
+   * True when `key` resolves to a parts-native manifest (its bytes live as
+   * chunk-parts, not a whole-file body). Lets a whole-file writer (e.g. the TJS
+   * cache bridge's put) refuse to clobber a manifest with a huge whole-body
+   * entry — the exact write parts-native exists to avoid. Optional: absent on
+   * backends that never write manifests (a missing method reads as "not
+   * parts-native").
+   */
+  isPartsNative?(key: StorageKey): Promise<boolean>;
   listForModel(modelId: string): Promise<{ url: string; sizeBytes: number | null }[]>;
   clearModel(modelId: string): Promise<void>;
+}
+
+/**
+ * Compose persisted chunk-parts into a single readable stream — pull-based, so
+ * a consumer (`cache.put`, or a caller draining it) paces the reads and only
+ * ONE part is open at a time (the zero-retention contract extended to reads).
+ * A missing part mid-stream errors the stream rather than silently truncating.
+ *
+ * Lives here (not in download.ts) so both the download orchestrator's streamed
+ * store and CacheApiStorage's parts-native `get` compose parts through ONE
+ * implementation, and storage.ts never imports download.ts.
+ */
+export function partsStream(
+  storage: Storage,
+  modelId: string,
+  partKeys: readonly string[],
+): ReadableStream<Uint8Array> {
+  let index = 0;
+  let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      for (;;) {
+        if (!reader) {
+          if (index >= partKeys.length) {
+            controller.close();
+            return;
+          }
+          const entry = await storage.get({ modelId, url: partKeys[index]! });
+          if (!entry) {
+            controller.error(new StoragePartMissingError(partKeys[index]!));
+            return;
+          }
+          const body = entry.response.body ?? (await entry.response.blob()).stream();
+          reader = body.getReader();
+        }
+        const { done, value } = await reader.read();
+        if (done) {
+          reader = null;
+          index += 1;
+          continue;
+        }
+        controller.enqueue(value);
+        return;
+      }
+    },
+    cancel() {
+      void reader?.cancel();
+    },
+  });
 }
 
 // ─── Cache API backend (primary, unit-tested) ────────────────────────────────
@@ -134,13 +229,45 @@ export class CacheApiStorage implements Storage {
     await cache.put(key.url, new Response(body, { headers }));
   }
 
+  async finalizeParts(
+    key: StorageKey,
+    partKeys: readonly string[],
+    sizeBytes: number,
+  ): Promise<void> {
+    // The parts already exist as their own cache entries (written chunk-by-chunk
+    // during download). This writes ONLY a tiny manifest at the identity key —
+    // never a whole-file body — so no put here ever exceeds one chunk's bytes.
+    // The stamped Eco-Cache-Size is the aggregate total, so every existing
+    // size/verify read of the identity sees the true file size; the ordered part
+    // keys ride in the body for get() to compose without re-deriving ordering.
+    const cache = await this.cacheStorage.open(cacheNameFor(key.modelId));
+    const headers = new Headers();
+    headers.set(ECO_CACHE_SIZE_HEADER, String(sizeBytes));
+    headers.set(ECO_PARTS_NATIVE_HEADER, String(partKeys.length));
+    const manifest = JSON.stringify({ partKeys: [...partKeys] });
+    await cache.put(key.url, new Response(manifest, { headers }));
+  }
+
   async get(key: StorageKey): Promise<CachedEntry | null> {
     const cache = await this.cacheStorage.open(cacheNameFor(key.modelId));
     const cached = await cache.match(key.url);
     if (!cached) return null;
     const sizeBytes = readCacheSize(cached);
     if (sizeBytes == null) return null;
-    return { response: cached, sizeBytes };
+    if (cached.headers.get(ECO_PARTS_NATIVE_HEADER) == null) {
+      // Plain whole-file entry — the body IS the file.
+      return { response: cached, sizeBytes };
+    }
+    // Parts-native: the manifest body has no file bytes. Compose the parts into
+    // a streamed Response carrying the aggregate size, so the consumer reads the
+    // whole file transparently (one part open at a time). An empty part list is
+    // a corrupt manifest — treat as missing so the caller re-downloads.
+    const partKeys = await readManifestPartKeys(cached);
+    if (partKeys.length === 0) return null;
+    const composed = new Response(partsStream(this, key.modelId, partKeys), {
+      headers: { [ECO_CACHE_SIZE_HEADER]: String(sizeBytes) },
+    });
+    return { response: composed, sizeBytes };
   }
 
   async has(key: StorageKey): Promise<boolean> {
@@ -149,14 +276,42 @@ export class CacheApiStorage implements Storage {
     return cached != null;
   }
 
+  async isPartsNative(key: StorageKey): Promise<boolean> {
+    const cache = await this.cacheStorage.open(cacheNameFor(key.modelId));
+    const cached = await cache.match(key.url);
+    return cached != null && cached.headers.get(ECO_PARTS_NATIVE_HEADER) != null;
+  }
+
   async verify(key: StorageKey, expectedSizeBytes: number): Promise<boolean> {
-    const entry = await this.get(key);
-    if (!entry) return false;
-    return entry.sizeBytes === expectedSizeBytes;
+    const cache = await this.cacheStorage.open(cacheNameFor(key.modelId));
+    const cached = await cache.match(key.url);
+    if (!cached) return false;
+    const sizeBytes = readCacheSize(cached);
+    if (sizeBytes == null || sizeBytes !== expectedSizeBytes) return false;
+    if (cached.headers.get(ECO_PARTS_NATIVE_HEADER) == null) return true;
+    // Parts-native: the stamped total matched. Cheap hardening — confirm every
+    // listed part still exists (existence only, O(parts), no byte reads) so a
+    // manifest whose parts were swept out from under it doesn't verify.
+    const partKeys = await readManifestPartKeys(cached);
+    if (partKeys.length === 0) return false;
+    for (const partKey of partKeys) {
+      const part = await cache.match(partKey);
+      if (part == null) return false;
+    }
+    return true;
   }
 
   async remove(key: StorageKey): Promise<void> {
     const cache = await this.cacheStorage.open(cacheNameFor(key.modelId));
+    // A parts-native manifest owns its parts — delete them too, or removing the
+    // identity would orphan hundreds of MB of chunk entries.
+    const cached = await cache.match(key.url);
+    if (cached != null && cached.headers.get(ECO_PARTS_NATIVE_HEADER) != null) {
+      const partKeys = await readManifestPartKeys(cached);
+      for (const partKey of partKeys) {
+        await cache.delete(partKey).catch(() => false);
+      }
+    }
     await cache.delete(key.url).catch(() => false);
   }
 
@@ -429,6 +584,27 @@ function readCacheSize(response: Response): number | null {
   if (!raw) return null;
   const parsed = Number.parseInt(raw, 10);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+/**
+ * Read the ordered part-key list from a parts-native manifest's JSON body.
+ * Consumes the response body, so callers pass a fresh `cache.match` result.
+ * A malformed body yields an empty list — the callers treat that as a corrupt
+ * manifest (get → missing, verify → false).
+ */
+async function readManifestPartKeys(manifest: Response): Promise<string[]> {
+  try {
+    const parsed = (await manifest.json()) as { partKeys?: unknown };
+    if (
+      Array.isArray(parsed.partKeys)
+      && parsed.partKeys.every((k): k is string => typeof k === 'string')
+    ) {
+      return parsed.partKeys;
+    }
+  } catch {
+    // Fall through — an unreadable/mis-shaped manifest reads as no parts.
+  }
+  return [];
 }
 
 function cacheNameFor(modelId: string): string {

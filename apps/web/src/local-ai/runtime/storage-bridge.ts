@@ -71,6 +71,13 @@ export function createStorageBridge(options: StorageBridgeOptions): Transformers
     async put(request, response) {
       const url = toUrl(request);
       if (!url) return;
+      // Never clobber a parts-native manifest with a whole-file body. TJS only
+      // calls put() after a REMOTE fetch (a cache miss under allowRemoteModels);
+      // for a chunked weight already stored parts-native that would both destroy
+      // the manifest and attempt the exact single huge Cache-API put that
+      // parts-native exists to avoid (the WebKit-mobile tab kill). The cached
+      // bytes are already correct, so skipping is safe.
+      if (await storage.isPartsNative?.({ modelId, url })) return;
       await storage.put({ modelId, url }, response);
     },
   };

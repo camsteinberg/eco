@@ -105,6 +105,28 @@ describe('createStorageBridge', () => {
     expect(direct!.sizeBytes).toBe(4);
   });
 
+  it('put does NOT clobber a parts-native manifest with a whole-file body', async () => {
+    // TJS calls put() after a remote fetch. For a chunked weight already stored
+    // parts-native, overwriting the manifest with the whole fetched body would
+    // both destroy the manifest and perform the single huge Cache-API put
+    // parts-native exists to avoid — so the bridge must skip it.
+    const url = 'https://hf.co/test/model.onnx_data';
+    const partKeys = [`${url}.ecopart.s6.0`, `${url}.ecopart.s6.3`];
+    await storage.put({ modelId: MODEL_ID, url: partKeys[0]! }, new Response(new Uint8Array([1, 2, 3])));
+    await storage.put({ modelId: MODEL_ID, url: partKeys[1]! }, new Response(new Uint8Array([4, 5, 6])));
+    await storage.finalizeParts({ modelId: MODEL_ID, url }, partKeys, 6);
+
+    const bridge = createStorageBridge({ storage, modelId: MODEL_ID });
+    await bridge.put(url, new Response(new Uint8Array(6))); // TJS re-put attempt
+
+    // Still parts-native, its parts intact — the whole-body put was refused.
+    expect(await storage.isPartsNative({ modelId: MODEL_ID, url })).toBe(true);
+    for (const key of partKeys) {
+      expect(await storage.has({ modelId: MODEL_ID, url: key })).toBe(true);
+    }
+    expect((await storage.get({ modelId: MODEL_ID, url }))!.sizeBytes).toBe(6);
+  });
+
   it('two bridges with different modelIds keep caches separate', async () => {
     const a = createStorageBridge({ storage, modelId: 'model-a' });
     const b = createStorageBridge({ storage, modelId: 'model-b' });

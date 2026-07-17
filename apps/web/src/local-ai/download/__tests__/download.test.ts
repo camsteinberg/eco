@@ -478,50 +478,35 @@ describe('downloadByPlan — CDN → proxy transport fallback', () => {
     expect(log.filter((u) => u === IDENTITY).length).toBeGreaterThanOrEqual(1);
   });
 
-  it('assembles a chunked download from the persisted parts, not the network blobs', async () => {
-    // The WebKit-mobile kill (2026-07-17): network-response blobs are not
-    // reliably disk-backed on iOS Safari, so retaining them until assembly
-    // grows tab memory linearly with the file. The loop must re-read each
-    // persisted part and retain only the storage handle. Proof: serve part
-    // read-backs with tagged bytes — if the stored file holds the tag, the
-    // assembly consumed storage reads; if it held the network bytes, it
-    // retained the response blobs.
+  it('finalizes a chunked download parts-native — get() composes the persisted parts', async () => {
+    // The WebKit-mobile fix (2026-07-17): a chunked file is never assembled in
+    // memory and never written as a whole-file body. Its persisted parts ARE the
+    // terminal storage; finalizeParts stamps a manifest, and get() composes the
+    // parts on read (one open at a time). Proof: the identity reads back the
+    // exact body from the parts, is flagged parts-native, and the parts remain
+    // on disk as the file's storage rather than being swept as a resume aid.
     const CHUNK = 4;
     const body = Uint8Array.from({ length: 10 }, (_, i) => i + 1);
-    const TAG = 0xee;
-    const swappingStorage = new Proxy(storage, {
-      get(target, prop) {
-        if (prop === 'get') {
-          return async (key: { modelId: string; url: string }) => {
-            const entry = await target.get(key);
-            if (!entry || key.url === IDENTITY) return entry;
-            const len = (await entry.response.clone().arrayBuffer()).byteLength;
-            return { ...entry, response: new Response(new Uint8Array(len).fill(TAG)) };
-          };
-        }
-        const value = Reflect.get(target, prop);
-        return typeof value === 'function' ? value.bind(target) : value;
-      },
-    });
-    // No oid: the tagged bytes are deliberately not the network bytes, so this
-    // fixture relies on the size check alone (sha-bearing fixtures cover the
-    // untampered path elsewhere).
+    // No oid: this fixture relies on the size check alone (sha-bearing fixtures
+    // cover the integrity path elsewhere).
     const plan: DownloadPlan = {
       modelId: MODEL_ID,
       files: [{ url: IDENTITY, fetchUrl: IDENTITY, sizeBytes: body.byteLength }],
     };
 
     const result = await downloadByPlan(plan, {
-      storage: swappingStorage,
+      storage,
       rangeChunkBytes: CHUNK,
       fetcher: dispatch([], { [IDENTITY]: (init) => rangeResponse(body, init) }),
     });
 
     expect(result.filesFetched).toBe(1);
+    expect(await storage.isPartsNative({ modelId: MODEL_ID, url: IDENTITY })).toBe(true);
     const stored = await storage.get({ modelId: MODEL_ID, url: IDENTITY });
     const storedBytes = new Uint8Array(await stored!.response.arrayBuffer());
-    expect(storedBytes.length).toBe(body.byteLength);
-    expect(storedBytes.every((b) => b === TAG)).toBe(true);
+    expect([...storedBytes]).toEqual([...body]);
+    // The parts remain — they ARE the storage, not a swept resume aid.
+    expect(await partEntries(await storage.listForModel(MODEL_ID))).not.toHaveLength(0);
   });
 
   it('does NOT fall back on a hard CDN 404 (proxy never requested)', async () => {
@@ -1453,7 +1438,7 @@ describe('downloadByPlan — mid-file chunk resume', () => {
     expect(cached!.sizeBytes).toBe(body.byteLength);
   });
 
-  it('sweeps every part entry after the whole-file store succeeds', async () => {
+  it('retains the part entries as parts-native terminal storage (never a whole-file body)', async () => {
     const body = body16();
     await downloadByPlan(chunkedFile(URL_A, body), {
       storage,
@@ -1462,8 +1447,15 @@ describe('downloadByPlan — mid-file chunk resume', () => {
       fetcher: rangeDispatch([], { [URL_A]: serveRanges(body) }),
     });
 
-    expect(await partEntries(await storage.listForModel(MODEL_ID))).toHaveLength(0);
+    // The parts are NOT swept — they ARE the file's storage now. The identity
+    // is a parts-native manifest that composes them; verify + get see the whole
+    // file transparently.
+    expect(await partEntries(await storage.listForModel(MODEL_ID))).toHaveLength(4);
     expect(await storage.has({ modelId: MODEL_ID, url: URL_A })).toBe(true);
+    expect(await storage.isPartsNative({ modelId: MODEL_ID, url: URL_A })).toBe(true);
+    expect(await storage.verify({ modelId: MODEL_ID, url: URL_A }, body.byteLength)).toBe(true);
+    const stored = await storage.get({ modelId: MODEL_ID, url: URL_A });
+    expect([...new Uint8Array(await stored!.response.arrayBuffer())]).toEqual([...body]);
   });
 
   it('discards a partial chunk (mid-stream failure) and resumes from the last completed boundary', async () => {
@@ -1522,8 +1514,12 @@ describe('downloadByPlan — mid-file chunk resume', () => {
 
     expect(result.filesFetched).toBe(1);
     expect(log[0]!.range).toBe('bytes=0-3'); // fresh start, stale parts ignored
-    // No s16 parts survive; the final entry is the 20-byte file.
-    expect(await partEntries(await storage.listForModel(MODEL_ID))).toHaveLength(0);
+    // No s16 parts survive; the retained parts are the fresh s20 set (5 × 4 bytes),
+    // which the parts-native manifest composes back into the 20-byte file.
+    const retained = await partEntries(await storage.listForModel(MODEL_ID));
+    expect(retained.every((e) => e.url.includes('.ecopart.s20.'))).toBe(true);
+    expect(retained.some((e) => e.url.includes('.ecopart.s16.'))).toBe(false);
+    expect(retained).toHaveLength(5);
     expect((await storage.get({ modelId: MODEL_ID, url: URL_A }))!.sizeBytes).toBe(20);
   });
 
@@ -1647,9 +1643,11 @@ describe('downloadByPlan — mid-file chunk resume', () => {
     });
 
     expect(result.filesFetched).toBe(1);
-    expect(log).toHaveLength(0); // assembled entirely from persisted parts
+    expect(log).toHaveLength(0); // completed entirely from persisted parts
     expect(await storage.has({ modelId: MODEL_ID, url: URL_A })).toBe(true);
-    expect(await partEntries(await storage.listForModel(MODEL_ID))).toHaveLength(0);
+    // Parts-native: the persisted parts become the terminal storage, not swept.
+    expect(await storage.isPartsNative({ modelId: MODEL_ID, url: URL_A })).toBe(true);
+    expect(await partEntries(await storage.listForModel(MODEL_ID))).toHaveLength(4);
   });
 
   it('L2 composition: a CDN failure mid-chunked-file resumes on the proxy retry, not from byte 0', async () => {
@@ -1680,16 +1678,19 @@ describe('downloadByPlan — mid-file chunk resume', () => {
     expect(firstProxyRange).toBe('bytes=8-11');
     expect(log.filter((e) => e.url === IDENTITY).map((e) => e.range))
       .toEqual(['bytes=8-11', 'bytes=12-15']);
-    // The SHA-verified file is stored under the stable identity, parts swept.
+    // The SHA-verified file is stored under the stable identity as parts-native
+    // (its parts retained as the terminal storage across the CDN→proxy resume).
     expect((await storage.get({ modelId: MODEL_ID, url: IDENTITY }))!.sizeBytes)
       .toBe(body.byteLength);
-    expect(await partEntries(await storage.listForModel(MODEL_ID))).toHaveLength(0);
+    expect(await storage.isPartsNative({ modelId: MODEL_ID, url: IDENTITY })).toBe(true);
+    expect(await partEntries(await storage.listForModel(MODEL_ID))).toHaveLength(4);
   });
 
-  it('stores the chunked file via putStreamed — never assembling it in memory', async () => {
-    // Zero-retention proof: the final store must go through putStreamed (which
-    // streams the persisted parts one at a time), NOT put (which would take an
-    // assembled whole-file Blob). No oid so the only get() calls are the
+  it('fallback (no finalizeParts): stores the chunked file via putStreamed — never assembling it in memory', async () => {
+    // Backends WITHOUT finalizeParts (test fakes; never a real backend) take the
+    // zero-retention whole-file finalize: the store goes through putStreamed
+    // (which streams the persisted parts one at a time), NOT put (which would
+    // take an assembled whole-file Blob). No oid so the only get() calls are the
     // stream's per-part reads — letting us assert they happen in offset order.
     const body = body16();
     const getCalls: string[] = [];
@@ -1739,6 +1740,62 @@ describe('downloadByPlan — mid-file chunk resume', () => {
     // The parts were read back sequentially, in byte-offset order.
     const partGets = getCalls.filter((u) => u.includes(PART_MARKER));
     expect(partGets.map(partOffset)).toEqual([0, 4, 8, 12]);
+  });
+
+  it('parts-native (finalizeParts present): finalizes with ordered keys + total, no whole-file store, no sweep', async () => {
+    // When the backend implements finalizeParts, the chunked store must take the
+    // parts-native branch: finalizeParts is called with the ordered part keys and
+    // the authoritative total, NEITHER put nor putStreamed touches the identity,
+    // and the parts are NOT swept (they are the terminal storage).
+    const body = body16();
+    const putUrls: string[] = [];
+    const streamedUrls: string[] = [];
+    const removedUrls: string[] = [];
+    const finalized: { url: string; partKeys: readonly string[]; sizeBytes: number }[] = [];
+
+    const spy: Storage = {
+      backend: storage.backend,
+      async put(key, response) { putUrls.push(key.url); return storage.put(key, response); },
+      async putStreamed(key, streamBody, sizeBytes) {
+        streamedUrls.push(key.url);
+        return storage.putStreamed!(key, streamBody, sizeBytes);
+      },
+      async finalizeParts(key, partKeys, sizeBytes) {
+        finalized.push({ url: key.url, partKeys, sizeBytes });
+        return storage.finalizeParts!(key, partKeys, sizeBytes);
+      },
+      get: (key) => storage.get(key),
+      has: (key) => storage.has(key),
+      verify: (key, size) => storage.verify(key, size),
+      remove: (key) => { removedUrls.push(key.url); return storage.remove(key); },
+      isPartsNative: (key) => storage.isPartsNative(key),
+      listForModel: (id) => storage.listForModel(id),
+      clearModel: (id) => storage.clearModel(id),
+    };
+
+    const result = await downloadByPlan(
+      { modelId: MODEL_ID, files: [{ url: URL_A, sizeBytes: body.byteLength }] },
+      {
+        storage: spy,
+        estimateStorage: async () => null,
+        rangeChunkBytes: RESUME_CHUNK,
+        fetcher: rangeDispatch([], { [URL_A]: serveRanges(body) }),
+      },
+    );
+
+    expect(result.filesFetched).toBe(1);
+    // finalizeParts was called once, for the identity, with the total and the
+    // ordered (offset-ascending) part keys.
+    expect(finalized).toHaveLength(1);
+    expect(finalized[0]!.url).toBe(URL_A);
+    expect(finalized[0]!.sizeBytes).toBe(body.byteLength);
+    expect(finalized[0]!.partKeys.map(partOffset)).toEqual([0, 4, 8, 12]);
+    // No whole-file store touched the identity.
+    expect(putUrls).not.toContain(URL_A);
+    expect(streamedUrls).not.toContain(URL_A);
+    // The parts were NOT swept — no remove() targeted a part key.
+    expect(removedUrls.filter((u) => u.includes(PART_MARKER))).toHaveLength(0);
+    expect(await partEntries(await storage.listForModel(MODEL_ID))).toHaveLength(4);
   });
 
   it('fails closed when a persisted part is corrupt — DownloadIntegrityError, parts swept, nothing stored', async () => {
