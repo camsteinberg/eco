@@ -74,7 +74,7 @@ describe("middleware site gate", () => {
     process.env.SITE_PASSWORD = "launch-password";
 
     const response = await middleware(
-      requestFor("/api/local-models/onnx-community/Qwen3-0.6B-ONNX/resolve/main/config.json"),
+      requestFor("/api/local-models/econetworkai/Qwen3-0.6B-ONNX-external-data/resolve/main/config.json"),
     );
 
     expect(response.headers.get("location")).toBeNull();

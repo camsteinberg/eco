@@ -5,7 +5,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { NextRequest } from "next/server";
 import { DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT } from "./route";
 
-const QWEN_REVIEWED_REVISION = "da1453100cf3ff33ef56d17983fc7a8648706db6";
+// The shipping catalog now serves the external-data pair (A-3 load-transient
+// fix). The old single-file build (onnx-community/Qwen3-0.6B-ONNX@da14531) was
+// delisted from the catalog and moved to the eval lane, so it is validation-only
+// (403 on the production proxy) — see the graduation regression test below.
+const QWEN_XD_HF_ID = "econetworkai/Qwen3-0.6B-ONNX-external-data";
+const QWEN_XD_REVISION = "e059eaaf660ff62dbc8adcd1057488aa3ad0f5f9";
+const QWEN_OLD_SINGLE_HF_ID = "onnx-community/Qwen3-0.6B-ONNX";
+const QWEN_OLD_SINGLE_REVISION = "da1453100cf3ff33ef56d17983fc7a8648706db6";
 const LFM25_350M_REVIEWED_REVISION = "2c07371c2e84776cad597f3d813b7d306d292aea";
 
 describe("GET /api/local-models/[...slug]", () => {
@@ -33,17 +40,17 @@ describe("GET /api/local-models/[...slug]", () => {
         range: "bytes=0-0",
       }),
       nextUrl: new URL(
-        `http://127.0.0.1:3000/api/local-models/onnx-community/Qwen3-0.6B-ONNX/resolve/${QWEN_REVIEWED_REVISION}/onnx/model_q4f16.onnx`,
+        `http://127.0.0.1:3000/api/local-models/${QWEN_XD_HF_ID}/resolve/${QWEN_XD_REVISION}/onnx/model_q4f16.onnx`,
       ),
     } as NextRequest;
 
     const response = await GET(request, {
       params: Promise.resolve({
         slug: [
-          "onnx-community",
-          "Qwen3-0.6B-ONNX",
+          "econetworkai",
+          "Qwen3-0.6B-ONNX-external-data",
           "resolve",
-          QWEN_REVIEWED_REVISION,
+          QWEN_XD_REVISION,
           "onnx",
           "model_q4f16.onnx",
         ],
@@ -53,7 +60,7 @@ describe("GET /api/local-models/[...slug]", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0]!;
     expect(url).toBe(
-      `https://huggingface.co/onnx-community/Qwen3-0.6B-ONNX/resolve/${QWEN_REVIEWED_REVISION}/onnx/model_q4f16.onnx`,
+      `https://huggingface.co/${QWEN_XD_HF_ID}/resolve/${QWEN_XD_REVISION}/onnx/model_q4f16.onnx`,
     );
     expect(init?.method).toBe("GET");
     expect(response.status).toBe(206);
@@ -78,17 +85,17 @@ describe("GET /api/local-models/[...slug]", () => {
           })[name.toLowerCase()] ?? null,
       },
       nextUrl: new URL(
-        `http://127.0.0.1:3000/api/local-models/onnx-community/Qwen3-0.6B-ONNX/resolve/${QWEN_REVIEWED_REVISION}/onnx/model_q4f16.onnx?download=1&token=secret`,
+        `http://127.0.0.1:3000/api/local-models/${QWEN_XD_HF_ID}/resolve/${QWEN_XD_REVISION}/onnx/model_q4f16.onnx?download=1&token=secret`,
       ),
     } as NextRequest;
 
     await GET(request, {
       params: Promise.resolve({
         slug: [
-          "onnx-community",
-          "Qwen3-0.6B-ONNX",
+          "econetworkai",
+          "Qwen3-0.6B-ONNX-external-data",
           "resolve",
-          QWEN_REVIEWED_REVISION,
+          QWEN_XD_REVISION,
           "onnx",
           "model_q4f16.onnx",
         ],
@@ -97,7 +104,7 @@ describe("GET /api/local-models/[...slug]", () => {
 
     const [url, init] = fetchMock.mock.calls[0]!;
     expect(url).toBe(
-      `https://huggingface.co/onnx-community/Qwen3-0.6B-ONNX/resolve/${QWEN_REVIEWED_REVISION}/onnx/model_q4f16.onnx`,
+      `https://huggingface.co/${QWEN_XD_HF_ID}/resolve/${QWEN_XD_REVISION}/onnx/model_q4f16.onnx`,
     );
     const headers = init?.headers as Record<string, string>;
     expect(headers.accept).toBe("application/octet-stream");
@@ -123,17 +130,17 @@ describe("GET /api/local-models/[...slug]", () => {
     const request = {
       headers: new Headers(),
       nextUrl: new URL(
-        `http://127.0.0.1:3000/api/local-models/onnx-community/Qwen3-0.6B-ONNX/resolve/${QWEN_REVIEWED_REVISION}/config.json`,
+        `http://127.0.0.1:3000/api/local-models/${QWEN_XD_HF_ID}/resolve/${QWEN_XD_REVISION}/config.json`,
       ),
     } as NextRequest;
 
     const response = await GET(request, {
       params: Promise.resolve({
         slug: [
-          "onnx-community",
-          "Qwen3-0.6B-ONNX",
+          "econetworkai",
+          "Qwen3-0.6B-ONNX-external-data",
           "resolve",
-          QWEN_REVIEWED_REVISION,
+          QWEN_XD_REVISION,
           "config.json",
         ],
       }),
@@ -151,17 +158,17 @@ describe("GET /api/local-models/[...slug]", () => {
     const request = {
       headers: new Headers(),
       nextUrl: new URL(
-        `http://127.0.0.1:3000/api/local-models/onnx-community/Qwen3-0.6B-ONNX/resolve/${QWEN_REVIEWED_REVISION}/config.json`,
+        `http://127.0.0.1:3000/api/local-models/${QWEN_XD_HF_ID}/resolve/${QWEN_XD_REVISION}/config.json`,
       ),
     } as NextRequest;
 
     const response = await GET(request, {
       params: Promise.resolve({
         slug: [
-          "onnx-community",
-          "Qwen3-0.6B-ONNX",
+          "econetworkai",
+          "Qwen3-0.6B-ONNX-external-data",
           "resolve",
-          QWEN_REVIEWED_REVISION,
+          QWEN_XD_REVISION,
           "config.json",
         ],
       }),
@@ -189,24 +196,24 @@ describe("GET /api/local-models/[...slug]", () => {
     const request = {
       headers: new Headers(),
       nextUrl: new URL(
-        `http://127.0.0.1:3000/api/local-models/onnx-community/Qwen3-0.6B-ONNX/resolve/${QWEN_REVIEWED_REVISION}/config.json`,
+        `http://127.0.0.1:3000/api/local-models/${QWEN_XD_HF_ID}/resolve/${QWEN_XD_REVISION}/config.json`,
       ),
     } as NextRequest;
 
     const response = await HEAD(request, {
       params: Promise.resolve({
         slug: [
-          "onnx-community",
-          "Qwen3-0.6B-ONNX",
+          "econetworkai",
+          "Qwen3-0.6B-ONNX-external-data",
           "resolve",
-          QWEN_REVIEWED_REVISION,
+          QWEN_XD_REVISION,
           "config.json",
         ],
       }),
     });
 
     expect(fetchMock).toHaveBeenCalledWith(
-      `https://huggingface.co/onnx-community/Qwen3-0.6B-ONNX/resolve/${QWEN_REVIEWED_REVISION}/config.json`,
+      `https://huggingface.co/${QWEN_XD_HF_ID}/resolve/${QWEN_XD_REVISION}/config.json`,
       expect.objectContaining({
         method: "HEAD",
       }),
@@ -228,26 +235,28 @@ describe("GET /api/local-models/[...slug]", () => {
     const request = {
       headers: new Headers(),
       nextUrl: new URL(
-        `http://127.0.0.1:3000/api/local-models/onnx-community/Qwen3-0.6B-ONNX/resolve/${QWEN_REVIEWED_REVISION}/onnx/model_q4f16.onnx`,
+        `http://127.0.0.1:3000/api/local-models/${QWEN_XD_HF_ID}/resolve/${QWEN_XD_REVISION}/onnx/model_q4f16.onnx`,
       ),
     } as NextRequest;
 
     const response = await GET(request, {
       params: Promise.resolve({
         slug: [
-          "onnx-community",
-          "Qwen3-0.6B-ONNX",
+          "econetworkai",
+          "Qwen3-0.6B-ONNX-external-data",
           "resolve",
-          QWEN_REVIEWED_REVISION,
+          QWEN_XD_REVISION,
           "onnx",
           "model_q4f16.onnx",
         ],
       }),
     });
 
-    expect(response.headers.get("x-eco-reviewed-size-bytes")).toBe("569789750");
+    // The external-data graph file is a small 328 KB ONNX header; the reviewed
+    // size/oid come from the graduated catalog artifact metadata.
+    expect(response.headers.get("x-eco-reviewed-size-bytes")).toBe("328247");
     expect(response.headers.get("x-eco-reviewed-oid")).toBe(
-      "9e33a5911974174761d0dfdcc0bec975d9c45af0eae5e9eb647b8ba9442a8f91",
+      "c4bb4067156a97c57bc92d945f538dfc7db92153835e9c1f00e598b848f66411",
     );
     expect(response.headers.get("x-eco-reviewed-oid-kind")).toBe("lfs-sha256");
   });
@@ -271,17 +280,17 @@ describe("GET /api/local-models/[...slug]", () => {
     const request = {
       headers: new Headers(),
       nextUrl: new URL(
-        `http://127.0.0.1:3000/api/local-models/onnx-community/Qwen3-0.6B-ONNX/resolve/${QWEN_REVIEWED_REVISION}/onnx/model_q4f16.onnx`,
+        `http://127.0.0.1:3000/api/local-models/${QWEN_XD_HF_ID}/resolve/${QWEN_XD_REVISION}/onnx/model_q4f16.onnx`,
       ),
     } as NextRequest;
 
     const response = await GET(request, {
       params: Promise.resolve({
         slug: [
-          "onnx-community",
-          "Qwen3-0.6B-ONNX",
+          "econetworkai",
+          "Qwen3-0.6B-ONNX-external-data",
           "resolve",
-          QWEN_REVIEWED_REVISION,
+          QWEN_XD_REVISION,
           "onnx",
           "model_q4f16.onnx",
         ],
@@ -308,17 +317,17 @@ describe("GET /api/local-models/[...slug]", () => {
     const request = {
       headers: new Headers(),
       nextUrl: new URL(
-        `http://127.0.0.1:3000/api/local-models/onnx-community/Qwen3-0.6B-ONNX/resolve/${QWEN_REVIEWED_REVISION}/config.json`,
+        `http://127.0.0.1:3000/api/local-models/${QWEN_XD_HF_ID}/resolve/${QWEN_XD_REVISION}/config.json`,
       ),
     } as NextRequest;
 
     const response = await GET(request, {
       params: Promise.resolve({
         slug: [
-          "onnx-community",
-          "Qwen3-0.6B-ONNX",
+          "econetworkai",
+          "Qwen3-0.6B-ONNX-external-data",
           "resolve",
-          QWEN_REVIEWED_REVISION,
+          QWEN_XD_REVISION,
           "config.json",
         ],
       }),
@@ -344,17 +353,17 @@ describe("GET /api/local-models/[...slug]", () => {
       const request = {
         headers: new Headers(),
         nextUrl: new URL(
-          `http://127.0.0.1:3000/api/local-models/onnx-community/Qwen3-0.6B-ONNX/resolve/${QWEN_REVIEWED_REVISION}/onnx/model_q4f16.onnx`,
+          `http://127.0.0.1:3000/api/local-models/${QWEN_XD_HF_ID}/resolve/${QWEN_XD_REVISION}/onnx/model_q4f16.onnx`,
         ),
       } as NextRequest;
 
       const response = await GET(request, {
         params: Promise.resolve({
           slug: [
-            "onnx-community",
-            "Qwen3-0.6B-ONNX",
+            "econetworkai",
+            "Qwen3-0.6B-ONNX-external-data",
             "resolve",
-            QWEN_REVIEWED_REVISION,
+            QWEN_XD_REVISION,
             "onnx",
             "model_q4f16.onnx",
           ],
@@ -415,24 +424,24 @@ describe("GET /api/local-models/[...slug]", () => {
     const request = {
       headers: new Headers(),
       nextUrl: new URL(
-        `http://127.0.0.1:3000/api/local-models/onnx-community/Qwen3-0.6B-ONNX/resolve/${QWEN_REVIEWED_REVISION}/tokenizer_config.json`,
+        `http://127.0.0.1:3000/api/local-models/${QWEN_XD_HF_ID}/resolve/${QWEN_XD_REVISION}/tokenizer_config.json`,
       ),
     } as NextRequest;
 
     const response = await HEAD(request, {
       params: Promise.resolve({
         slug: [
-          "onnx-community",
-          "Qwen3-0.6B-ONNX",
+          "econetworkai",
+          "Qwen3-0.6B-ONNX-external-data",
           "resolve",
-          QWEN_REVIEWED_REVISION,
+          QWEN_XD_REVISION,
           "tokenizer_config.json",
         ],
       }),
     });
 
     expect(fetchMock).toHaveBeenCalledWith(
-      `https://huggingface.co/onnx-community/Qwen3-0.6B-ONNX/resolve/${QWEN_REVIEWED_REVISION}/tokenizer_config.json`,
+      `https://huggingface.co/${QWEN_XD_HF_ID}/resolve/${QWEN_XD_REVISION}/tokenizer_config.json`,
       expect.objectContaining({
         method: "HEAD",
       }),
@@ -620,15 +629,15 @@ describe("GET /api/local-models/[...slug]", () => {
     const request = {
       headers: new Headers(),
       nextUrl: new URL(
-        "http://127.0.0.1:3000/api/local-models/onnx-community/Qwen3-0.6B-ONNX/resolve/main/config.json",
+        `http://127.0.0.1:3000/api/local-models/${QWEN_XD_HF_ID}/resolve/main/config.json`,
       ),
     } as NextRequest;
 
     const response = await GET(request, {
       params: Promise.resolve({
         slug: [
-          "onnx-community",
-          "Qwen3-0.6B-ONNX",
+          "econetworkai",
+          "Qwen3-0.6B-ONNX-external-data",
           "resolve",
           "main",
           "config.json",
@@ -637,7 +646,7 @@ describe("GET /api/local-models/[...slug]", () => {
     });
 
     expect(fetchMock).toHaveBeenCalledWith(
-      `https://huggingface.co/onnx-community/Qwen3-0.6B-ONNX/resolve/${QWEN_REVIEWED_REVISION}/config.json`,
+      `https://huggingface.co/${QWEN_XD_HF_ID}/resolve/${QWEN_XD_REVISION}/config.json`,
       expect.objectContaining({
         method: "GET",
       }),
@@ -652,15 +661,15 @@ describe("GET /api/local-models/[...slug]", () => {
     const request = {
       headers: new Headers({ range: "bytes=0-0" }),
       nextUrl: new URL(
-        "http://127.0.0.1:3000/api/local-models/onnx-community/Qwen3-0.6B-ONNX/resolve/main/onnx/model_q4f16.onnx",
+        `http://127.0.0.1:3000/api/local-models/${QWEN_XD_HF_ID}/resolve/main/onnx/model_q4f16.onnx`,
       ),
     } as NextRequest;
 
     const response = await GET(request, {
       params: Promise.resolve({
         slug: [
-          "onnx-community",
-          "Qwen3-0.6B-ONNX",
+          "econetworkai",
+          "Qwen3-0.6B-ONNX-external-data",
           "resolve",
           "main",
           "onnx",
@@ -670,7 +679,7 @@ describe("GET /api/local-models/[...slug]", () => {
     });
 
     expect(fetchMock).toHaveBeenCalledWith(
-      `https://huggingface.co/onnx-community/Qwen3-0.6B-ONNX/resolve/${QWEN_REVIEWED_REVISION}/onnx/model_q4f16.onnx`,
+      `https://huggingface.co/${QWEN_XD_HF_ID}/resolve/${QWEN_XD_REVISION}/onnx/model_q4f16.onnx`,
       expect.objectContaining({
         method: "GET",
       }),
@@ -683,15 +692,15 @@ describe("GET /api/local-models/[...slug]", () => {
     const request = {
       headers: new Headers(),
       nextUrl: new URL(
-        "http://127.0.0.1:3000/api/local-models/onnx-community/Qwen3-0.6B-ONNX/resolve/some-other-ref/onnx/model_q4f16.onnx",
+        `http://127.0.0.1:3000/api/local-models/${QWEN_XD_HF_ID}/resolve/some-other-ref/onnx/model_q4f16.onnx`,
       ),
     } as NextRequest;
 
     const response = await GET(request, {
       params: Promise.resolve({
         slug: [
-          "onnx-community",
-          "Qwen3-0.6B-ONNX",
+          "econetworkai",
+          "Qwen3-0.6B-ONNX-external-data",
           "resolve",
           "some-other-ref",
           "onnx",
@@ -709,17 +718,17 @@ describe("GET /api/local-models/[...slug]", () => {
     const request = {
       headers: new Headers(),
       nextUrl: new URL(
-        `http://127.0.0.1:3000/api/local-models/onnx-community/Qwen3-0.6B-ONNX/resolve/${QWEN_REVIEWED_REVISION}/unreviewed.bin`,
+        `http://127.0.0.1:3000/api/local-models/${QWEN_XD_HF_ID}/resolve/${QWEN_XD_REVISION}/unreviewed.bin`,
       ),
     } as NextRequest;
 
     const response = await GET(request, {
       params: Promise.resolve({
         slug: [
-          "onnx-community",
-          "Qwen3-0.6B-ONNX",
+          "econetworkai",
+          "Qwen3-0.6B-ONNX-external-data",
           "resolve",
-          QWEN_REVIEWED_REVISION,
+          QWEN_XD_REVISION,
           "unreviewed.bin",
         ],
       }),
@@ -729,56 +738,90 @@ describe("GET /api/local-models/[...slug]", () => {
     expect(response.status).toBe(403);
   });
 
-  it("rejects stale Eco Fast external data paths that are not used by the reviewed q4f16 artifact", async () => {
-    const fetchMock = vi.spyOn(globalThis, "fetch");
+  it("serves the graduated external-data weights blob (.onnx_data) through the catalog proxy", async () => {
+    // The external-data graduation added onnx/model_q4f16.onnx_data to the catalog
+    // artifact — the weights blob Transformers.js range-fetches alongside the
+    // small graph file. It is a first-class proxy-allowed file now (the same shape
+    // Phi-3 already ships), NOT the stale single-file reject it used to be.
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("x", {
+        status: 206,
+        headers: {
+          "accept-ranges": "bytes",
+          "content-range": "bytes 0-0/569493504",
+          "content-type": "application/octet-stream",
+        },
+      }),
+    );
     const request = {
-      headers: new Headers(),
+      headers: new Headers({ range: "bytes=0-0" }),
       nextUrl: new URL(
-        `http://127.0.0.1:3000/api/local-models/onnx-community/Qwen3-0.6B-ONNX/resolve/${QWEN_REVIEWED_REVISION}/onnx/model_q4f16.onnx_data`,
+        `http://127.0.0.1:3000/api/local-models/${QWEN_XD_HF_ID}/resolve/${QWEN_XD_REVISION}/onnx/model_q4f16.onnx_data`,
       ),
     } as NextRequest;
 
     const response = await GET(request, {
       params: Promise.resolve({
         slug: [
-          "onnx-community",
-          "Qwen3-0.6B-ONNX",
+          "econetworkai",
+          "Qwen3-0.6B-ONNX-external-data",
           "resolve",
-          QWEN_REVIEWED_REVISION,
+          QWEN_XD_REVISION,
           "onnx",
           "model_q4f16.onnx_data",
         ],
       }),
     });
 
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(response.status).toBe(403);
+    expect(fetchMock).toHaveBeenCalledWith(
+      `https://huggingface.co/${QWEN_XD_HF_ID}/resolve/${QWEN_XD_REVISION}/onnx/model_q4f16.onnx_data`,
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(response.status).toBe(206);
+    expect(response.headers.get("content-range")).toBe("bytes 0-0/569493504");
   });
 
-  it("rejects stale Eco Fast external data paths even through the main-revision compatibility alias", async () => {
-    const fetchMock = vi.spyOn(globalThis, "fetch");
-    const request = {
-      headers: new Headers(),
-      nextUrl: new URL(
-        "http://127.0.0.1:3000/api/local-models/onnx-community/Qwen3-0.6B-ONNX/resolve/main/onnx/model_q4f16.onnx_data",
-      ),
-    } as NextRequest;
+  it("rejects the retired single-file Qwen3-0.6B path on the production proxy (graduation regression)", async () => {
+    // Before graduation, onnx-community/Qwen3-0.6B-ONNX@da14531/onnx/model_q4f16.onnx
+    // was the catalog artifact and served on the production proxy. The
+    // external-data graduation delisted it from the catalog, so it must now 403 in
+    // production — while staying reachable through the localhost validation lane
+    // (it still backs the q4 load-peak and single-file baseline eval cells).
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(null, { status: 200 }));
+    const slug = [
+      "onnx-community",
+      "Qwen3-0.6B-ONNX",
+      "resolve",
+      QWEN_OLD_SINGLE_REVISION,
+      "onnx",
+      "model_q4f16.onnx",
+    ];
 
-    const response = await GET(request, {
-      params: Promise.resolve({
-        slug: [
-          "onnx-community",
-          "Qwen3-0.6B-ONNX",
-          "resolve",
-          "main",
-          "onnx",
-          "model_q4f16.onnx_data",
-        ],
-      }),
-    });
+    // Production host: now 403 (delisted from the catalog / proxy-allowed set).
+    const productionResponse = await HEAD(
+      {
+        headers: new Headers({ host: "econetwork.ai" }),
+        nextUrl: new URL(`https://econetwork.ai/api/local-models/${slug.join("/")}`),
+      } as NextRequest,
+      { params: Promise.resolve({ slug }) },
+    );
+    expect(productionResponse.status).toBe(403);
 
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(response.status).toBe(403);
+    // Localhost validation harness: still 200 (retained as an eval-lane baseline).
+    const localhostResponse = await HEAD(
+      {
+        headers: new Headers({ host: "localhost:3101" }),
+        nextUrl: new URL(`http://localhost:3101/api/local-models/${slug.join("/")}`),
+      } as NextRequest,
+      { params: Promise.resolve({ slug }) },
+    );
+    expect(localhostResponse.status).toBe(200);
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      `https://huggingface.co/${QWEN_OLD_SINGLE_HF_ID}/resolve/${QWEN_OLD_SINGLE_REVISION}/onnx/model_q4f16.onnx`,
+    ]);
   });
 
   it("rejects double-suffixed Eco Fast artifact paths that Transformers.js should not request", async () => {
@@ -786,15 +829,15 @@ describe("GET /api/local-models/[...slug]", () => {
     const request = {
       headers: new Headers(),
       nextUrl: new URL(
-        "http://127.0.0.1:3000/api/local-models/onnx-community/Qwen3-0.6B-ONNX/resolve/main/onnx/model_q4f16_q4f16.onnx",
+        `http://127.0.0.1:3000/api/local-models/${QWEN_XD_HF_ID}/resolve/main/onnx/model_q4f16_q4f16.onnx`,
       ),
     } as NextRequest;
 
     const response = await GET(request, {
       params: Promise.resolve({
         slug: [
-          "onnx-community",
-          "Qwen3-0.6B-ONNX",
+          "econetworkai",
+          "Qwen3-0.6B-ONNX-external-data",
           "resolve",
           "main",
           "onnx",
@@ -808,9 +851,9 @@ describe("GET /api/local-models/[...slug]", () => {
   });
 
   it.each([
-    ["dot segment", ["onnx-community", "Qwen3-0.6B-ONNX", "resolve", QWEN_REVIEWED_REVISION, "..", "config.json"]],
-    ["encoded slash", ["onnx-community", "Qwen3-0.6B-ONNX", "resolve", QWEN_REVIEWED_REVISION, "onnx%2Fmodel.onnx"]],
-    ["hidden file", ["onnx-community", "Qwen3-0.6B-ONNX", "resolve", QWEN_REVIEWED_REVISION, ".env"]],
+    ["dot segment", ["econetworkai", "Qwen3-0.6B-ONNX-external-data", "resolve", QWEN_XD_REVISION, "..", "config.json"]],
+    ["encoded slash", ["econetworkai", "Qwen3-0.6B-ONNX-external-data", "resolve", QWEN_XD_REVISION, "onnx%2Fmodel.onnx"]],
+    ["hidden file", ["econetworkai", "Qwen3-0.6B-ONNX-external-data", "resolve", QWEN_XD_REVISION, ".env"]],
   ])("rejects unsafe file paths: %s", async (_label, slug) => {
     const fetchMock = vi.spyOn(globalThis, "fetch");
     const request = {

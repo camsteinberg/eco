@@ -71,6 +71,11 @@ afterEach(() => {
 describe('runSelfHeal — artifact-swap evidence migration', () => {
   const LFM350 = 'candidate/lfm2.5-350m-onnx';
   const MARKER = 'eco-local-ai-mig-350m-q4-v1';
+  // The second live artifact-swap migration (single-file q4f16 → external-data
+  // pair, 2026-07-17). Both migrations run each boot until their markers are set.
+  const QWEN_XD = 'local/qwen3-0.6b';
+  const QWEN_XD_MARKER = 'eco-local-ai-mig-qwen3-0.6b-xd-v1';
+  const QWEN_XD_CACHE = 'eco-local-ai-local_qwen3-0.6b';
   const LEDGER_KEY = 'eco-local-ai-ledger-v1';
   // cacheNameFor(): 'eco-local-ai-' + modelId with [^a-zA-Z0-9._-] → '_'.
   const LFM350_CACHE = 'eco-local-ai-candidate_lfm2.5-350m-onnx';
@@ -112,9 +117,11 @@ describe('runSelfHeal — artifact-swap evidence migration', () => {
     });
 
     expect(report.errors).toEqual([]);
-    expect(report.artifactMigrationsRun).toEqual([LFM350]);
+    // Both live artifact-swap migrations run this boot (their markers were unset).
+    expect(report.artifactMigrationsRun).toEqual([LFM350, QWEN_XD]);
     expect(storage.getItem(MARKER)).not.toBeNull();
-    // Only the migrated model's evidence is touched.
+    // Only the migrated model's evidence is touched (the qwen3-0.6b migration has
+    // no ledger rows here, so it clears nothing).
     const entries = JSON.parse(localStorage.getItem(LEDGER_KEY) ?? '[]') as Array<{ modelId: string }>;
     expect(entries.map((e) => e.modelId)).toEqual([OTHER_ID]);
     // Only the migrated model's cache namespace is dropped.
@@ -133,7 +140,7 @@ describe('runSelfHeal — artifact-swap evidence migration', () => {
       resolveEcoFastDefault: () => null,
     });
 
-    expect(report.artifactMigrationsRun).toEqual([LFM350]);
+    expect(report.artifactMigrationsRun).toEqual([LFM350, QWEN_XD]);
     // Binding unchanged, status flipped: the setup pipeline re-downloads the
     // new artifact through the full download path instead of leaving a ready
     // slot pointing at an empty cache.
@@ -155,8 +162,10 @@ describe('runSelfHeal — artifact-swap evidence migration', () => {
     expect(getSlot('eco-fast').status).toBe('ready');
   });
 
-  it('no-ops when the marker is already present', async () => {
+  it('no-ops when the markers are already present', async () => {
+    // Both live migrations' markers must be set, or the unmarked one still runs.
     storage.setItem(MARKER, '123');
+    storage.setItem(QWEN_XD_MARKER, '123');
     localStorage.setItem(LEDGER_KEY, JSON.stringify([ledgerRow(LFM350)]));
     const cacheBackend = new MemoryCacheStorage();
     await cacheBackend.open(LFM350_CACHE);
@@ -172,6 +181,35 @@ describe('runSelfHeal — artifact-swap evidence migration', () => {
     const entries = JSON.parse(localStorage.getItem(LEDGER_KEY) ?? '[]') as Array<{ modelId: string }>;
     expect(entries).toHaveLength(1);
     expect(cacheBackend.caches.has(LFM350_CACHE)).toBe(true);
+  });
+
+  it('runs the qwen3-0.6b external-data swap: clears its ledger rows + cache namespace and writes the marker', async () => {
+    localStorage.setItem(
+      LEDGER_KEY,
+      JSON.stringify([ledgerRow(QWEN_XD), ledgerRow(OTHER_ID)]),
+    );
+    const cacheBackend = new MemoryCacheStorage();
+    await cacheBackend.open(QWEN_XD_CACHE);
+    await cacheBackend.open(OTHER_CACHE);
+
+    const report = await runSelfHeal({
+      now: () => nowMs,
+      storage,
+      cacheStorage: new CacheApiStorage(cacheBackend),
+      resolveEcoFastDefault: () => null,
+    });
+
+    expect(report.errors).toEqual([]);
+    // The qwen3-0.6b migration ran and marked itself done (the 350m one also runs
+    // — a no-op here — so assert membership, not the whole list).
+    expect(report.artifactMigrationsRun).toContain(QWEN_XD);
+    expect(storage.getItem(QWEN_XD_MARKER)).not.toBeNull();
+    // Only the migrated model's stale single-file evidence is dropped.
+    const entries = JSON.parse(localStorage.getItem(LEDGER_KEY) ?? '[]') as Array<{ modelId: string }>;
+    expect(entries.map((e) => e.modelId)).toEqual([OTHER_ID]);
+    // The old single-file weights namespace is purged; the survivor's is kept.
+    expect(cacheBackend.caches.has(QWEN_XD_CACHE)).toBe(false);
+    expect(cacheBackend.caches.has(OTHER_CACHE)).toBe(true);
   });
 
   it('records the error and leaves the marker unset when the cache clear throws (retries next boot)', async () => {
@@ -647,6 +685,15 @@ describe('runSelfHeal — former-default slot migration', () => {
 describe('runSelfHeal — WebKit-mobile re-gate', () => {
   const QWEN_FLOOR = 'local/qwen3-0.6b';
   const SMART = 'candidate/qwen3.5-2b-onnx';
+
+  // QWEN_FLOOR (local/qwen3-0.6b) is also an artifact-swap migration target
+  // (single-file q4f16 → external-data pair). Model an already-migrated device so
+  // these tests exercise ONLY the re-gate — otherwise the artifact-swap migration
+  // would flip a QWEN_FLOOR-bound ready slot to 'preparing' before the re-gate is
+  // even evaluated.
+  beforeEach(() => {
+    storage.setItem('eco-local-ai-mig-qwen3-0.6b-xd-v1', String(nowMs));
+  });
   const iosWebKit: DeviceProfile = {
     browserClass: 'safari',
     webgpuSupport: 'webgpu',

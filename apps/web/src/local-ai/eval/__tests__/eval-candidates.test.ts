@@ -11,12 +11,15 @@ import {
 } from "../eval-candidates";
 
 // Deliberately absent (graduated into the shipping catalog — catalog tests cover
-// them now): Qwen3.5-2B (chat #7 bake-off winner, 2026-06-11) and
-// gemma-4-e2b-litert (f16-less C2/C3 answer, model-offering overhaul 2026-06-29).
+// them now): Qwen3.5-2B (chat #7 bake-off winner, 2026-06-11), gemma-4-e2b-litert
+// (f16-less C2/C3 answer, model-offering overhaul 2026-06-29), and the Qwen3-0.6B
+// external-data pair (candidate/qwen3-0.6b-q4f16-xd, graduated 2026-07-17 — it
+// became local/qwen3-0.6b's catalog artifact). The old single-file build stays
+// here as candidate/qwen3-0.6b-q4f16-single, the paired A/B baseline.
 const CANDIDATE_IDS = [
   "candidate/qwen3-1.7b-onnx",
   "candidate/qwen3-0.6b-q4",
-  "candidate/qwen3-0.6b-q4f16-xd",
+  "candidate/qwen3-0.6b-q4f16-single",
   "candidate/lfm2-2.6b-onnx",
   "candidate/qwen3.5-4b-onnx",
   "candidate/gemma-4-e2b-onnx",
@@ -37,6 +40,13 @@ describe("eval-candidate lane (Phase 2 + chat #7 bake-off)", () => {
   it("the graduated Qwen3.5-2B is no longer a lane candidate (single source of truth)", () => {
     expect(getEvalCandidateModel("candidate/qwen3.5-2b-onnx")).toBeNull();
     expect(EVAL_CANDIDATE_ARTIFACT_METADATA["candidate/qwen3.5-2b-onnx"]).toBeUndefined();
+  });
+
+  it("the graduated Qwen3-0.6B external-data cell is no longer a lane candidate", () => {
+    // It moved to the shipping catalog as local/qwen3-0.6b's artifact (2026-07-17);
+    // a model must never live in both sets.
+    expect(getEvalCandidateModel("candidate/qwen3-0.6b-q4f16-xd")).toBeNull();
+    expect(EVAL_CANDIDATE_ARTIFACT_METADATA["candidate/qwen3-0.6b-q4f16-xd"]).toBeUndefined();
   });
 
   it.each(CANDIDATE_IDS)("%s carries a valid pinned artifact", (id) => {
@@ -112,29 +122,25 @@ describe("eval-candidate lane (Phase 2 + chat #7 bake-off)", () => {
     });
   });
 
-  it("the A-3 external-data cell pins the hosted repack pair", () => {
-    const model = getEvalCandidateModel("candidate/qwen3-0.6b-q4f16-xd");
+  it("the A-3 single-file baseline cell retains the pre-graduation build", () => {
+    const model = getEvalCandidateModel("candidate/qwen3-0.6b-q4f16-single");
     expect(model).not.toBeNull();
-    // Same q4f16 dtype as the catalog artifact — only the packaging differs:
-    // the external-data pair skips ort-web's in-heap model staging copy at
-    // session create (measured: load plateau −600–700 MB, reservation −789 MB).
+    // Same q4f16 dtype/weights as the graduated catalog external-data pair, but
+    // in the ORIGINAL single-file packaging (onnx/model_q4f16.onnx) — kept so the
+    // single-file load transient can be A/B'd against the shipping external-data
+    // build in a paired measurement on the same machine.
     expect(model!.format).toBe("onnx-q4f16");
     expect(model!.artifact!.files).toContain("onnx/model_q4f16.onnx");
-    expect(model!.artifact!.files).toContain("onnx/model_q4f16.onnx_data");
-    // Hosted byte-preserving repack of onnx-community/Qwen3-0.6B-ONNX@da14531
-    // (provenance: scripts/repack-onnx-external-data.py + the repo card).
-    expect(model!.artifact!.hfId).toBe("econetworkai/Qwen3-0.6B-ONNX-external-data");
+    expect(model!.artifact!.files).not.toContain("onnx/model_q4f16.onnx_data");
+    // The pre-graduation shipping artifact (onnx-community/Qwen3-0.6B-ONNX@da14531).
+    expect(model!.artifact!.hfId).toBe("onnx-community/Qwen3-0.6B-ONNX");
     expect(model!.artifact!.revision).toBe(
-      "e059eaaf660ff62dbc8adcd1057488aa3ad0f5f9",
+      "da1453100cf3ff33ef56d17983fc7a8648706db6",
     );
-    const meta = EVAL_CANDIDATE_ARTIFACT_METADATA["candidate/qwen3-0.6b-q4f16-xd"];
+    const meta = EVAL_CANDIDATE_ARTIFACT_METADATA["candidate/qwen3-0.6b-q4f16-single"];
     expect(meta?.["onnx/model_q4f16.onnx"]).toEqual({
-      sizeBytes: 328247,
-      oid: "c4bb4067156a97c57bc92d945f538dfc7db92153835e9c1f00e598b848f66411",
-    });
-    expect(meta?.["onnx/model_q4f16.onnx_data"]).toEqual({
-      sizeBytes: 569493504,
-      oid: "1ec7609fa8fbec10c830c440087acddfba3d8d5204d457cb8061b732e3a137d8",
+      sizeBytes: 569789750,
+      oid: "9e33a5911974174761d0dfdcc0bec975d9c45af0eae5e9eb647b8ba9442a8f91",
     });
   });
 
