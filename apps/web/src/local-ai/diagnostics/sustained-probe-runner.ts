@@ -103,6 +103,19 @@ async function probeWeightsCached(
 }
 
 /**
+ * Panel-facing wrapper over the same weights-scoped check the run guard uses,
+ * wired to the real plan resolver and storage. Lets the diagnostics panel show
+ * weights state — and offer a download — BEFORE a run, instead of the probe
+ * erroring out on a device that has no other way to stage the bytes (the
+ * normal download journey is compatibility-gated, e.g. WebKit-mobile).
+ */
+export async function areProbeWeightsCached(model: ModelConfig): Promise<boolean> {
+  const { peekDownloadPlan } = await import('../download/download');
+  const { pickStorage } = await import('../download/storage');
+  return probeWeightsCached(model, peekDownloadPlan, pickStorage);
+}
+
+/**
  * Run the sustained probe. Loads the model, runs `turns` generations whose
  * prompts build on prior output, samples memory every ~1s, and persists a
  * `completed` or `error` record. The crash-evidence marker is written at start
@@ -189,7 +202,7 @@ export async function runSustainedProbe(
     if (!(await probeWeightsCached(model, peekDownloadPlan, pickStorage))) {
       return finalize(
         'error',
-        'Model weights are not fully downloaded on this device — the probe never downloads them. Download the model first, then re-run.',
+        'Model weights are not fully downloaded on this device — a probe run never downloads them. Use “Download weights” in this panel, then re-run.',
       );
     }
 

@@ -43,7 +43,23 @@ export function SustainedProbePanel() {
   const [liveTurns, setLiveTurns] = useState<SustainedProbeTurn[]>([]);
   const [records, setRecords] = useState<SustainedProbeRecord[]>([]);
   const [killedNote, setKilledNote] = useState<string | null>(null);
+  // Weights staging: null = checking/unknown, false = missing, true = cached.
+  // The probe run never downloads weights, and on compatibility-declined
+  // devices (WebKit-mobile) the normal chat journey can't stage them either —
+  // this panel's download affordance is the only on-ramp for those retests.
+  const [weightsReady, setWeightsReady] = useState<boolean | null>(null);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadLine, setDownloadLine] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const downloadAbortRef = useRef<AbortController | null>(null);
+
+  // Catalog models and eval-lane candidates resolve from different sets; the
+  // probe and the weights download both need the same lookup.
+  const resolveModel = useCallback(async (id: string) => {
+    const { getModel } = await import('../../../src/local-ai/catalog/catalog');
+    const { getEvalCandidateModel } = await import('../../../src/local-ai/eval/eval-candidates');
+    return getModel(id) ?? getEvalCandidateModel(id);
+  }, []);
 
   // Mount: recover an orphaned marker (tab-kill evidence), load levers + records,
   // and default the picker to the ready-slot model when one exists.
@@ -107,6 +123,81 @@ export function SustainedProbePanel() {
     }
   }, []);
 
+  // Weights state for the picked model, re-checked on every pick (and after a
+  // download completes, which sets it directly).
+  useEffect(() => {
+    if (!modelId) {
+      setWeightsReady(null);
+      return;
+    }
+    let cancelled = false;
+    setWeightsReady(null);
+    void (async () => {
+      try {
+        const { bootstrapLocalAi } = await import('../../../src/local-ai/bootstrap');
+        await bootstrapLocalAi();
+        const model = await resolveModel(modelId);
+        if (!model) {
+          if (!cancelled) setWeightsReady(false);
+          return;
+        }
+        const { areProbeWeightsCached } = await import('../../../src/local-ai/diagnostics/sustained-probe-runner');
+        const ready = await areProbeWeightsCached(model);
+        if (!cancelled) setWeightsReady(ready);
+      } catch {
+        if (!cancelled) setWeightsReady(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [modelId, resolveModel]);
+
+  const downloadWeights = useCallback(async () => {
+    if (!modelId || downloading) return;
+    setDownloading(true);
+    setDownloadLine('Preparing download…');
+    const controller = new AbortController();
+    downloadAbortRef.current = controller;
+    try {
+      const { bootstrapLocalAi } = await import('../../../src/local-ai/bootstrap');
+      await bootstrapLocalAi();
+      const model = await resolveModel(modelId);
+      if (!model) {
+        setDownloadLine(`Model ${modelId} not found.`);
+        return;
+      }
+      const { downloadModel } = await import('../../../src/local-ai/download/download');
+      const { ProgressTracker } = await import('../../../src/local-ai/download/progress');
+      const tracker = new ProgressTracker();
+      const megabytes = (n: number) => Math.round(n / (1024 * 1024));
+      const unsubscribe = tracker.subscribe((event) => {
+        if (event.kind === 'progress' && event.phase === 'downloading') {
+          setDownloadLine(
+            `Downloading… ${Math.round(event.percent * 100)}% (${megabytes(event.loaded)}/${megabytes(event.total)} MB)`,
+          );
+        }
+      });
+      try {
+        await downloadModel(model, { tracker, signal: controller.signal });
+      } finally {
+        unsubscribe();
+      }
+      setWeightsReady(true);
+      setDownloadLine('Weights ready — run the probe.');
+    } catch (err) {
+      setDownloadLine(`Download failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setDownloading(false);
+      downloadAbortRef.current = null;
+    }
+  }, [modelId, downloading, resolveModel]);
+
+  const stopDownload = useCallback(() => {
+    downloadAbortRef.current?.abort();
+    setDownloadLine('Stopping download…');
+  }, []);
+
   const run = useCallback(async () => {
     if (!modelId) return;
     setRunning(true);
@@ -118,12 +209,11 @@ export function SustainedProbePanel() {
     try {
       const { bootstrapLocalAi } = await import('../../../src/local-ai/bootstrap');
       await bootstrapLocalAi();
-      const { getModel } = await import('../../../src/local-ai/catalog/catalog');
       // Eval-lane candidates (harness-only picker entries, e.g. the A-3 q4 cell)
-      // are not in the catalog; resolve them from the candidate lane so the probe
-      // can actually load and measure them. loadModel takes a ModelConfig directly.
-      const { getEvalCandidateModel } = await import('../../../src/local-ai/eval/eval-candidates');
-      const model = getModel(modelId) ?? getEvalCandidateModel(modelId);
+      // are not in the catalog; resolveModel checks the candidate lane too, so
+      // the probe can actually load and measure them. loadModel takes a
+      // ModelConfig directly.
+      const model = await resolveModel(modelId);
       if (!model) {
         setLiveLine(`Model ${modelId} not found.`);
         return;
@@ -138,7 +228,7 @@ export function SustainedProbePanel() {
       setRunning(false);
       abortRef.current = null;
     }
-  }, [modelId, turns, onProgress]);
+  }, [modelId, turns, onProgress, resolveModel]);
 
   const stop = useCallback(() => {
     abortRef.current?.abort();
@@ -213,7 +303,7 @@ export function SustainedProbePanel() {
         </label>
 
         <div className="flex gap-2">
-          <Button onClick={run} variant="primary" disabled={running || !modelId}>
+          <Button onClick={run} variant="primary" disabled={running || downloading || !modelId}>
             {running ? 'Running…' : 'Run probe'}
           </Button>
           {running && (
@@ -229,6 +319,30 @@ export function SustainedProbePanel() {
         </div>
       </div>
 
+      {/* Weights staging — the probe run itself never downloads weights, so a
+          device the normal journey declines (WebKit-mobile) stages them here. */}
+      {modelId && weightsReady === false && (
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          <span className="text-sm" style={LABEL} role="status">
+            Weights for this model are not on this device.
+          </span>
+          {!downloading && (
+            <Button onClick={downloadWeights} variant="secondary">
+              Download weights
+            </Button>
+          )}
+          {downloading && (
+            <Button onClick={stopDownload} variant="secondary">
+              Stop download
+            </Button>
+          )}
+        </div>
+      )}
+      {downloadLine && (
+        <p className="mb-4 text-sm" style={MONO} role="status">
+          {downloadLine}
+        </p>
+      )}
       {liveLine && (
         <p className="mb-4 text-sm" style={{ color: 'var(--eco-text-secondary)', fontFamily: 'var(--eco-font-mono)' }}>
           {liveLine}
@@ -243,7 +357,7 @@ export function SustainedProbePanel() {
       {/* Completed / recovered records */}
       {records.length === 0 && !running ? (
         <p className="text-sm" style={{ color: 'var(--eco-text-secondary)' }}>
-          No probes yet. Pick a model that is already downloaded, then run.
+          No probes yet. Pick a model, download its weights if this device doesn’t have them, then run.
         </p>
       ) : (
         <div className="flex flex-col gap-4">

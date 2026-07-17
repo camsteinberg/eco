@@ -56,6 +56,35 @@ vi.mock('../../../../src/lib/validation-harness', () => ({
   isValidationHarnessEnabled: () => harnessEnabled,
 }));
 
+// ── Weights-staging seams (bootstrap, cached-check, download) ──
+vi.mock('../../../../src/local-ai/bootstrap', () => ({
+  bootstrapLocalAi: async () => {},
+}));
+
+// Mutable per-test: whether the picked model's weights verify as cached.
+let weightsCached = true;
+vi.mock('../../../../src/local-ai/diagnostics/sustained-probe-runner', () => ({
+  areProbeWeightsCached: async () => weightsCached,
+  runSustainedProbe: vi.fn(),
+}));
+
+const downloadModelMock = vi.fn(async () => {
+  weightsCached = true;
+  return { modelId: 'local/model-a', bytesDownloaded: 1, filesFetched: 1, filesSkipped: 0 };
+});
+vi.mock('../../../../src/local-ai/download/download', () => ({
+  downloadModel: (...args: unknown[]) => downloadModelMock(...(args as [])),
+}));
+
+vi.mock('../../../../src/local-ai/download/progress', () => ({
+  ProgressTracker: class {
+    subscribe() {
+      return () => {};
+    }
+  },
+}));
+
+import { fireEvent } from '@testing-library/react';
 import { SustainedProbePanel } from '../SustainedProbePanel';
 
 async function findModelPicker(): Promise<HTMLElement> {
@@ -65,6 +94,7 @@ async function findModelPicker(): Promise<HTMLElement> {
 describe('SustainedProbePanel — model picker', () => {
   beforeEach(() => {
     harnessEnabled = false;
+    weightsCached = true;
   });
   afterEach(() => {
     vi.clearAllMocks();
@@ -93,5 +123,45 @@ describe('SustainedProbePanel — model picker', () => {
     });
     // Catalog models still present; the candidate rides alongside them.
     expect(within(picker).getByRole('option', { name: 'Model A' })).toBeInTheDocument();
+  });
+});
+
+describe('SustainedProbePanel — weights staging', () => {
+  beforeEach(() => {
+    harnessEnabled = false;
+    weightsCached = true;
+  });
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('offers no download affordance when the picked model verifies as cached', async () => {
+    weightsCached = true;
+    render(<SustainedProbePanel />);
+    await findModelPicker();
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: 'Download weights' })).not.toBeInTheDocument();
+    });
+  });
+
+  it('surfaces missing weights and downloads them through the real seam on request', async () => {
+    // The probe run never downloads weights, and a compatibility-declined
+    // device (WebKit-mobile) cannot stage them through the normal journey —
+    // this affordance is that device's only on-ramp to an instrumented run.
+    weightsCached = false;
+    render(<SustainedProbePanel />);
+
+    const button = await screen.findByRole('button', { name: 'Download weights' });
+    expect(screen.getByText('Weights for this model are not on this device.')).toBeInTheDocument();
+
+    fireEvent.click(button);
+    await waitFor(() => {
+      expect(downloadModelMock).toHaveBeenCalledTimes(1);
+    });
+    // Completion flips the panel to ready: staging row gone, status line shown.
+    await waitFor(() => {
+      expect(screen.getByText('Weights ready — run the probe.')).toBeInTheDocument();
+    });
+    expect(screen.queryByRole('button', { name: 'Download weights' })).not.toBeInTheDocument();
   });
 });
