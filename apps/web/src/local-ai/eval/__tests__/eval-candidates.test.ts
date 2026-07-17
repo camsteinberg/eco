@@ -16,6 +16,7 @@ import {
 const CANDIDATE_IDS = [
   "candidate/qwen3-1.7b-onnx",
   "candidate/qwen3-0.6b-q4",
+  "candidate/qwen3-0.6b-q4f16-xd",
   "candidate/lfm2-2.6b-onnx",
   "candidate/qwen3.5-4b-onnx",
   "candidate/gemma-4-e2b-onnx",
@@ -108,6 +109,32 @@ describe("eval-candidate lane (Phase 2 + chat #7 bake-off)", () => {
     expect(meta?.["onnx/model_q4.onnx"]).toEqual({
       sizeBytes: 919096585,
       oid: "d43d836fc5e240df9013733ccd214972c5d21bd9ec47e574e4f1e359cf90aed0",
+    });
+  });
+
+  it("the A-3 external-data cell pins the hosted repack pair", () => {
+    const model = getEvalCandidateModel("candidate/qwen3-0.6b-q4f16-xd");
+    expect(model).not.toBeNull();
+    // Same q4f16 dtype as the catalog artifact — only the packaging differs:
+    // the external-data pair skips ort-web's in-heap model staging copy at
+    // session create (measured: load plateau −600–700 MB, reservation −789 MB).
+    expect(model!.format).toBe("onnx-q4f16");
+    expect(model!.artifact!.files).toContain("onnx/model_q4f16.onnx");
+    expect(model!.artifact!.files).toContain("onnx/model_q4f16.onnx_data");
+    // Hosted byte-preserving repack of onnx-community/Qwen3-0.6B-ONNX@da14531
+    // (provenance: scripts/repack-onnx-external-data.py + the repo card).
+    expect(model!.artifact!.hfId).toBe("econetworkai/Qwen3-0.6B-ONNX-external-data");
+    expect(model!.artifact!.revision).toBe(
+      "e059eaaf660ff62dbc8adcd1057488aa3ad0f5f9",
+    );
+    const meta = EVAL_CANDIDATE_ARTIFACT_METADATA["candidate/qwen3-0.6b-q4f16-xd"];
+    expect(meta?.["onnx/model_q4f16.onnx"]).toEqual({
+      sizeBytes: 328247,
+      oid: "c4bb4067156a97c57bc92d945f538dfc7db92153835e9c1f00e598b848f66411",
+    });
+    expect(meta?.["onnx/model_q4f16.onnx_data"]).toEqual({
+      sizeBytes: 569493504,
+      oid: "1ec7609fa8fbec10c830c440087acddfba3d8d5204d457cb8061b732e3a137d8",
     });
   });
 
