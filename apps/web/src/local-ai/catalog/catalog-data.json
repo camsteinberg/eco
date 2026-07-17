@@ -58,10 +58,11 @@
       "evidenceTier": "proven",
       "systemRoleSupport": "native",
       "artifact": {
-        "hfId": "onnx-community/Qwen3-0.6B-ONNX",
-        "revision": "da1453100cf3ff33ef56d17983fc7a8648706db6",
+        "hfId": "econetworkai/Qwen3-0.6B-ONNX-external-data",
+        "revision": "e059eaaf660ff62dbc8adcd1057488aa3ad0f5f9",
         "files": [
           "onnx/model_q4f16.onnx",
+          "onnx/model_q4f16.onnx_data",
           "added_tokens.json",
           "chat_template.jinja",
           "config.json",

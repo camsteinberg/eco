@@ -11,7 +11,8 @@
     "tokenizer_config.json": { "sizeBytes": 3299, "oid": "d57e94ca8011c3f8baccf36c54e941e949016349" }
   },
   "local/qwen3-0.6b": {
-    "onnx/model_q4f16.onnx": { "sizeBytes": 569789750, "oid": "9e33a5911974174761d0dfdcc0bec975d9c45af0eae5e9eb647b8ba9442a8f91" },
+    "onnx/model_q4f16.onnx": { "sizeBytes": 328247, "oid": "c4bb4067156a97c57bc92d945f538dfc7db92153835e9c1f00e598b848f66411" },
+    "onnx/model_q4f16.onnx_data": { "sizeBytes": 569493504, "oid": "1ec7609fa8fbec10c830c440087acddfba3d8d5204d457cb8061b732e3a137d8" },
     "added_tokens.json": { "sizeBytes": 707, "oid": "b54f9135e44c1e81047e8d05cb027af8bc039eed" },
     "chat_template.jinja": { "sizeBytes": 4116, "oid": "699ff8df401fe4788525e9c1f9b86a99eadd6230" },
     "config.json": { "sizeBytes": 912, "oid": "5618bd85d36283349a0cb4a99ab15454691f355b" },

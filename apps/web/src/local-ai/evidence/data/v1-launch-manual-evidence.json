@@ -670,9 +670,9 @@
       "sourceFreshness": "current",
       "sourceEvidence": [
         {
-          "title": "onnx-community/Qwen3-0.6B-ONNX model metadata",
-          "url": "https://huggingface.co/onnx-community/Qwen3-0.6B-ONNX",
-          "lastReviewedAt": "2026-05-11"
+          "title": "econetworkai/Qwen3-0.6B-ONNX-external-data model metadata",
+          "url": "https://huggingface.co/econetworkai/Qwen3-0.6B-ONNX-external-data",
+          "lastReviewedAt": "2026-07-17"
         },
         {
           "title": "Transformers.js browser inference docs",
@@ -685,10 +685,11 @@
         "quality-review:missing"
       ],
       "artifactIdentity": {
-        "hfId": "onnx-community/Qwen3-0.6B-ONNX",
-        "revision": "da1453100cf3ff33ef56d17983fc7a8648706db6",
+        "hfId": "econetworkai/Qwen3-0.6B-ONNX-external-data",
+        "revision": "e059eaaf660ff62dbc8adcd1057488aa3ad0f5f9",
         "files": [
           "onnx/model_q4f16.onnx",
+          "onnx/model_q4f16.onnx_data",
           "added_tokens.json",
           "chat_template.jinja",
           "config.json",
@@ -699,25 +700,25 @@
           "tokenizer_config.json",
           "vocab.json"
         ],
-        "fileMetadataCount": 10,
-        "externalDataFileCount": 0,
+        "fileMetadataCount": 11,
+        "externalDataFileCount": 1,
         "artifactReachability": "metadata-verified",
         "licenseClassification": "allowed",
         "redistributionEligibility": "proxy-allowed"
       },
       "artifactManifest": {
-        "repoId": "onnx-community/Qwen3-0.6B-ONNX",
-        "revision": "da1453100cf3ff33ef56d17983fc7a8648706db6",
+        "repoId": "econetworkai/Qwen3-0.6B-ONNX-external-data",
+        "revision": "e059eaaf660ff62dbc8adcd1057488aa3ad0f5f9",
         "format": "ONNX Transformers.js",
         "quantization": "q4f16",
-        "fileCount": 10,
-        "filesWithMetadata": 10,
-        "filesWithIntegrityOid": 10,
-        "externalDataFileCount": 0,
-        "expectedBytes": 583371748,
+        "fileCount": 11,
+        "filesWithMetadata": 11,
+        "filesWithIntegrityOid": 11,
+        "externalDataFileCount": 1,
+        "expectedBytes": 583403749,
         "quotaPreflight": {
           "status": "ready",
-          "expectedBytes": 583371748,
+          "expectedBytes": 583403749,
           "source": "artifact-review-file-metadata"
         }
       },
@@ -730,7 +731,7 @@
         "throughputTokensPerSecond": 18.7,
         "peakMemoryBytes": 1200000000,
         "peakMemorySource": "candidate-estimate",
-        "storageBytes": 583371748,
+        "storageBytes": 583403749,
         "browserStorageUsedBytes": null,
         "coldStartMs": null,
         "warmStartMs": null,
@@ -770,7 +771,7 @@
             "status": "pass",
             "source": "artifact-review-file-metadata",
             "evidence": [
-              "expectedBytes:583371748"
+              "expectedBytes:583403749"
             ],
             "blockers": []
           },

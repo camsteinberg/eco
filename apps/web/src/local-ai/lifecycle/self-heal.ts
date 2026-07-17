@@ -70,11 +70,22 @@ const DOWNLOAD_MARKER_MAX_AGE_MS = 5 * 60 * 1000;
  * 2026-07-01: lfm2.5-350m q4f16 → q4 (f16-free starter rung — instant-start
  * plan slice 1). The q4f16 build smoke-failed on f16-less adapters at an f16
  * op the q4 build does not contain.
+ *
+ * 2026-07-17: qwen3-0.6b single-file q4f16 → external-data pair (A-3
+ * load-transient fix). Same q4f16 weights repacked as model_q4f16.onnx +
+ * model_q4f16.onnx_data; the external-data shape skips the in-heap model
+ * staging copy at ORT session create, eliminating the ~2s load spike that
+ * killed WebKit-mobile. Old single-file bytes must be purged and evidence
+ * cleared so the new build gets a clean re-smoke.
  */
 const ARTIFACT_SWAP_MIGRATIONS: ReadonlyArray<{ modelId: string; markerKey: string }> = [
   {
     modelId: 'candidate/lfm2.5-350m-onnx',
     markerKey: 'eco-local-ai-mig-350m-q4-v1',
+  },
+  {
+    modelId: 'local/qwen3-0.6b',
+    markerKey: 'eco-local-ai-mig-qwen3-0.6b-xd-v1',
   },
 ];
 

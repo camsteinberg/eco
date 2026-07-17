@@ -150,21 +150,27 @@ const QWEN3_0_6B_Q4: ModelConfig = {
   },
 };
 
-// A-3 measurement cell #2 (2026-07-16/17, s33): the SAME q4f16 weights repacked
-// as an EXTERNAL-DATA pair (model_q4f16.onnx graph + model_q4f16.onnx_data).
-// ort-web's session create stages a single-file model wholesale inside the wasm
-// heap (freed only after session build), but externalData files are mounted
-// JS-side and skip that staging copy. MEASURED (paired cells, quiet machine):
-// load plateau −600–700 MB, wasm reservation −789 MB, tok/s unchanged vs the
-// single-file catalog artifact — the external-data shape is the load-transient
-// fix, pending real-device (Safari/iPhone) validation before any catalog
-// graduation. Hosted at econetworkai/Qwen3-0.6B-ONNX-external-data: a
-// byte-preserving repack of onnx-community/Qwen3-0.6B-ONNX@da14531, produced
-// by scripts/repack-onnx-external-data.py (deterministic; shas pinned below
-// and in the repo card). Config/tokenizer files are verbatim upstream copies.
-const QWEN3_0_6B_Q4F16_XD: ModelConfig = {
-  id: 'candidate/qwen3-0.6b-q4f16-xd',
-  friendlyName: 'Qwen3 0.6B (q4f16 external-data)',
+// Qwen3-0.6B external-data GRADUATED (2026-07-17): the A-3 external-data repack
+// (econetworkai/Qwen3-0.6B-ONNX-external-data@e059eaaf) moved to the shipping
+// catalog (catalog-data.json + catalog/artifact-metadata.json), replacing the
+// single-file q4f16 artifact IN PLACE via ARTIFACT_SWAP_MIGRATIONS. Its lane
+// entry was removed — a model must never live in both sets, or the registry
+// emits duplicate proxy artifacts. The old single-file build stays reachable as
+// the paired A/B baseline below (resident is pressure-dependent → paired cells
+// only); the graduation IS the servability fix that lets Cam's iPhone reach it.
+
+// A-3 single-file baseline cell (retained 2026-07-17 at graduation): the SAME
+// Qwen3-0.6B q4f16 weights the catalog now serves as an external-data pair, but
+// in the ORIGINAL single-file build (onnx-community/Qwen3-0.6B-ONNX@da14531,
+// onnx/model_q4f16.onnx). This is the pre-graduation shipping artifact, kept
+// dev-only so the diagnostics sustained-memory probe can measure the single-file
+// load transient against the graduated external-data catalog build in a paired
+// A/B on the same machine/pressure. Dev-only: rides the validation-allowed lane
+// (403 in production), never enters the shipping catalog, ModelSelector, or
+// recommendation engine.
+const QWEN3_0_6B_Q4F16_SINGLE: ModelConfig = {
+  id: 'candidate/qwen3-0.6b-q4f16-single',
+  friendlyName: 'Qwen3 0.6B (q4f16 single-file)',
   vendor: 'Alibaba',
   sizeGB: 0.57,
   runtime: 'transformers',
@@ -175,17 +181,16 @@ const QWEN3_0_6B_Q4F16_XD: ModelConfig = {
     contextTokens: 4096,
   },
   bestFor:
-    'A-3 measurement cell: the shipping q4f16 weights repacked as external data — skips the in-heap model staging copy at session create (measured: load plateau −600–700 MB, reservation −789 MB, speed unchanged).',
+    'A-3 baseline cell: the pre-graduation single-file q4f16 Qwen3-0.6B build, retained to A/B its ORT session-init load transient against the graduated external-data catalog artifact (same weights, paired measurement).',
   knownLimitation:
-    'Dev-only measurement/validation cell — candidate for catalog graduation only after real-device (Safari/iPhone) validation.',
+    'Dev-only measurement baseline — the single-file build the catalog moved off of. It stages the whole model in the wasm heap at session create (the ~2s load spike the external-data graduation removed); kept only for paired A/B against the shipping external-data build.',
   evidenceTier: 'predicted',
   systemRoleSupport: 'native',
   artifact: {
-    hfId: 'econetworkai/Qwen3-0.6B-ONNX-external-data',
-    revision: 'e059eaaf660ff62dbc8adcd1057488aa3ad0f5f9',
+    hfId: 'onnx-community/Qwen3-0.6B-ONNX',
+    revision: 'da1453100cf3ff33ef56d17983fc7a8648706db6',
     files: [
       'onnx/model_q4f16.onnx',
-      'onnx/model_q4f16.onnx_data',
       'added_tokens.json',
       'chat_template.jinja',
       'config.json',
@@ -424,7 +429,7 @@ const GEMMA4_E4B_LITERT: ModelConfig = {
 const MODELS: readonly ModelConfig[] = Object.freeze([
   Object.freeze(QWEN3_1_7B),
   Object.freeze(QWEN3_0_6B_Q4),
-  Object.freeze(QWEN3_0_6B_Q4F16_XD),
+  Object.freeze(QWEN3_0_6B_Q4F16_SINGLE),
   Object.freeze(LFM2_2_6B),
   Object.freeze(QWEN35_4B),
   Object.freeze(GEMMA4_E2B),
@@ -474,14 +479,14 @@ export const EVAL_CANDIDATE_ARTIFACT_METADATA: Readonly<
     'tokenizer_config.json': { sizeBytes: 9705, oid: '7ea8b974de6450e023f8e4977a8b7f30902cc3be' },
     'vocab.json': { sizeBytes: 2776833, oid: '4783fe10ac3adce15ac8f358ef5462739852c569' },
   }),
-  // A-3 cell #2: external-data repack pair, hosted at
-  // econetworkai/Qwen3-0.6B-ONNX-external-data@e059eaaf (weights oids = LFS
-  // sha256 of the deterministic repack, verified against the published tree;
-  // config/tokenizer entries are byte-identical to upstream @da14531 —
-  // tokenizer.json keeps its sha256 so the proxy full-body-verifies it).
-  'candidate/qwen3-0.6b-q4f16-xd': Object.freeze({
-    'onnx/model_q4f16.onnx': { sizeBytes: 328247, oid: 'c4bb4067156a97c57bc92d945f538dfc7db92153835e9c1f00e598b848f66411' },
-    'onnx/model_q4f16.onnx_data': { sizeBytes: 569493504, oid: '1ec7609fa8fbec10c830c440087acddfba3d8d5204d457cb8061b732e3a137d8' },
+  // A-3 single-file baseline cell: the pre-graduation shipping build
+  // (onnx-community/Qwen3-0.6B-ONNX@da14531, single-file onnx/model_q4f16.onnx).
+  // These are the OLD catalog local/qwen3-0.6b metadata values, moved here at
+  // graduation — the catalog now serves the external-data pair. model_q4f16.onnx
+  // is the whole-model single file (64-char LFS sha256, proxy-verified); text
+  // files are byte-identical to the graduated build.
+  'candidate/qwen3-0.6b-q4f16-single': Object.freeze({
+    'onnx/model_q4f16.onnx': { sizeBytes: 569789750, oid: '9e33a5911974174761d0dfdcc0bec975d9c45af0eae5e9eb647b8ba9442a8f91' },
     'added_tokens.json': { sizeBytes: 707, oid: 'b54f9135e44c1e81047e8d05cb027af8bc039eed' },
     'chat_template.jinja': { sizeBytes: 4116, oid: '699ff8df401fe4788525e9c1f9b86a99eadd6230' },
     'config.json': { sizeBytes: 912, oid: '5618bd85d36283349a0cb4a99ab15454691f355b' },

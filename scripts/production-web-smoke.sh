@@ -175,7 +175,7 @@ probe "web privacy" "GET" "$WEB_URL/privacy" '^200$' 'Privacy|privacy' 'content-
 probe "web terms" "GET" "$WEB_URL/terms" '^200$' 'Terms|terms' 'content-security-policy:'
 probe "web transparency" "GET" "$WEB_URL/transparency" '^200$' 'Transparency|transparency' 'content-security-policy:'
 probe "web static service worker" "HEAD" "$WEB_URL/sw.js" '^200$' '' 'cache-control:'
-probe "web model metadata HEAD" "HEAD" "$WEB_URL/api/local-models/onnx-community/Qwen3-0.6B-ONNX/resolve/da1453100cf3ff33ef56d17983fc7a8648706db6/config.json" '^200$' '' 'accept-ranges:|content-length:'
+probe "web model metadata HEAD" "HEAD" "$WEB_URL/api/local-models/econetworkai/Qwen3-0.6B-ONNX-external-data/resolve/e059eaaf660ff62dbc8adcd1057488aa3ad0f5f9/config.json" '^200$' '' 'accept-ranges:|content-length:'
 
 # Runtime engine statics manifest. Entries are "<url-path>|<kind>" where kind is
 # `wasm` (asserts application/wasm) or `js`. KEEP IN SYNC with RUNTIME_ASSET_COPIES
