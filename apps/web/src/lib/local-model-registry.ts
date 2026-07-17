@@ -121,6 +121,25 @@ export function getLocalModelRegistryArtifact(
 }
 
 /**
+ * Look up a registry entry for a validation-lane eval candidate
+ * (local-ai/eval/eval-candidates.ts). Mirrors the proxy route's two-tier
+ * pattern: these are NOT catalog models, so consumers MUST gate on
+ * `isValidationHarnessRequestAllowed` before serving anything derived from
+ * this entry — in production it must stay invisible (404/403).
+ */
+export function getValidationLocalModelRegistryEntry(
+  modelId: string,
+): LocalModelRegistryEntry | undefined {
+  const model = getEvalCandidateModels().find((m) => m.id === modelId);
+  if (!model) return undefined;
+  return {
+    modelId: model.id,
+    displayName: model.friendlyName,
+    artifact: buildArtifact(model, EVAL_CANDIDATE_ARTIFACT_METADATA[model.id]),
+  };
+}
+
+/**
  * Artifacts allowed through the same-origin proxy for normal user downloads.
  * In v1 every catalog model with an artifact is proxy-allowed.
  */
