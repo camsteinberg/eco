@@ -952,9 +952,41 @@ async function downloadFileWhole(
 }
 
 /**
+ * Re-read a just-persisted part from storage, yielding the disk-backed blob
+ * handle assembly retains instead of the network-response blob (see the memory
+ * note on downloadFileInChunks). A read-back miss means storage lied about the
+ * write — fail the download honestly rather than silently re-holding the
+ * network blob in memory.
+ */
+async function readBackPart(
+  ctx: FetchFileContext,
+  key: string,
+  file: DownloadFileSpec,
+): Promise<Blob> {
+  const entry = await ctx.storage.get({ modelId: ctx.modelId, url: key });
+  if (!entry) {
+    throw new DownloadFailedError(
+      `Persisted chunk unreadable at ${key} for ${file.url}`,
+      { url: file.url },
+    );
+  }
+  return entry.response.blob();
+}
+
+/**
  * Range-chunked path: pull the file in sequential `bytes=start-end` requests
  * (each retried on transient failure), then assemble the parts into one
  * disk-backed Blob via `new Blob([...])` (by-reference — no contiguous copy).
+ *
+ * MEMORY (the WebKit-mobile kill, 2026-07-17): a network-response Blob is not
+ * reliably disk-backed on iOS Safari, so retaining each chunk's response blob
+ * until assembly grows tab memory linearly with the file — a ~543 MB download
+ * crossed the WebKit tab budget and crash-looped mid-download on iPhone.
+ * Every chunk is persisted to storage for resume anyway, so after the put we
+ * immediately re-read the part from storage and retain only that disk-backed
+ * handle (the same shape the resume path yields); the response blob goes out
+ * of scope with the loop iteration. Peak in-flight memory is O(chunk),
+ * independent of file size, on every engine.
  *
  * Integrity: Range requests bypass the proxy's full-GET SHA verification, so
  * the assembled blob is size-checked against the authoritative total (from the
@@ -998,8 +1030,21 @@ async function downloadFileInChunks(
       // Origin ignored Range and returned the whole file — take it as-is. The
       // resumed parts are abandoned here but remain in storage; their keys stay
       // in partKeys so the caller still sweeps them after the whole-file store.
+      // Persist-then-read-back like any other part: the whole-file response
+      // blob is the largest possible in-memory retention (the WebKit kill).
+      const wholeKey = partKeyUrl(file, 0);
+      try {
+        await ctx.storage.put(
+          { modelId: ctx.modelId, url: wholeKey },
+          new Response(chunk.blob),
+        );
+      } catch (err) {
+        if (isQuotaExceeded(err)) throw new InsufficientStorageError(ctx.remainingBytes);
+        throw err;
+      }
       parts.length = 0;
-      parts.push(chunk.blob);
+      parts.push(await readBackPart(ctx, wholeKey, file));
+      partKeys.push(wholeKey);
       received = chunk.blob.size;
       total = chunk.blob.size;
       break;
@@ -1026,7 +1071,9 @@ async function downloadFileInChunks(
       if (isQuotaExceeded(err)) throw new InsufficientStorageError(ctx.remainingBytes);
       throw err;
     }
-    parts.push(chunk.blob);
+    // Retain the disk-backed storage copy, NOT the network-response blob —
+    // see the memory note in the function doc (the WebKit-mobile kill).
+    parts.push(await readBackPart(ctx, key, file));
     partKeys.push(key);
     received += chunk.blob.size;
   }

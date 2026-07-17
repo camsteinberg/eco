@@ -466,6 +466,52 @@ describe('downloadByPlan — CDN → proxy transport fallback', () => {
     expect(log.filter((u) => u === IDENTITY).length).toBeGreaterThanOrEqual(1);
   });
 
+  it('assembles a chunked download from the persisted parts, not the network blobs', async () => {
+    // The WebKit-mobile kill (2026-07-17): network-response blobs are not
+    // reliably disk-backed on iOS Safari, so retaining them until assembly
+    // grows tab memory linearly with the file. The loop must re-read each
+    // persisted part and retain only the storage handle. Proof: serve part
+    // read-backs with tagged bytes — if the stored file holds the tag, the
+    // assembly consumed storage reads; if it held the network bytes, it
+    // retained the response blobs.
+    const CHUNK = 4;
+    const body = Uint8Array.from({ length: 10 }, (_, i) => i + 1);
+    const TAG = 0xee;
+    const swappingStorage = new Proxy(storage, {
+      get(target, prop) {
+        if (prop === 'get') {
+          return async (key: { modelId: string; url: string }) => {
+            const entry = await target.get(key);
+            if (!entry || key.url === IDENTITY) return entry;
+            const len = (await entry.response.clone().arrayBuffer()).byteLength;
+            return { ...entry, response: new Response(new Uint8Array(len).fill(TAG)) };
+          };
+        }
+        const value = Reflect.get(target, prop);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+    // No oid: the tagged bytes are deliberately not the network bytes, so this
+    // fixture relies on the size check alone (sha-bearing fixtures cover the
+    // untampered path elsewhere).
+    const plan: DownloadPlan = {
+      modelId: MODEL_ID,
+      files: [{ url: IDENTITY, fetchUrl: IDENTITY, sizeBytes: body.byteLength }],
+    };
+
+    const result = await downloadByPlan(plan, {
+      storage: swappingStorage,
+      rangeChunkBytes: CHUNK,
+      fetcher: dispatch([], { [IDENTITY]: (init) => rangeResponse(body, init) }),
+    });
+
+    expect(result.filesFetched).toBe(1);
+    const stored = await storage.get({ modelId: MODEL_ID, url: IDENTITY });
+    const storedBytes = new Uint8Array(await stored!.response.arrayBuffer());
+    expect(storedBytes.length).toBe(body.byteLength);
+    expect(storedBytes.every((b) => b === TAG)).toBe(true);
+  });
+
   it('does NOT fall back on a hard CDN 404 (proxy never requested)', async () => {
     const body = byteArr(1, 2, 3, 4);
     const plan: DownloadPlan = {
