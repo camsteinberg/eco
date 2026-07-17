@@ -39,6 +39,7 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import type { ModelConfig } from '../types';
 import {
+  partsStream,
   pickStorage,
   type Storage,
 } from './storage';
@@ -553,9 +554,13 @@ export async function downloadByPlan(
       );
 
       const identity = { modelId: plan.modelId, url: file.url };
-      // Chunk-part keys to sweep after a successful store (empty on the
-      // whole-file path). Declared out here so the sweep below covers both kinds.
+      // Chunk-part keys to sweep after a successful whole-file store (empty on
+      // the whole-file path). Declared out here so the sweep below covers both
+      // kinds. Left un-swept when the parts BECOME the terminal storage.
       const partKeys = fetched.kind === 'parts' ? fetched.partKeys : [];
+      // True once the parts are the file's permanent storage (finalizeParts):
+      // they must NOT be swept — they ARE the bytes.
+      let partsAreTerminal = false;
 
       if (fetched.kind === 'whole') {
         loadedBytes += fetched.blob.size;
@@ -566,18 +571,28 @@ export async function downloadByPlan(
       try {
         if (fetched.kind === 'whole') {
           await storage.put(identity, new Response(fetched.blob));
+        } else if (storage.finalizeParts) {
+          // Parts-native terminal store: the persisted parts ARE the file. Write
+          // only a tiny manifest at the identity — never a whole-file body. This
+          // is the WebKit-mobile fix: a single ~543 MB Cache-API put is not
+          // survivable even streamed, and parts + a whole copy cannot fit an iOS
+          // origin quota. The parts stay on disk permanently (NOT swept below).
+          await storage.finalizeParts(identity, fetched.partKeys, fetched.sizeBytes);
+          partsAreTerminal = true;
         } else if (storage.putStreamed) {
-          // Zero-retention store: stream the persisted parts straight into
-          // storage without ever assembling the whole file in the heap.
+          // Zero-retention whole-file finalize for backends without
+          // finalizeParts: stream the persisted parts straight into one entry
+          // without ever assembling the file in the heap. The parts are swept
+          // after the store (they were only a resume aid, not the storage).
           await storage.putStreamed(
             identity,
             partsStream(storage, plan.modelId, fetched.partKeys),
             fetched.sizeBytes,
           );
         } else {
-          // Test-fake fallback: backends without putStreamed (never the real
-          // Cache API path) compose the part blobs the old way. Real backends
-          // implement putStreamed, so shipping devices never hit this.
+          // Test-fake fallback: backends without putStreamed OR finalizeParts
+          // (never a real backend) compose the part blobs the old way. Real
+          // backends implement finalizeParts, so shipping devices never hit this.
           const parts: Blob[] = [];
           for (const key of fetched.partKeys) {
             const entry = await storage.get({ modelId: plan.modelId, url: key });
@@ -594,7 +609,7 @@ export async function downloadByPlan(
       } catch (err) {
         // A late quota failure (estimate was optimistic, or space vanished
         // mid-download) becomes the same honest storage error as the preflight.
-        // The chunk-parts are deliberately NOT swept here: the final put is the
+        // The chunk-parts are deliberately NOT swept here: the final store is the
         // likeliest transient-quota moment, and retained parts let the next
         // attempt resume rather than restart. clearModel is the eventual sweep.
         if (isQuotaExceeded(err)) throw new InsufficientStorageError(remainingBytes);
@@ -602,9 +617,12 @@ export async function downloadByPlan(
       }
       filesFetched += 1;
 
-      // Sweep this file's chunk-parts ONLY after the whole-file store succeeds —
-      // deleting earlier would destroy the resume bytes on a failed store.
-      await deletePartsBestEffort(storage, plan.modelId, partKeys);
+      // Sweep this file's chunk-parts ONLY after a whole-file store succeeds —
+      // deleting earlier would destroy the resume bytes on a failed store. Skip
+      // entirely when the parts became the terminal storage (parts-native).
+      if (!partsAreTerminal) {
+        await deletePartsBestEffort(storage, plan.modelId, partKeys);
+      }
     }
 
     // Final progress flush so the consumer sees exactly 1.0 on completion.
@@ -799,11 +817,56 @@ async function deletePartsBestEffort(
   }
 }
 
+/** A persisted chunk-part of one file, as seen through a storage enumeration. */
+type PersistedPart = { url: string; offset: number; sizeBytes: number };
+
 /**
- * Sum the bytes of current-stamp chunk-parts already on disk for the given
- * files — the figure the preflight nets out of `remainingBytes` so a resumable
- * download isn't false-declined. Best-effort: an enumeration failure returns 0
- * (the preflight then sees the full figure and stays conservative).
+ * The current-stamp chunk-parts for `file` from a storage enumeration, sorted
+ * by byte offset. Reads only each part's STAMPED size from the enumeration —
+ * never a part's bytes. Shared by the resume walk and the preflight credit so
+ * the two never diverge on which parts "belong" to the file (a stale-stamp part
+ * — bound to a superseded oid/size — is excluded from both).
+ */
+function currentStampParts(
+  entries: ReadonlyArray<{ url: string; sizeBytes: number | null }>,
+  file: DownloadFileSpec,
+): PersistedPart[] {
+  const stamp = partStamp(file);
+  const mine: PersistedPart[] = [];
+  for (const entry of entries) {
+    if (!isPartUrlFor(entry.url, file)) continue;
+    if (partStampOf(entry.url) !== stamp) continue;
+    const offset = partOffsetOf(entry.url);
+    if (offset == null || entry.sizeBytes == null || entry.sizeBytes <= 0) continue;
+    mine.push({ url: entry.url, offset, sizeBytes: entry.sizeBytes });
+  }
+  mine.sort((a, b) => a.offset - b.offset);
+  return mine;
+}
+
+/**
+ * Bytes contiguously present from offset 0 across `parts` (already offset-sorted).
+ * A gap stops the walk — bytes past it are non-contiguous and cannot be resumed,
+ * so they don't count toward what a resume already has on disk.
+ */
+function contiguousResumedBytes(parts: ReadonlyArray<PersistedPart>): number {
+  let received = 0;
+  for (const part of parts) {
+    if (part.offset !== received) break;
+    received += part.sizeBytes;
+  }
+  return received;
+}
+
+/**
+ * Sum the contiguously-resumable bytes already on disk for the given files —
+ * the figure the preflight nets out of `remainingBytes` so a resumable download
+ * isn't false-declined (a device at 97% must not be asked for 100% headroom,
+ * and a parts-native file needs only 1× the total on disk, never 2×). Only the
+ * contiguous-from-zero run counts, because that is exactly what the resume walk
+ * keeps; orphaned parts past a gap are swept, not resumed. Best-effort: an
+ * enumeration failure returns 0 (the preflight then sees the full figure and
+ * stays conservative).
  */
 async function sumPersistedPartBytes(
   storage: Storage,
@@ -818,14 +881,8 @@ async function sumPersistedPartBytes(
     return 0;
   }
   let sum = 0;
-  for (const entry of entries) {
-    if (entry.sizeBytes == null || entry.sizeBytes <= 0) continue;
-    for (const file of files) {
-      if (isPartUrlFor(entry.url, file) && partStampOf(entry.url) === partStamp(file)) {
-        sum += entry.sizeBytes;
-        break;
-      }
-    }
+  for (const file of files) {
+    sum += contiguousResumedBytes(currentStampParts(entries, file));
   }
   return sum;
 }
@@ -1149,56 +1206,6 @@ async function downloadFileInChunks(
 }
 
 /**
- * Compose persisted chunk-parts into a single readable stream for a streamed
- * store — pull-based, so `cache.put`'s consumption paces the reads and only ONE
- * part is open at a time (the zero-retention contract extended to the store).
- * A missing part mid-stream errors the stream rather than silently truncating.
- */
-function partsStream(
-  storage: Storage,
-  modelId: string,
-  partKeys: readonly string[],
-): ReadableStream<Uint8Array> {
-  let index = 0;
-  let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
-  return new ReadableStream<Uint8Array>({
-    async pull(controller) {
-      for (;;) {
-        if (!reader) {
-          if (index >= partKeys.length) {
-            controller.close();
-            return;
-          }
-          const entry = await storage.get({ modelId, url: partKeys[index]! });
-          if (!entry) {
-            controller.error(
-              new DownloadFailedError(
-                `Persisted chunk unreadable at ${partKeys[index]} for streamed store`,
-                { url: partKeys[index]! },
-              ),
-            );
-            return;
-          }
-          const body = entry.response.body ?? (await entry.response.blob()).stream();
-          reader = body.getReader();
-        }
-        const { done, value } = await reader.read();
-        if (done) {
-          reader = null;
-          index += 1;
-          continue;
-        }
-        controller.enqueue(value);
-        return;
-      }
-    },
-    cancel() {
-      void reader?.cancel();
-    },
-  });
-}
-
-/**
  * Adopt previously-persisted chunk-parts for `file` so a resumed download
  * continues mid-file. Enumerates the model namespace, walks the current-stamp
  * parts contiguously from offset 0 into `partKeys`, and best-effort sweeps
@@ -1222,20 +1229,17 @@ async function resumeFromPersistedParts(
   }
 
   const stamp = partStamp(file);
+  // Stale = this file's part urls bound to a SUPERSEDED stamp (a different
+  // oid/size) — they can never stitch into the current file and are swept.
+  // The current-stamp parts (offset-sorted) come from the shared selector so
+  // the preflight credit and this walk agree on what "belongs" to the file.
   const stale: string[] = [];
-  const mine: { url: string; offset: number; sizeBytes: number }[] = [];
   for (const entry of entries) {
-    if (!isPartUrlFor(entry.url, file)) continue;
-    if (partStampOf(entry.url) !== stamp) {
-      stale.push(entry.url); // Superseded revision — bytes bound to a different oid/size.
-      continue;
+    if (isPartUrlFor(entry.url, file) && partStampOf(entry.url) !== stamp) {
+      stale.push(entry.url);
     }
-    const offset = partOffsetOf(entry.url);
-    if (offset == null || entry.sizeBytes == null || entry.sizeBytes <= 0) continue;
-    mine.push({ url: entry.url, offset, sizeBytes: entry.sizeBytes });
   }
-
-  mine.sort((a, b) => a.offset - b.offset);
+  const mine = currentStampParts(entries, file);
 
   let received = 0;
   const walked = new Set<string>();

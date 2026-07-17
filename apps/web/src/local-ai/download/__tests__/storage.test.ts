@@ -1,15 +1,20 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Bos Computing LLC
+// @vitest-environment node
 
 /**
  * Phase G — storage.ts unit tests.
  *
- * jsdom does NOT implement the Cache API or OPFS. These tests inject an
- * in-memory `MemoryCacheStorage` fake into `CacheApiStorage` so the
- * contract is verifiable in unit-test isolation. The OPFS path is covered
- * by a minimal contract test using a hand-rolled `MemoryOpfsRoot` so the
- * surface compiles end-to-end; the real OPFS path is verified in Phase L's
- * Playwright pass.
+ * Runs under the `node` environment (not jsdom): the parts-native roundtrip
+ * reads bytes back through a streamed composed Response, and jsdom's Response/
+ * Blob polyfill does NOT faithfully preserve a binary body through
+ * `.arrayBuffer()` (it stringifies blob bodies — the same unfaithfulness the
+ * download.ts tests avoid). Node's undici implementation matches real browsers.
+ *
+ * The Cache API and OPFS are not implemented in either environment, so these
+ * tests inject an in-memory `MemoryCacheStorage` fake into `CacheApiStorage` and
+ * a hand-rolled `MemoryOpfsRoot` into `OpfsStorage`; the real OPFS path is
+ * verified in Phase L's Playwright pass.
  *
  * Bug #4 regression test lives in this file (CDN strips content-length →
  * stored entry must NOT auto-delete on count).
@@ -194,6 +199,95 @@ describe('CacheApiStorage.putStreamed — streams a known-size body without mate
     const entry = await storage.get({ modelId: MODEL, url: 'https://cdn/phi3/model.onnx' });
     expect(entry!.sizeBytes).toBe(99);
     expect(await storage.verify({ modelId: MODEL, url: 'https://cdn/phi3/model.onnx' }, 99)).toBe(true);
+  });
+});
+
+describe('CacheApiStorage.finalizeParts — parts-native terminal storage', () => {
+  let storage: CacheApiStorage;
+
+  beforeEach(() => {
+    storage = new CacheApiStorage(new MemoryCacheStorage());
+  });
+
+  const IDENTITY = 'https://cdn/phi3/model.onnx_data';
+  const chunks = [
+    new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]),
+    new Uint8Array([9, 10, 11, 12, 13, 14, 15, 16]),
+    new Uint8Array([17, 18, 19, 20, 21, 22, 23, 24]),
+  ];
+  const whole = new Uint8Array([...chunks[0]!, ...chunks[1]!, ...chunks[2]!]); // 24 bytes
+
+  /** Stage each chunk as its own cache entry (as the chunked download does),
+   *  returning the ordered part keys + aggregate total. */
+  async function stageParts(): Promise<{ partKeys: string[]; total: number }> {
+    const partKeys: string[] = [];
+    let offset = 0;
+    for (const chunk of chunks) {
+      const key = `${IDENTITY}.ecopart.s24.${offset}`;
+      await storage.put({ modelId: MODEL, url: key }, new Response(chunk as unknown as BodyInit));
+      partKeys.push(key);
+      offset += chunk.byteLength;
+    }
+    return { partKeys, total: offset };
+  }
+
+  it('get() composes the parts into the exact original bytes with the aggregate size', async () => {
+    const { partKeys, total } = await stageParts();
+    await storage.finalizeParts({ modelId: MODEL, url: IDENTITY }, partKeys, total);
+
+    const entry = await storage.get({ modelId: MODEL, url: IDENTITY });
+    expect(entry).not.toBeNull();
+    expect(entry!.sizeBytes).toBe(24);
+    expect(entry!.response.headers.get(ECO_CACHE_SIZE_HEADER)).toBe('24');
+    expect([...new Uint8Array(await entry!.response.arrayBuffer())]).toEqual([...whole]);
+    expect(await storage.isPartsNative({ modelId: MODEL, url: IDENTITY })).toBe(true);
+  });
+
+  it('verify() is true for the stamped total, false for a wrong total', async () => {
+    const { partKeys, total } = await stageParts();
+    await storage.finalizeParts({ modelId: MODEL, url: IDENTITY }, partKeys, total);
+    expect(await storage.verify({ modelId: MODEL, url: IDENTITY }, 24)).toBe(true);
+    expect(await storage.verify({ modelId: MODEL, url: IDENTITY }, 23)).toBe(false);
+  });
+
+  it('verify() is false when a listed part is deleted out from under the manifest', async () => {
+    const { partKeys, total } = await stageParts();
+    await storage.finalizeParts({ modelId: MODEL, url: IDENTITY }, partKeys, total);
+    // Remove the middle part directly (a plain entry, so remove() just deletes it).
+    await storage.remove({ modelId: MODEL, url: partKeys[1]! });
+    expect(await storage.verify({ modelId: MODEL, url: IDENTITY }, 24)).toBe(false);
+  });
+
+  it('remove(identity) deletes the manifest AND every listed part', async () => {
+    const { partKeys, total } = await stageParts();
+    await storage.finalizeParts({ modelId: MODEL, url: IDENTITY }, partKeys, total);
+    await storage.remove({ modelId: MODEL, url: IDENTITY });
+    expect(await storage.has({ modelId: MODEL, url: IDENTITY })).toBe(false);
+    for (const key of partKeys) {
+      expect(await storage.has({ modelId: MODEL, url: key })).toBe(false);
+    }
+    expect(await storage.listForModel(MODEL)).toHaveLength(0);
+  });
+
+  it('get() surfaces a read error when a listed part is missing (no silent truncation)', async () => {
+    const { partKeys, total } = await stageParts();
+    await storage.finalizeParts({ modelId: MODEL, url: IDENTITY }, partKeys, total);
+    // Drop a middle part but leave the manifest; a read must fail, not truncate.
+    await storage.remove({ modelId: MODEL, url: partKeys[1]! });
+    const entry = await storage.get({ modelId: MODEL, url: IDENTITY });
+    expect(entry).not.toBeNull();
+    await expect(entry!.response.arrayBuffer()).rejects.toThrow();
+  });
+
+  it('leaves plain whole-file entries unaffected — not parts-native, body round-trips', async () => {
+    await storage.put(
+      { modelId: MODEL, url: 'https://cdn/phi3/config.json' },
+      new Response(new Uint8Array([9, 9, 9])),
+    );
+    expect(await storage.isPartsNative({ modelId: MODEL, url: 'https://cdn/phi3/config.json' })).toBe(false);
+    const entry = await storage.get({ modelId: MODEL, url: 'https://cdn/phi3/config.json' });
+    expect(entry!.sizeBytes).toBe(3);
+    expect([...new Uint8Array(await entry!.response.arrayBuffer())]).toEqual([9, 9, 9]);
   });
 });
 

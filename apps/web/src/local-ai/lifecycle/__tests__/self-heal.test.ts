@@ -973,6 +973,42 @@ describe('reconcileReadySlots', () => {
     expect(getSlot('eco-fast').status).toBe('ready');
   });
 
+  it('leaves a ready slot alone when its weights are stored parts-native — manifest + parts survive reconcile', async () => {
+    // The large weight is stored parts-native: a manifest at the identity key
+    // plus its chunk-parts as separate entries. Reconcile inspects only the
+    // known plan-file keys (never enumerates part keys), and the identity's
+    // part-aware verify passes, so the slot stays ready and NOTHING is purged —
+    // the permanent parts must not be mistaken for orphans.
+    setSlot('eco-fast', MODEL_ID);
+    setSlotStatus('eco-fast', 'ready');
+    const cacheStorage = new CacheApiStorage(new MemoryCacheStorage());
+    // config.json: plain whole-file entry.
+    await cacheStorage.put(
+      { modelId: MODEL_ID, url: PLAN[0]!.url },
+      new Response(new Uint8Array(PLAN[0]!.sizeBytes)),
+    );
+    // weights.bin: two chunk-parts (500 + 500) finalized as a parts-native manifest.
+    const weightsUrl = PLAN[1]!.url;
+    const partKeys = [`${weightsUrl}.ecopart.s1000.0`, `${weightsUrl}.ecopart.s1000.500`];
+    for (const key of partKeys) {
+      await cacheStorage.put({ modelId: MODEL_ID, url: key }, new Response(new Uint8Array(500)));
+    }
+    await cacheStorage.finalizeParts({ modelId: MODEL_ID, url: weightsUrl }, partKeys, 1_000);
+
+    const removeSpy = vi.spyOn(cacheStorage, 'remove');
+    const report = await reconcileReadySlots(async () => PLAN, { cacheStorage });
+
+    expect(report.slotsFlippedToPreparing).toEqual([]);
+    expect(report.modelsRepaired).toEqual([]);
+    expect(getSlot('eco-fast').status).toBe('ready');
+    expect(removeSpy).not.toHaveBeenCalled();
+    // The manifest and both parts are still present.
+    expect(await cacheStorage.isPartsNative({ modelId: MODEL_ID, url: weightsUrl })).toBe(true);
+    for (const key of partKeys) {
+      expect(await cacheStorage.has({ modelId: MODEL_ID, url: key })).toBe(true);
+    }
+  });
+
   it('flips slot to preparing when cache files fail verify, and reports the repair', async () => {
     setSlot('eco-fast', MODEL_ID);
     setSlotStatus('eco-fast', 'ready');
