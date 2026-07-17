@@ -82,6 +82,19 @@ describe("GET /api/local-models/manifest/[...modelId]", () => {
     }
   });
 
+  it("returns the graduated external-data artifact identity for local/qwen3-0.6b", async () => {
+    const response = await GET(...manifestRequest(["local", "qwen3-0.6b"]));
+    expect(response.status).toBe(200);
+
+    const body = await response.json();
+    expect(body.hfId).toBe("econetworkai/Qwen3-0.6B-ONNX-external-data");
+    expect(body.revision).toBe("e059eaaf660ff62dbc8adcd1057488aa3ad0f5f9");
+    // External-data pair: the small graph file plus its .onnx_data weights blob.
+    const paths = body.files.map((file: { path: string }) => file.path);
+    expect(paths).toContain("onnx/model_q4f16.onnx");
+    expect(paths).toContain("onnx/model_q4f16.onnx_data");
+  });
+
   it.each([
     ["POST", POST],
     ["PUT", PUT],

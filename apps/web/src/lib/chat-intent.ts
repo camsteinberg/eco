@@ -140,10 +140,11 @@ const CHAT_INTENT_MODEL_DATA: Record<string, ChatIntentModelSlice> = {
       },
     },
   },
-  // A-3 cell #2: external-data repack of the same q4f16 weights — identical
-  // sampling to local/qwen3-0.6b so measurement cells pair cleanly.
-  "candidate/qwen3-0.6b-q4f16-xd": {
-    id: "candidate/qwen3-0.6b-q4f16-xd",
+  // A-3 single-file baseline (retained at the 2026-07-17 external-data
+  // graduation): the pre-graduation single-file q4f16 build — identical sampling
+  // to local/qwen3-0.6b so the paired A/B measurement cells run the real profile.
+  "candidate/qwen3-0.6b-q4f16-single": {
+    id: "candidate/qwen3-0.6b-q4f16-single",
     family: "qwen3",
     qualityTier: "fast",
     maxNewTokens: { webgpu: 512 },

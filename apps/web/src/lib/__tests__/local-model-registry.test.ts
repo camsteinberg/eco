@@ -58,7 +58,7 @@ describe("local model registry (v1 catalog)", () => {
     expect(proxyArtifacts.length).toBeGreaterThanOrEqual(5);
     expect(proxyArtifacts.map((a) => a.hfId)).toEqual(
       expect.arrayContaining([
-        "onnx-community/Qwen3-0.6B-ONNX",
+        "econetworkai/Qwen3-0.6B-ONNX-external-data",
         "microsoft/Phi-3-mini-4k-instruct-onnx-web",
         "LiquidAI/LFM2.5-1.2B-Instruct-ONNX",
         "onnx-community/LFM2.5-350M-ONNX",
@@ -81,9 +81,14 @@ describe("local model registry (v1 catalog)", () => {
     expect(proxyHfIds).toContain("onnx-community/Qwen3.5-2B-ONNX-OPT");
     // The dev-only lane candidates are validation-allowed but NOT proxy-allowed:
     // Qwen3-1.7B (parked non-viable), LFM2-2.6B (beaten smart-tier incumbent),
-    // Qwen3.5-4B (high-mem option), Gemma 4 E2B (eliminated).
+    // Qwen3.5-4B (high-mem option), Gemma 4 E2B (eliminated). After the
+    // external-data graduation the OLD single-file Qwen3-0.6B repo
+    // (onnx-community/Qwen3-0.6B-ONNX) joined the lane too — it carries the q4
+    // load-peak cell and the retained single-file baseline, but the catalog now
+    // serves econetworkai/Qwen3-0.6B-ONNX-external-data instead.
     for (const laneHfId of [
       "onnx-community/Qwen3-1.7B-ONNX",
+      "onnx-community/Qwen3-0.6B-ONNX",
       "onnx-community/LFM2-2.6B-ONNX",
       "onnx-community/Qwen3.5-4B-ONNX-OPT",
       "onnx-community/gemma-4-E2B-it-ONNX",
@@ -94,25 +99,37 @@ describe("local model registry (v1 catalog)", () => {
     }
   });
 
-  it("keeps the A-3 q4 file (model_q4.onnx) validation-only, never proxy-allowed", () => {
-    // The q4 load-peak cell shares hfId onnx-community/Qwen3-0.6B-ONNX with the
-    // shipping catalog model, but the proxy matches at FILE granularity within an
-    // hfId group. The catalog serves onnx/model_q4f16.onnx; only the eval-lane
-    // candidate carries onnx/model_q4.onnx — so it must be reachable through the
-    // validation lane and stay 403 in production (proxy-allowed set).
-    const HF_ID = "onnx-community/Qwen3-0.6B-ONNX";
-    const Q4_FILE = "onnx/model_q4.onnx";
+  it("keeps the whole old single-file Qwen3-0.6B hfId validation-only after the external-data graduation", () => {
+    // The catalog graduated to the external-data pair
+    // (econetworkai/Qwen3-0.6B-ONNX-external-data). The old single-file repo
+    // onnx-community/Qwen3-0.6B-ONNX is now delisted from the catalog entirely and
+    // lives ONLY in the eval lane: the q4 load-peak cell (onnx/model_q4.onnx) and
+    // the retained single-file q4f16 baseline (onnx/model_q4f16.onnx). Neither
+    // file may be proxy-allowed — the whole hfId must be reachable only through
+    // the validation lane and stay 403 in production. The catalog serves the
+    // external-data pair (graph + .onnx_data) instead.
+    const OLD_HF_ID = "onnx-community/Qwen3-0.6B-ONNX";
+    const XD_HF_ID = "econetworkai/Qwen3-0.6B-ONNX-external-data";
 
-    const proxyFiles = getProxyAllowedLocalModelRegistryArtifacts()
-      .filter((a) => a.hfId === HF_ID)
+    const proxyFilesForOldHfId = getProxyAllowedLocalModelRegistryArtifacts()
+      .filter((a) => a.hfId === OLD_HF_ID)
       .flatMap((a) => a.files);
-    const validationFiles = getValidationAllowedLocalModelRegistryArtifacts()
-      .filter((a) => a.hfId === HF_ID)
+    const validationFilesForOldHfId = getValidationAllowedLocalModelRegistryArtifacts()
+      .filter((a) => a.hfId === OLD_HF_ID)
       .flatMap((a) => a.files);
 
-    expect(proxyFiles).toContain("onnx/model_q4f16.onnx");
-    expect(proxyFiles).not.toContain(Q4_FILE);
-    expect(validationFiles).toContain(Q4_FILE);
+    // The whole old hfId is delisted from the proxy-allowed set.
+    expect(proxyFilesForOldHfId).toEqual([]);
+    // Both eval-lane builds stay reachable through the validation lane.
+    expect(validationFilesForOldHfId).toContain("onnx/model_q4.onnx");
+    expect(validationFilesForOldHfId).toContain("onnx/model_q4f16.onnx");
+
+    // The catalog serves the external-data pair.
+    const proxyFilesForXd = getProxyAllowedLocalModelRegistryArtifacts()
+      .filter((a) => a.hfId === XD_HF_ID)
+      .flatMap((a) => a.files);
+    expect(proxyFilesForXd).toContain("onnx/model_q4f16.onnx");
+    expect(proxyFilesForXd).toContain("onnx/model_q4f16.onnx_data");
   });
 
   it("centralizes reviewed artifact identity for the graduated Qwen3.5-2B smart pick", () => {
@@ -132,10 +149,12 @@ describe("local model registry (v1 catalog)", () => {
   it("centralizes reviewed artifact identity for Qwen", () => {
     const qwenArtifact = getLocalModelRegistryArtifact("local/qwen3-0.6b");
     expect(qwenArtifact).toMatchObject({
-      hfId: "onnx-community/Qwen3-0.6B-ONNX",
-      revision: "da1453100cf3ff33ef56d17983fc7a8648706db6",
+      hfId: "econetworkai/Qwen3-0.6B-ONNX-external-data",
+      revision: "e059eaaf660ff62dbc8adcd1057488aa3ad0f5f9",
     });
+    // External-data pair: the small graph file plus its .onnx_data weights blob.
     expect(qwenArtifact!.files).toContain("onnx/model_q4f16.onnx");
+    expect(qwenArtifact!.files).toContain("onnx/model_q4f16.onnx_data");
   });
 
   it("centralizes reviewed artifact identity for Phi3", () => {

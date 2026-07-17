@@ -31,10 +31,11 @@ function resetAllSeams(): void {
 // trusts manifest sizeBytes by design.
 const MANIFEST_RESPONSE = {
   modelId: 'local/qwen3-0.6b',
-  hfId: 'onnx-community/Qwen3-0.6B-ONNX',
-  revision: 'da1453100cf3ff33ef56d17983fc7a8648706db6',
+  hfId: 'econetworkai/Qwen3-0.6B-ONNX-external-data',
+  revision: 'e059eaaf660ff62dbc8adcd1057488aa3ad0f5f9',
   files: [
-    { path: 'onnx/model_q4f16.onnx', sizeBytes: 569_789_750, oid: 'sha-onnx' },
+    { path: 'onnx/model_q4f16.onnx', sizeBytes: 328_247, oid: 'sha-onnx' },
+    { path: 'onnx/model_q4f16.onnx_data', sizeBytes: 569_493_504, oid: 'sha-onnx-data' },
     { path: 'added_tokens.json', sizeBytes: 1_024, oid: 'sha-added' },
     { path: 'chat_template.jinja', sizeBytes: 2_048, oid: 'sha-chat' },
     { path: 'config.json', sizeBytes: 1_234, oid: 'sha-config' },
@@ -79,10 +80,15 @@ describe('bootstrap manifest integration', () => {
     expect(plan).not.toBeNull();
     expect(plan!.modelId).toBe('local/qwen3-0.6b');
 
-    // The plan should use the manifest's exact sizeBytes.
-    const onnxFile = plan!.files.find((f) => f.url.includes('model_q4f16.onnx'));
+    // The plan should use the manifest's exact sizeBytes. endsWith (not
+    // includes) so the small graph file is selected, not its .onnx_data sibling.
+    const onnxFile = plan!.files.find((f) => f.url.endsWith('model_q4f16.onnx'));
     expect(onnxFile).toBeDefined();
-    expect(onnxFile!.sizeBytes).toBe(569_789_750);
+    expect(onnxFile!.sizeBytes).toBe(328_247);
+
+    const onnxDataFile = plan!.files.find((f) => f.url.endsWith('model_q4f16.onnx_data'));
+    expect(onnxDataFile).toBeDefined();
+    expect(onnxDataFile!.sizeBytes).toBe(569_493_504);
 
     const configFile = plan!.files.find((f) => f.url.includes('config.json'));
     expect(configFile).toBeDefined();
@@ -197,8 +203,8 @@ describe('bootstrap manifest integration', () => {
     mockFetchManifest(
       new Response(JSON.stringify({
         modelId: 'local/qwen3-0.6b',
-        hfId: 'onnx-community/Qwen3-0.6B-ONNX',
-        revision: 'da1453100cf3ff33ef56d17983fc7a8648706db6',
+        hfId: 'econetworkai/Qwen3-0.6B-ONNX-external-data',
+        revision: 'e059eaaf660ff62dbc8adcd1057488aa3ad0f5f9',
         files: [
           { path: 'config.json', sizeBytes: 1_234, oid: 'def456' },
         ],
@@ -252,8 +258,8 @@ describe('boot reconcile plan resolver (cache-wipe regression, 2026-06-11)', () 
 
     const files = await resolveReconcileFilePlan('local/qwen3-0.6b');
     expect(files).not.toBeNull();
-    const onnxFile = files!.find((f) => f.url.includes('model_q4f16.onnx'));
-    expect(onnxFile!.sizeBytes).toBe(569_789_750);
+    const onnxFile = files!.find((f) => f.url.endsWith('model_q4f16.onnx'));
+    expect(onnxFile!.sizeBytes).toBe(328_247);
   });
 
   it('returns null — NOT heuristic sizes — when the manifest is unreachable', async () => {
