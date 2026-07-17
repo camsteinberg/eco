@@ -127,7 +127,7 @@ export function SustainedProbePanel() {
       const recovered = probe.recoverOrphanedMarker();
       if (recovered) {
         setKilledNote(
-          `Previous sustained probe was killed at turn ${recovered.turnsCompleted}/${recovered.turnsRequested}. Recorded for the shared dump.`,
+          `${recovered.error ?? `Previous sustained probe was killed at turn ${recovered.turnsCompleted}/${recovered.turnsRequested}.`} Recorded for the shared dump.`,
         );
       }
       setLevers(probe.readActiveLevers());

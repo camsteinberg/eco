@@ -20,13 +20,14 @@ import {
   SUSTAINED_PROBE_SAMPLE_INTERVAL_MS,
   clearMarker,
   detectMemoryApis,
+  detectWebGpuApi,
   measureUserAgentMemoryMB,
   nextTurnPrompt,
   peakUsedJSHeap,
   readActiveLevers,
   readMemorySample,
   recordSustainedProbe,
-  updateMarkerProgress,
+  updateMarker,
   writeMarker,
   type MemorySample,
   type SustainedProbeRecord,
@@ -151,7 +152,17 @@ export async function runSustainedProbe(
 
   // Crash-evidence marker: present ⇒ a probe is running; a surviving marker
   // after the tab dies is the WebKit tab-kill signal.
-  writeMarker({ startedAt, modelId: model.id, turnsRequested, targetTokensPerTurn: targetTokens, levers, turnsCompleted: 0 });
+  writeMarker({
+    startedAt,
+    modelId: model.id,
+    turnsRequested,
+    targetTokensPerTurn: targetTokens,
+    levers,
+    turnsCompleted: 0,
+    phase: 'loading',
+    backend: null,
+    webgpuApiPresent: detectWebGpuApi(),
+  });
 
   const sampler = setInterval(() => {
     takeSample(turns.length);
@@ -242,11 +253,15 @@ export async function runSustainedProbe(
       signal?.removeEventListener('abort', onExternalAbort);
     }
     backend = adapter.backend;
+    // Load settled — record the confirmed backend so an orphaned marker from a
+    // later kill no longer needs the WebGPU-presence hint.
+    updateMarker({ backend });
 
     takeSample(0);
 
     for (let turn = 0; turn < turnsRequested; turn++) {
       if (signal?.aborted) break;
+      updateMarker({ phase: 'turn-in-flight' });
       onProgress?.({ phase: 'turn-start', turn, turnsRequested });
 
       const prompt = nextTurnPrompt(turn, priorAssistant);
@@ -301,7 +316,7 @@ export async function runSustainedProbe(
       const postTurn = readMemorySample(nowMs() - start, turn + 1, undefined);
       samples.push({ ...postTurn, measuredUAMB: uaMB });
 
-      updateMarkerProgress(turn + 1);
+      updateMarker({ turnsCompleted: turn + 1, phase: 'turn-complete' });
       onProgress?.({ phase: 'turn-complete', turn, turnsRequested, record: turnRecord });
 
       if (turnError) break; // a failed turn ends the run — later turns can't build on it
