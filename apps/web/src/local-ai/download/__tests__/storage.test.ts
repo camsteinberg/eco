@@ -142,6 +142,61 @@ describe('CacheApiStorage.put — Eco-Cache-Size header', () => {
   });
 });
 
+describe('CacheApiStorage.putStreamed — streams a known-size body without materializing it', () => {
+  let storage: CacheApiStorage;
+  let cacheStorage: MemoryCacheStorage;
+
+  beforeEach(() => {
+    cacheStorage = new MemoryCacheStorage();
+    storage = new CacheApiStorage(cacheStorage);
+  });
+
+  function streamOf(bytes: Uint8Array): ReadableStream<Uint8Array> {
+    return new ReadableStream<Uint8Array>({
+      start(controller) {
+        // Two enqueues so the reader path sees more than one pull.
+        const mid = Math.ceil(bytes.byteLength / 2);
+        controller.enqueue(bytes.subarray(0, mid));
+        controller.enqueue(bytes.subarray(mid));
+        controller.close();
+      },
+    });
+  }
+
+  it('stamps Eco-Cache-Size with the vouched size and stores the streamed bytes', async () => {
+    const payload = new Uint8Array([3, 1, 4, 1, 5, 9, 2, 6]);
+    await storage.putStreamed(
+      { modelId: MODEL, url: 'https://cdn/phi3/model.onnx' },
+      streamOf(payload),
+      payload.byteLength,
+    );
+
+    const entry = await storage.get({ modelId: MODEL, url: 'https://cdn/phi3/model.onnx' });
+    expect(entry).not.toBeNull();
+    // The size is the caller's vouched figure, stamped verbatim (never read
+    // from the body — that materialization is exactly what putStreamed avoids).
+    expect(entry!.sizeBytes).toBe(payload.byteLength);
+    expect(entry!.response.headers.get(ECO_CACHE_SIZE_HEADER)).toBe(String(payload.byteLength));
+    // The body round-trips: get() returns the bytes that were streamed in.
+    const stored = new Uint8Array(await entry!.response.arrayBuffer());
+    expect([...stored]).toEqual([...payload]);
+  });
+
+  it('stamps the vouched size verbatim even when it differs from the body length', async () => {
+    // putStreamed trusts the caller's figure (the download's authoritative total)
+    // rather than measuring the body — verify() reads exactly what was stamped.
+    const payload = new Uint8Array([1, 2, 3, 4]);
+    await storage.putStreamed(
+      { modelId: MODEL, url: 'https://cdn/phi3/model.onnx' },
+      streamOf(payload),
+      99,
+    );
+    const entry = await storage.get({ modelId: MODEL, url: 'https://cdn/phi3/model.onnx' });
+    expect(entry!.sizeBytes).toBe(99);
+    expect(await storage.verify({ modelId: MODEL, url: 'https://cdn/phi3/model.onnx' }, 99)).toBe(true);
+  });
+});
+
 describe('CacheApiStorage.verify — Eco-Cache-Size only, no content-length fallback', () => {
   let storage: CacheApiStorage;
   let cacheStorage: MemoryCacheStorage;

@@ -130,9 +130,11 @@ describe('SustainedProbePanel — weights staging', () => {
   beforeEach(() => {
     harnessEnabled = false;
     weightsCached = true;
+    localStorage.clear();
   });
   afterEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
   });
 
   it('offers no download affordance when the picked model verifies as cached', async () => {
@@ -163,5 +165,50 @@ describe('SustainedProbePanel — weights staging', () => {
       expect(screen.getByText('Weights ready — run the probe.')).toBeInTheDocument();
     });
     expect(screen.queryByRole('button', { name: 'Download weights' })).not.toBeInTheDocument();
+  });
+
+  it('reports the death point of a previous download that never finished (devtools-less diagnostics)', async () => {
+    // A WebKit tab-kill leaves a `done:false` attempt record behind; on the next
+    // mount the panel reads it and tells the user where the download stopped so
+    // they can retest without devtools. Sizes are in bytes; the line renders MB.
+    localStorage.setItem(
+      'eco-probe-weights-attempt-v1',
+      JSON.stringify({
+        modelId: 'local/model-a',
+        startedAt: new Date().toISOString(),
+        lastLoaded: 120 * 1024 * 1024,
+        total: 543 * 1024 * 1024,
+        done: false,
+      }),
+    );
+
+    render(<SustainedProbePanel />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          'Previous weights download died at 120 of 543 MB — resume continues from persisted chunks.',
+        ),
+      ).toBeInTheDocument();
+    });
+  });
+
+  it('does not report a previous download that completed (done:true record)', async () => {
+    localStorage.setItem(
+      'eco-probe-weights-attempt-v1',
+      JSON.stringify({
+        modelId: 'local/model-a',
+        startedAt: new Date().toISOString(),
+        lastLoaded: 543 * 1024 * 1024,
+        total: 543 * 1024 * 1024,
+        done: true,
+      }),
+    );
+
+    render(<SustainedProbePanel />);
+    await findModelPicker();
+    await waitFor(() => {
+      expect(screen.queryByText(/Previous weights download died/)).not.toBeInTheDocument();
+    });
   });
 });
