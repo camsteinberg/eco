@@ -307,6 +307,18 @@ describe('orphaned-marker recovery (tab-kill evidence)', () => {
     expect(record.backend).toBe('webgpu');
   });
 
+  it('carries the marker context mode onto the reconstructed record', () => {
+    // A killed run's record exists ONLY via reconstruction — dropping the mode
+    // here mislabeled every tab-kill tombstone as 'growing' (s35 field report).
+    const record = reconstructKilledRecord({ ...MARKER, phase: 'turn-in-flight', contextMode: 'fresh' });
+    expect(record.contextMode).toBe('fresh');
+  });
+
+  it('leaves context mode absent when reconstructing a legacy marker', () => {
+    const record = reconstructKilledRecord(MARKER);
+    expect(record.contextMode).toBeUndefined();
+  });
+
   it('recoverOrphanedMarker records the kill and clears the marker', () => {
     writeMarker(MARKER);
     const recovered = recoverOrphanedMarker();
