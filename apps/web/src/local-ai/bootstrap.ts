@@ -273,21 +273,47 @@ function isManifestResponse(value: unknown): value is ManifestResponse {
   });
 }
 
+// The outcome of one manifest attempt: a usable plan, a transient failure worth
+// one retry ('retry' — timeout/network/non-ok/invalid JSON), or a deterministic
+// degrade to the heuristic plan ('degrade' — a structurally-present but
+// incomplete manifest, which a retry would only re-serve).
+type ManifestAttempt = DownloadPlan | 'retry' | 'degrade';
+
 async function fetchManifestPlan(
   modelId: string,
   artifact: ModelArtifact,
 ): Promise<DownloadPlan | null> {
+  // Two attempts before degrading to heuristic sizes (which cost accurate
+  // progress numbers and the reviewed oids for the whole download): a single
+  // 3s-timeout miss on a cold function or slow link shouldn't sacrifice them.
+  // The happy path resolves on attempt 1 — the second fetch runs only after a
+  // transient failure, with a longer timeout. An incomplete manifest is
+  // deterministic, so it degrades without a retry.
+  const TIMEOUTS_MS = [3_000, 8_000];
+  for (let attempt = 0; attempt < TIMEOUTS_MS.length; attempt++) {
+    const result = await attemptManifestPlan(modelId, artifact, TIMEOUTS_MS[attempt]!, attempt + 1);
+    if (result !== 'retry') return result === 'degrade' ? null : result;
+  }
+  return null;
+}
+
+async function attemptManifestPlan(
+  modelId: string,
+  artifact: ModelArtifact,
+  timeoutMs: number,
+  attempt: number,
+): Promise<ManifestAttempt> {
   try {
-    // 3s timeout safety net so a slow/unreachable manifest endpoint
-    // doesn't stall boot — heuristic fallback takes over within seconds
-    // instead of waiting for the browser's default fetch timeout.
+    // Timeout safety net so a slow/unreachable manifest endpoint doesn't stall
+    // boot — the heuristic fallback takes over within seconds instead of waiting
+    // for the browser's default fetch timeout.
     const response = await fetch(
       `/api/local-models/manifest/${modelId}`,
-      { cache: 'force-cache', signal: AbortSignal.timeout(3_000) },
+      { cache: 'force-cache', signal: AbortSignal.timeout(timeoutMs) },
     );
-    if (!response.ok) return null;
+    if (!response.ok) return 'retry';
     const data: unknown = await response.json();
-    if (!isManifestResponse(data)) return null;
+    if (!isManifestResponse(data)) return 'retry';
 
     // Build file-to-size/oid lookup from the manifest.
     const sizeByPath = new Map<string, number>();
@@ -300,8 +326,9 @@ async function fetchManifestPlan(
     // If the manifest is incomplete (any catalog file is missing from it),
     // the silent filter-out at the end would produce a DownloadPlan that
     // skips real files — and the model would then fail at load time. Treat
-    // an incomplete manifest as a fetch failure and fall back to the
-    // heuristic plan (which lists every catalog file with an estimate).
+    // an incomplete manifest as a deterministic degrade to the heuristic plan
+    // (which lists every catalog file with an estimate) — a retry re-fetches
+    // the same manifest and can't help.
     const missingFromManifest = artifact.files.filter(
       (filePath) => !sizeByPath.has(filePath),
     );
@@ -310,7 +337,7 @@ async function fetchManifestPlan(
         `[local-ai/bootstrap] manifest for "${modelId}" missing ${missingFromManifest.length} `
         + `file(s) (e.g. ${missingFromManifest[0]}); using heuristic sizes`,
       );
-      return null;
+      return 'degrade';
     }
 
     const cdnBase = getModelCdnBase();
@@ -335,9 +362,13 @@ async function fetchManifestPlan(
       }),
     };
   } catch {
-    // Network error, JSON parse failure, timeout, etc. — fall back silently.
-    logger.warn(`[local-ai/bootstrap] manifest fetch failed for "${modelId}", using heuristic sizes`);
-    return null;
+    // Network error, JSON parse failure, timeout, etc. — transient, so signal a
+    // retry (the caller degrades only after the second attempt also fails).
+    logger.warn(
+      `[local-ai/bootstrap] manifest fetch failed for "${modelId}" (attempt ${attempt}), `
+      + `using heuristic sizes`,
+    );
+    return 'retry';
   }
 }
 
@@ -375,7 +406,7 @@ function classifyFile(filePath: string): FileSizeClass {
 function filePlanFromArtifact(
   artifact: ModelArtifact,
   sizeGB: number,
-): { url: string; fetchUrl: string; sizeBytes: number }[] {
+): { url: string; fetchUrl: string; sizeBytes: number; sizeIsEstimate: true }[] {
   const cdnBase = getModelCdnBase();
   const totalWeightBytes = Math.round(sizeGB * 1_073_741_824);
   // Allocate fixed budgets to metadata files; the rest goes to weights.
@@ -407,6 +438,9 @@ function filePlanFromArtifact(
       // Transport source — the CDN direct URL when configured, else the proxy.
       fetchUrl: buildModelFileURL(parsed, cdnBase),
       sizeBytes,
+      // These sizes are heuristic estimates — mark them so verification never
+      // treats them as an integrity criterion (see verifyPlanFile).
+      sizeIsEstimate: true,
     };
   });
 }

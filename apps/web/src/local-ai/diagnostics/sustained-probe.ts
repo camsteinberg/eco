@@ -27,6 +27,7 @@
  */
 
 import {
+  hasWebGpuApi,
   readForcedOrtArtifact,
   readForcedThreads,
   readForcedWasm,
@@ -136,7 +137,7 @@ export type SustainedProbeMarker = {
   phase?: SustainedProbeMarkerPhase;
   /** Confirmed backend once the model load settles; null before. */
   backend?: string | null;
-  /** Whether `navigator.gpu` existed at probe start — the best available hint
+  /** Whether the WebGPU API existed at probe start — the best available hint
    *  at which EP the load was attempting when a kill precedes backend
    *  confirmation. Presence ≠ used: it is evidence, not a conclusion. */
   webgpuApiPresent?: boolean | null;
@@ -165,11 +166,12 @@ export function detectMemoryApis(perf: PerformanceMemoryLike | undefined = safeP
   };
 }
 
-/** True when the WebGPU API exists (navigator.gpu) — recorded on the marker at
- *  probe start as the likely-attempted EP when a kill precedes backend
- *  confirmation. Presence is a hint, not proof the EP was actually used. */
+/** True when the WebGPU API exists — recorded on the marker at probe start as
+ *  the likely-attempted EP when a kill precedes backend confirmation. Presence
+ *  is a hint, not proof the EP was actually used. Delegates to device/profile's
+ *  `hasWebGpuApi` — the module chartered to own WebGPU access (Invariant 5). */
 export function detectWebGpuApi(): boolean {
-  return typeof navigator !== 'undefined' && 'gpu' in navigator;
+  return hasWebGpuApi();
 }
 
 /**
@@ -318,7 +320,7 @@ function killedDeathPoint(marker: SustainedProbeMarker): string {
   switch (phase) {
     case 'loading': {
       let msg = 'Tab was killed during model load — the model never finished loading.';
-      // Before the backend confirms, whether navigator.gpu existed is the only
+      // Before the backend confirms, whether the WebGPU API existed is the only
       // hint at which EP the load was attempting — evidence, not a conclusion.
       if (marker.backend == null && marker.webgpuApiPresent != null) {
         msg += ` WebGPU API was ${marker.webgpuApiPresent ? 'present' : 'absent'} at start (backend never confirmed).`;
