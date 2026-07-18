@@ -313,6 +313,11 @@ export function reconstructKilledRecord(marker: SustainedProbeMarker): Sustained
     turnsCompleted: marker.turnsCompleted,
     targetTokensPerTurn: marker.targetTokensPerTurn,
     levers: marker.levers,
+    // A killed run's record exists ONLY via this reconstruction — every marker
+    // field that names the cell being measured must survive the copy, or the
+    // tombstone misreports which experiment died (a dropped contextMode
+    // mislabeled fresh-mode kills as 'growing', s35 field report).
+    contextMode: marker.contextMode,
     crossOriginIsolated: safeCrossOriginIsolated(),
     memoryApi: detectMemoryApis(),
     turns: [],
