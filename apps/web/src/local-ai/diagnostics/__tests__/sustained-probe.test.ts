@@ -182,6 +182,12 @@ describe('marker lifecycle', () => {
     expect(readMarker()).toEqual(phased);
   });
 
+  it('round-trips the contextMode field', () => {
+    const fresh: SustainedProbeMarker = { ...MARKER, contextMode: 'fresh' };
+    writeMarker(fresh);
+    expect(readMarker()?.contextMode).toBe('fresh');
+  });
+
   it('reads a legacy marker (no phase field) as valid', () => {
     // MARKER carries no phase/backend/webgpuApiPresent — the shape older builds
     // wrote. isMarker must not require the new fields.
@@ -189,6 +195,8 @@ describe('marker lifecycle', () => {
     const read = readMarker();
     expect(read).toEqual(MARKER);
     expect(read?.phase).toBeUndefined();
+    // Absent contextMode on a legacy marker means 'growing' by convention.
+    expect(read?.contextMode).toBeUndefined();
   });
 
   it('clears the marker', () => {
@@ -344,5 +352,17 @@ describe('record store', () => {
   it('drops malformed records on load', () => {
     localStorage.setItem('eco-sustained-probe-records-v1', JSON.stringify([{ nope: true }, record]));
     expect(loadSustainedProbes()).toHaveLength(1);
+  });
+
+  it('round-trips the contextMode field', () => {
+    recordSustainedProbe({ ...record, contextMode: 'fresh' });
+    expect(loadSustainedProbes().at(-1)?.contextMode).toBe('fresh');
+  });
+
+  it('reads a legacy record (no contextMode) as valid', () => {
+    // `record` carries no contextMode — isRecord must not require it.
+    recordSustainedProbe(record);
+    const loaded = loadSustainedProbes().at(-1);
+    expect(loaded?.contextMode).toBeUndefined();
   });
 });

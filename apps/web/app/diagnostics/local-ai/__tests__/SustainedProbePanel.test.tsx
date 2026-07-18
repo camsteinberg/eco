@@ -96,10 +96,16 @@ vi.mock('../../../../src/local-ai/download/storage', () => ({
 }));
 
 import { fireEvent } from '@testing-library/react';
+import { runSustainedProbe } from '../../../../src/local-ai/diagnostics/sustained-probe-runner';
 import { SustainedProbePanel } from '../SustainedProbePanel';
 
+const runSustainedProbeMock = vi.mocked(runSustainedProbe);
+
+// Two comboboxes now exist (Model + Context); scope the picker by its label.
+// A wrapping <label> around a <select> folds the selected option text into the
+// accessible name, so match the label prefix by regex rather than exact string.
 async function findModelPicker(): Promise<HTMLElement> {
-  return screen.findByRole('combobox');
+  return screen.findByRole('combobox', { name: /Model/ });
 }
 
 describe('SustainedProbePanel — model picker', () => {
@@ -134,6 +140,43 @@ describe('SustainedProbePanel — model picker', () => {
     });
     // Catalog models still present; the candidate rides alongside them.
     expect(within(picker).getByRole('option', { name: 'Model A' })).toBeInTheDocument();
+  });
+});
+
+describe('SustainedProbePanel — context + tokens controls', () => {
+  beforeEach(() => {
+    harnessEnabled = false;
+    weightsCached = true;
+  });
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('renders the Context and Tokens/turn controls', async () => {
+    render(<SustainedProbePanel />);
+    await findModelPicker();
+    expect(await screen.findByRole('combobox', { name: /Context/ })).toBeInTheDocument();
+    expect(await screen.findByRole('spinbutton', { name: 'Tokens/turn' })).toBeInTheDocument();
+  });
+
+  it('forwards the chosen contextMode and targetTokensPerTurn into the run config', async () => {
+    render(<SustainedProbePanel />);
+    await findModelPicker();
+
+    fireEvent.change(await screen.findByRole('combobox', { name: /Context/ }), {
+      target: { value: 'fresh' },
+    });
+    fireEvent.change(await screen.findByRole('spinbutton', { name: 'Tokens/turn' }), {
+      target: { value: '128' },
+    });
+    fireEvent.click(await screen.findByRole('button', { name: 'Run probe' }));
+
+    await waitFor(() => {
+      expect(runSustainedProbeMock).toHaveBeenCalledWith(
+        expect.objectContaining({ contextMode: 'fresh', targetTokensPerTurn: 128 }),
+        expect.anything(),
+      );
+    });
   });
 });
 
