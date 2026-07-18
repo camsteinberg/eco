@@ -104,6 +104,16 @@ export interface Storage {
   get(key: StorageKey): Promise<CachedEntry | null>;
   has(key: StorageKey): Promise<boolean>;
   verify(key: StorageKey, expectedSizeBytes: number): Promise<boolean>;
+  /**
+   * Exactly `verify` minus the expected-size equality: the entry exists with a
+   * readable stamped size and — when parts-native — every listed part still
+   * exists. This is the integrity check for a file whose expected size is only
+   * an ESTIMATE (a heuristic-fallback plan): the stamped bytes are the truth,
+   * so gating on byte-equality against a guess would declare a healthy file
+   * corrupt forever. Optional so test fakes stay minimal — callers fall back to
+   * `has` when it is absent.
+   */
+  verifyIntact?(key: StorageKey): Promise<boolean>;
   remove(key: StorageKey): Promise<void>;
   /**
    * True when `key` resolves to a parts-native manifest (its bytes live as
@@ -283,15 +293,32 @@ export class CacheApiStorage implements Storage {
   }
 
   async verify(key: StorageKey, expectedSizeBytes: number): Promise<boolean> {
+    return this.verifyCore(key, (stampedSize) => stampedSize === expectedSizeBytes);
+  }
+
+  async verifyIntact(key: StorageKey): Promise<boolean> {
+    // Same integrity gate as verify() with the size predicate relaxed — the
+    // stamped size need only be readable, not equal to a caller's figure.
+    return this.verifyCore(key, () => true);
+  }
+
+  /**
+   * Shared verify core: the entry exists with a readable stamped size that
+   * satisfies `sizeMatches`, and — when parts-native — every listed part still
+   * exists (existence only, O(parts), no byte reads) so a manifest whose parts
+   * were swept out from under it doesn't verify. verify() and verifyIntact()
+   * differ ONLY in the size predicate.
+   */
+  private async verifyCore(
+    key: StorageKey,
+    sizeMatches: (stampedSize: number) => boolean,
+  ): Promise<boolean> {
     const cache = await this.cacheStorage.open(cacheNameFor(key.modelId));
     const cached = await cache.match(key.url);
     if (!cached) return false;
     const sizeBytes = readCacheSize(cached);
-    if (sizeBytes == null || sizeBytes !== expectedSizeBytes) return false;
+    if (sizeBytes == null || !sizeMatches(sizeBytes)) return false;
     if (cached.headers.get(ECO_PARTS_NATIVE_HEADER) == null) return true;
-    // Parts-native: the stamped total matched. Cheap hardening — confirm every
-    // listed part still exists (existence only, O(parts), no byte reads) so a
-    // manifest whose parts were swept out from under it doesn't verify.
     const partKeys = await readManifestPartKeys(cached);
     if (partKeys.length === 0) return false;
     for (const partKey of partKeys) {
@@ -444,8 +471,22 @@ export class OpfsStorage implements Storage {
   }
 
   async verify(key: StorageKey, expectedSizeBytes: number): Promise<boolean> {
+    return this.verifyCore(key, (stampedSize) => stampedSize === expectedSizeBytes);
+  }
+
+  async verifyIntact(key: StorageKey): Promise<boolean> {
+    // Same as verify() minus the size equality — the entry need only exist with
+    // a readable stamped size (OPFS has no parts-native manifests).
+    return this.verifyCore(key, () => true);
+  }
+
+  private async verifyCore(
+    key: StorageKey,
+    sizeMatches: (stampedSize: number) => boolean,
+  ): Promise<boolean> {
     const entry = await this.get(key);
-    return entry?.sizeBytes === expectedSizeBytes;
+    if (!entry) return false;
+    return sizeMatches(entry.sizeBytes);
   }
 
   async remove(key: StorageKey): Promise<void> {

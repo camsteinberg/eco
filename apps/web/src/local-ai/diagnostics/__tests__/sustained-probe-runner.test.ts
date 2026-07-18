@@ -29,6 +29,7 @@ const loadModelMock = vi.hoisted(() => vi.fn());
 const generateMock = vi.hoisted(() => vi.fn());
 const peekDownloadPlanMock = vi.hoisted(() => vi.fn());
 const verifyMock = vi.hoisted(() => vi.fn());
+const verifyIntactMock = vi.hoisted(() => vi.fn());
 
 vi.mock('../../runtime/lifecycle', () => ({
   loadModel: loadModelMock,
@@ -40,7 +41,7 @@ vi.mock('../../download/download', () => ({
 }));
 
 vi.mock('../../download/storage', () => ({
-  pickStorage: () => ({ verify: verifyMock }),
+  pickStorage: () => ({ verify: verifyMock, verifyIntact: verifyIntactMock }),
 }));
 
 const MODEL = { id: 'test/probe-model', sizeGB: 0.5 } as unknown as ModelConfig;
@@ -75,6 +76,7 @@ beforeEach(() => {
   generateMock.mockReset();
   peekDownloadPlanMock.mockReset();
   verifyMock.mockReset();
+  verifyIntactMock.mockReset();
 });
 
 afterEach(() => {
@@ -115,6 +117,41 @@ describe('runSustainedProbe — never-download guard', () => {
 
   it('fails closed when no download plan resolves', async () => {
     peekDownloadPlanMock.mockResolvedValue(null);
+
+    const { runSustainedProbe } = await import('../sustained-probe-runner');
+    const record = await runSustainedProbe({ model: MODEL, turns: 1 });
+
+    expect(record.outcome).toBe('error');
+    expect(loadModelMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('runSustainedProbe — estimate-size weights honor intactness', () => {
+  // A heuristic-fallback plan flags its weights as estimate sizes. The probe
+  // must gate on intactness (verifyIntact), NOT byte-equality against the
+  // estimate — otherwise a correctly-stored weight fails the guard forever.
+  const ESTIMATE_PLAN = {
+    modelId: 'test/probe-model',
+    files: [{ url: 'proxy/onnx/model_q4f16.onnx', sizeBytes: 999, sizeIsEstimate: true }],
+  };
+
+  it('accepts an estimate-size plan whose weights are intact even when byte-equality would refuse', async () => {
+    peekDownloadPlanMock.mockResolvedValue(ESTIMATE_PLAN);
+    verifyMock.mockResolvedValue(false); // byte-equality against the estimate would refuse
+    verifyIntactMock.mockResolvedValue(true); // but the weight is intact
+    loadModelMock.mockResolvedValue({ backend: 'wasm' });
+    generateMock.mockImplementation(() => tokenStream());
+
+    const { runSustainedProbe } = await import('../sustained-probe-runner');
+    const record = await runSustainedProbe({ model: MODEL, turns: 1 });
+
+    expect(record.outcome).toBe('completed');
+    expect(loadModelMock).toHaveBeenCalled();
+  });
+
+  it('refuses an estimate-size plan when a weights entry is not intact', async () => {
+    peekDownloadPlanMock.mockResolvedValue(ESTIMATE_PLAN);
+    verifyIntactMock.mockResolvedValue(false);
 
     const { runSustainedProbe } = await import('../sustained-probe-runner');
     const record = await runSustainedProbe({ model: MODEL, turns: 1 });

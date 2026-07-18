@@ -291,6 +291,64 @@ describe('CacheApiStorage.finalizeParts — parts-native terminal storage', () =
   });
 });
 
+describe('CacheApiStorage.verifyIntact — existence + intactness, not byte-equality', () => {
+  let storage: CacheApiStorage;
+  let cacheStorage: MemoryCacheStorage;
+
+  beforeEach(() => {
+    cacheStorage = new MemoryCacheStorage();
+    storage = new CacheApiStorage(cacheStorage);
+  });
+
+  const IDENTITY = 'https://cdn/phi3/model.onnx_data';
+  const chunks = [
+    new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]),
+    new Uint8Array([9, 10, 11, 12, 13, 14, 15, 16]),
+    new Uint8Array([17, 18, 19, 20, 21, 22, 23, 24]),
+  ];
+
+  async function stageParts(): Promise<{ partKeys: string[]; total: number }> {
+    const partKeys: string[] = [];
+    let offset = 0;
+    for (const chunk of chunks) {
+      const key = `${IDENTITY}.ecopart.s24.${offset}`;
+      await storage.put({ modelId: MODEL, url: key }, new Response(chunk as unknown as BodyInit));
+      partKeys.push(key);
+      offset += chunk.byteLength;
+    }
+    return { partKeys, total: offset };
+  }
+
+  it('is true for a whole-file entry regardless of the stored size', async () => {
+    await storage.put({ modelId: MODEL, url: 'https://cdn/phi3/model.onnx' }, new Response(new Uint8Array(42)));
+    // Any expected size would do — verifyIntact never compares against one.
+    expect(await storage.verifyIntact!({ modelId: MODEL, url: 'https://cdn/phi3/model.onnx' })).toBe(true);
+  });
+
+  it('is false for a missing entry', async () => {
+    expect(await storage.verifyIntact!({ modelId: MODEL, url: 'https://cdn/phi3/absent.onnx' })).toBe(false);
+  });
+
+  it('is false for a legacy entry with no Eco-Cache-Size stamp', async () => {
+    const cache = await cacheStorage.open('eco-local-ai-' + MODEL.replace(/[^a-zA-Z0-9._-]/g, '_'));
+    await cache.put('https://cdn/phi3/legacy.onnx', new Response(new Uint8Array(5)));
+    expect(await storage.verifyIntact!({ modelId: MODEL, url: 'https://cdn/phi3/legacy.onnx' })).toBe(false);
+  });
+
+  it('is true for a parts-native manifest when every listed part is present', async () => {
+    const { partKeys, total } = await stageParts();
+    await storage.finalizeParts({ modelId: MODEL, url: IDENTITY }, partKeys, total);
+    expect(await storage.verifyIntact!({ modelId: MODEL, url: IDENTITY })).toBe(true);
+  });
+
+  it('is false for a parts-native manifest when a listed part was deleted', async () => {
+    const { partKeys, total } = await stageParts();
+    await storage.finalizeParts({ modelId: MODEL, url: IDENTITY }, partKeys, total);
+    await storage.remove({ modelId: MODEL, url: partKeys[1]! });
+    expect(await storage.verifyIntact!({ modelId: MODEL, url: IDENTITY })).toBe(false);
+  });
+});
+
 describe('CacheApiStorage.verify — Eco-Cache-Size only, no content-length fallback', () => {
   let storage: CacheApiStorage;
   let cacheStorage: MemoryCacheStorage;
@@ -593,6 +651,14 @@ describe('OpfsStorage — contract smoke (in-memory fake)', () => {
     await storage.put({ modelId: MODEL, url: 'https://cdn/x' }, new Response(new Uint8Array(1)));
     await storage.clearModel(MODEL);
     expect(await storage.has({ modelId: MODEL, url: 'https://cdn/x' })).toBe(false);
+  });
+
+  it('verifyIntact is true for a present entry (any size), false for a missing one', async () => {
+    const root = new MemoryOpfsRoot();
+    const storage = new OpfsStorage(root);
+    await storage.put({ modelId: MODEL, url: 'https://cdn/w.onnx' }, new Response(new Uint8Array(64)));
+    expect(await storage.verifyIntact!({ modelId: MODEL, url: 'https://cdn/w.onnx' })).toBe(true);
+    expect(await storage.verifyIntact!({ modelId: MODEL, url: 'https://cdn/absent.onnx' })).toBe(false);
   });
 });
 

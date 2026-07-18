@@ -193,6 +193,71 @@ describe('bootstrap manifest integration', () => {
     expect(signal!.aborted).toBe(false);
   });
 
+  it('flags every heuristic-fallback file as an estimate size (never an integrity criterion)', async () => {
+    mockFetchManifest(
+      new Response(JSON.stringify({ error: 'model_not_in_catalog' }), { status: 404 }),
+    );
+
+    await bootstrapLocalAi({ skipSelfHeal: true });
+
+    const { getModel } = await import('../catalog/catalog');
+    const model = getModel('local/qwen3-0.6b')!;
+    const plan = await peekDownloadPlan(model);
+    expect(plan!.files.length).toBeGreaterThan(0);
+    for (const file of plan!.files) {
+      expect(file.sizeIsEstimate).toBe(true);
+    }
+  });
+
+  it('does NOT flag manifest-based plan files as estimates (reviewed sizes are exact)', async () => {
+    mockFetchManifest(
+      new Response(JSON.stringify(MANIFEST_RESPONSE), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    await bootstrapLocalAi({ skipSelfHeal: true });
+
+    const { getModel } = await import('../catalog/catalog');
+    const model = getModel('local/qwen3-0.6b')!;
+    const plan = await peekDownloadPlan(model);
+    for (const file of plan!.files) {
+      expect(file.sizeIsEstimate).toBeUndefined();
+    }
+  });
+
+  it('retries once after a transient fetch failure and uses the manifest on the second attempt', async () => {
+    const spy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(MANIFEST_RESPONSE), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await bootstrapLocalAi({ skipSelfHeal: true });
+
+    const { getModel } = await import('../catalog/catalog');
+    const model = getModel('local/qwen3-0.6b')!;
+    const plan = await peekDownloadPlan(model);
+
+    expect(plan).not.toBeNull();
+    // The second attempt succeeded → manifest-based (exact sizes, no estimate flags).
+    const onnxData = plan!.files.find((f) => f.url.endsWith('model_q4f16.onnx_data'));
+    expect(onnxData!.sizeBytes).toBe(569_493_504);
+    for (const file of plan!.files) {
+      expect(file.sizeIsEstimate).toBeUndefined();
+    }
+    // Both attempts were observed (first rejected, second resolved).
+    expect(spy).toHaveBeenCalledTimes(2);
+
+    warnSpy.mockRestore();
+  });
+
   it('falls back to heuristic sizes when the manifest omits files present in the catalog artifact', async () => {
     // Manifest returns only ONE of the catalog's files. Without the
     // incomplete-manifest guard, the silent filter-out would produce a

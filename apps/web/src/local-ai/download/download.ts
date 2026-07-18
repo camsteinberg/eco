@@ -42,6 +42,7 @@ import {
   partsStream,
   pickStorage,
   type Storage,
+  type StorageKey,
 } from './storage';
 import { requestPersistentStorage } from './persistent-storage';
 import { ProgressTracker, type ProgressTrackerOptions } from './progress';
@@ -70,6 +71,15 @@ export type DownloadFileSpec = {
   fetchUrl?: string;
   /** Expected size in bytes. Drives both storage.verify() and the stream total. */
   sizeBytes: number;
+  /**
+   * True when `sizeBytes` is a heuristic ESTIMATE (a progress/UI figure from the
+   * manifest-less fallback plan), not a reviewed byte count. An estimate MUST
+   * NOT be used as an integrity criterion — a file stamped with its actual bytes
+   * would fail a byte-equality verify against the guess forever. Verification of
+   * an estimate-sized file checks intactness instead (see `verifyPlanFile`).
+   * Absent on manifest-based plans, whose sizes are exact.
+   */
+  sizeIsEstimate?: boolean;
   /**
    * Reviewed Hugging Face object id from the manifest. A 64-hex value is an
    * LFS SHA-256 of the file contents — used to verify the assembled bytes when
@@ -299,16 +309,45 @@ export async function isModelFullyCached(
     if (!plan || plan.files.length === 0) return false;
     const storage = options?.storage ?? pickStorage();
     for (const file of plan.files) {
-      const verified = await storage.verify(
-        { modelId: plan.modelId, url: file.url },
-        file.sizeBytes,
-      );
-      if (!verified) return false;
+      if (!(await verifyPlanFile(storage, plan.modelId, file))) return false;
     }
     return true;
   } catch {
     return false;
   }
+}
+
+/**
+ * The storage surface `verifyPlanFile` needs — a structural subset of `Storage`
+ * so the diagnostics probe can pass its injected fake. A full `Storage`
+ * satisfies it.
+ */
+export type PlanFileVerifier = {
+  verify(key: StorageKey, expectedSizeBytes: number): Promise<boolean>;
+  verifyIntact?(key: StorageKey): Promise<boolean>;
+  has?(key: StorageKey): Promise<boolean>;
+};
+
+/**
+ * Verify one plan file against storage under the estimate-aware rule: an
+ * estimate `sizeBytes` is a progress figure, never an integrity criterion, so a
+ * file flagged `sizeIsEstimate` is checked for intactness (via `verifyIntact`,
+ * or mere presence when the backend lacks it) rather than byte-equality. A
+ * reviewed size gets the exact byte-equality `verify`. Fails closed when an
+ * estimate can't be checked at all.
+ */
+export async function verifyPlanFile(
+  storage: PlanFileVerifier,
+  modelId: string,
+  file: Pick<DownloadFileSpec, 'url' | 'sizeBytes' | 'sizeIsEstimate'>,
+): Promise<boolean> {
+  const key = { modelId, url: file.url };
+  if (file.sizeIsEstimate === true) {
+    if (storage.verifyIntact) return storage.verifyIntact(key);
+    if (storage.has) return storage.has(key);
+    return false;
+  }
+  return storage.verify(key, file.sizeBytes);
 }
 
 // ─── High-level entry: downloadModel ────────────────────────────────────────
@@ -486,10 +525,7 @@ export async function downloadByPlan(
     const remaining: DownloadFileSpec[] = [];
     for (const file of plan.files) {
       throwIfAborted(controller.signal, plan.modelId);
-      const verified = await storage.verify(
-        { modelId: plan.modelId, url: file.url },
-        file.sizeBytes,
-      );
+      const verified = await verifyPlanFile(storage, plan.modelId, file);
       if (verified) {
         loadedBytes += file.sizeBytes;
         filesSkipped += 1;
@@ -1077,6 +1113,11 @@ async function downloadFileWhole(
  * each part through an incremental hasher one at a time — O(chunk) memory. A
  * failed check throws before anything is stored under the file identity, so a
  * corrupt download never stamps a cache entry.
+ *
+ * Overshoot correction: when a resume already covers the origin's real size but
+ * the plan total (a heuristic estimate) is larger, the next range lands past
+ * EOF and the origin answers 416 — treated as EOF evidence that corrects the
+ * total from its Content-Range, not as a failure (see the 416 branch below).
  */
 async function downloadFileInChunks(
   file: DownloadFileSpec,
@@ -1109,6 +1150,30 @@ async function downloadFileInChunks(
     throwIfAborted(ctx.signal, ctx.modelId);
     const end = Math.min(received + ctx.rangeChunkBytes, total) - 1;
     const chunk = await fetchRangeChunk(file, received, end, baseLoaded + received, ctx);
+
+    if (chunk.status === 416) {
+      // The requested range starts at/after the origin's real EOF — the plan's
+      // total overshot the origin's real size (heuristic-estimate plans carry no
+      // reviewed byte count), so a resume that already covers the real file asks
+      // for bytes that don't exist. The 416's Content-Range total is the
+      // authoritative correction: adopt it and let the received===total guard
+      // below adjudicate. When the resumed parts exactly cover that real total
+      // the download completes from them (the self-heal path for a wedged
+      // device); otherwise the guard sweeps and throws.
+      if (chunk.total != null) {
+        total = chunk.total;
+        break;
+      }
+      // No Content-Range to correct the total by, and the resumed parts can't be
+      // trusted to cover the real file — clear them so a retry starts clean
+      // rather than re-requesting the same unsatisfiable range forever.
+      await deletePartsBestEffort(ctx.storage, ctx.modelId, partKeys);
+      throw new DownloadFailedError(
+        `Range request for ${file.url} was unsatisfiable (HTTP 416) with no Content-Range; `
+        + `cleared ${partKeys.length} resumed part(s) for a clean retry`,
+        { url: file.url, status: 416 },
+      );
+    }
 
     if (chunk.status === 200) {
       // Origin ignored Range and returned the whole file — persist it as a
@@ -1302,6 +1367,18 @@ async function fetchRangeChunk(
         );
       }
 
+      if (response.status === 416) {
+        // Range Not Satisfiable is EOF evidence, not a failure: the requested
+        // start lies at/after the origin's real size. Return it as a chunk
+        // signal (an empty blob, NOT streamed) carrying the Content-Range total
+        // — the caller uses that to correct an overshooting plan estimate. See
+        // the 416 branch in downloadFileInChunks.
+        return {
+          status: 416,
+          total: parseContentRangeTotal(response.headers.get('content-range')),
+          blob: new Blob([]),
+        };
+      }
       if (response.status !== 200 && response.status !== 206) {
         throw new DownloadFailedError(
           `HTTP ${response.status} fetching range of ${file.url}`,

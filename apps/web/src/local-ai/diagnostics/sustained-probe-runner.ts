@@ -13,7 +13,7 @@
 
 import type { ModelConfig } from '../types';
 import type { ChatMessage } from '../runtime/types';
-import type { DownloadPlan } from '../download/download';
+import type { DownloadPlan, PlanFileVerifier } from '../download/download';
 import {
   SUSTAINED_PROBE_DEFAULT_TARGET_TOKENS,
   SUSTAINED_PROBE_DEFAULT_TURNS,
@@ -84,7 +84,7 @@ function isWeightsFile(url: string, sizeBytes: number): boolean {
 async function probeWeightsCached(
   model: ModelConfig,
   peekPlan: (m: ModelConfig) => Promise<DownloadPlan | null>,
-  getStorage: () => { verify(key: { modelId: string; url: string }, expectedSizeBytes: number): Promise<boolean> },
+  getStorage: () => PlanFileVerifier,
 ): Promise<boolean> {
   try {
     const plan = await peekPlan(model);
@@ -93,9 +93,22 @@ async function probeWeightsCached(
     if (weights.length === 0) return false;
     const storage = getStorage();
     for (const file of weights) {
-      if (!(await storage.verify({ modelId: plan.modelId, url: file.url }, file.sizeBytes))) {
-        return false;
+      // Same estimate-aware rule as download.ts verifyPlanFile: a heuristic
+      // estimate size is a progress figure, never an integrity criterion — check
+      // intactness (or presence) for an estimate-flagged file, exact
+      // byte-equality for a reviewed size. Fails closed.
+      const key = { modelId: plan.modelId, url: file.url };
+      let ok: boolean;
+      if (file.sizeIsEstimate !== true) {
+        ok = await storage.verify(key, file.sizeBytes);
+      } else if (storage.verifyIntact) {
+        ok = await storage.verifyIntact(key);
+      } else if (storage.has) {
+        ok = await storage.has(key);
+      } else {
+        ok = false;
       }
+      if (!ok) return false;
     }
     return true;
   } catch {

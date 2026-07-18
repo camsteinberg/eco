@@ -47,6 +47,7 @@ import {
   downloadByPlan,
   downloadModel,
   hasDownloadPlanResolver,
+  isModelFullyCached,
   listActiveDownloads,
   setDownloadPlanResolver,
 } from '../download';
@@ -1831,6 +1832,150 @@ describe('downloadByPlan — mid-file chunk resume', () => {
     // Corrupt parts are swept and the identity is never stamped.
     expect(await partEntries(await storage.listForModel(MODEL_ID))).toHaveLength(0);
     expect(await storage.has({ modelId: MODEL_ID, url: URL_A })).toBe(false);
+  });
+});
+
+// ─── 416 on a heuristic-estimate overshoot (Fix A) ─────────────────────────
+//
+// A heuristic-fallback plan's per-file sizeBytes is an ESTIMATE. When a resumed
+// download's persisted parts already cover the origin's real (smaller) size, the
+// loop still wants more (the plan total overshoots) and requests a range past
+// EOF → the origin answers 416. A 416 is EOF evidence, not a failure: its
+// Content-Range total is the authoritative correction. A 416 without a
+// Content-Range can't be corrected, so the resumed parts are cleared for a clean
+// retry rather than wedging on the same unsatisfiable range forever.
+
+describe('downloadByPlan — 416 range past EOF (heuristic overshoot)', () => {
+  const URL_416 = 'https://test/overshoot.bin';
+  const CHUNK = 4;
+
+  /** Seed contiguous parts covering `realTotal` under the plan's size stamp. */
+  async function seedParts(planSize: number, realTotal: number): Promise<Uint8Array> {
+    const body = Uint8Array.from({ length: realTotal }, (_, i) => (i % 251) + 1);
+    const stamp = `s${planSize}`;
+    for (let offset = 0; offset < realTotal; offset += CHUNK) {
+      const slice = body.subarray(offset, offset + CHUNK);
+      await storage.put(
+        { modelId: MODEL_ID, url: `${URL_416}${PART_MARKER}${stamp}.${offset}` },
+        new Response(slice as unknown as BodyInit),
+      );
+    }
+    return body;
+  }
+
+  it('a 416 with Content-Range corrects the total, completes, and sweeps nothing', async () => {
+    const realTotal = 8;
+    const planSize = 12; // overshoot; > realTotal by one chunk so the loop still requests
+    await seedParts(planSize, realTotal);
+
+    const log: { url: string; range: string }[] = [];
+    const result = await downloadByPlan(
+      { modelId: MODEL_ID, files: [{ url: URL_416, sizeBytes: planSize }] },
+      {
+        storage,
+        estimateStorage: async () => null,
+        rangeChunkBytes: CHUNK,
+        // The only reachable range (bytes past the resumed EOF) is unsatisfiable →
+        // 416 carrying the origin's real total.
+        fetcher: rangeDispatch(log, {
+          [URL_416]: () =>
+            new Response(null, { status: 416, headers: { 'content-range': `bytes */${realTotal}` } }),
+        }),
+      },
+    );
+
+    expect(result.filesFetched).toBe(1);
+    // finalizeParts stamped the CORRECTED real total, not the plan's overshoot.
+    expect((await storage.get({ modelId: MODEL_ID, url: URL_416 }))!.sizeBytes).toBe(realTotal);
+    expect(await storage.verify({ modelId: MODEL_ID, url: URL_416 }, realTotal)).toBe(true);
+    // Exactly one range request — the unsatisfiable probe that corrected the total.
+    expect(log).toHaveLength(1);
+    // The parts are retained as the parts-native terminal storage, not swept.
+    expect(await partEntries(await storage.listForModel(MODEL_ID))).toHaveLength(2);
+  });
+
+  it('a 416 with no Content-Range clears the resumed parts and fails for a clean retry', async () => {
+    const realTotal = 8;
+    const planSize = 12;
+    const body = await seedParts(planSize, realTotal);
+
+    await expect(
+      downloadByPlan({ modelId: MODEL_ID, files: [{ url: URL_416, sizeBytes: planSize }] }, {
+        storage,
+        estimateStorage: async () => null,
+        rangeChunkBytes: CHUNK,
+        fetcher: rangeDispatch([], { [URL_416]: () => new Response(null, { status: 416 }) }),
+      }),
+    ).rejects.toBeInstanceOf(DownloadFailedError);
+
+    // The un-correctable 416 swept the resumed parts — a clean slate.
+    expect(await partEntries(await storage.listForModel(MODEL_ID))).toHaveLength(0);
+
+    // A subsequent attempt with a healthy origin re-downloads from byte 0.
+    const log: { url: string; range: string }[] = [];
+    const result = await downloadByPlan(
+      { modelId: MODEL_ID, files: [{ url: URL_416, sizeBytes: planSize }] },
+      {
+        storage,
+        estimateStorage: async () => null,
+        rangeChunkBytes: CHUNK,
+        fetcher: rangeDispatch(log, { [URL_416]: serveRanges(body) }),
+      },
+    );
+    expect(result.filesFetched).toBe(1);
+    expect(log[0]!.range).toBe('bytes=0-3'); // restarted from byte 0
+  });
+
+  it('a 404 mid-resume still fails fast WITHOUT sweeping the resumed parts (regression)', async () => {
+    const realTotal = 8;
+    const planSize = 12;
+    await seedParts(planSize, realTotal);
+
+    await expect(
+      downloadByPlan({ modelId: MODEL_ID, files: [{ url: URL_416, sizeBytes: planSize }] }, {
+        storage,
+        estimateStorage: async () => null,
+        rangeChunkBytes: CHUNK,
+        fetcher: rangeDispatch([], { [URL_416]: () => new Response(null, { status: 404 }) }),
+      }),
+    ).rejects.toBeInstanceOf(DownloadFailedError);
+
+    // A 404 is a hard failure, not EOF evidence — the resume bytes are preserved.
+    expect(await partOffsets(storage, MODEL_ID)).toEqual([0, 4]);
+  });
+});
+
+// ─── Estimate sizes gate on intactness, not byte-equality (Fix B) ───────────
+//
+// A heuristic-fallback plan's sizeBytes is a progress figure, never an integrity
+// criterion. A file correctly stored (stamped with its ACTUAL bytes) must not
+// fail verification forever against a heuristic estimate. isModelFullyCached
+// therefore checks intactness for estimate-flagged files, and byte-equality only
+// for reviewed (non-estimate) sizes.
+
+describe('isModelFullyCached — estimate sizes gate on intactness', () => {
+  it('is true when an estimate-size file is intact even though the stamp differs from the estimate', async () => {
+    const url = 'https://test/est.onnx';
+    await storage.put({ modelId: MODEL_ID, url }, new Response(byteArr(1, 2, 3, 4, 5) as unknown as BodyInit));
+    const model = { id: MODEL_ID } as ModelConfig;
+    setDownloadPlanResolver(async () => ({
+      modelId: MODEL_ID,
+      files: [{ url, sizeBytes: 9999, sizeIsEstimate: true }], // estimate ≠ stored 5
+    }));
+
+    expect(await isModelFullyCached(model, { storage })).toBe(true);
+  });
+
+  it('is still false when a NON-estimate size mismatches the stored stamp (regression)', async () => {
+    const url = 'https://test/reviewed.onnx';
+    await storage.put({ modelId: MODEL_ID, url }, new Response(byteArr(1, 2, 3, 4, 5) as unknown as BodyInit));
+    const model = { id: MODEL_ID } as ModelConfig;
+    setDownloadPlanResolver(async () => ({
+      modelId: MODEL_ID,
+      files: [{ url, sizeBytes: 9999 }], // reviewed size → byte-equality required
+    }));
+
+    expect(await isModelFullyCached(model, { storage })).toBe(false);
   });
 });
 
