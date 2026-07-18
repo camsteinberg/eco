@@ -631,11 +631,22 @@ export async function getDiagnosticEnv(): Promise<DiagnosticEnv> {
 }
 
 /**
+ * True when the WebGPU API object exists on this device — a synchronous
+ * presence check, no adapter request. For callers that must record "was WebGPU
+ * even on the table" without paying an async probe (e.g. the sustained probe's
+ * crash-evidence marker, written before a load that may kill the tab).
+ * Presence ≠ usable: `probeWebGPUAdapter` is the real capability check.
+ */
+export function hasWebGpuApi(): boolean {
+  return typeof navigator !== 'undefined' && 'gpu' in navigator;
+}
+
+/**
  * Probe the WebGPU adapter for diagnostic purposes. Returns adapter
  * availability, features, and selected GPU limits. Never throws.
  *
  * All `navigator.gpu` access in the local-ai/ subtree MUST go through
- * this function or `getDeviceProfile()` (Invariant 5).
+ * this function, `hasWebGpuApi`, or `getDeviceProfile()` (Invariant 5).
  */
 export type WebGPUAdapterProbe = {
   available: boolean;
