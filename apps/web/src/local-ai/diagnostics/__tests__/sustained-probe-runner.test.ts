@@ -20,10 +20,10 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { clearMarker, clearSustainedProbes, loadSustainedProbes, readMarker } from '../sustained-probe';
+import { clearMarker, clearSustainedProbes, loadSustainedProbes, nextTurnPrompt, readMarker } from '../sustained-probe';
 import type { SustainedProbeMarker } from '../sustained-probe';
 import type { ModelConfig } from '../../types';
-import type { TokenEvent } from '../../runtime/types';
+import type { ChatMessage, TokenEvent } from '../../runtime/types';
 
 const loadModelMock = vi.hoisted(() => vi.fn());
 const generateMock = vi.hoisted(() => vi.fn());
@@ -303,5 +303,63 @@ describe('runSustainedProbe — happy path', () => {
 
     const turnComplete = snapshots.find((s) => s.progressPhase === 'turn-complete');
     expect(turnComplete?.markerPhase).toBe('turn-complete');
+  });
+});
+
+describe('runSustainedProbe — context mode', () => {
+  // 'fresh' re-sends the same opening prompt with no accumulated conversation
+  // every turn; 'growing' (default) keeps prior turns so context/KV climb. The
+  // discriminator between context-growth kills and per-turn accumulation kills.
+  it('fresh mode sends exactly the turn-0 prompt, alone, on every turn', async () => {
+    cacheWithWeightsOnly();
+    loadModelMock.mockResolvedValue({ backend: 'wasm' });
+    generateMock.mockImplementation(() => tokenStream());
+
+    const { runSustainedProbe } = await import('../sustained-probe-runner');
+    const record = await runSustainedProbe({ model: MODEL, turns: 3, contextMode: 'fresh' });
+
+    expect(generateMock).toHaveBeenCalledTimes(3);
+    const turn0Prompt = nextTurnPrompt(0, null);
+    for (const call of generateMock.mock.calls) {
+      const messages = call[0] as ChatMessage[];
+      expect(messages).toHaveLength(1);
+      expect(messages[0]).toEqual({ role: 'user', content: turn0Prompt });
+    }
+    expect(record.contextMode).toBe('fresh');
+    expect(loadSustainedProbes().at(-1)?.contextMode).toBe('fresh');
+  });
+
+  it('growing mode (default) accumulates prior turns into the next turn’s messages', async () => {
+    cacheWithWeightsOnly();
+    loadModelMock.mockResolvedValue({ backend: 'wasm' });
+    generateMock.mockImplementation(() => tokenStream());
+
+    const { runSustainedProbe } = await import('../sustained-probe-runner');
+    const record = await runSustainedProbe({ model: MODEL, turns: 2 });
+
+    // Turn 2's messages carry turn 1's user prompt + assistant reply ('hello').
+    const secondTurn = generateMock.mock.calls[1]?.[0] as ChatMessage[];
+    expect(secondTurn.length).toBeGreaterThan(1);
+    expect(secondTurn[0]).toEqual({ role: 'user', content: nextTurnPrompt(0, null) });
+    expect(secondTurn[1]).toEqual({ role: 'assistant', content: 'hello' });
+    expect(record.contextMode).toBe('growing');
+  });
+
+  it('stamps the configured contextMode onto the start marker', async () => {
+    cacheWithWeightsOnly();
+    loadModelMock.mockResolvedValue({ backend: 'wasm' });
+    generateMock.mockImplementation(() => tokenStream());
+
+    let markerMode: string | undefined;
+    const { runSustainedProbe } = await import('../sustained-probe-runner');
+    await runSustainedProbe(
+      { model: MODEL, turns: 1, contextMode: 'fresh' },
+      {
+        onProgress: (p) => {
+          if (p.phase === 'loading') markerMode = readMarker()?.contextMode;
+        },
+      },
+    );
+    expect(markerMode).toBe('fresh');
   });
 });

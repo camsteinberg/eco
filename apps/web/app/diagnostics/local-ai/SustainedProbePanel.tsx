@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { Button } from '@eco/ui';
 import type {
+  SustainedProbeContextMode,
   SustainedProbeLevers,
   SustainedProbeRecord,
   SustainedProbeTurn,
@@ -82,6 +83,8 @@ export function SustainedProbePanel() {
   const [pickerModels, setPickerModels] = useState<PickerModel[]>([]);
   const [modelId, setModelId] = useState('');
   const [turns, setTurns] = useState(6);
+  const [contextMode, setContextMode] = useState<SustainedProbeContextMode>('growing');
+  const [tokensPerTurn, setTokensPerTurn] = useState(200);
   const [running, setRunning] = useState(false);
   const [levers, setLevers] = useState<SustainedProbeLevers | null>(null);
   const [liveLine, setLiveLine] = useState<string | null>(null);
@@ -386,7 +389,10 @@ export function SustainedProbePanel() {
         return;
       }
       const { runSustainedProbe } = await import('../../../src/local-ai/diagnostics/sustained-probe-runner');
-      await runSustainedProbe({ model, turns }, { onProgress, signal: controller.signal });
+      await runSustainedProbe(
+        { model, turns, targetTokensPerTurn: tokensPerTurn, contextMode },
+        { onProgress, signal: controller.signal },
+      );
       const probe = await import('../../../src/local-ai/diagnostics/sustained-probe');
       setRecords(probe.loadSustainedProbes());
     } catch (err) {
@@ -395,7 +401,7 @@ export function SustainedProbePanel() {
       setRunning(false);
       abortRef.current = null;
     }
-  }, [modelId, turns, onProgress, resolveModel]);
+  }, [modelId, turns, tokensPerTurn, contextMode, onProgress, resolveModel]);
 
   const stop = useCallback(() => {
     abortRef.current?.abort();
@@ -475,6 +481,34 @@ export function SustainedProbePanel() {
             onChange={(e) => setTurns(clampTurns(e.target.value))}
             disabled={running}
             className="w-20 rounded-lg px-2.5 py-1.5 text-sm"
+            style={{ ...MONO, border: '1px solid var(--eco-border-muted)', background: 'var(--eco-surface)' }}
+          />
+        </label>
+
+        <label className="flex flex-col gap-1 text-sm" style={LABEL}>
+          Context
+          <select
+            value={contextMode}
+            onChange={(e) => setContextMode(e.target.value as SustainedProbeContextMode)}
+            disabled={running}
+            className="rounded-lg px-2.5 py-1.5 text-sm"
+            style={{ ...MONO, border: '1px solid var(--eco-border-muted)', background: 'var(--eco-surface)' }}
+          >
+            <option value="growing">Growing (real chat)</option>
+            <option value="fresh">Fresh each turn</option>
+          </select>
+        </label>
+
+        <label className="flex flex-col gap-1 text-sm" style={LABEL}>
+          Tokens/turn
+          <input
+            type="number"
+            min={16}
+            max={512}
+            value={tokensPerTurn}
+            onChange={(e) => setTokensPerTurn(clampTokens(e.target.value))}
+            disabled={running}
+            className="w-24 rounded-lg px-2.5 py-1.5 text-sm"
             style={{ ...MONO, border: '1px solid var(--eco-border-muted)', background: 'var(--eco-surface)' }}
           />
         </label>
@@ -582,6 +616,8 @@ function RecordCard({ record }: { record: SustainedProbeRecord }) {
       <dl className="mb-3 grid grid-cols-[max-content_1fr] gap-x-5 gap-y-1 text-xs">
         <dt style={LABEL}>Backend</dt>
         <dd style={MONO}>{record.backend ?? '—'}</dd>
+        <dt style={LABEL}>Context</dt>
+        <dd style={MONO}>{record.contextMode ?? 'growing'}</dd>
         <dt style={LABEL}>Peak JS heap</dt>
         <dd style={MONO}>{record.peakUsedJSHeapMB != null ? `${record.peakUsedJSHeapMB} MB` : 'no heap API'}</dd>
         <dt style={LABEL}>Levers</dt>
@@ -655,4 +691,10 @@ function clampTurns(raw: string): number {
   const n = Number(raw);
   if (!Number.isFinite(n)) return 1;
   return Math.max(1, Math.min(30, Math.floor(n)));
+}
+
+function clampTokens(raw: string): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return 200;
+  return Math.max(16, Math.min(512, Math.floor(n)));
 }

@@ -30,6 +30,7 @@ import {
   updateMarker,
   writeMarker,
   type MemorySample,
+  type SustainedProbeContextMode,
   type SustainedProbeRecord,
   type SustainedProbeTurn,
 } from './sustained-probe';
@@ -40,6 +41,8 @@ export type SustainedProbeConfig = {
   turns?: number;
   /** Target tokens per turn (default ~200). */
   targetTokensPerTurn?: number;
+  /** How context evolves across turns (default 'growing'). See the type doc. */
+  contextMode?: SustainedProbeContextMode;
   /**
    * Load-phase budget override (tests pass small values). Defaults to the
    * smoke gate's adaptive cold-load budget for this model + device.
@@ -143,6 +146,7 @@ export async function runSustainedProbe(
   const { model } = config;
   const turnsRequested = config.turns ?? SUSTAINED_PROBE_DEFAULT_TURNS;
   const targetTokens = config.targetTokensPerTurn ?? SUSTAINED_PROBE_DEFAULT_TARGET_TOKENS;
+  const contextMode = config.contextMode ?? 'growing';
   const { onProgress, signal } = callbacks;
 
   const levers = readActiveLevers();
@@ -171,6 +175,7 @@ export async function runSustainedProbe(
     turnsRequested,
     targetTokensPerTurn: targetTokens,
     levers,
+    contextMode,
     turnsCompleted: 0,
     phase: 'loading',
     backend: null,
@@ -192,6 +197,7 @@ export async function runSustainedProbe(
       turnsCompleted: turns.filter((t) => t.error == null).length,
       targetTokensPerTurn: targetTokens,
       levers,
+      contextMode,
       crossOriginIsolated:
         typeof globalThis !== 'undefined' && (globalThis as { crossOriginIsolated?: boolean }).crossOriginIsolated === true,
       memoryApi,
@@ -277,9 +283,15 @@ export async function runSustainedProbe(
       updateMarker({ phase: 'turn-in-flight' });
       onProgress?.({ phase: 'turn-start', turn, turnsRequested });
 
-      const prompt = nextTurnPrompt(turn, priorAssistant);
-      // Grow the conversation: keep prior turns so context/KV climb turn over turn.
-      const messages: ChatMessage[] = [...conversation, { role: 'user', content: prompt }];
+      // 'fresh' re-sends the SAME opening prompt with no accumulated
+      // conversation every turn — flat context/KV — so that surviving here while
+      // 'growing' dies indicts context growth, and dying at the same turn count
+      // indicts a per-turn accumulation (e.g. engine buffers). See the type doc.
+      const prompt = contextMode === 'fresh' ? nextTurnPrompt(0, null) : nextTurnPrompt(turn, priorAssistant);
+      const messages: ChatMessage[] =
+        contextMode === 'fresh'
+          ? [{ role: 'user', content: prompt }]
+          : [...conversation, { role: 'user', content: prompt }];
 
       const turnStart = nowMs();
       let firstTokenAt: number | null = null;
@@ -320,9 +332,12 @@ export async function runSustainedProbe(
       };
       turns.push(turnRecord);
 
-      // Record the assistant reply so the next turn continues from it.
-      priorAssistant = text;
-      conversation = [...messages, { role: 'assistant', content: text }];
+      // Record the assistant reply so the next turn continues from it. Skipped
+      // in 'fresh' mode, where every turn restarts from the same opening prompt.
+      if (contextMode !== 'fresh') {
+        priorAssistant = text;
+        conversation = [...messages, { role: 'assistant', content: text }];
+      }
 
       // A truer cross-realm number, sampled once per turn (it is slow).
       const uaMB = await measureUserAgentMemoryMB();

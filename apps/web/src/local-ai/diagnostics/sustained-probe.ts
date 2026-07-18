@@ -99,6 +99,15 @@ export type SustainedProbeTurn = {
 
 export type SustainedProbeOutcome = 'completed' | 'killed' | 'error';
 
+/** How the probe's conversation evolves across turns. 'growing' (default,
+ *  real-chat shape): each turn builds on prior output so context/KV climb.
+ *  'fresh': every turn re-sends the SAME opening prompt with NO accumulated
+ *  conversation — flat context/KV per turn. The discriminator between
+ *  context-growth kills and cumulative per-turn kills (e.g. engine buffer
+ *  accumulation): flat-context survival indicts growth; flat-context death at
+ *  the same turn count indicts the per-turn path. */
+export type SustainedProbeContextMode = 'growing' | 'fresh';
+
 export type SustainedProbeRecord = {
   version: 1;
   recordedAt: string; // ISO
@@ -109,6 +118,8 @@ export type SustainedProbeRecord = {
   turnsCompleted: number;
   targetTokensPerTurn: number;
   levers: SustainedProbeLevers;
+  /** How context evolved across turns. Absent on legacy records = 'growing'. */
+  contextMode?: SustainedProbeContextMode;
   crossOriginIsolated: boolean;
   memoryApi: MemoryApiSupport;
   turns: SustainedProbeTurn[];
@@ -130,6 +141,8 @@ export type SustainedProbeMarker = {
   turnsRequested: number;
   targetTokensPerTurn: number;
   levers: SustainedProbeLevers;
+  /** How context evolves across turns. Absent on legacy markers = 'growing'. */
+  contextMode?: SustainedProbeContextMode;
   /** Turns fully completed so far — the "killed at turn X" evidence. */
   turnsCompleted: number;
   /** Phase at last write. Absent on markers from builds before this field —
