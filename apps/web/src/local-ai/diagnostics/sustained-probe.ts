@@ -51,6 +51,10 @@ export const SUSTAINED_PROBE_DEFAULT_TURNS = 6;
 export const SUSTAINED_PROBE_DEFAULT_TARGET_TOKENS = 200;
 /** Memory heap sampled at this cadence during a run. */
 export const SUSTAINED_PROBE_SAMPLE_INTERVAL_MS = 1_000;
+/** Per-turn UA-memory measure deadline. Chromium rate-limits
+ *  measureUserAgentSpecificMemory() and a LATE turn was observed stalling ~10
+ *  minutes — the instrument must never block the workload it measures. */
+export const SUSTAINED_PROBE_UA_MEASURE_TIMEOUT_MS = 10_000;
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -120,12 +124,20 @@ export type SustainedProbeRecord = {
   levers: SustainedProbeLevers;
   /** How context evolved across turns. Absent on legacy records = 'growing'. */
   contextMode?: SustainedProbeContextMode;
+  /** Inter-turn idle pause in ms (0 / absent = back-to-back turns). Names the
+   *  cell — an idle pause is the tested mitigation for WebKit's on-idle
+   *  allocation collection and the iPhone's pressure-GC-loses-to-back-to-back. */
+  cooldownMs?: number;
   crossOriginIsolated: boolean;
   memoryApi: MemoryApiSupport;
   turns: SustainedProbeTurn[];
   samples: MemorySample[];
   peakUsedJSHeapMB: number | null;
   error: string | null;
+  /** True when a per-turn UA-memory measure stalled past its timeout (Chromium
+   *  rate-limits measureUserAgentSpecificMemory), so a null UA column is
+   *  explained rather than mistaken for an absent API. Absent = never timed out. */
+  uaMeasureTimedOut?: boolean;
   /** True when this record was reconstructed from an orphaned (tab-killed) marker. */
   reconstructedFromMarker?: boolean;
 };
@@ -143,6 +155,8 @@ export type SustainedProbeMarker = {
   levers: SustainedProbeLevers;
   /** How context evolves across turns. Absent on legacy markers = 'growing'. */
   contextMode?: SustainedProbeContextMode;
+  /** Inter-turn idle pause in ms. Absent on legacy markers = 0 (back-to-back). */
+  cooldownMs?: number;
   /** Turns fully completed so far — the "killed at turn X" evidence. */
   turnsCompleted: number;
   /** Phase at last write. Absent on markers from builds before this field —
@@ -318,6 +332,7 @@ export function reconstructKilledRecord(marker: SustainedProbeMarker): Sustained
     // tombstone misreports which experiment died (a dropped contextMode
     // mislabeled fresh-mode kills as 'growing', s35 field report).
     contextMode: marker.contextMode,
+    cooldownMs: marker.cooldownMs,
     crossOriginIsolated: safeCrossOriginIsolated(),
     memoryApi: detectMemoryApis(),
     turns: [],

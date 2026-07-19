@@ -188,6 +188,12 @@ describe('marker lifecycle', () => {
     expect(readMarker()?.contextMode).toBe('fresh');
   });
 
+  it('round-trips the cooldownMs field', () => {
+    const cooled: SustainedProbeMarker = { ...MARKER, cooldownMs: 5000 };
+    writeMarker(cooled);
+    expect(readMarker()?.cooldownMs).toBe(5000);
+  });
+
   it('reads a legacy marker (no phase field) as valid', () => {
     // MARKER carries no phase/backend/webgpuApiPresent — the shape older builds
     // wrote. isMarker must not require the new fields.
@@ -319,6 +325,19 @@ describe('orphaned-marker recovery (tab-kill evidence)', () => {
     expect(record.contextMode).toBeUndefined();
   });
 
+  it('carries the marker cooldownMs onto the reconstructed record', () => {
+    // Like contextMode, cooldownMs names the cell being measured — a killed
+    // run's record exists ONLY via reconstruction, so dropping it here would
+    // mislabel which cooldown cell died (the #41 lesson, generalized).
+    const record = reconstructKilledRecord({ ...MARKER, phase: 'turn-in-flight', cooldownMs: 5000 });
+    expect(record.cooldownMs).toBe(5000);
+  });
+
+  it('leaves cooldownMs absent when reconstructing a legacy marker', () => {
+    const record = reconstructKilledRecord(MARKER);
+    expect(record.cooldownMs).toBeUndefined();
+  });
+
   it('recoverOrphanedMarker records the kill and clears the marker', () => {
     writeMarker(MARKER);
     const recovered = recoverOrphanedMarker();
@@ -369,6 +388,16 @@ describe('record store', () => {
   it('round-trips the contextMode field', () => {
     recordSustainedProbe({ ...record, contextMode: 'fresh' });
     expect(loadSustainedProbes().at(-1)?.contextMode).toBe('fresh');
+  });
+
+  it('round-trips the cooldownMs field', () => {
+    recordSustainedProbe({ ...record, cooldownMs: 5000 });
+    expect(loadSustainedProbes().at(-1)?.cooldownMs).toBe(5000);
+  });
+
+  it('round-trips the uaMeasureTimedOut flag', () => {
+    recordSustainedProbe({ ...record, uaMeasureTimedOut: true });
+    expect(loadSustainedProbes().at(-1)?.uaMeasureTimedOut).toBe(true);
   });
 
   it('reads a legacy record (no contextMode) as valid', () => {
