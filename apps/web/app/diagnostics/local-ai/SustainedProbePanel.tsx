@@ -89,6 +89,10 @@ export function SustainedProbePanel() {
   const [turnsInput, setTurnsInput] = useState('6');
   const [contextMode, setContextMode] = useState<SustainedProbeContextMode>('growing');
   const [tokensInput, setTokensInput] = useState('200');
+  // Inter-turn idle pause (ms). Same free-typed-string discipline as Turns /
+  // Tokens: partial values aren't clamped from under the user; normalized on
+  // blur and at run(). 0 = back-to-back turns (the prior behavior).
+  const [cooldownInput, setCooldownInput] = useState('0');
   const [running, setRunning] = useState(false);
   const [levers, setLevers] = useState<SustainedProbeLevers | null>(null);
   const [liveLine, setLiveLine] = useState<string | null>(null);
@@ -112,6 +116,15 @@ export function SustainedProbePanel() {
   // model's stranded bytes (parts from dead attempts) and retry — the
   // guaranteed unblock when the quota is half-full of unusable state.
   const [offerClearRetry, setOfferClearRetry] = useState(false);
+  // Armed by ?eco-probe-autorun=1 — fires run() once, when the picked model's
+  // weights resolve as cached (the probe never downloads).
+  const [autorunArmed, setAutorunArmed] = useState(false);
+  const autorunFiredRef = useRef(false);
+  // Armed by ?eco-probe-autofetch=1 — fires the panel's weights download once
+  // when the pick resolves as missing (measurement bring-up on browsers where
+  // clicks can't be scripted, e.g. real Safari).
+  const [autofetchArmed, setAutofetchArmed] = useState(false);
+  const autofetchFiredRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
   const downloadAbortRef = useRef<AbortController | null>(null);
   // The in-flight (or last) attempt record, mirrored here so the throttled
@@ -163,6 +176,27 @@ export function SustainedProbePanel() {
         const { SLOTS, getSlot } = await import('../../../src/local-ai/lifecycle/slots');
         const readySlot = SLOTS.map(getSlot).find((s) => s.status === 'ready' && s.modelId);
         setModelId(readySlot?.modelId ?? models[0]?.id ?? '');
+
+        // Cell-via-URL levers: lets a measurement cell be described entirely in
+        // the URL so browsers without scriptable clicks (real Safari) can run
+        // the exact cell. ?eco-probe-model=<id>&eco-probe-turns=N&
+        // eco-probe-tokens=N&eco-probe-context=fresh|growing&
+        // eco-probe-cooldown-ms=N&eco-probe-autorun=1&eco-probe-autofetch=1
+        if (typeof window !== 'undefined') {
+          const params = new URLSearchParams(window.location.search);
+          const pModel = params.get('eco-probe-model');
+          if (pModel && models.some((m) => m.id === pModel)) setModelId(pModel);
+          const pTurns = params.get('eco-probe-turns');
+          if (pTurns) setTurnsInput(String(clampTurns(pTurns)));
+          const pTokens = params.get('eco-probe-tokens');
+          if (pTokens) setTokensInput(String(clampTokens(pTokens)));
+          const pContext = params.get('eco-probe-context');
+          if (pContext === 'fresh' || pContext === 'growing') setContextMode(pContext);
+          const pCooldown = params.get('eco-probe-cooldown-ms');
+          if (pCooldown) setCooldownInput(String(clampCooldown(pCooldown)));
+          if (params.get('eco-probe-autorun') === '1') setAutorunArmed(true);
+          if (params.get('eco-probe-autofetch') === '1') setAutofetchArmed(true);
+        }
       } catch {
         // Catalog unavailable — the picker just stays empty.
       }
@@ -394,8 +428,10 @@ export function SustainedProbePanel() {
     // normalized text back so the probe and the field agree.
     const turns = clampTurns(turnsInput);
     const tokensPerTurn = clampTokens(tokensInput);
+    const cooldownMs = clampCooldown(cooldownInput);
     setTurnsInput(String(turns));
     setTokensInput(String(tokensPerTurn));
+    setCooldownInput(String(cooldownMs));
     setRunning(true);
     setLiveTurns([]);
     setKilledNote(null);
@@ -416,7 +452,7 @@ export function SustainedProbePanel() {
       }
       const { runSustainedProbe } = await import('../../../src/local-ai/diagnostics/sustained-probe-runner');
       await runSustainedProbe(
-        { model, turns, targetTokensPerTurn: tokensPerTurn, contextMode },
+        { model, turns, targetTokensPerTurn: tokensPerTurn, contextMode, cooldownMs },
         { onProgress, signal: controller.signal },
       );
       const probe = await import('../../../src/local-ai/diagnostics/sustained-probe');
@@ -427,7 +463,26 @@ export function SustainedProbePanel() {
       setRunning(false);
       abortRef.current = null;
     }
-  }, [modelId, turnsInput, tokensInput, contextMode, onProgress, resolveModel]);
+  }, [modelId, turnsInput, tokensInput, cooldownInput, contextMode, onProgress, resolveModel]);
+
+  // Autofetch (cell-via-URL): fire the weights download once when the pick
+  // resolves as missing. Pairs with autorun for a zero-click cold cell.
+  useEffect(() => {
+    if (autofetchArmed && weightsReady === false && !downloading && !autofetchFiredRef.current) {
+      autofetchFiredRef.current = true;
+      void downloadWeights();
+    }
+  }, [autofetchArmed, weightsReady, downloading, downloadWeights]);
+
+  // Autorun (cell-via-URL): fire exactly once, after the picked model's weights
+  // resolve as cached. Never downloads; if weights are missing it stays armed
+  // and inert — the panel's normal affordances still apply.
+  useEffect(() => {
+    if (autorunArmed && weightsReady === true && !running && !autorunFiredRef.current) {
+      autorunFiredRef.current = true;
+      void run();
+    }
+  }, [autorunArmed, weightsReady, running, run]);
 
   const stop = useCallback(() => {
     abortRef.current?.abort();
@@ -541,6 +596,21 @@ export function SustainedProbePanel() {
           />
         </label>
 
+        <label className="flex flex-col gap-1 text-sm" style={LABEL}>
+          Cooldown ms
+          <input
+            type="number"
+            min={0}
+            max={60000}
+            value={cooldownInput}
+            onChange={(e) => setCooldownInput(e.target.value)}
+            onBlur={() => setCooldownInput(String(clampCooldown(cooldownInput)))}
+            disabled={running}
+            className="w-24 rounded-lg px-2.5 py-1.5 text-sm"
+            style={{ ...MONO, border: '1px solid var(--eco-border-muted)', background: 'var(--eco-surface)' }}
+          />
+        </label>
+
         <div className="flex gap-2">
           <Button onClick={run} variant="primary" disabled={running || downloading || !modelId}>
             {running ? 'Running…' : 'Run probe'}
@@ -646,6 +716,12 @@ function RecordCard({ record }: { record: SustainedProbeRecord }) {
         <dd style={MONO}>{record.backend ?? '—'}</dd>
         <dt style={LABEL}>Context</dt>
         <dd style={MONO}>{record.contextMode ?? 'growing'}</dd>
+        {record.cooldownMs != null && record.cooldownMs > 0 && (
+          <>
+            <dt style={LABEL}>Cooldown</dt>
+            <dd style={MONO}>{record.cooldownMs}ms</dd>
+          </>
+        )}
         <dt style={LABEL}>Peak JS heap</dt>
         <dd style={MONO}>{record.peakUsedJSHeapMB != null ? `${record.peakUsedJSHeapMB} MB` : 'no heap API'}</dd>
         <dt style={LABEL}>Levers</dt>
@@ -725,4 +801,10 @@ function clampTokens(raw: string): number {
   const n = Number(raw);
   if (!Number.isFinite(n)) return 200;
   return Math.max(16, Math.min(512, Math.floor(n)));
+}
+
+function clampCooldown(raw: string): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(60000, Math.floor(n)));
 }
