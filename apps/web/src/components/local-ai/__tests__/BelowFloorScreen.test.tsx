@@ -129,6 +129,35 @@ describe('BelowFloorScreen — mobile designed tier (handoff surface)', () => {
     expect(screen.getByText(/We'll email you when Eco comes to phones\./i)).toBeInTheDocument();
   });
 
+  it('speaks one phone-timeline-honest voice: the illustration label agrees with the email promise', () => {
+    // The aria-label used to drift to a vaguer "coming to your device" promise
+    // that disagreed with the notify sublabel's phone-timeline stance. On mobile
+    // it must carry the true stance: works today on your computer, coming to phones.
+    delete (navigator as { share?: unknown }).share;
+    render(<BelowFloorScreen reason="mobile" onSignup={noopSignup} />);
+
+    expect(
+      screen.getByRole('img', { name: /Eco works today on your computer, coming to phones\./i }),
+    ).toBeInTheDocument();
+  });
+
+  it('confirms signup in the phone-timeline-honest voice, not a vaguer device promise', async () => {
+    // The confirmed state used to say "Eco arrives on your device" — vaguer than
+    // the honest phone timeline. It must agree with the notify sublabel.
+    delete (navigator as { share?: unknown }).share;
+    render(<BelowFloorScreen reason="mobile" onSignup={noopSignup} />);
+
+    fireEvent.change(screen.getByLabelText(/email address/i), {
+      target: { value: 'you@example.com' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /sign me up/i }));
+
+    expect(
+      await screen.findByText(/Thanks — we'll email you when Eco comes to phones\./i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/arrives on your device/i)).not.toBeInTheDocument();
+  });
+
   it('invokes the native share sheet when Web Share is available', () => {
     const share = vi.fn().mockResolvedValue(undefined);
     setShare(share);
