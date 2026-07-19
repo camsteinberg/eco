@@ -91,7 +91,14 @@ export function BelowFloorScreen({ deviceLabel, reason = 'runtime', onSignup }: 
       }}
     >
       <div className="flex flex-col items-center text-center max-w-md w-full gap-6">
-        <div role="img" aria-label="A young seedling — Eco is coming to your device.">
+        <div
+          role="img"
+          aria-label={
+            reason === 'mobile'
+              ? 'A young seedling — Eco works today on your computer, coming to phones.'
+              : 'A young seedling — Eco is coming to your device.'
+          }
+        >
           <SeedlingIllustration size={180} />
         </div>
 
@@ -126,7 +133,9 @@ export function BelowFloorScreen({ deviceLabel, reason = 'runtime', onSignup }: 
 
         {confirmed ? (
           <p className="text-sm" style={{ color: 'var(--eco-success)' }}>
-            Thanks — we&apos;ll let you know when Eco arrives on your device.
+            {reason === 'mobile'
+              ? "Thanks — we'll email you when Eco comes to phones."
+              : "Thanks — we'll let you know when Eco arrives on your device."}
           </p>
         ) : (
           <form onSubmit={submit} className="flex flex-col gap-3 w-full max-w-xs">
