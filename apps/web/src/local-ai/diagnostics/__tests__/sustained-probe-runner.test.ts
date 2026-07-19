@@ -30,11 +30,20 @@ const generateMock = vi.hoisted(() => vi.fn());
 const peekDownloadPlanMock = vi.hoisted(() => vi.fn());
 const verifyMock = vi.hoisted(() => vi.fn());
 const verifyIntactMock = vi.hoisted(() => vi.fn());
+// The per-turn UA-memory measure is mocked at its real seam so the timeout race
+// can be exercised: the default delegates to the real (jsdom-null) behavior, and
+// a single test overrides it with a never-settling promise to trip the timeout.
+const measureUAMock = vi.hoisted(() => vi.fn());
 
 vi.mock('../../runtime/lifecycle', () => ({
   loadModel: loadModelMock,
   generate: generateMock,
 }));
+
+vi.mock('../sustained-probe', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../sustained-probe')>();
+  return { ...actual, measureUserAgentMemoryMB: measureUAMock };
+});
 
 vi.mock('../../download/download', () => ({
   peekDownloadPlan: peekDownloadPlanMock,
@@ -77,6 +86,9 @@ beforeEach(() => {
   peekDownloadPlanMock.mockReset();
   verifyMock.mockReset();
   verifyIntactMock.mockReset();
+  // Default: mirror the real jsdom behavior (no UA-memory API ⇒ null).
+  measureUAMock.mockReset();
+  measureUAMock.mockResolvedValue(null);
 });
 
 afterEach(() => {
@@ -361,5 +373,124 @@ describe('runSustainedProbe — context mode', () => {
       },
     );
     expect(markerMode).toBe('fresh');
+  });
+});
+
+describe('runSustainedProbe — inter-turn cooldown', () => {
+  // WebKit's per-activity allocation storm collects on IDLE; an inter-turn pause
+  // is the testable mitigation. Real timers + tiny budgets: fake-timer advances
+  // race the runner's real dynamic-import I/O (the s32 gotcha).
+  it('waits the configured cooldown between turns', async () => {
+    cacheWithWeightsOnly();
+    loadModelMock.mockResolvedValue({ backend: 'wasm' });
+    const callTimes: number[] = [];
+    generateMock.mockImplementation(() => {
+      callTimes.push(Date.now());
+      return tokenStream();
+    });
+
+    const { runSustainedProbe } = await import('../sustained-probe-runner');
+    await runSustainedProbe({ model: MODEL, turns: 3, cooldownMs: 40 });
+
+    expect(callTimes).toHaveLength(3);
+    // Two gaps, each ≥ ~cooldown (timer resolution slack tolerated).
+    expect(callTimes[1]! - callTimes[0]!).toBeGreaterThanOrEqual(25);
+    expect(callTimes[2]! - callTimes[1]!).toBeGreaterThanOrEqual(25);
+  });
+
+  it('does not pause after the last turn (cooldown is strictly inter-turn)', async () => {
+    cacheWithWeightsOnly();
+    loadModelMock.mockResolvedValue({ backend: 'wasm' });
+    generateMock.mockImplementation(() => tokenStream());
+
+    const { runSustainedProbe } = await import('../sustained-probe-runner');
+    const start = Date.now();
+    await runSustainedProbe({ model: MODEL, turns: 1, cooldownMs: 500 });
+    // A single turn has no inter-turn gap, so the 500ms cooldown never runs.
+    expect(Date.now() - start).toBeLessThan(400);
+  });
+
+  it('aborts promptly mid-cooldown instead of waiting out the full pause', async () => {
+    cacheWithWeightsOnly();
+    loadModelMock.mockResolvedValue({ backend: 'wasm' });
+    generateMock.mockImplementation(() => tokenStream());
+
+    const controller = new AbortController();
+    const { runSustainedProbe } = await import('../sustained-probe-runner');
+    const start = Date.now();
+    // A 10s cooldown that must NOT be waited out: abort the moment turn 0
+    // completes, mid-cooldown, and the run should settle right away.
+    const record = await runSustainedProbe(
+      { model: MODEL, turns: 3, cooldownMs: 10_000 },
+      {
+        signal: controller.signal,
+        onProgress: (p) => {
+          if (p.phase === 'turn-complete') controller.abort();
+        },
+      },
+    );
+    expect(Date.now() - start).toBeLessThan(2_000);
+    // Only the first turn ran; the second never started (aborted in cooldown).
+    expect(generateMock).toHaveBeenCalledTimes(1);
+    expect(record.turnsCompleted).toBe(1);
+  });
+
+  it('records the configured cooldownMs and stamps it onto the start marker', async () => {
+    cacheWithWeightsOnly();
+    loadModelMock.mockResolvedValue({ backend: 'wasm' });
+    generateMock.mockImplementation(() => tokenStream());
+
+    let markerCooldown: number | undefined;
+    const { runSustainedProbe } = await import('../sustained-probe-runner');
+    const record = await runSustainedProbe(
+      { model: MODEL, turns: 1, cooldownMs: 5000 },
+      {
+        onProgress: (p) => {
+          if (p.phase === 'loading') markerCooldown = readMarker()?.cooldownMs;
+        },
+      },
+    );
+    expect(markerCooldown).toBe(5000);
+    expect(record.cooldownMs).toBe(5000);
+    expect(loadSustainedProbes().at(-1)?.cooldownMs).toBe(5000);
+  });
+});
+
+describe('runSustainedProbe — UA-measure timeout', () => {
+  // measureUserAgentSpecificMemory() is Chromium rate-limited and can stall a
+  // LATE turn for minutes; the instrument must never block the workload it
+  // measures. A stalled measure records null for that turn and flags the record.
+  it('records null and flags the record when the UA measure stalls past its timeout', async () => {
+    cacheWithWeightsOnly();
+    loadModelMock.mockResolvedValue({ backend: 'wasm' });
+    generateMock.mockImplementation(() => tokenStream());
+    // A never-settling measure — the exact rate-limited-stall shape.
+    measureUAMock.mockReturnValueOnce(new Promise<number | null>(() => {}));
+
+    const { runSustainedProbe } = await import('../sustained-probe-runner');
+    const start = Date.now();
+    const record = await runSustainedProbe({ model: MODEL, turns: 1, uaMeasureTimeoutMs: 30 });
+
+    // Did NOT wait out a multi-minute stall — the timeout let the turn proceed.
+    expect(Date.now() - start).toBeLessThan(2_000);
+    expect(record.outcome).toBe('completed');
+    expect(record.turnsCompleted).toBe(1);
+    expect(record.uaMeasureTimedOut).toBe(true);
+    // The stalled turn's UA sample is null, not a hung value.
+    const lastSample = record.samples.at(-1);
+    expect(lastSample?.measuredUAMB).toBeNull();
+  });
+
+  it('leaves the flag unset when the UA measure resolves within its timeout', async () => {
+    cacheWithWeightsOnly();
+    loadModelMock.mockResolvedValue({ backend: 'wasm' });
+    generateMock.mockImplementation(() => tokenStream());
+    measureUAMock.mockResolvedValue(123);
+
+    const { runSustainedProbe } = await import('../sustained-probe-runner');
+    const record = await runSustainedProbe({ model: MODEL, turns: 1, uaMeasureTimeoutMs: 10_000 });
+
+    expect(record.uaMeasureTimedOut).toBeUndefined();
+    expect(record.samples.at(-1)?.measuredUAMB).toBe(123);
   });
 });
