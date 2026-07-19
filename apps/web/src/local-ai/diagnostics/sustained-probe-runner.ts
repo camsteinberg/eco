@@ -18,6 +18,7 @@ import {
   SUSTAINED_PROBE_DEFAULT_TARGET_TOKENS,
   SUSTAINED_PROBE_DEFAULT_TURNS,
   SUSTAINED_PROBE_SAMPLE_INTERVAL_MS,
+  SUSTAINED_PROBE_UA_MEASURE_TIMEOUT_MS,
   clearMarker,
   detectMemoryApis,
   detectWebGpuApi,
@@ -44,10 +45,24 @@ export type SustainedProbeConfig = {
   /** How context evolves across turns (default 'growing'). See the type doc. */
   contextMode?: SustainedProbeContextMode;
   /**
+   * Inter-turn idle pause in ms (default 0 = back-to-back turns). Applied after
+   * every turn except the last; abort-aware so a stop settles promptly. The
+   * tested mitigation for WebKit's on-idle allocation collection and the
+   * iPhone's pressure-GC-loses-to-back-to-back per-turn climb.
+   */
+  cooldownMs?: number;
+  /**
    * Load-phase budget override (tests pass small values). Defaults to the
    * smoke gate's adaptive cold-load budget for this model + device.
    */
   loadTimeoutMs?: number;
+  /**
+   * Per-turn UA-memory measure deadline (tests pass small values). Defaults to
+   * SUSTAINED_PROBE_UA_MEASURE_TIMEOUT_MS. On timeout the turn's UA sample is
+   * null and the record is flagged, so the workload never waits on a
+   * rate-limited measurement.
+   */
+  uaMeasureTimeoutMs?: number;
 };
 
 export type SustainedProbeProgress =
@@ -66,6 +81,52 @@ function nowMs(): number {
   return typeof performance !== 'undefined' && typeof performance.now === 'function'
     ? performance.now()
     : Date.now();
+}
+
+/**
+ * Idle for `ms`, resolving early (never rejecting) if `signal` aborts — a stop
+ * must settle the pause promptly, and the loop's top-of-iteration abort check
+ * then breaks the run. A zero/negative pause is a no-op (no timer scheduled).
+ */
+function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
+  if (ms <= 0 || signal?.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+/**
+ * Race the (slow, Chromium rate-limited) UA-memory measure against a deadline.
+ * On timeout, return `{ mb: null, timedOut: true }` so the turn proceeds
+ * immediately rather than blocking on a measurement that can stall for minutes.
+ * The `measure` seam defaults to the real function; tests drive it.
+ */
+async function measureUAWithTimeout(
+  timeoutMs: number,
+  measure: () => Promise<number | null> = measureUserAgentMemoryMB,
+): Promise<{ mb: number | null; timedOut: boolean }> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<{ mb: null; timedOut: true }>((resolve) => {
+    timer = setTimeout(() => resolve({ mb: null, timedOut: true }), timeoutMs);
+  });
+  try {
+    const measured = measure().then((mb) => ({ mb, timedOut: false as const }));
+    return await Promise.race([measured, deadline]);
+  } catch {
+    // A measure rejection is already swallowed inside measureUserAgentMemoryMB,
+    // but stay null-safe if a test seam throws.
+    return { mb: null, timedOut: false };
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 /** A plan file counts as weights when it is ONNX-shaped or simply large —
@@ -147,6 +208,8 @@ export async function runSustainedProbe(
   const turnsRequested = config.turns ?? SUSTAINED_PROBE_DEFAULT_TURNS;
   const targetTokens = config.targetTokensPerTurn ?? SUSTAINED_PROBE_DEFAULT_TARGET_TOKENS;
   const contextMode = config.contextMode ?? 'growing';
+  const cooldownMs = config.cooldownMs ?? 0;
+  const uaMeasureTimeoutMs = config.uaMeasureTimeoutMs ?? SUSTAINED_PROBE_UA_MEASURE_TIMEOUT_MS;
   const { onProgress, signal } = callbacks;
 
   const levers = readActiveLevers();
@@ -156,6 +219,7 @@ export async function runSustainedProbe(
 
   const samples: MemorySample[] = [];
   const turns: SustainedProbeTurn[] = [];
+  let uaMeasureTimedOut = false;
   let backend: string | null = null;
   let priorAssistant: string | null = null;
   // Conversation accumulated across turns so context/KV grow turn over turn.
@@ -176,6 +240,7 @@ export async function runSustainedProbe(
     targetTokensPerTurn: targetTokens,
     levers,
     contextMode,
+    cooldownMs,
     turnsCompleted: 0,
     phase: 'loading',
     backend: null,
@@ -198,6 +263,7 @@ export async function runSustainedProbe(
       targetTokensPerTurn: targetTokens,
       levers,
       contextMode,
+      cooldownMs,
       crossOriginIsolated:
         typeof globalThis !== 'undefined' && (globalThis as { crossOriginIsolated?: boolean }).crossOriginIsolated === true,
       memoryApi,
@@ -205,6 +271,9 @@ export async function runSustainedProbe(
       samples,
       peakUsedJSHeapMB: peakUsedJSHeap(samples),
       error,
+      // Only stamped when it actually happened, so a null UA column is
+      // explainable; absent otherwise keeps clean records clean.
+      ...(uaMeasureTimedOut ? { uaMeasureTimedOut: true } : {}),
     };
     recordSustainedProbe(record);
     // Clean exit — drop the marker so the next mount doesn't read a false kill.
@@ -339,15 +408,25 @@ export async function runSustainedProbe(
         conversation = [...messages, { role: 'assistant', content: text }];
       }
 
-      // A truer cross-realm number, sampled once per turn (it is slow).
-      const uaMB = await measureUserAgentMemoryMB();
+      // A truer cross-realm number, sampled once per turn (it is slow, and
+      // Chromium can rate-limit it into a multi-minute stall on a late turn) —
+      // so it races a deadline: a timeout records null and lets the turn proceed.
+      const ua = await measureUAWithTimeout(uaMeasureTimeoutMs);
+      if (ua.timedOut) uaMeasureTimedOut = true;
       const postTurn = readMemorySample(nowMs() - start, turn + 1, undefined);
-      samples.push({ ...postTurn, measuredUAMB: uaMB });
+      samples.push({ ...postTurn, measuredUAMB: ua.mb });
 
       updateMarker({ turnsCompleted: turn + 1, phase: 'turn-complete' });
       onProgress?.({ phase: 'turn-complete', turn, turnsRequested, record: turnRecord });
 
       if (turnError) break; // a failed turn ends the run — later turns can't build on it
+
+      // Inter-turn idle pause (strictly between turns — never after the last).
+      // The marker already reads phase 'turn-complete', so a kill during the
+      // pause reconstructs honestly as a between-turns death.
+      if (cooldownMs > 0 && turn < turnsRequested - 1) {
+        await abortableDelay(cooldownMs, signal);
+      }
     }
 
     const anyError = turns.some((t) => t.error != null);
