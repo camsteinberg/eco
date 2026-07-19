@@ -14,10 +14,12 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ── Mount-effect dependencies (all dynamically imported inside the panel) ──
+// Mutable per-test: the records the panel renders (echo-display assertions set it).
+let probeRecords: unknown[] = [];
 vi.mock('../../../../src/local-ai/diagnostics/sustained-probe', () => ({
   recoverOrphanedMarker: () => null,
   readActiveLevers: () => null,
-  loadSustainedProbes: () => [],
+  loadSustainedProbes: () => probeRecords,
   clearSustainedProbes: () => {},
 }));
 
@@ -384,5 +386,204 @@ describe('SustainedProbePanel — weights staging', () => {
       expect((JSON.parse(raw as string) as { done: boolean }).done).toBe(true);
     });
     expect(screen.queryByText(/Previous weights download died/)).not.toBeInTheDocument();
+  });
+});
+
+// Zero-click cells: real Safari has no scriptable clicks, so a measurement cell
+// is described entirely in the URL and the panel arms itself from it.
+describe('SustainedProbePanel — cell-via-URL levers', () => {
+  function setSearch(search: string): void {
+    window.history.replaceState({}, '', `/${search}`);
+  }
+
+  beforeEach(() => {
+    harnessEnabled = false;
+    weightsCached = true;
+    probeRecords = [];
+    localStorage.clear();
+  });
+  afterEach(() => {
+    vi.clearAllMocks();
+    probeRecords = [];
+    localStorage.clear();
+    setSearch(''); // reset location so params never leak between tests
+  });
+
+  it('prefills turns / tokens / context / cooldown from the URL', async () => {
+    setSearch('?eco-probe-turns=12&eco-probe-tokens=64&eco-probe-context=fresh&eco-probe-cooldown-ms=5000');
+    render(<SustainedProbePanel />);
+    await findModelPicker();
+
+    expect(await screen.findByRole('spinbutton', { name: 'Turns' })).toHaveValue(12);
+    expect(await screen.findByRole('spinbutton', { name: 'Tokens/turn' })).toHaveValue(64);
+    expect(await screen.findByRole('combobox', { name: /Context/ })).toHaveValue('fresh');
+    expect(await screen.findByRole('spinbutton', { name: 'Cooldown ms' })).toHaveValue(5000);
+  });
+
+  it('clamps out-of-range URL values into the field bounds', async () => {
+    setSearch('?eco-probe-turns=999&eco-probe-tokens=1&eco-probe-cooldown-ms=999999');
+    render(<SustainedProbePanel />);
+    await findModelPicker();
+
+    expect(await screen.findByRole('spinbutton', { name: 'Turns' })).toHaveValue(30);
+    expect(await screen.findByRole('spinbutton', { name: 'Tokens/turn' })).toHaveValue(16);
+    expect(await screen.findByRole('spinbutton', { name: 'Cooldown ms' })).toHaveValue(60000);
+  });
+
+  it('selects a valid model id from the URL', async () => {
+    harnessEnabled = true; // makes the eval candidate a second, valid pick
+    setSearch('?eco-probe-model=candidate/qwen3-0.6b-q4');
+    render(<SustainedProbePanel />);
+
+    const picker = await findModelPicker();
+    await waitFor(() => expect(picker).toHaveValue('candidate/qwen3-0.6b-q4'));
+  });
+
+  it('rejects an unknown model id from the URL and keeps the default pick', async () => {
+    setSearch('?eco-probe-model=does/not-exist');
+    render(<SustainedProbePanel />);
+
+    const picker = await findModelPicker();
+    await waitFor(() => expect(picker).toHaveValue('local/model-a'));
+  });
+
+  it('autorun fires the run exactly once when weights resolve cached', async () => {
+    weightsCached = true;
+    setSearch('?eco-probe-autorun=1');
+    render(<SustainedProbePanel />);
+
+    await waitFor(() => expect(runSustainedProbeMock).toHaveBeenCalledTimes(1));
+    // A re-render must not re-fire it (fire-once ref).
+    await new Promise((r) => setTimeout(r, 20));
+    expect(runSustainedProbeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('autorun stays inert when weights are missing (a probe never downloads)', async () => {
+    weightsCached = false;
+    setSearch('?eco-probe-autorun=1');
+    render(<SustainedProbePanel />);
+
+    // Weights are missing — the download affordance appears, but no run fires and
+    // no download is triggered (autofetch was not armed).
+    await screen.findByRole('button', { name: 'Download weights' });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(runSustainedProbeMock).not.toHaveBeenCalled();
+    expect(downloadModelMock).not.toHaveBeenCalled();
+  });
+
+  it('autofetch fires the weights download exactly once when weights are missing', async () => {
+    weightsCached = false;
+    setSearch('?eco-probe-autofetch=1');
+    render(<SustainedProbePanel />);
+
+    await waitFor(() => expect(downloadModelMock).toHaveBeenCalledTimes(1));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(downloadModelMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('SustainedProbePanel — cooldown control', () => {
+  beforeEach(() => {
+    harnessEnabled = false;
+    weightsCached = true;
+    probeRecords = [];
+    localStorage.clear();
+  });
+  afterEach(() => {
+    vi.clearAllMocks();
+    probeRecords = [];
+    localStorage.clear();
+  });
+
+  it('renders the Cooldown ms control defaulting to 0', async () => {
+    render(<SustainedProbePanel />);
+    await findModelPicker();
+    expect(await screen.findByRole('spinbutton', { name: 'Cooldown ms' })).toHaveValue(0);
+  });
+
+  it('forwards the chosen cooldownMs into the run config', async () => {
+    render(<SustainedProbePanel />);
+    await findModelPicker();
+
+    fireEvent.change(await screen.findByRole('spinbutton', { name: 'Cooldown ms' }), {
+      target: { value: '5000' },
+    });
+    fireEvent.click(await screen.findByRole('button', { name: 'Run probe' }));
+
+    await waitFor(() => {
+      expect(runSustainedProbeMock).toHaveBeenCalledWith(
+        expect.objectContaining({ cooldownMs: 5000 }),
+        expect.anything(),
+      );
+    });
+  });
+
+  it('defaults cooldownMs to 0 in the run config when the field is untouched', async () => {
+    render(<SustainedProbePanel />);
+    await findModelPicker();
+    fireEvent.click(await screen.findByRole('button', { name: 'Run probe' }));
+
+    await waitFor(() => {
+      expect(runSustainedProbeMock).toHaveBeenCalledWith(
+        expect.objectContaining({ cooldownMs: 0 }),
+        expect.anything(),
+      );
+    });
+  });
+
+  it('echoes a non-zero cooldown on a completed record', async () => {
+    probeRecords = [
+      {
+        version: 1,
+        recordedAt: '2026-07-18T00:00:00.000Z',
+        modelId: 'local/model-a',
+        backend: 'wasm',
+        outcome: 'completed',
+        turnsRequested: 3,
+        turnsCompleted: 3,
+        targetTokensPerTurn: 200,
+        levers: { ortArtifact: null, numThreads: null, forceWasm: false },
+        contextMode: 'growing',
+        cooldownMs: 5000,
+        crossOriginIsolated: true,
+        memoryApi: { performanceMemory: true, measureUserAgent: false },
+        turns: [],
+        samples: [],
+        peakUsedJSHeapMB: 512,
+        error: null,
+      },
+    ];
+    render(<SustainedProbePanel />);
+    await findModelPicker();
+    expect(await screen.findByText('Cooldown')).toBeInTheDocument();
+    expect(await screen.findByText('5000ms')).toBeInTheDocument();
+  });
+
+  it('omits the cooldown row when the record ran back-to-back (0 / absent)', async () => {
+    probeRecords = [
+      {
+        version: 1,
+        recordedAt: '2026-07-18T00:00:00.000Z',
+        modelId: 'local/model-a',
+        backend: 'wasm',
+        outcome: 'completed',
+        turnsRequested: 3,
+        turnsCompleted: 3,
+        targetTokensPerTurn: 200,
+        levers: { ortArtifact: null, numThreads: null, forceWasm: false },
+        contextMode: 'growing',
+        cooldownMs: 0,
+        crossOriginIsolated: true,
+        memoryApi: { performanceMemory: true, measureUserAgent: false },
+        turns: [],
+        samples: [],
+        peakUsedJSHeapMB: 512,
+        error: null,
+      },
+    ];
+    render(<SustainedProbePanel />);
+    await findModelPicker();
+    await waitFor(() => expect(screen.getByText('Backend')).toBeInTheDocument());
+    expect(screen.queryByText('Cooldown')).not.toBeInTheDocument();
   });
 });
