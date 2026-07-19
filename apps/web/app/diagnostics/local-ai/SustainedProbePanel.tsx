@@ -82,9 +82,13 @@ const MONO: CSSProperties = { fontFamily: 'var(--eco-font-mono)', color: 'var(--
 export function SustainedProbePanel() {
   const [pickerModels, setPickerModels] = useState<PickerModel[]>([]);
   const [modelId, setModelId] = useState('');
-  const [turns, setTurns] = useState(6);
+  // Turns and Tokens/turn hold free-typed text while the field is focused so a
+  // partial value ("6" on the way to "64") is never clamped out from under the
+  // user, and the field can be cleared. They are normalized on blur and clamped
+  // again at run() so the probe always consumes an in-range number.
+  const [turnsInput, setTurnsInput] = useState('6');
   const [contextMode, setContextMode] = useState<SustainedProbeContextMode>('growing');
-  const [tokensPerTurn, setTokensPerTurn] = useState(200);
+  const [tokensInput, setTokensInput] = useState('200');
   const [running, setRunning] = useState(false);
   const [levers, setLevers] = useState<SustainedProbeLevers | null>(null);
   const [liveLine, setLiveLine] = useState<string | null>(null);
@@ -214,22 +218,37 @@ export function SustainedProbePanel() {
     };
   }, [modelId, resolveModel]);
 
-  // Death-point report: on mount and whenever the pick changes, surface a
-  // persisted `done:false` attempt for THIS model — where a previous download
-  // stopped (most usefully after a WebKit tab-kill, which leaves the record
-  // behind because the tab died before it could be marked done).
+  // Death-point report: surface a persisted `done:false` attempt for THIS model
+  // — where a previous download stopped (most usefully after a WebKit tab-kill,
+  // which leaves the record behind because the tab died before it could be
+  // marked done). A death note is only meaningful while the weights are
+  // genuinely missing, so it is gated on the resolved cache state: if the
+  // weights are present (staged via any path), the note is suppressed AND the
+  // stale record is resolved so it can never resurrect the banner.
   useEffect(() => {
+    // Until the cache check resolves, say nothing — and clear any prior model's
+    // note so it can't linger across a pick change.
+    if (weightsReady === null) {
+      setDeathNote(null);
+      return;
+    }
     const attempt = readWeightsAttempt();
-    if (attempt && !attempt.done && attempt.modelId === modelId) {
+    const matches = attempt !== null && !attempt.done && attempt.modelId === modelId;
+    if (weightsReady === false && matches) {
       const mb = (n: number) => Math.round(n / (1024 * 1024));
       setDeathNote(
         `Previous weights download died at ${mb(attempt.lastLoaded)} of ${mb(attempt.total)} MB`
         + ' — resume continues from persisted chunks.',
       );
-    } else {
-      setDeathNote(null);
+      return;
     }
-  }, [modelId]);
+    // Weights are present: resolve a stale death record so a non-probe download
+    // path can't leave it to resurrect the banner forever.
+    if (weightsReady === true && matches) {
+      writeWeightsAttempt({ ...attempt, done: true });
+    }
+    setDeathNote(null);
+  }, [modelId, weightsReady]);
 
   // Storage readout: quota/usage plus what enumeration actually sees for the
   // picked model. On a devtools-less device this line IS the diagnosis — a
@@ -370,6 +389,13 @@ export function SustainedProbePanel() {
 
   const run = useCallback(async () => {
     if (!modelId) return;
+    // Clamp the free-typed fields at run time (they may hold a partial or
+    // out-of-range value the user never blurred out of) and commit the
+    // normalized text back so the probe and the field agree.
+    const turns = clampTurns(turnsInput);
+    const tokensPerTurn = clampTokens(tokensInput);
+    setTurnsInput(String(turns));
+    setTokensInput(String(tokensPerTurn));
     setRunning(true);
     setLiveTurns([]);
     setKilledNote(null);
@@ -401,7 +427,7 @@ export function SustainedProbePanel() {
       setRunning(false);
       abortRef.current = null;
     }
-  }, [modelId, turns, tokensPerTurn, contextMode, onProgress, resolveModel]);
+  }, [modelId, turnsInput, tokensInput, contextMode, onProgress, resolveModel]);
 
   const stop = useCallback(() => {
     abortRef.current?.abort();
@@ -477,8 +503,9 @@ export function SustainedProbePanel() {
             type="number"
             min={1}
             max={30}
-            value={turns}
-            onChange={(e) => setTurns(clampTurns(e.target.value))}
+            value={turnsInput}
+            onChange={(e) => setTurnsInput(e.target.value)}
+            onBlur={() => setTurnsInput(String(clampTurns(turnsInput)))}
             disabled={running}
             className="w-20 rounded-lg px-2.5 py-1.5 text-sm"
             style={{ ...MONO, border: '1px solid var(--eco-border-muted)', background: 'var(--eco-surface)' }}
@@ -505,8 +532,9 @@ export function SustainedProbePanel() {
             type="number"
             min={16}
             max={512}
-            value={tokensPerTurn}
-            onChange={(e) => setTokensPerTurn(clampTokens(e.target.value))}
+            value={tokensInput}
+            onChange={(e) => setTokensInput(e.target.value)}
+            onBlur={() => setTokensInput(String(clampTokens(tokensInput)))}
             disabled={running}
             className="w-24 rounded-lg px-2.5 py-1.5 text-sm"
             style={{ ...MONO, border: '1px solid var(--eco-border-muted)', background: 'var(--eco-surface)' }}

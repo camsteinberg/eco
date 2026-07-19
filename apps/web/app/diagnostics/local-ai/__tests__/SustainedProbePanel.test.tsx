@@ -178,6 +178,69 @@ describe('SustainedProbePanel — context + tokens controls', () => {
       );
     });
   });
+
+  // Per-keystroke clamping made these fields unusable: a controlled value that
+  // clamped on every change turned "64" into "16" after the first digit and
+  // couldn't be cleared. The fix holds free-typed text while focused and clamps
+  // only on blur and at run().
+  it('lets you type a multi-digit tokens/turn value without per-keystroke clamping', async () => {
+    render(<SustainedProbePanel />);
+    await findModelPicker();
+    const input = await screen.findByRole('spinbutton', { name: 'Tokens/turn' });
+
+    // First digit is below the min but must NOT snap to 16 mid-type.
+    fireEvent.change(input, { target: { value: '6' } });
+    expect(input).toHaveValue(6);
+    fireEvent.change(input, { target: { value: '64' } });
+    expect(input).toHaveValue(64);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Run probe' }));
+    await waitFor(() => {
+      expect(runSustainedProbeMock).toHaveBeenCalledWith(
+        expect.objectContaining({ targetTokensPerTurn: 64 }),
+        expect.anything(),
+      );
+    });
+  });
+
+  it('lets you clear the tokens/turn field and retype', async () => {
+    render(<SustainedProbePanel />);
+    await findModelPicker();
+    const input = await screen.findByRole('spinbutton', { name: 'Tokens/turn' });
+
+    fireEvent.change(input, { target: { value: '' } });
+    expect(input).toHaveValue(null);
+    fireEvent.change(input, { target: { value: '32' } });
+    expect(input).toHaveValue(32);
+  });
+
+  it('clamps an out-of-range tokens/turn value on blur, not per keystroke', async () => {
+    render(<SustainedProbePanel />);
+    await findModelPicker();
+    const input = await screen.findByRole('spinbutton', { name: 'Tokens/turn' });
+
+    fireEvent.change(input, { target: { value: '9999' } });
+    expect(input).toHaveValue(9999);
+    fireEvent.blur(input);
+    expect(input).toHaveValue(512);
+  });
+
+  it('lets you type a multi-digit turns value without per-keystroke clamping', async () => {
+    render(<SustainedProbePanel />);
+    await findModelPicker();
+    const input = await screen.findByRole('spinbutton', { name: 'Turns' });
+
+    // "12" would snap to "1" then jump under per-keystroke clamping.
+    fireEvent.change(input, { target: { value: '1' } });
+    expect(input).toHaveValue(1);
+    fireEvent.change(input, { target: { value: '12' } });
+    expect(input).toHaveValue(12);
+    fireEvent.change(input, { target: { value: '' } });
+    expect(input).toHaveValue(null);
+    fireEvent.change(input, { target: { value: '99' } });
+    fireEvent.blur(input);
+    expect(input).toHaveValue(30);
+  });
 });
 
 describe('SustainedProbePanel — weights staging', () => {
@@ -225,6 +288,9 @@ describe('SustainedProbePanel — weights staging', () => {
     // A WebKit tab-kill leaves a `done:false` attempt record behind; on the next
     // mount the panel reads it and tells the user where the download stopped so
     // they can retest without devtools. Sizes are in bytes; the line renders MB.
+    // A death note is only meaningful while the weights are genuinely missing —
+    // so this genuine-death path requires the cache check to resolve absent.
+    weightsCached = false;
     localStorage.setItem(
       'eco-probe-weights-attempt-v1',
       JSON.stringify({
@@ -287,5 +353,36 @@ describe('SustainedProbePanel — weights staging', () => {
     await waitFor(() => {
       expect(screen.queryByText(/Previous weights download died/)).not.toBeInTheDocument();
     });
+  });
+
+  it('does not resurrect a death note when weights are actually cached, and resolves the stale record', async () => {
+    // The immortal-banner bug: a `done:false` record matched the pick and the
+    // banner rendered forever, even after weights arrived via some other path.
+    // The note is only meaningful while weights are missing — so when the cache
+    // check resolves present, no banner shows and the stale record is resolved
+    // (marked done) so it can never resurrect.
+    weightsCached = true;
+    localStorage.setItem(
+      'eco-probe-weights-attempt-v1',
+      JSON.stringify({
+        modelId: 'local/model-a',
+        startedAt: new Date().toISOString(),
+        lastLoaded: 120 * 1024 * 1024,
+        total: 543 * 1024 * 1024,
+        done: false,
+      }),
+    );
+
+    render(<SustainedProbePanel />);
+    await findModelPicker();
+
+    // The cache check resolves present, at which point the effect resolves the
+    // stale record. Wait for that write, then assert the banner never showed.
+    await waitFor(() => {
+      const raw = localStorage.getItem('eco-probe-weights-attempt-v1');
+      expect(raw).not.toBeNull();
+      expect((JSON.parse(raw as string) as { done: boolean }).done).toBe(true);
+    });
+    expect(screen.queryByText(/Previous weights download died/)).not.toBeInTheDocument();
   });
 });
