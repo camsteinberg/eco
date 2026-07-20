@@ -145,6 +145,11 @@ export type SustainedProbeRecord = {
   idleObservedSeconds?: number;
   /** Activity kept up during the idle-observe window. Absent = 'none'. */
   heartbeat?: SustainedProbeHeartbeat;
+  /** True when the model was torn down (worker terminated — forcible wasm-heap
+   *  free) before the observe window. The s37 discriminator: survival after
+   *  teardown opens the unload-on-idle lane; a kill anyway proves the process
+   *  retains the footprint past worker termination. Absent = model kept. */
+  teardownBeforeObserve?: boolean;
   crossOriginIsolated: boolean;
   memoryApi: MemoryApiSupport;
   turns: SustainedProbeTurn[];
@@ -181,6 +186,8 @@ export type SustainedProbeMarker = {
   idleObservedSeconds?: number;
   /** Activity kept up during the observe window. Absent = 'none'. */
   heartbeat?: SustainedProbeHeartbeat;
+  /** True when the model is torn down before the observe window. Absent = kept. */
+  teardownBeforeObserve?: boolean;
   /** Turns fully completed so far — the "killed at turn X" evidence. */
   turnsCompleted: number;
   /** Phase at last write. Absent on markers from builds before this field —
@@ -360,6 +367,7 @@ export function reconstructKilledRecord(marker: SustainedProbeMarker): Sustained
     idleObserveSeconds: marker.idleObserveSeconds,
     idleObservedSeconds: marker.idleObservedSeconds,
     heartbeat: marker.heartbeat,
+    teardownBeforeObserve: marker.teardownBeforeObserve,
     crossOriginIsolated: safeCrossOriginIsolated(),
     memoryApi: detectMemoryApis(),
     turns: [],
@@ -395,7 +403,8 @@ function killedDeathPoint(marker: SustainedProbeMarker): string {
       const survived = marker.idleObservedSeconds ?? 0;
       const requested = marker.idleObserveSeconds ?? 0;
       const beat = marker.heartbeat ?? 'none';
-      return `Tab was killed during the post-run idle-observe window — survived ~${survived}s of ${requested}s at heartbeat=${beat}, after completing all ${turnsCompleted}/${turnsRequested} turns.`;
+      const torn = marker.teardownBeforeObserve ? ' with the model torn down' : '';
+      return `Tab was killed during the post-run idle-observe window${torn} — survived ~${survived}s of ${requested}s at heartbeat=${beat}, after completing all ${turnsCompleted}/${turnsRequested} turns.`;
     }
     default:
       return `Tab was killed during a sustained probe at turn ${turnsCompleted}/${turnsRequested}.`;

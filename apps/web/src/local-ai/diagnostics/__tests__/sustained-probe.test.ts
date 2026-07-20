@@ -398,6 +398,27 @@ describe('orphaned-marker recovery (tab-kill evidence)', () => {
     expect(record.idleObserveSeconds).toBeUndefined();
     expect(record.idleObservedSeconds).toBeUndefined();
     expect(record.heartbeat).toBeUndefined();
+    expect(record.teardownBeforeObserve).toBeUndefined();
+  });
+
+  it('names the teardown cell in the idle-observe kill message and carries the flag', () => {
+    // The s37 discriminator: a kill AFTER worker.terminate() must be readable
+    // as exactly that from the tombstone alone — it is the airtight-upstream
+    // evidence if it happens.
+    const record = reconstructKilledRecord({
+      ...MARKER,
+      phase: 'idle-observe',
+      turnsCompleted: 1,
+      turnsRequested: 1,
+      idleObserveSeconds: 120,
+      idleObservedSeconds: 3,
+      heartbeat: 'none',
+      teardownBeforeObserve: true,
+    });
+    expect(record.teardownBeforeObserve).toBe(true);
+    expect(record.error).toBe(
+      'Tab was killed during the post-run idle-observe window with the model torn down — survived ~3s of 120s at heartbeat=none, after completing all 1/1 turns.',
+    );
   });
 
   it('recoverOrphanedMarker records the kill and clears the marker', () => {

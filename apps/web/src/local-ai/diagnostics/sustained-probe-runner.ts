@@ -68,6 +68,15 @@ export type SustainedProbeConfig = {
    */
   heartbeat?: SustainedProbeHeartbeat;
   /**
+   * Tear the model down (unloadActive → worker.terminate — a FORCIBLE wasm-heap
+   * free, not GC-dependent) before entering the observe window (default false;
+   * meaningful only with idleObserveSeconds > 0). The s37 discriminator after
+   * heartbeats failed: survival opens the unload-on-idle product lane; a kill
+   * anyway proves the WebContent process retains the footprint past worker
+   * termination — the airtight upstream case.
+   */
+  teardownBeforeObserve?: boolean;
+  /**
    * Load-phase budget override (tests pass small values). Defaults to the
    * smoke gate's adaptive cold-load budget for this model + device.
    */
@@ -264,6 +273,7 @@ export async function runSustainedProbe(
   const cooldownMs = config.cooldownMs ?? 0;
   const idleObserveSeconds = config.idleObserveSeconds ?? 0;
   const heartbeat = config.heartbeat ?? 'none';
+  const teardownBeforeObserve = config.teardownBeforeObserve === true && idleObserveSeconds > 0;
   const uaMeasureTimeoutMs = config.uaMeasureTimeoutMs ?? SUSTAINED_PROBE_UA_MEASURE_TIMEOUT_MS;
   const { onProgress, signal } = callbacks;
 
@@ -303,6 +313,7 @@ export async function runSustainedProbe(
     // keep legacy-shaped markers, and killed-record reconstruction copies
     // exactly what is here (the #41 cell-naming invariant).
     ...(idleObserveSeconds > 0 ? { idleObserveSeconds, heartbeat } : {}),
+    ...(teardownBeforeObserve ? { teardownBeforeObserve: true } : {}),
     turnsCompleted: 0,
     phase: 'loading',
     backend: null,
@@ -327,6 +338,7 @@ export async function runSustainedProbe(
       contextMode,
       cooldownMs,
       ...(idleObserveSeconds > 0 ? { idleObserveSeconds, idleObservedSeconds: idleSurvivedSeconds, heartbeat } : {}),
+      ...(teardownBeforeObserve ? { teardownBeforeObserve: true } : {}),
       crossOriginIsolated:
         typeof globalThis !== 'undefined' && (globalThis as { crossOriginIsolated?: boolean }).crossOriginIsolated === true,
       memoryApi,
@@ -501,10 +513,23 @@ export async function runSustainedProbe(
     // ticking survived seconds, and finalize() only clears it if we outlive
     // the window. Clean runs only: an errored run has nothing to observe.
     if (idleObserveSeconds > 0 && !anyError && !signal?.aborted) {
+      updateMarker({ phase: 'idle-observe', idleObservedSeconds: 0 });
+      onProgress?.({ phase: 'idle-observe', second: 0, total: idleObserveSeconds });
+
+      // Teardown BEFORE the hold: worker.terminate() forcibly frees the wasm
+      // heap (not GC-laziness-dependent), so what remains resident afterwards
+      // is what the ENGINE retains. The marker is already in 'idle-observe' at
+      // 0s — a kill during teardown itself reconstructs honestly as 0s survived
+      // in a teardown-labeled cell. A post-teardown sample bookmarks the level
+      // the hold starts from (on engines that expose a memory API).
+      if (teardownBeforeObserve) {
+        const { unloadActive } = await import('../runtime/lifecycle');
+        await unloadActive().catch(() => undefined);
+        samples.push(readMemorySample(nowMs() - start, turns.length, undefined));
+      }
+
       const stopHeartbeat = startHeartbeat(heartbeat);
       try {
-        updateMarker({ phase: 'idle-observe', idleObservedSeconds: 0 });
-        onProgress?.({ phase: 'idle-observe', second: 0, total: idleObserveSeconds });
         for (let second = 1; second <= idleObserveSeconds; second++) {
           await abortableDelay(1_000, signal);
           if (signal?.aborted) break;

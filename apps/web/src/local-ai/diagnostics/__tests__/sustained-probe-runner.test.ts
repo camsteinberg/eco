@@ -27,6 +27,7 @@ import type { ChatMessage, TokenEvent } from '../../runtime/types';
 
 const loadModelMock = vi.hoisted(() => vi.fn());
 const generateMock = vi.hoisted(() => vi.fn());
+const unloadActiveMock = vi.hoisted(() => vi.fn());
 const peekDownloadPlanMock = vi.hoisted(() => vi.fn());
 const verifyMock = vi.hoisted(() => vi.fn());
 const verifyIntactMock = vi.hoisted(() => vi.fn());
@@ -38,6 +39,7 @@ const measureUAMock = vi.hoisted(() => vi.fn());
 vi.mock('../../runtime/lifecycle', () => ({
   loadModel: loadModelMock,
   generate: generateMock,
+  unloadActive: unloadActiveMock,
 }));
 
 vi.mock('../sustained-probe', async (importOriginal) => {
@@ -83,6 +85,8 @@ beforeEach(() => {
   clearSustainedProbes();
   loadModelMock.mockReset();
   generateMock.mockReset();
+  unloadActiveMock.mockReset();
+  unloadActiveMock.mockResolvedValue(undefined);
   peekDownloadPlanMock.mockReset();
   verifyMock.mockReset();
   verifyIntactMock.mockReset();
@@ -579,6 +583,60 @@ describe('runSustainedProbe — post-run idle-observe', () => {
     expect(record.idleObserveSeconds).toBeUndefined();
     expect(record.idleObservedSeconds).toBeUndefined();
     expect(record.heartbeat).toBeUndefined();
+  });
+
+  it('tears the model down before the hold when teardownBeforeObserve is set, with the marker already in idle-observe', async () => {
+    cacheWithWeightsOnly();
+    loadModelMock.mockResolvedValue({ backend: 'wasm' });
+    generateMock.mockImplementation(() => tokenStream());
+    // Snapshot the marker at the moment of teardown: it must ALREADY be in
+    // phase 'idle-observe' carrying the teardown flag, so a kill during the
+    // teardown itself reconstructs as a 0s-survived teardown-cell death.
+    let markerAtTeardown: SustainedProbeMarker | null = null;
+    unloadActiveMock.mockImplementation(() => {
+      markerAtTeardown = readMarker();
+      return Promise.resolve(undefined);
+    });
+
+    const { runSustainedProbe } = await import('../sustained-probe-runner');
+    const record = await runSustainedProbe({
+      model: MODEL,
+      turns: 1,
+      idleObserveSeconds: 1,
+      teardownBeforeObserve: true,
+    });
+
+    expect(unloadActiveMock).toHaveBeenCalledTimes(1);
+    expect(markerAtTeardown).not.toBeNull();
+    expect(markerAtTeardown!.phase).toBe('idle-observe');
+    expect(markerAtTeardown!.teardownBeforeObserve).toBe(true);
+    expect(record.outcome).toBe('completed');
+    expect(record.teardownBeforeObserve).toBe(true);
+    expect(record.idleObservedSeconds).toBe(1);
+  });
+
+  it('does not tear down when the flag is unset', async () => {
+    cacheWithWeightsOnly();
+    loadModelMock.mockResolvedValue({ backend: 'wasm' });
+    generateMock.mockImplementation(() => tokenStream());
+
+    const { runSustainedProbe } = await import('../sustained-probe-runner');
+    const record = await runSustainedProbe({ model: MODEL, turns: 1, idleObserveSeconds: 1 });
+
+    expect(unloadActiveMock).not.toHaveBeenCalled();
+    expect(record.teardownBeforeObserve).toBeUndefined();
+  });
+
+  it('ignores the teardown flag when no observe window was requested', async () => {
+    cacheWithWeightsOnly();
+    loadModelMock.mockResolvedValue({ backend: 'wasm' });
+    generateMock.mockImplementation(() => tokenStream());
+
+    const { runSustainedProbe } = await import('../sustained-probe-runner');
+    const record = await runSustainedProbe({ model: MODEL, turns: 1, teardownBeforeObserve: true });
+
+    expect(unloadActiveMock).not.toHaveBeenCalled();
+    expect(record.teardownBeforeObserve).toBeUndefined();
   });
 });
 
