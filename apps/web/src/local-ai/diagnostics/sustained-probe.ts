@@ -112,6 +112,14 @@ export type SustainedProbeOutcome = 'completed' | 'killed' | 'error';
  *  the same turn count indicts the per-turn path. */
 export type SustainedProbeContextMode = 'growing' | 'fresh';
 
+/** Activity kept up during the post-run idle-observe window. The s37 iPhone
+ *  finding: iOS kills the quiesced WebContent process ~5s after a successful
+ *  run at ~600MB resident, while ACTIVE generation defers the kill — so the
+ *  discriminating question is whether any activity (raf: near-zero-cost
+ *  requestAnimationFrame ticks) or only real work (compute: short CPU bursts)
+ *  keeps the watchdog away. 'none' is the control that reproduces the kill. */
+export type SustainedProbeHeartbeat = 'none' | 'raf' | 'compute';
+
 export type SustainedProbeRecord = {
   version: 1;
   recordedAt: string; // ISO
@@ -128,6 +136,15 @@ export type SustainedProbeRecord = {
    *  cell — an idle pause is the tested mitigation for WebKit's on-idle
    *  allocation collection and the iPhone's pressure-GC-loses-to-back-to-back. */
   cooldownMs?: number;
+  /** Post-run idle hold in seconds (0 / absent = none). Names the cell: the
+   *  s37 iOS idle-kill window. */
+  idleObserveSeconds?: number;
+  /** Seconds of the idle-observe window actually survived. On a completed
+   *  record this equals the requested window; on a killed record it is the
+   *  last per-second marker tick — the time-to-kill at idle. */
+  idleObservedSeconds?: number;
+  /** Activity kept up during the idle-observe window. Absent = 'none'. */
+  heartbeat?: SustainedProbeHeartbeat;
   crossOriginIsolated: boolean;
   memoryApi: MemoryApiSupport;
   turns: SustainedProbeTurn[];
@@ -144,7 +161,7 @@ export type SustainedProbeRecord = {
 
 /** Where a live probe currently is. A surviving (orphaned) marker's phase IS the
  *  death point — the only phase evidence WebKit gives us. */
-export type SustainedProbeMarkerPhase = 'loading' | 'turn-in-flight' | 'turn-complete';
+export type SustainedProbeMarkerPhase = 'loading' | 'turn-in-flight' | 'turn-complete' | 'idle-observe';
 
 /** The live marker written at start and updated per turn. */
 export type SustainedProbeMarker = {
@@ -157,6 +174,13 @@ export type SustainedProbeMarker = {
   contextMode?: SustainedProbeContextMode;
   /** Inter-turn idle pause in ms. Absent on legacy markers = 0 (back-to-back). */
   cooldownMs?: number;
+  /** Post-run idle hold requested, in seconds. Absent = 0 (no observe). */
+  idleObserveSeconds?: number;
+  /** Seconds of the observe window survived so far — ticked once per second so
+   *  a kill mid-hold leaves the time-to-kill in the tombstone. */
+  idleObservedSeconds?: number;
+  /** Activity kept up during the observe window. Absent = 'none'. */
+  heartbeat?: SustainedProbeHeartbeat;
   /** Turns fully completed so far — the "killed at turn X" evidence. */
   turnsCompleted: number;
   /** Phase at last write. Absent on markers from builds before this field —
@@ -278,7 +302,7 @@ export function writeMarker(marker: SustainedProbeMarker): void {
 /** Patch the live marker in place (best-effort; no-op when absent). Called at
  *  every phase transition so an abrupt tab kill leaves the freshest evidence. */
 export function updateMarker(
-  patch: Partial<Pick<SustainedProbeMarker, 'phase' | 'backend' | 'turnsCompleted'>>,
+  patch: Partial<Pick<SustainedProbeMarker, 'phase' | 'backend' | 'turnsCompleted' | 'idleObservedSeconds'>>,
 ): void {
   const marker = readMarker();
   if (!marker) return;
@@ -333,6 +357,9 @@ export function reconstructKilledRecord(marker: SustainedProbeMarker): Sustained
     // mislabeled fresh-mode kills as 'growing', s35 field report).
     contextMode: marker.contextMode,
     cooldownMs: marker.cooldownMs,
+    idleObserveSeconds: marker.idleObserveSeconds,
+    idleObservedSeconds: marker.idleObservedSeconds,
+    heartbeat: marker.heartbeat,
     crossOriginIsolated: safeCrossOriginIsolated(),
     memoryApi: detectMemoryApis(),
     turns: [],
@@ -364,6 +391,12 @@ function killedDeathPoint(marker: SustainedProbeMarker): string {
       return `Tab was killed while generating turn ${turnsCompleted + 1}/${turnsRequested} — the model loaded fine.`;
     case 'turn-complete':
       return `Tab was killed between turns, after completing turn ${turnsCompleted}/${turnsRequested}.`;
+    case 'idle-observe': {
+      const survived = marker.idleObservedSeconds ?? 0;
+      const requested = marker.idleObserveSeconds ?? 0;
+      const beat = marker.heartbeat ?? 'none';
+      return `Tab was killed during the post-run idle-observe window — survived ~${survived}s of ${requested}s at heartbeat=${beat}, after completing all ${turnsCompleted}/${turnsRequested} turns.`;
+    }
     default:
       return `Tab was killed during a sustained probe at turn ${turnsCompleted}/${turnsRequested}.`;
   }

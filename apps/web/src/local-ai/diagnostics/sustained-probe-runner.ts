@@ -32,6 +32,7 @@ import {
   writeMarker,
   type MemorySample,
   type SustainedProbeContextMode,
+  type SustainedProbeHeartbeat,
   type SustainedProbeRecord,
   type SustainedProbeTurn,
 } from './sustained-probe';
@@ -52,6 +53,21 @@ export type SustainedProbeConfig = {
    */
   cooldownMs?: number;
   /**
+   * Post-run idle hold in seconds (default 0 = end immediately, the prior
+   * behavior). Runs ONLY after a fully clean run, with the crash-evidence
+   * marker alive in phase 'idle-observe' ticking survival seconds — so the s37
+   * iOS idle-kill (tab killed ~5s after a successful run quiesces) leaves a
+   * tombstone carrying its time-to-kill instead of vanishing unrecorded.
+   */
+  idleObserveSeconds?: number;
+  /**
+   * Activity kept up during the idle-observe window (default 'none'). 'raf' =
+   * near-zero-cost requestAnimationFrame ticks; 'compute' = short CPU bursts
+   * (~15ms every 250ms). Discriminates whether ANY apparent activity defers
+   * the iOS idle-kill or only real work does.
+   */
+  heartbeat?: SustainedProbeHeartbeat;
+  /**
    * Load-phase budget override (tests pass small values). Defaults to the
    * smoke gate's adaptive cold-load budget for this model + device.
    */
@@ -69,6 +85,7 @@ export type SustainedProbeProgress =
   | { phase: 'loading' }
   | { phase: 'turn-start'; turn: number; turnsRequested: number }
   | { phase: 'turn-complete'; turn: number; turnsRequested: number; record: SustainedProbeTurn }
+  | { phase: 'idle-observe'; second: number; total: number }
   | { phase: 'sample'; sample: MemorySample }
   | { phase: 'done'; record: SustainedProbeRecord };
 
@@ -101,6 +118,42 @@ function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
     }, ms);
     signal?.addEventListener('abort', onAbort, { once: true });
   });
+}
+
+/**
+ * Keep the process looking busy during the idle-observe window. Returns a stop
+ * function; every mode is safe to stop twice. The intensities are deliberate:
+ * 'raf' is the cheapest thing that still registers as rendering activity, and
+ * 'compute' is bounded (~15ms burst every 250ms ≈ 6% of one core) so the
+ * heartbeat can never become the memory/thermal signal it exists to probe.
+ */
+function startHeartbeat(mode: SustainedProbeHeartbeat): () => void {
+  if (mode === 'raf' && typeof requestAnimationFrame === 'function') {
+    let live = true;
+    let sink = 0;
+    const tick = (): void => {
+      if (!live) return;
+      sink = (sink + 1) % 1_000_003;
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+    return () => {
+      live = false;
+      void sink;
+    };
+  }
+  if (mode === 'compute') {
+    let acc = 0;
+    const timer = setInterval(() => {
+      const deadline = nowMs() + 15;
+      while (nowMs() < deadline) acc += Math.sqrt(acc + 1);
+    }, 250);
+    return () => {
+      clearInterval(timer);
+      void acc;
+    };
+  }
+  return () => {};
 }
 
 /**
@@ -209,6 +262,8 @@ export async function runSustainedProbe(
   const targetTokens = config.targetTokensPerTurn ?? SUSTAINED_PROBE_DEFAULT_TARGET_TOKENS;
   const contextMode = config.contextMode ?? 'growing';
   const cooldownMs = config.cooldownMs ?? 0;
+  const idleObserveSeconds = config.idleObserveSeconds ?? 0;
+  const heartbeat = config.heartbeat ?? 'none';
   const uaMeasureTimeoutMs = config.uaMeasureTimeoutMs ?? SUSTAINED_PROBE_UA_MEASURE_TIMEOUT_MS;
   const { onProgress, signal } = callbacks;
 
@@ -220,6 +275,9 @@ export async function runSustainedProbe(
   const samples: MemorySample[] = [];
   const turns: SustainedProbeTurn[] = [];
   let uaMeasureTimedOut = false;
+  // Seconds of the idle-observe window survived — mirrors the marker's
+  // per-second tick so the final record and a tombstone tell the same story.
+  let idleSurvivedSeconds = 0;
   let backend: string | null = null;
   let priorAssistant: string | null = null;
   // Conversation accumulated across turns so context/KV grow turn over turn.
@@ -241,6 +299,10 @@ export async function runSustainedProbe(
     levers,
     contextMode,
     cooldownMs,
+    // Observe-cell fields only when the cell asked for them — legacy cells
+    // keep legacy-shaped markers, and killed-record reconstruction copies
+    // exactly what is here (the #41 cell-naming invariant).
+    ...(idleObserveSeconds > 0 ? { idleObserveSeconds, heartbeat } : {}),
     turnsCompleted: 0,
     phase: 'loading',
     backend: null,
@@ -264,6 +326,7 @@ export async function runSustainedProbe(
       levers,
       contextMode,
       cooldownMs,
+      ...(idleObserveSeconds > 0 ? { idleObserveSeconds, idleObservedSeconds: idleSurvivedSeconds, heartbeat } : {}),
       crossOriginIsolated:
         typeof globalThis !== 'undefined' && (globalThis as { crossOriginIsolated?: boolean }).crossOriginIsolated === true,
       memoryApi,
@@ -430,6 +493,36 @@ export async function runSustainedProbe(
     }
 
     const anyError = turns.some((t) => t.error != null);
+
+    // Post-run idle-observe hold: quiesce on purpose, with the marker ALIVE.
+    // The s37 iPhone finding is that iOS kills the tab ~5s after a successful
+    // run goes idle — but a normal completion clears the marker first, so that
+    // kill left no tombstone. Here the marker stays in phase 'idle-observe',
+    // ticking survived seconds, and finalize() only clears it if we outlive
+    // the window. Clean runs only: an errored run has nothing to observe.
+    if (idleObserveSeconds > 0 && !anyError && !signal?.aborted) {
+      const stopHeartbeat = startHeartbeat(heartbeat);
+      try {
+        updateMarker({ phase: 'idle-observe', idleObservedSeconds: 0 });
+        onProgress?.({ phase: 'idle-observe', second: 0, total: idleObserveSeconds });
+        for (let second = 1; second <= idleObserveSeconds; second++) {
+          await abortableDelay(1_000, signal);
+          if (signal?.aborted) break;
+          idleSurvivedSeconds = second;
+          updateMarker({ idleObservedSeconds: second });
+          onProgress?.({ phase: 'idle-observe', second, total: idleObserveSeconds });
+        }
+      } finally {
+        stopHeartbeat();
+      }
+      // One post-observe UA measure: on engines that expose it, this is the
+      // idle-settle number (did quiescence actually reclaim anything?).
+      const ua = await measureUAWithTimeout(uaMeasureTimeoutMs);
+      if (ua.timedOut) uaMeasureTimedOut = true;
+      const postObserve = readMemorySample(nowMs() - start, turns.length, undefined);
+      samples.push({ ...postObserve, measuredUAMB: ua.mb });
+    }
+
     return finalize(anyError ? 'error' : 'completed', anyError ? 'A turn failed during the sustained run.' : null);
   } catch (err) {
     return finalize('error', err instanceof Error ? err.message : String(err));
