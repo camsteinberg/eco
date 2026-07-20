@@ -430,6 +430,23 @@ describe('SustainedProbePanel — cell-via-URL levers', () => {
     expect(await screen.findByRole('spinbutton', { name: 'Cooldown ms' })).toHaveValue(60000);
   });
 
+  it('prefills idle-observe and heartbeat from the URL, clamping the window', async () => {
+    setSearch('?eco-probe-idle-observe-s=9999&eco-probe-heartbeat=raf');
+    render(<SustainedProbePanel />);
+    await findModelPicker();
+
+    expect(await screen.findByRole('spinbutton', { name: 'Idle observe s' })).toHaveValue(600);
+    expect(await screen.findByRole('combobox', { name: 'Heartbeat' })).toHaveValue('raf');
+  });
+
+  it('rejects an unknown heartbeat value and keeps the control at none', async () => {
+    setSearch('?eco-probe-heartbeat=warp');
+    render(<SustainedProbePanel />);
+    await findModelPicker();
+
+    expect(await screen.findByRole('combobox', { name: 'Heartbeat' })).toHaveValue('none');
+  });
+
   it('selects a valid model id from the URL', async () => {
     harnessEnabled = true; // makes the eval candidate a second, valid pick
     setSearch('?eco-probe-model=candidate/qwen3-0.6b-q4');
@@ -585,5 +602,116 @@ describe('SustainedProbePanel — cooldown control', () => {
     await findModelPicker();
     await waitFor(() => expect(screen.getByText('Backend')).toBeInTheDocument());
     expect(screen.queryByText('Cooldown')).not.toBeInTheDocument();
+  });
+});
+
+describe('SustainedProbePanel — idle-observe control', () => {
+  beforeEach(() => {
+    harnessEnabled = false;
+    weightsCached = true;
+    probeRecords = [];
+    localStorage.clear();
+  });
+  afterEach(() => {
+    vi.clearAllMocks();
+    probeRecords = [];
+    localStorage.clear();
+  });
+
+  it('renders the Idle observe control at 0 and the Heartbeat control at none', async () => {
+    render(<SustainedProbePanel />);
+    await findModelPicker();
+    expect(await screen.findByRole('spinbutton', { name: 'Idle observe s' })).toHaveValue(0);
+    expect(await screen.findByRole('combobox', { name: 'Heartbeat' })).toHaveValue('none');
+  });
+
+  it('forwards the chosen window and heartbeat into the run config', async () => {
+    render(<SustainedProbePanel />);
+    await findModelPicker();
+
+    fireEvent.change(await screen.findByRole('spinbutton', { name: 'Idle observe s' }), {
+      target: { value: '120' },
+    });
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Heartbeat' }), {
+      target: { value: 'compute' },
+    });
+    fireEvent.click(await screen.findByRole('button', { name: 'Run probe' }));
+
+    await waitFor(() => {
+      expect(runSustainedProbeMock).toHaveBeenCalledWith(
+        expect.objectContaining({ idleObserveSeconds: 120, heartbeat: 'compute' }),
+        expect.anything(),
+      );
+    });
+  });
+
+  it('defaults the run config to no observe window and heartbeat none when untouched', async () => {
+    render(<SustainedProbePanel />);
+    await findModelPicker();
+    fireEvent.click(await screen.findByRole('button', { name: 'Run probe' }));
+
+    await waitFor(() => {
+      expect(runSustainedProbeMock).toHaveBeenCalledWith(
+        expect.objectContaining({ idleObserveSeconds: 0, heartbeat: 'none' }),
+        expect.anything(),
+      );
+    });
+  });
+
+  it('echoes the observe cell on a record (survived/requested + heartbeat)', async () => {
+    probeRecords = [
+      {
+        version: 1,
+        recordedAt: '2026-07-20T00:00:00.000Z',
+        modelId: 'local/model-a',
+        backend: 'webgpu',
+        outcome: 'killed',
+        turnsRequested: 1,
+        turnsCompleted: 1,
+        targetTokensPerTurn: 64,
+        levers: { ortArtifact: null, numThreads: null, forceWasm: false },
+        contextMode: 'fresh',
+        idleObserveSeconds: 120,
+        idleObservedSeconds: 5,
+        heartbeat: 'none',
+        crossOriginIsolated: true,
+        memoryApi: { performanceMemory: false, measureUserAgent: false },
+        turns: [],
+        samples: [],
+        peakUsedJSHeapMB: null,
+        error: 'Tab was killed during the post-run idle-observe window — survived ~5s of 120s at heartbeat=none, after completing all 1/1 turns.',
+      },
+    ];
+    render(<SustainedProbePanel />);
+    await findModelPicker();
+    expect(await screen.findByText('Idle observe')).toBeInTheDocument();
+    expect(await screen.findByText('5s/120s survived · heartbeat=none')).toBeInTheDocument();
+  });
+
+  it('omits the observe row when no window was requested', async () => {
+    probeRecords = [
+      {
+        version: 1,
+        recordedAt: '2026-07-20T00:00:00.000Z',
+        modelId: 'local/model-a',
+        backend: 'wasm',
+        outcome: 'completed',
+        turnsRequested: 3,
+        turnsCompleted: 3,
+        targetTokensPerTurn: 200,
+        levers: { ortArtifact: null, numThreads: null, forceWasm: false },
+        contextMode: 'growing',
+        crossOriginIsolated: true,
+        memoryApi: { performanceMemory: true, measureUserAgent: false },
+        turns: [],
+        samples: [],
+        peakUsedJSHeapMB: 512,
+        error: null,
+      },
+    ];
+    render(<SustainedProbePanel />);
+    await findModelPicker();
+    await waitFor(() => expect(screen.getByText('Backend')).toBeInTheDocument());
+    expect(screen.queryByText('Idle observe')).not.toBeInTheDocument();
   });
 });

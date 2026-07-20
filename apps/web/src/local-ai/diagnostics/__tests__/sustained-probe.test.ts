@@ -188,6 +188,20 @@ describe('marker lifecycle', () => {
     expect(readMarker()?.contextMode).toBe('fresh');
   });
 
+  it('round-trips the idle-observe fields', () => {
+    const observed: SustainedProbeMarker = {
+      ...MARKER,
+      idleObserveSeconds: 120,
+      idleObservedSeconds: 3,
+      heartbeat: 'compute',
+    };
+    writeMarker(observed);
+    const read = readMarker();
+    expect(read?.idleObserveSeconds).toBe(120);
+    expect(read?.idleObservedSeconds).toBe(3);
+    expect(read?.heartbeat).toBe('compute');
+  });
+
   it('round-trips the cooldownMs field', () => {
     const cooled: SustainedProbeMarker = { ...MARKER, cooldownMs: 5000 };
     writeMarker(cooled);
@@ -235,6 +249,16 @@ describe('updateMarker', () => {
     const marker = readMarker();
     expect(marker?.backend).toBe('webgpu');
     expect(marker?.phase).toBe('loading');
+  });
+
+  it('ticks idleObservedSeconds without disturbing the observe cell', () => {
+    writeMarker({ ...MARKER, phase: 'idle-observe', idleObserveSeconds: 120, heartbeat: 'raf' });
+    updateMarker({ idleObservedSeconds: 4 });
+    const marker = readMarker();
+    expect(marker?.idleObservedSeconds).toBe(4);
+    expect(marker?.idleObserveSeconds).toBe(120);
+    expect(marker?.heartbeat).toBe('raf');
+    expect(marker?.phase).toBe('idle-observe');
   });
 
   it('is a no-op when no marker exists', () => {
@@ -336,6 +360,44 @@ describe('orphaned-marker recovery (tab-kill evidence)', () => {
   it('leaves cooldownMs absent when reconstructing a legacy marker', () => {
     const record = reconstructKilledRecord(MARKER);
     expect(record.cooldownMs).toBeUndefined();
+  });
+
+  it('reports the idle-observe kill with survived seconds and heartbeat', () => {
+    // The s37 field kill: a SUCCESSFUL run, then killed seconds into the
+    // post-run quiescence. The tombstone must carry the time-to-kill.
+    const record = reconstructKilledRecord({
+      ...MARKER,
+      phase: 'idle-observe',
+      turnsCompleted: 6,
+      idleObserveSeconds: 120,
+      idleObservedSeconds: 5,
+      heartbeat: 'none',
+    });
+    expect(record.error).toBe(
+      'Tab was killed during the post-run idle-observe window — survived ~5s of 120s at heartbeat=none, after completing all 6/6 turns.',
+    );
+  });
+
+  it('carries the idle-observe cell fields onto the reconstructed record', () => {
+    // The observe cell is named by window + heartbeat + survival — all three
+    // must survive reconstruction (the #41 cell-naming invariant).
+    const record = reconstructKilledRecord({
+      ...MARKER,
+      phase: 'idle-observe',
+      idleObserveSeconds: 120,
+      idleObservedSeconds: 7,
+      heartbeat: 'raf',
+    });
+    expect(record.idleObserveSeconds).toBe(120);
+    expect(record.idleObservedSeconds).toBe(7);
+    expect(record.heartbeat).toBe('raf');
+  });
+
+  it('leaves the idle-observe fields absent when reconstructing a legacy marker', () => {
+    const record = reconstructKilledRecord(MARKER);
+    expect(record.idleObserveSeconds).toBeUndefined();
+    expect(record.idleObservedSeconds).toBeUndefined();
+    expect(record.heartbeat).toBeUndefined();
   });
 
   it('recoverOrphanedMarker records the kill and clears the marker', () => {

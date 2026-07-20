@@ -456,6 +456,132 @@ describe('runSustainedProbe — inter-turn cooldown', () => {
   });
 });
 
+describe('runSustainedProbe — post-run idle-observe', () => {
+  // The s37 iPhone finding: iOS kills the tab ~5s after a SUCCESSFUL run goes
+  // quiescent — but a normal completion clears the marker first, so that kill
+  // left no tombstone. The observe hold quiesces ON PURPOSE with the marker
+  // alive in phase 'idle-observe', ticking survived seconds. These tests pin
+  // the evidence contract. Real timers, 1s windows (the tick is 1s).
+  async function* errorStream(): AsyncIterable<TokenEvent> {
+    yield { kind: 'error', reason: 'boom' } as unknown as TokenEvent;
+  }
+
+  it('holds after a clean run with the marker alive in phase idle-observe, then records the survived window', async () => {
+    cacheWithWeightsOnly();
+    loadModelMock.mockResolvedValue({ backend: 'wasm' });
+    generateMock.mockImplementation(() => tokenStream());
+
+    const snapshots: Array<{ second: number; markerPhase?: string; markerSeconds?: number }> = [];
+    const { runSustainedProbe } = await import('../sustained-probe-runner');
+    const record = await runSustainedProbe(
+      { model: MODEL, turns: 1, idleObserveSeconds: 1 },
+      {
+        onProgress: (p) => {
+          if (p.phase === 'idle-observe') {
+            const m = readMarker();
+            snapshots.push({ second: p.second, markerPhase: m?.phase, markerSeconds: m?.idleObservedSeconds });
+          }
+        },
+      },
+    );
+
+    // Entry (second 0) and the tick (second 1), each with the marker live —
+    // a kill at any point during the hold leaves a truthful tombstone.
+    expect(snapshots.length).toBeGreaterThanOrEqual(2);
+    expect(snapshots[0]).toMatchObject({ second: 0, markerPhase: 'idle-observe', markerSeconds: 0 });
+    expect(snapshots.at(-1)).toMatchObject({ second: 1, markerPhase: 'idle-observe', markerSeconds: 1 });
+
+    expect(record.outcome).toBe('completed');
+    expect(record.idleObserveSeconds).toBe(1);
+    expect(record.idleObservedSeconds).toBe(1);
+    expect(record.heartbeat).toBe('none');
+    // Outliving the window is a clean exit — no orphaned marker.
+    expect(readMarker()).toBeNull();
+    expect(loadSustainedProbes().at(-1)?.idleObservedSeconds).toBe(1);
+  });
+
+  it('stamps the observe cell (window + heartbeat) onto the start marker', async () => {
+    cacheWithWeightsOnly();
+    loadModelMock.mockResolvedValue({ backend: 'wasm' });
+    generateMock.mockImplementation(() => tokenStream());
+
+    let markerWindow: number | undefined;
+    let markerHeartbeat: string | undefined;
+    const { runSustainedProbe } = await import('../sustained-probe-runner');
+    const record = await runSustainedProbe(
+      { model: MODEL, turns: 1, idleObserveSeconds: 1, heartbeat: 'raf' },
+      {
+        onProgress: (p) => {
+          if (p.phase === 'loading') {
+            const m = readMarker();
+            markerWindow = m?.idleObserveSeconds;
+            markerHeartbeat = m?.heartbeat;
+          }
+        },
+      },
+    );
+    expect(markerWindow).toBe(1);
+    expect(markerHeartbeat).toBe('raf');
+    expect(record.heartbeat).toBe('raf');
+  });
+
+  it('skips the observe hold when a turn errored (nothing to observe)', async () => {
+    cacheWithWeightsOnly();
+    loadModelMock.mockResolvedValue({ backend: 'wasm' });
+    generateMock.mockImplementation(() => errorStream());
+
+    const { runSustainedProbe } = await import('../sustained-probe-runner');
+    const start = Date.now();
+    const record = await runSustainedProbe({ model: MODEL, turns: 1, idleObserveSeconds: 30 });
+
+    // The 30s window never ran.
+    expect(Date.now() - start).toBeLessThan(2_000);
+    expect(record.outcome).toBe('error');
+    // The cell config is still stamped (it names what was requested) with an
+    // honest zero survival — outcome 'error' explains it.
+    expect(record.idleObserveSeconds).toBe(30);
+    expect(record.idleObservedSeconds).toBe(0);
+  });
+
+  it('aborts promptly mid-observe and records the seconds survived so far', async () => {
+    cacheWithWeightsOnly();
+    loadModelMock.mockResolvedValue({ backend: 'wasm' });
+    generateMock.mockImplementation(() => tokenStream());
+
+    const controller = new AbortController();
+    const { runSustainedProbe } = await import('../sustained-probe-runner');
+    const start = Date.now();
+    const record = await runSustainedProbe(
+      { model: MODEL, turns: 1, idleObserveSeconds: 30 },
+      {
+        signal: controller.signal,
+        onProgress: (p) => {
+          if (p.phase === 'idle-observe' && p.second === 1) controller.abort();
+        },
+      },
+    );
+
+    // Did NOT wait out the 30s window.
+    expect(Date.now() - start).toBeLessThan(5_000);
+    expect(record.outcome).toBe('completed');
+    expect(record.idleObservedSeconds).toBe(1);
+    expect(readMarker()).toBeNull();
+  });
+
+  it('leaves the observe fields absent when no window was requested', async () => {
+    cacheWithWeightsOnly();
+    loadModelMock.mockResolvedValue({ backend: 'wasm' });
+    generateMock.mockImplementation(() => tokenStream());
+
+    const { runSustainedProbe } = await import('../sustained-probe-runner');
+    const record = await runSustainedProbe({ model: MODEL, turns: 1 });
+
+    expect(record.idleObserveSeconds).toBeUndefined();
+    expect(record.idleObservedSeconds).toBeUndefined();
+    expect(record.heartbeat).toBeUndefined();
+  });
+});
+
 describe('runSustainedProbe — UA-measure timeout', () => {
   // measureUserAgentSpecificMemory() is Chromium rate-limited and can stall a
   // LATE turn for minutes; the instrument must never block the workload it

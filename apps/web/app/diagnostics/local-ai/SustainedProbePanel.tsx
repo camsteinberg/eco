@@ -8,6 +8,7 @@ import type { CSSProperties } from 'react';
 import { Button } from '@eco/ui';
 import type {
   SustainedProbeContextMode,
+  SustainedProbeHeartbeat,
   SustainedProbeLevers,
   SustainedProbeRecord,
   SustainedProbeTurn,
@@ -93,6 +94,11 @@ export function SustainedProbePanel() {
   // Tokens: partial values aren't clamped from under the user; normalized on
   // blur and at run(). 0 = back-to-back turns (the prior behavior).
   const [cooldownInput, setCooldownInput] = useState('0');
+  // Post-run idle-observe window (seconds) + heartbeat kept up during it — the
+  // s37 idle-kill instrument: hold after a clean run with the marker alive so
+  // the "killed seconds after success" failure finally leaves a tombstone.
+  const [idleObserveInput, setIdleObserveInput] = useState('0');
+  const [heartbeat, setHeartbeat] = useState<SustainedProbeHeartbeat>('none');
   const [running, setRunning] = useState(false);
   const [levers, setLevers] = useState<SustainedProbeLevers | null>(null);
   const [liveLine, setLiveLine] = useState<string | null>(null);
@@ -181,7 +187,9 @@ export function SustainedProbePanel() {
         // the URL so browsers without scriptable clicks (real Safari) can run
         // the exact cell. ?eco-probe-model=<id>&eco-probe-turns=N&
         // eco-probe-tokens=N&eco-probe-context=fresh|growing&
-        // eco-probe-cooldown-ms=N&eco-probe-autorun=1&eco-probe-autofetch=1
+        // eco-probe-cooldown-ms=N&eco-probe-idle-observe-s=N&
+        // eco-probe-heartbeat=none|raf|compute&
+        // eco-probe-autorun=1&eco-probe-autofetch=1
         if (typeof window !== 'undefined') {
           const params = new URLSearchParams(window.location.search);
           const pModel = params.get('eco-probe-model');
@@ -194,6 +202,10 @@ export function SustainedProbePanel() {
           if (pContext === 'fresh' || pContext === 'growing') setContextMode(pContext);
           const pCooldown = params.get('eco-probe-cooldown-ms');
           if (pCooldown) setCooldownInput(String(clampCooldown(pCooldown)));
+          const pIdleObserve = params.get('eco-probe-idle-observe-s');
+          if (pIdleObserve) setIdleObserveInput(String(clampIdleObserve(pIdleObserve)));
+          const pHeartbeat = params.get('eco-probe-heartbeat');
+          if (pHeartbeat === 'none' || pHeartbeat === 'raf' || pHeartbeat === 'compute') setHeartbeat(pHeartbeat);
           if (params.get('eco-probe-autorun') === '1') setAutorunArmed(true);
           if (params.get('eco-probe-autofetch') === '1') setAutofetchArmed(true);
         }
@@ -213,6 +225,9 @@ export function SustainedProbePanel() {
         break;
       case 'turn-complete':
         setLiveTurns((prev) => [...prev, progress.record]);
+        break;
+      case 'idle-observe':
+        setLiveLine(`Idle observe — ${progress.second}s/${progress.total}s survived…`);
         break;
       case 'done':
         setLiveLine(null);
@@ -429,9 +444,11 @@ export function SustainedProbePanel() {
     const turns = clampTurns(turnsInput);
     const tokensPerTurn = clampTokens(tokensInput);
     const cooldownMs = clampCooldown(cooldownInput);
+    const idleObserveSeconds = clampIdleObserve(idleObserveInput);
     setTurnsInput(String(turns));
     setTokensInput(String(tokensPerTurn));
     setCooldownInput(String(cooldownMs));
+    setIdleObserveInput(String(idleObserveSeconds));
     setRunning(true);
     setLiveTurns([]);
     setKilledNote(null);
@@ -452,7 +469,7 @@ export function SustainedProbePanel() {
       }
       const { runSustainedProbe } = await import('../../../src/local-ai/diagnostics/sustained-probe-runner');
       await runSustainedProbe(
-        { model, turns, targetTokensPerTurn: tokensPerTurn, contextMode, cooldownMs },
+        { model, turns, targetTokensPerTurn: tokensPerTurn, contextMode, cooldownMs, idleObserveSeconds, heartbeat },
         { onProgress, signal: controller.signal },
       );
       const probe = await import('../../../src/local-ai/diagnostics/sustained-probe');
@@ -463,7 +480,7 @@ export function SustainedProbePanel() {
       setRunning(false);
       abortRef.current = null;
     }
-  }, [modelId, turnsInput, tokensInput, cooldownInput, contextMode, onProgress, resolveModel]);
+  }, [modelId, turnsInput, tokensInput, cooldownInput, idleObserveInput, heartbeat, contextMode, onProgress, resolveModel]);
 
   // Autofetch (cell-via-URL): fire the weights download once when the pick
   // resolves as missing. Pairs with autorun for a zero-click cold cell.
@@ -611,6 +628,36 @@ export function SustainedProbePanel() {
           />
         </label>
 
+        <label className="flex flex-col gap-1 text-sm" style={LABEL}>
+          Idle observe s
+          <input
+            type="number"
+            min={0}
+            max={600}
+            value={idleObserveInput}
+            onChange={(e) => setIdleObserveInput(e.target.value)}
+            onBlur={() => setIdleObserveInput(String(clampIdleObserve(idleObserveInput)))}
+            disabled={running}
+            className="w-24 rounded-lg px-2.5 py-1.5 text-sm"
+            style={{ ...MONO, border: '1px solid var(--eco-border-muted)', background: 'var(--eco-surface)' }}
+          />
+        </label>
+
+        <label className="flex flex-col gap-1 text-sm" style={LABEL}>
+          Heartbeat
+          <select
+            value={heartbeat}
+            onChange={(e) => setHeartbeat(e.target.value as SustainedProbeHeartbeat)}
+            disabled={running}
+            className="rounded-lg px-2.5 py-1.5 text-sm"
+            style={{ ...MONO, border: '1px solid var(--eco-border-muted)', background: 'var(--eco-surface)' }}
+          >
+            <option value="none">None (control)</option>
+            <option value="raf">rAF ticks</option>
+            <option value="compute">Compute bursts</option>
+          </select>
+        </label>
+
         <div className="flex gap-2">
           <Button onClick={run} variant="primary" disabled={running || downloading || !modelId}>
             {running ? 'Running…' : 'Run probe'}
@@ -722,6 +769,14 @@ function RecordCard({ record }: { record: SustainedProbeRecord }) {
             <dd style={MONO}>{record.cooldownMs}ms</dd>
           </>
         )}
+        {record.idleObserveSeconds != null && record.idleObserveSeconds > 0 && (
+          <>
+            <dt style={LABEL}>Idle observe</dt>
+            <dd style={MONO}>
+              {record.idleObservedSeconds ?? 0}s/{record.idleObserveSeconds}s survived · heartbeat={record.heartbeat ?? 'none'}
+            </dd>
+          </>
+        )}
         <dt style={LABEL}>Peak JS heap</dt>
         <dd style={MONO}>{record.peakUsedJSHeapMB != null ? `${record.peakUsedJSHeapMB} MB` : 'no heap API'}</dd>
         <dt style={LABEL}>Levers</dt>
@@ -807,4 +862,10 @@ function clampCooldown(raw: string): number {
   const n = Number(raw);
   if (!Number.isFinite(n)) return 0;
   return Math.max(0, Math.min(60000, Math.floor(n)));
+}
+
+function clampIdleObserve(raw: string): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(600, Math.floor(n)));
 }
