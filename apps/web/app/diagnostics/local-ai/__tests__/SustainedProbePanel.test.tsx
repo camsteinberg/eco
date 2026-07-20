@@ -447,6 +447,14 @@ describe('SustainedProbePanel — cell-via-URL levers', () => {
     expect(await screen.findByRole('combobox', { name: 'Heartbeat' })).toHaveValue('none');
   });
 
+  it('prefills teardown-before-observe from the URL', async () => {
+    setSearch('?eco-probe-teardown=1');
+    render(<SustainedProbePanel />);
+    await findModelPicker();
+
+    expect(await screen.findByRole('combobox', { name: 'Observe with' })).toHaveValue('unload');
+  });
+
   it('selects a valid model id from the URL', async () => {
     harnessEnabled = true; // makes the eval candidate a second, valid pick
     setSearch('?eco-probe-model=candidate/qwen3-0.6b-q4');
@@ -645,14 +653,31 @@ describe('SustainedProbePanel — idle-observe control', () => {
     });
   });
 
-  it('defaults the run config to no observe window and heartbeat none when untouched', async () => {
+  it('defaults the run config to no observe window, heartbeat none, and no teardown when untouched', async () => {
     render(<SustainedProbePanel />);
     await findModelPicker();
     fireEvent.click(await screen.findByRole('button', { name: 'Run probe' }));
 
     await waitFor(() => {
       expect(runSustainedProbeMock).toHaveBeenCalledWith(
-        expect.objectContaining({ idleObserveSeconds: 0, heartbeat: 'none' }),
+        expect.objectContaining({ idleObserveSeconds: 0, heartbeat: 'none', teardownBeforeObserve: false }),
+        expect.anything(),
+      );
+    });
+  });
+
+  it('forwards teardown-before-observe into the run config', async () => {
+    render(<SustainedProbePanel />);
+    await findModelPicker();
+
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Observe with' }), {
+      target: { value: 'unload' },
+    });
+    fireEvent.click(await screen.findByRole('button', { name: 'Run probe' }));
+
+    await waitFor(() => {
+      expect(runSustainedProbeMock).toHaveBeenCalledWith(
+        expect.objectContaining({ teardownBeforeObserve: true }),
         expect.anything(),
       );
     });
@@ -674,6 +699,7 @@ describe('SustainedProbePanel — idle-observe control', () => {
         idleObserveSeconds: 120,
         idleObservedSeconds: 5,
         heartbeat: 'none',
+        teardownBeforeObserve: true,
         crossOriginIsolated: true,
         memoryApi: { performanceMemory: false, measureUserAgent: false },
         turns: [],
@@ -685,7 +711,7 @@ describe('SustainedProbePanel — idle-observe control', () => {
     render(<SustainedProbePanel />);
     await findModelPicker();
     expect(await screen.findByText('Idle observe')).toBeInTheDocument();
-    expect(await screen.findByText('5s/120s survived · heartbeat=none')).toBeInTheDocument();
+    expect(await screen.findByText('5s/120s survived · heartbeat=none · model torn down')).toBeInTheDocument();
   });
 
   it('omits the observe row when no window was requested', async () => {

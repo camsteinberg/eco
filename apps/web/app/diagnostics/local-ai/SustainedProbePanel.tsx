@@ -99,6 +99,9 @@ export function SustainedProbePanel() {
   // the "killed seconds after success" failure finally leaves a tombstone.
   const [idleObserveInput, setIdleObserveInput] = useState('0');
   const [heartbeat, setHeartbeat] = useState<SustainedProbeHeartbeat>('none');
+  // Teardown-before-observe: unload the model (worker terminated — forcible
+  // wasm-heap free) before the hold. Only meaningful with an observe window.
+  const [teardown, setTeardown] = useState<'keep' | 'unload'>('keep');
   const [running, setRunning] = useState(false);
   const [levers, setLevers] = useState<SustainedProbeLevers | null>(null);
   const [liveLine, setLiveLine] = useState<string | null>(null);
@@ -188,7 +191,7 @@ export function SustainedProbePanel() {
         // the exact cell. ?eco-probe-model=<id>&eco-probe-turns=N&
         // eco-probe-tokens=N&eco-probe-context=fresh|growing&
         // eco-probe-cooldown-ms=N&eco-probe-idle-observe-s=N&
-        // eco-probe-heartbeat=none|raf|compute&
+        // eco-probe-heartbeat=none|raf|compute&eco-probe-teardown=1&
         // eco-probe-autorun=1&eco-probe-autofetch=1
         if (typeof window !== 'undefined') {
           const params = new URLSearchParams(window.location.search);
@@ -206,6 +209,7 @@ export function SustainedProbePanel() {
           if (pIdleObserve) setIdleObserveInput(String(clampIdleObserve(pIdleObserve)));
           const pHeartbeat = params.get('eco-probe-heartbeat');
           if (pHeartbeat === 'none' || pHeartbeat === 'raf' || pHeartbeat === 'compute') setHeartbeat(pHeartbeat);
+          if (params.get('eco-probe-teardown') === '1') setTeardown('unload');
           if (params.get('eco-probe-autorun') === '1') setAutorunArmed(true);
           if (params.get('eco-probe-autofetch') === '1') setAutofetchArmed(true);
         }
@@ -469,7 +473,16 @@ export function SustainedProbePanel() {
       }
       const { runSustainedProbe } = await import('../../../src/local-ai/diagnostics/sustained-probe-runner');
       await runSustainedProbe(
-        { model, turns, targetTokensPerTurn: tokensPerTurn, contextMode, cooldownMs, idleObserveSeconds, heartbeat },
+        {
+          model,
+          turns,
+          targetTokensPerTurn: tokensPerTurn,
+          contextMode,
+          cooldownMs,
+          idleObserveSeconds,
+          heartbeat,
+          teardownBeforeObserve: teardown === 'unload',
+        },
         { onProgress, signal: controller.signal },
       );
       const probe = await import('../../../src/local-ai/diagnostics/sustained-probe');
@@ -480,7 +493,7 @@ export function SustainedProbePanel() {
       setRunning(false);
       abortRef.current = null;
     }
-  }, [modelId, turnsInput, tokensInput, cooldownInput, idleObserveInput, heartbeat, contextMode, onProgress, resolveModel]);
+  }, [modelId, turnsInput, tokensInput, cooldownInput, idleObserveInput, heartbeat, teardown, contextMode, onProgress, resolveModel]);
 
   // Autofetch (cell-via-URL): fire the weights download once when the pick
   // resolves as missing. Pairs with autorun for a zero-click cold cell.
@@ -658,6 +671,20 @@ export function SustainedProbePanel() {
           </select>
         </label>
 
+        <label className="flex flex-col gap-1 text-sm" style={LABEL}>
+          Observe with
+          <select
+            value={teardown}
+            onChange={(e) => setTeardown(e.target.value as 'keep' | 'unload')}
+            disabled={running}
+            className="rounded-lg px-2.5 py-1.5 text-sm"
+            style={{ ...MONO, border: '1px solid var(--eco-border-muted)', background: 'var(--eco-surface)' }}
+          >
+            <option value="keep">Model loaded</option>
+            <option value="unload">Model torn down</option>
+          </select>
+        </label>
+
         <div className="flex gap-2">
           <Button onClick={run} variant="primary" disabled={running || downloading || !modelId}>
             {running ? 'Running…' : 'Run probe'}
@@ -774,6 +801,7 @@ function RecordCard({ record }: { record: SustainedProbeRecord }) {
             <dt style={LABEL}>Idle observe</dt>
             <dd style={MONO}>
               {record.idleObservedSeconds ?? 0}s/{record.idleObserveSeconds}s survived · heartbeat={record.heartbeat ?? 'none'}
+              {record.teardownBeforeObserve ? ' · model torn down' : ''}
             </dd>
           </>
         )}
