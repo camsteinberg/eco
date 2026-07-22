@@ -121,7 +121,11 @@ export async function bootstrapLocalAi(options?: BootstrapOptions): Promise<void
     });
   }
 
-  // ── LiteRT-LM engine factory (dev-only eval lane) ───────────────────────
+  // ── LiteRT-LM engine factory ────────────────────────────────────────────
+  // Serves Gemma-4 E2B — the production automatic default for device classes
+  // that have WebGPU but lack the shader-f16 feature Transformers.js models
+  // require (routed here by preferredModelIdForSlot). Chromium-only.
+  //
   // Dynamic import keeps the ~38 MB WASM runtime out of the boot bundle —
   // it only loads when a `litert` model is actually selected.
   if (!hasLiteRTEngineFactory()) {
@@ -137,19 +141,24 @@ export async function bootstrapLocalAi(options?: BootstrapOptions): Promise<void
       // the already-loaded global, so the CDN fallback is never hit.
       if (!litertWasmReady) {
         const wasmBase = new URL('/litert-wasm/', window.location.origin).toString();
+        let bootTimer: ReturnType<typeof setTimeout> | undefined;
         litertWasmReady = Promise.race([
           mod.loadLiteRtLm(wasmBase),
           new Promise<never>((_, reject) => {
-            setTimeout(() => {
+            bootTimer = setTimeout(() => {
               reject(new Error(
                 `LiteRT WASM runtime did not finish booting within ${LITERT_WASM_BOOT_TIMEOUT_MS}ms`,
               ));
             }, LITERT_WASM_BOOT_TIMEOUT_MS);
           }),
-        ]).catch((err: unknown) => {
-          litertWasmReady = null; // allow a retry on a later load attempt
-          throw err;
-        });
+        ])
+          // Clear the boot-timeout timer once the load settles either way, so a
+          // successful load doesn't leave a 60s timer pending on the event loop.
+          .finally(() => clearTimeout(bootTimer))
+          .catch((err: unknown) => {
+            litertWasmReady = null; // allow a retry on a later load attempt
+            throw err;
+          });
       }
       await litertWasmReady;
       const engine = await mod.Engine.create({

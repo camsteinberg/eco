@@ -208,8 +208,25 @@ export async function loadModel(
     }
 
     const adapter = adapterFactory(model);
+    const loadPromise = adapter.load(model, options);
     try {
-      await raceLoadAgainstSignal(adapter.load(model, options), options?.signal);
+      await raceLoadAgainstSignal(loadPromise, options?.signal, () => {
+        // The forced timeout won: this loadModel has already rejected and is
+        // about to drop its reference to `adapter`. A non-cooperating load
+        // (LiteRT's Engine.create, which cannot be cancelled) can still
+        // complete afterwards and adopt a fully-loaded engine — potentially
+        // GBs of WASM/WebGPU heap — that the lifecycle state machine will
+        // never see or unload. Dispose it best-effort on late fulfillment.
+        // Pure resource cleanup: no lifecycle state is touched (the orphan is
+        // dead to the state machine). Rejections are swallowed on both the
+        // orphaned load and the unload so no interleaving leaks an unhandled
+        // rejection, and this only ever runs on the forced-timeout path — the
+        // normal success path resolves the race first and never calls back.
+        void loadPromise.then(
+          () => adapter.unload().catch(() => undefined),
+          () => undefined,
+        );
+      });
     } catch (err) {
       const code = errorCode(err);
       if (COOLDOWN_TRIGGER_CODES.has(code)) {
@@ -425,10 +442,15 @@ function errorCode(err: unknown): AdapterErrorCode {
  * confirm the adapter actually stopped. The abandoned call (if the adapter
  * never settles) keeps running unreferenced in the background — this can't
  * cancel work a library gives no way to cancel, only stop waiting for it.
+ *
+ * `onForcedTimeout` fires exactly once, and only when the forced-timeout
+ * branch wins (never on normal settlement). The caller uses it to dispose an
+ * orphaned load that completes after we stopped waiting — see loadModel.
  */
 function raceLoadAgainstSignal(
   promise: Promise<void>,
   signal: AbortSignal | undefined,
+  onForcedTimeout?: () => void,
 ): Promise<void> {
   if (!signal) return promise;
 
@@ -440,6 +462,7 @@ function raceLoadAgainstSignal(
       setTimeout(() => {
         if (settled) return;
         settled = true;
+        onForcedTimeout?.();
         reject(new AdapterError(
           'Load did not respond to cancellation in time — treating it as timed out.',
           'timeout',
