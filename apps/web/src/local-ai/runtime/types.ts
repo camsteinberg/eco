@@ -8,7 +8,7 @@
  * RuntimeAdapter so lifecycle.ts can drive either uniformly.
  */
 
-import type { ModelConfig } from '../types';
+import type { ModelConfig, ModelRuntime } from '../types';
 import type { CjkSuppressionTelemetry } from './cjk-suppression';
 import type { KvReuseTelemetry } from './kv-cache';
 
@@ -118,7 +118,7 @@ export type LoadResult = {
 
 export type RuntimeAdapter = {
   /** The runtime this adapter speaks. */
-  readonly runtime: 'transformers' | 'litert';
+  readonly runtime: ModelRuntime;
   /** True if a model is currently loaded and ready to generate. */
   readonly isLoaded: boolean;
   /** The backend the loaded model is using, or null when unloaded. */
@@ -129,6 +129,16 @@ export type RuntimeAdapter = {
   load(model: ModelConfig, options?: LoadOptions): Promise<void>;
   generate(messages: ChatMessage[], options?: GenerateOptions): AsyncIterable<TokenEvent>;
   unload(): Promise<void>;
+  /**
+   * Optional: true if `model`'s weights are already retrievable by this
+   * adapter's OWN storage, independent of Eco's `Storage` seam. Lets a
+   * caller (the sustained probe) recognize a runtime with a private cache
+   * — e.g. WebLLM's `webllm/model` Cache API namespace — without every
+   * caller needing to know that namespace exists. Adapters backed by
+   * Eco's own storage (Transformers, LiteRT) don't need this; the probe
+   * already checks Eco's storage directly for them.
+   */
+  weightsCached?(model: ModelConfig): Promise<boolean>;
 };
 
 // ─── Adapter errors ────────────────────────────────────────────────────────

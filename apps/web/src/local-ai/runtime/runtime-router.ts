@@ -7,8 +7,8 @@
  * Rules:
  *
  *   - The catalog declares each model's preferred runtime via
- *     `ModelConfig.runtime` ('transformers' | 'litert'). That's the
- *     primary signal — the router respects it.
+ *     `ModelConfig.runtime` ('transformers' | 'litert' | 'webllm'). That's
+ *     the primary signal — the router respects it.
  *
  *   - Transformers.js works on WebGPU (preferred) and WASM (fallback).
  *     The router doesn't pick a backend — the adapter inspects the
@@ -21,8 +21,13 @@
  *     Chromium-WebGPU-only by construction; on an unsupported device it
  *     fails at load. Compatibility gating keeps it off such devices upstream.
  *
- * The WebLLM/MLC runtime was retired 2026-07-10 with its sole model, SmolLM2
- * (registry C1) — the router no longer has a WebLLM branch or fallback.
+ *   - WebLLM/MLC runs only its own MLC-compiled builds — no cross-runtime
+ *     fallback, same reasoning as LiteRT. Re-integrated (s38) as the WebKit
+ *     survival path ORT cannot serve; `WebLLMAdapter` exists and is routed
+ *     to here, but no production engine factory is registered yet (that
+ *     needs a specific self-hosted model_lib, a model-scope decision this
+ *     router doesn't make) — until one is, load() fails with an honest
+ *     'init-failed', matching every other not-yet-configured seam.
  *
  * No `intent`-based override is needed at the router level. The
  * recommendation engine already factored intent into which model it
@@ -46,6 +51,11 @@ export function selectRuntime(
   // LiteRT-LM Web (its own `.litertlm` builds only) — no cross-runtime fallback.
   if (model.runtime === 'litert') {
     return { runtime: 'litert', reason: 'catalog-runtime' };
+  }
+
+  // WebLLM/MLC (its own MLC-compiled builds only) — no cross-runtime fallback.
+  if (model.runtime === 'webllm') {
+    return { runtime: 'webllm', reason: 'catalog-runtime' };
   }
 
   // Everything else is Transformers.js; the adapter picks WebGPU vs WASM at
