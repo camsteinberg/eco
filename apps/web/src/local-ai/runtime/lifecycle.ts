@@ -42,6 +42,11 @@ import { AdapterError } from './types';
 
 const COOLDOWN_STORAGE_KEY = 'eco-local-ai-cooldowns-v1';
 const COOLDOWN_DEFAULT_MS = 5 * 60 * 1000; // 5 minutes
+// 'timeout' is deliberately absent, same reasoning as 'aborted' below: a
+// forced-timeout (see raceLoadAgainstSignal) means we gave up waiting, not
+// that the device/adapter is confirmed dead — cooling down a model on every
+// slow-but-eventually-fine load would be a worse regression than the hang
+// it replaces.
 const COOLDOWN_TRIGGER_CODES: ReadonlySet<AdapterErrorCode> = new Set([
   'oom',
   'device-lost',
@@ -203,8 +208,25 @@ export async function loadModel(
     }
 
     const adapter = adapterFactory(model);
+    const loadPromise = adapter.load(model, options);
     try {
-      await adapter.load(model, options);
+      await raceLoadAgainstSignal(loadPromise, options?.signal, () => {
+        // The forced timeout won: this loadModel has already rejected and is
+        // about to drop its reference to `adapter`. A non-cooperating load
+        // (LiteRT's Engine.create, which cannot be cancelled) can still
+        // complete afterwards and adopt a fully-loaded engine — potentially
+        // GBs of WASM/WebGPU heap — that the lifecycle state machine will
+        // never see or unload. Dispose it best-effort on late fulfillment.
+        // Pure resource cleanup: no lifecycle state is touched (the orphan is
+        // dead to the state machine). Rejections are swallowed on both the
+        // orphaned load and the unload so no interleaving leaks an unhandled
+        // rejection, and this only ever runs on the forced-timeout path — the
+        // normal success path resolves the race first and never calls back.
+        void loadPromise.then(
+          () => adapter.unload().catch(() => undefined),
+          () => undefined,
+        );
+      });
     } catch (err) {
       const code = errorCode(err);
       if (COOLDOWN_TRIGGER_CODES.has(code)) {
@@ -398,4 +420,73 @@ export function _resetLifecycleForTesting(): void {
 function errorCode(err: unknown): AdapterErrorCode {
   if (err instanceof AdapterError) return err.code;
   return 'generation-failed';
+}
+
+/**
+ * Force `promise` to settle when `signal` aborts, even when the underlying
+ * adapter ignores the signal entirely — confirmed true for LiteRT's
+ * `Engine.create()`, which has no cancellation parameter at all, and every
+ * caller of `loadModel` (the sustained probe, the smoke gate, switch-model's
+ * stall watchdog) already tries to abort a stuck load but has no way to force
+ * an unwilling adapter to actually stop waiting.
+ *
+ * A cooperating adapter (TransformersAdapter) is never second-guessed: its
+ * own abort handling rejects `promise` itself, and promise settlement is
+ * always a microtask, while our own fallback below is deliberately deferred
+ * one macrotask past the abort event (`setTimeout(..., 0)`) — so the
+ * adapter's own classification (e.g. 'aborted') always reaches the caller
+ * first. Our fallback only ever fires when `promise` never settles on its
+ * own, which is exactly the non-cooperating case this exists for.
+ *
+ * Classified 'timeout', not 'aborted': we gave up waiting, we did not
+ * confirm the adapter actually stopped. The abandoned call (if the adapter
+ * never settles) keeps running unreferenced in the background — this can't
+ * cancel work a library gives no way to cancel, only stop waiting for it.
+ *
+ * `onForcedTimeout` fires exactly once, and only when the forced-timeout
+ * branch wins (never on normal settlement). The caller uses it to dispose an
+ * orphaned load that completes after we stopped waiting — see loadModel.
+ */
+function raceLoadAgainstSignal(
+  promise: Promise<void>,
+  signal: AbortSignal | undefined,
+  onForcedTimeout?: () => void,
+): Promise<void> {
+  if (!signal) return promise;
+
+  return new Promise<void>((resolve, reject) => {
+    let settled = false;
+
+    const onAbort = (): void => {
+      signal.removeEventListener('abort', onAbort);
+      setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        onForcedTimeout?.();
+        reject(new AdapterError(
+          'Load did not respond to cancellation in time — treating it as timed out.',
+          'timeout',
+          true,
+        ));
+      }, 0);
+    };
+
+    promise.then(
+      (value) => {
+        if (settled) return;
+        settled = true;
+        signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      (err: unknown) => {
+        if (settled) return;
+        settled = true;
+        signal.removeEventListener('abort', onAbort);
+        reject(err);
+      },
+    );
+
+    if (signal.aborted) onAbort();
+    else signal.addEventListener('abort', onAbort, { once: true });
+  });
 }
