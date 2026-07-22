@@ -13,9 +13,10 @@
  *   - runtime/transformers-adapter.setWorkerFactory → constructs the
  *     real Worker that imports @huggingface/transformers.
  *   - runtime/lifecycle.setAdapterFactory → picks transformers vs
- *     litert vs webllm per (model, profile) using runtime-router. No
- *     production WebLLM engine factory is registered yet — see the
- *     "Adapter factory" section below.
+ *     litert vs webllm per (model, profile) using runtime-router.
+ *   - runtime/webllm-adapter.setWebLLMEngineFactory → constructs the real
+ *     MLCEngine with a self-hosted appConfig (weights are pre-staged by the
+ *     cache bridge, so reload() is a pure cache hit).
  *   - lifecycle/smoke.setSmokeGenerationFn → loads the model via
  *     runtime/lifecycle and streams a tiny generation.
  *
@@ -42,7 +43,16 @@ import {
   LiteRTAdapter,
   type LiteRTEngine,
 } from './runtime/litert-adapter';
-import { WebLLMAdapter } from './runtime/webllm-adapter';
+import {
+  WebLLMAdapter,
+  hasWebLLMEngineFactory,
+  setWebLLMEngineFactory,
+  type WebLLMEngine,
+} from './runtime/webllm-adapter';
+import {
+  buildWebLLMAppConfig,
+  WEBLLM_QWEN2_0_5B_MODEL_LIB_PATH,
+} from './runtime/webllm-config';
 import {
   setAdapterFactory,
   hasAdapterFactory,
@@ -174,6 +184,42 @@ export async function bootstrapLocalAi(options?: BootstrapOptions): Promise<void
     });
   }
 
+  // ── WebLLM (MLC) engine factory ─────────────────────────────────────────
+  // Serves MLC-compiled builds on WebGPU — the WebKit survival path ORT cannot.
+  // Weights come exclusively through Eco's zero-retention pipeline + the cache
+  // bridge (see webllm-cache-bridge.ts); by the time reload() runs, WebLLM's
+  // cache is fully populated so its check-before-fetch never touches the network.
+  //
+  // Dynamic import keeps the engine chunk out of the boot bundle — it loads only
+  // when a `webllm` model is actually selected. The factory CONSTRUCTS the engine
+  // (with the self-hosted appConfig) but does not reload; the adapter drives
+  // reload(mlcId) so its abort handling (unload()-cancels-reload) stays in force.
+  //
+  // The single ModelRecord's base URL + id are built by the shared config module
+  // — the SAME source of truth the cache bridge keys against, so the URLs the
+  // engine requests and the URLs the bridge wrote can never diverge. `model_lib`
+  // is the same-origin vendored wasm; the engine fetches + caches it itself.
+  if (!hasWebLLMEngineFactory()) {
+    setWebLLMEngineFactory(async ({ modelId, onProgress }) => {
+      const mod = await import('@mlc-ai/web-llm');
+      const origin = window.location.origin;
+      const appConfig = buildWebLLMAppConfig(
+        modelId,
+        origin,
+        WEBLLM_QWEN2_0_5B_MODEL_LIB_PATH,
+      );
+      const engine = new mod.MLCEngine({
+        appConfig,
+        initProgressCallback: onProgress
+          ? (report) => onProgress(report.progress, 1)
+          : undefined,
+      });
+      // Cast through `unknown` — MLCEngine's surface is wider than the narrow
+      // slice the adapter's WebLLMEngine contract requires.
+      return engine as unknown as WebLLMEngine;
+    });
+  }
+
   // ── Adapter factory ─────────────────────────────────────────────────────
   if (!hasAdapterFactory()) {
     setAdapterFactory((model: ModelConfig) => {
@@ -186,11 +232,8 @@ export async function bootstrapLocalAi(options?: BootstrapOptions): Promise<void
         return new LiteRTAdapter({ storage: pickStorage() });
       }
       if (routing.runtime === 'webllm') {
-        // No production WebLLM engine factory is registered yet (see the
-        // module doc comment) — until one is, load() fails honestly with
-        // 'init-failed', matching every other not-yet-configured seam.
-        // Routing here is real regardless, so a webllm-tagged catalog
-        // entry is never silently misrouted to TransformersAdapter.
+        // Serves MLC builds via the engine factory registered above; weights
+        // are pre-staged in WebLLM's cache by the bridge (webllm-cache-bridge.ts).
         return new WebLLMAdapter();
       }
       return new TransformersAdapter({ storage: pickStorage() });

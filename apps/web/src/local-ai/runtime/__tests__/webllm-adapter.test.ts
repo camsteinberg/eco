@@ -1,10 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Bos Computing LLC
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ModelConfig } from '../../types';
 import { AdapterError } from '../types';
 import { WebLLMAdapter, type WebLLMEngine } from '../webllm-adapter';
+
+// Captures the appConfig the adapter hands the REAL hasModelInCache: a
+// self-hosted model is NOT in prebuiltAppConfig, so the adapter must pass its
+// own appConfig or the check silently reads "not cached".
+const hasModelInCacheSpy = vi.hoisted(() => vi.fn());
+vi.mock('@mlc-ai/web-llm', () => ({ hasModelInCache: hasModelInCacheSpy }));
 
 const MODEL: ModelConfig = {
   id: 'local/smollm2-1.7b-webllm-q4f16',
@@ -346,6 +352,33 @@ describe('WebLLMAdapter — weightsCached', () => {
       engineFactory: async () => engine,
       hasModelInCache: async () => false,
     });
+    expect(await adapter.weightsCached(MODEL)).toBe(false);
+  });
+
+  it('passes a self-hosted appConfig (stripped id + same-origin base) to the real hasModelInCache', async () => {
+    hasModelInCacheSpy.mockReset();
+    hasModelInCacheSpy.mockResolvedValue(true);
+    // No override → the adapter takes the real-import path.
+    adapter = new WebLLMAdapter({ engineFactory: async () => engine });
+
+    const cached = await adapter.weightsCached(MODEL);
+
+    expect(cached).toBe(true);
+    expect(hasModelInCacheSpy).toHaveBeenCalledTimes(1);
+    const [mlcId, appConfig] = hasModelInCacheSpy.mock.calls[0]!;
+    expect(mlcId).toBe('SmolLM2-1.7B-Instruct-q4f16_1-MLC');
+    expect(appConfig.model_list[0].model_id).toBe('SmolLM2-1.7B-Instruct-q4f16_1-MLC');
+    expect(appConfig.model_list[0].model).toBe(
+      `${window.location.origin}/webllm/models/SmolLM2-1.7B-Instruct-q4f16_1-MLC/resolve/main/`,
+    );
+    expect(appConfig.model_list[0].model_lib).toMatch(/^\/webllm\/v0_2_84\//);
+  });
+
+  it('returns false (never throws) when the real hasModelInCache rejects', async () => {
+    hasModelInCacheSpy.mockReset();
+    hasModelInCacheSpy.mockRejectedValue(new Error('ModelNotFound'));
+    adapter = new WebLLMAdapter({ engineFactory: async () => engine });
+
     expect(await adapter.weightsCached(MODEL)).toBe(false);
   });
 });

@@ -50,6 +50,11 @@ import {
   type RuntimeBackend,
   type TokenEvent,
 } from './types';
+import {
+  buildWebLLMAppConfig,
+  stripMlcOrgPrefix,
+  webllmModelLibPathFor,
+} from './webllm-config';
 
 // ─── Engine interface ──────────────────────────────────────────────────────
 
@@ -106,6 +111,21 @@ function now(): number {
     : Date.now();
 }
 
+/** Same-origin base for building the self-hosted appConfig; throws under SSR. */
+function webllmOrigin(): string {
+  const origin =
+    typeof globalThis !== 'undefined' &&
+    (globalThis as { location?: { origin?: string } }).location?.origin;
+  if (!origin) {
+    throw new AdapterError(
+      'WebLLM: no window.location.origin — cannot build the self-hosted appConfig.',
+      'init-failed',
+      false,
+    );
+  }
+  return origin;
+}
+
 export type WebLLMAdapterOptions = {
   /** Override the engine factory. Defaults to the registered factory. */
   engineFactory?: WebLLMEngineFactory;
@@ -159,7 +179,7 @@ export class WebLLMAdapter implements RuntimeAdapter {
         false,
       );
     }
-    return hfId.replace(/^mlc-ai\//, '');
+    return stripMlcOrgPrefix(hfId);
   }
 
   async weightsCached(model: ModelConfig): Promise<boolean> {
@@ -169,7 +189,12 @@ export class WebLLMAdapter implements RuntimeAdapter {
     }
     try {
       const webllm = await import('@mlc-ai/web-llm');
-      return await webllm.hasModelInCache(mlcId);
+      // hasModelInCache defaults to `prebuiltAppConfig`, which does NOT contain
+      // our self-hosted record — so hand it the SAME appConfig the engine factory
+      // builds (same shared source of truth). Without it, findModelRecord throws
+      // and the whole model reads as "not cached".
+      const appConfig = buildWebLLMAppConfig(mlcId, webllmOrigin(), webllmModelLibPathFor(model));
+      return await webllm.hasModelInCache(mlcId, appConfig);
     } catch {
       // No Cache API in this environment, or the check itself failed —
       // treat as "not confirmed cached" rather than throwing; the caller

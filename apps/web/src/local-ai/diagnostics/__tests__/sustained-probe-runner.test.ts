@@ -55,6 +55,12 @@ vi.mock('../../download/storage', () => ({
   pickStorage: () => ({ verify: verifyMock, verifyIntact: verifyIntactMock }),
 }));
 
+// The webllm gate consults WebLLM's own cache (not Eco storage) via this helper.
+const webllmModelInCacheMock = vi.hoisted(() => vi.fn());
+vi.mock('../../runtime/webllm-cache-bridge', () => ({
+  webllmModelInCache: webllmModelInCacheMock,
+}));
+
 const MODEL = { id: 'test/probe-model', sizeGB: 0.5 } as unknown as ModelConfig;
 
 /** A plan shaped like real manifests: weights + small files TJS may skip. */
@@ -93,12 +99,44 @@ beforeEach(() => {
   // Default: mirror the real jsdom behavior (no UA-memory API ⇒ null).
   measureUAMock.mockReset();
   measureUAMock.mockResolvedValue(null);
+  webllmModelInCacheMock.mockReset();
 });
 
 afterEach(() => {
   clearMarker();
   clearSustainedProbes();
   vi.useRealTimers();
+});
+
+const WEBLLM_MODEL = { id: 'candidate/qwen2-0.5b-webllm', sizeGB: 0.3, runtime: 'webllm' } as unknown as ModelConfig;
+
+describe('runSustainedProbe — webllm cache gate', () => {
+  it('refuses a webllm model whose weights are not in WebLLM cache (consults webllmModelInCache, not Eco storage)', async () => {
+    webllmModelInCacheMock.mockResolvedValue(false);
+
+    const { runSustainedProbe } = await import('../sustained-probe-runner');
+    const record = await runSustainedProbe({ model: WEBLLM_MODEL, turns: 2 });
+
+    expect(record.outcome).toBe('error');
+    expect(record.error).toMatch(/WebLLM cache/i);
+    expect(webllmModelInCacheMock).toHaveBeenCalledWith(WEBLLM_MODEL);
+    expect(loadModelMock).not.toHaveBeenCalled();
+    // The Eco-storage plan path is NOT used for a webllm model.
+    expect(peekDownloadPlanMock).not.toHaveBeenCalled();
+    expect(readMarker()).toBeNull();
+  });
+
+  it('runs a webllm model when its weights ARE in WebLLM cache', async () => {
+    webllmModelInCacheMock.mockResolvedValue(true);
+    loadModelMock.mockResolvedValue({ backend: 'webgpu' });
+    generateMock.mockImplementation(() => tokenStream());
+
+    const { runSustainedProbe } = await import('../sustained-probe-runner');
+    const record = await runSustainedProbe({ model: WEBLLM_MODEL, turns: 1 });
+
+    expect(record.outcome).toBe('completed');
+    expect(loadModelMock).toHaveBeenCalled();
+  });
 });
 
 describe('runSustainedProbe — never-download guard', () => {
