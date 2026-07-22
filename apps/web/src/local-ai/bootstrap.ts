@@ -200,13 +200,17 @@ export async function bootstrapLocalAi(options?: BootstrapOptions): Promise<void
   // engine requests and the URLs the bridge wrote can never diverge. `model_lib`
   // is the same-origin vendored wasm; the engine fetches + caches it itself.
   if (!hasWebLLMEngineFactory()) {
-    setWebLLMEngineFactory(async ({ modelId, onProgress }) => {
+    setWebLLMEngineFactory(async ({ modelId, contextWindowSize, onProgress }) => {
       const mod = await import('@mlc-ai/web-llm');
       const origin = window.location.origin;
+      // contextWindowSize is the catalog's capabilities.contextTokens; it becomes
+      // ModelRecord.overrides.context_window_size so the engine sizes its KV cache
+      // to the catalog cap, not the model's larger native window.
       const appConfig = buildWebLLMAppConfig(
         modelId,
         origin,
         WEBLLM_QWEN2_0_5B_MODEL_LIB_PATH,
+        contextWindowSize,
       );
       const engine = new mod.MLCEngine({
         appConfig,

@@ -133,7 +133,12 @@ export async function webllmModelInCache(
   try {
     const origin = resolveOrigin(deps.origin);
     const mlcId = stripMlcOrgPrefix(artifact.hfId);
-    const appConfig = buildWebLLMAppConfig(mlcId, origin, webllmModelLibPathFor(model));
+    const appConfig = buildWebLLMAppConfig(
+      mlcId,
+      origin,
+      webllmModelLibPathFor(model),
+      model.capabilities.contextTokens,
+    );
     const hasModelInCache = deps.hasModelInCache ?? defaultHasModelInCache;
     return await hasModelInCache(mlcId, appConfig);
   } catch {
@@ -163,7 +168,12 @@ export async function bridgeDownloadWebLLMModel(
 
   const origin = resolveOrigin(options.origin);
   const mlcId = stripMlcOrgPrefix(artifact.hfId);
-  const appConfig = buildWebLLMAppConfig(mlcId, origin, webllmModelLibPathFor(model));
+  const appConfig = buildWebLLMAppConfig(
+    mlcId,
+    origin,
+    webllmModelLibPathFor(model),
+    model.capabilities.contextTokens,
+  );
   // The single source of truth the engine keys its cache lookups by — identical
   // to appConfig.model_list[0].model, derived here directly to avoid indexing.
   const base = webllmModelBaseUrl(mlcId, origin);

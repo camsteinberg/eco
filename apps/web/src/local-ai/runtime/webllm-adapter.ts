@@ -89,7 +89,17 @@ export type WebLLMEngine = {
 };
 
 export type WebLLMEngineFactory = (
-  options: { modelId: string; onProgress?: (loaded: number, total: number) => void },
+  options: {
+    modelId: string;
+    /**
+     * Catalog `capabilities.contextTokens` for this model — the engine caps its
+     * KV-cache allocation to this via `ModelRecord.overrides.context_window_size`
+     * (the model's native window is larger). Passed from the adapter, which holds
+     * the full ModelConfig, so the cap tracks the catalog with no second source.
+     */
+    contextWindowSize: number;
+    onProgress?: (loaded: number, total: number) => void;
+  },
 ) => Promise<WebLLMEngine>;
 
 let engineFactory: WebLLMEngineFactory | null = null;
@@ -193,7 +203,12 @@ export class WebLLMAdapter implements RuntimeAdapter {
       // our self-hosted record — so hand it the SAME appConfig the engine factory
       // builds (same shared source of truth). Without it, findModelRecord throws
       // and the whole model reads as "not cached".
-      const appConfig = buildWebLLMAppConfig(mlcId, webllmOrigin(), webllmModelLibPathFor(model));
+      const appConfig = buildWebLLMAppConfig(
+        mlcId,
+        webllmOrigin(),
+        webllmModelLibPathFor(model),
+        model.capabilities.contextTokens,
+      );
       return await webllm.hasModelInCache(mlcId, appConfig);
     } catch {
       // No Cache API in this environment, or the check itself failed —
@@ -229,6 +244,7 @@ export class WebLLMAdapter implements RuntimeAdapter {
     try {
       engine = await factory({
         modelId: mlcId,
+        contextWindowSize: model.capabilities.contextTokens,
         onProgress: options?.onLoadProgress
           ? (loaded, total) => {
               const fraction = total > 0 ? Math.max(0, Math.min(1, loaded / total)) : 0;

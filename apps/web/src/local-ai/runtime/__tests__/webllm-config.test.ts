@@ -3,6 +3,7 @@
 
 import { describe, expect, it } from 'vitest';
 import type { ModelConfig } from '../../types';
+import { getModel } from '../../catalog/catalog';
 import {
   buildWebLLMAppConfig,
   buildWebLLMModelRecord,
@@ -15,6 +16,7 @@ import {
 
 const ORIGIN = 'https://econetwork.ai';
 const MLC_ID = 'Qwen2-0.5B-Instruct-q4f16_1-MLC';
+const CTX = 4096;
 
 describe('stripMlcOrgPrefix', () => {
   it('strips the mlc-ai/ org prefix', () => {
@@ -50,14 +52,42 @@ describe('webllmModelBaseUrl', () => {
 
 describe('buildWebLLMModelRecord / buildWebLLMAppConfig', () => {
   it('builds a single-record config whose base matches webllmModelBaseUrl', () => {
-    const record = buildWebLLMModelRecord(MLC_ID, ORIGIN, WEBLLM_QWEN2_0_5B_MODEL_LIB_PATH);
+    const record = buildWebLLMModelRecord(MLC_ID, ORIGIN, WEBLLM_QWEN2_0_5B_MODEL_LIB_PATH, CTX);
     expect(record).toEqual({
       model: webllmModelBaseUrl(MLC_ID, ORIGIN),
       model_id: MLC_ID,
       model_lib: WEBLLM_QWEN2_0_5B_MODEL_LIB_PATH,
+      overrides: { context_window_size: CTX },
     });
-    const appConfig = buildWebLLMAppConfig(MLC_ID, ORIGIN, WEBLLM_QWEN2_0_5B_MODEL_LIB_PATH);
+    const appConfig = buildWebLLMAppConfig(MLC_ID, ORIGIN, WEBLLM_QWEN2_0_5B_MODEL_LIB_PATH, CTX);
     expect(appConfig.model_list).toEqual([record]);
+  });
+
+  it('caps the engine KV window via overrides.context_window_size — from the arg, not a hardcode', () => {
+    // ModelRecord.overrides.context_window_size is what MLC merges OVER the
+    // model's native mlc-chat-config.json window at reload() (0.2.84:
+    // {...mlcChatConfig, ...record.overrides, ...chatOpts}). It MUST reflect the
+    // catalog value the caller threads in — Qwen2.5-0.5B ships a 32768 native
+    // window, so without this the engine would allocate KV for 32k.
+    const wide = buildWebLLMModelRecord(MLC_ID, ORIGIN, WEBLLM_QWEN2_0_5B_MODEL_LIB_PATH, 8192);
+    expect(wide.overrides?.context_window_size).toBe(8192);
+    const capped = buildWebLLMModelRecord(MLC_ID, ORIGIN, WEBLLM_QWEN2_0_5B_MODEL_LIB_PATH, CTX);
+    expect(capped.overrides?.context_window_size).toBe(CTX);
+    expect(buildWebLLMAppConfig(MLC_ID, ORIGIN, WEBLLM_QWEN2_0_5B_MODEL_LIB_PATH, CTX).model_list[0]!.overrides?.context_window_size).toBe(CTX);
+  });
+
+  it('carries the SHIPPING catalog contextTokens for the WebLLM model (single source of truth)', () => {
+    // The wired cap must equal what the catalog declares — if the catalog changes
+    // its contextTokens, the engine cap follows with no separate edit here.
+    const model = getModel('candidate/qwen2.5-0.5b-mlc');
+    expect(model, 'catalog must ship the WebLLM model').not.toBeNull();
+    const record = buildWebLLMModelRecord(
+      stripMlcOrgPrefix(model!.artifact!.hfId),
+      ORIGIN,
+      webllmModelLibPathFor(model!),
+      model!.capabilities.contextTokens,
+    );
+    expect(record.overrides?.context_window_size).toBe(model!.capabilities.contextTokens);
   });
 
   it('points model_lib at the same-origin versioned wasm dir', () => {

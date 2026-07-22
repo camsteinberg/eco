@@ -77,30 +77,49 @@ export function webllmModelBaseUrl(mlcId: string, origin: string): string {
   return `${origin}/webllm/models/${mlcId}/resolve/main/`;
 }
 
-/** Build the single-record `ModelRecord` for a catalog model. */
+/**
+ * Build the single-record `ModelRecord` for a catalog model.
+ *
+ * `contextWindowSize` is the catalog entry's `capabilities.contextTokens` — it
+ * becomes `ModelRecord.overrides.context_window_size`, which MLC merges OVER the
+ * model's own `mlc-chat-config.json` at `reload()` (verified in web-llm 0.2.84:
+ * `Object.assign({}, mlcChatConfig, record.overrides, chatOpts)`, so the override
+ * wins). This is the ONLY thing that shrinks the engine's KV-cache allocation:
+ * Qwen2.5-0.5B ships a native 32768 window, and without the override the engine
+ * would allocate KV for 32k regardless of what Eco sends into the prompt. The
+ * catalog is the single source of truth — never hardcode a window here. (MLC's
+ * own `prebuiltAppConfig` uses this exact `overrides.context_window_size` pattern.)
+ */
 export function buildWebLLMModelRecord(
   mlcId: string,
   origin: string,
   modelLibPath: string,
+  contextWindowSize: number,
 ): ModelRecord {
   return {
     model: webllmModelBaseUrl(mlcId, origin),
     model_id: mlcId,
     model_lib: modelLibPath,
+    overrides: { context_window_size: contextWindowSize },
   };
 }
 
 /**
  * The `AppConfig` carrying exactly this model — passed to `CreateMLCEngine`/
  * `new MLCEngine`, `hasModelInCache`, and the bridge so every WebLLM call
- * resolves our self-hosted record instead of the prebuilt list.
+ * resolves our self-hosted record instead of the prebuilt list. `contextWindowSize`
+ * threads through to `ModelRecord.overrides` (see `buildWebLLMModelRecord`); it is
+ * inert for the cache-key derivation `hasModelInCache`/the bridge use (those key
+ * off `record.model`), so a uniform record across all three consumers stays
+ * byte-identical on the fields that matter.
  */
 export function buildWebLLMAppConfig(
   mlcId: string,
   origin: string,
   modelLibPath: string,
+  contextWindowSize: number,
 ): AppConfig {
-  return { model_list: [buildWebLLMModelRecord(mlcId, origin, modelLibPath)] };
+  return { model_list: [buildWebLLMModelRecord(mlcId, origin, modelLibPath, contextWindowSize)] };
 }
 
 /**

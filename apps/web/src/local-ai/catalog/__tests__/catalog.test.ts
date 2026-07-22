@@ -74,7 +74,9 @@ describe('local-ai catalog (Phase C)', () => {
       'candidate/gemma-4-e2b-litert': 2048,
       // Qwen2.5-0.5B is natively 32k, but the WebKit-mobile pick is deliberately
       // capped at 4096 to bound the KV-cache working set inside iOS's per-tab
-      // memory envelope. Raising it needs a fresh on-device headroom run.
+      // memory envelope. This value is enforced engine-side via
+      // ModelRecord.overrides.context_window_size (see runtime/webllm-config.ts),
+      // not just clamped in what Eco sends. Raising it needs a fresh on-device run.
       'candidate/qwen2.5-0.5b-mlc': 4096,
     };
     for (const id of V1_CATALOG_IDS) {
