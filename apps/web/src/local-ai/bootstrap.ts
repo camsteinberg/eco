@@ -62,6 +62,17 @@ let initialized = false;
 // this shared promise rather than re-invoking it per model load.
 let litertWasmReady: Promise<unknown> | null = null;
 
+// Bounds a `loadLiteRtLm()` call that never settles — without this, the
+// shared singleton above stays pending forever and every subsequent LiteRT
+// load in the tab (not just the first) awaits the same stuck promise. The
+// abandoned call keeps running unreferenced in the background (there is no
+// way to cancel it); this only stops us waiting for it, same reasoning as
+// runtime/lifecycle.ts's raceLoadAgainstSignal. A retry right after this
+// fires may itself reject immediately (`loadLiteRtLm` throws if called while
+// already loading) — that is an honest, bounded failure, not a hang, and it
+// clears on its own once the abandoned call finishes.
+const LITERT_WASM_BOOT_TIMEOUT_MS = 60_000;
+
 export type BootstrapOptions = {
   /** Skip self-heal at boot — only used in tests. */
   skipSelfHeal?: boolean;
@@ -126,7 +137,16 @@ export async function bootstrapLocalAi(options?: BootstrapOptions): Promise<void
       // the already-loaded global, so the CDN fallback is never hit.
       if (!litertWasmReady) {
         const wasmBase = new URL('/litert-wasm/', window.location.origin).toString();
-        litertWasmReady = mod.loadLiteRtLm(wasmBase).catch((err: unknown) => {
+        litertWasmReady = Promise.race([
+          mod.loadLiteRtLm(wasmBase),
+          new Promise<never>((_, reject) => {
+            setTimeout(() => {
+              reject(new Error(
+                `LiteRT WASM runtime did not finish booting within ${LITERT_WASM_BOOT_TIMEOUT_MS}ms`,
+              ));
+            }, LITERT_WASM_BOOT_TIMEOUT_MS);
+          }),
+        ]).catch((err: unknown) => {
           litertWasmReady = null; // allow a retry on a later load attempt
           throw err;
         });

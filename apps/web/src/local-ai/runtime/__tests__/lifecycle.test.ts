@@ -331,6 +331,85 @@ describe('fault unload', () => {
   });
 });
 
+// ─── Load timeout / cancellation ───────────────────────────────────────────
+
+// Regression coverage for the confirmed-live LiteRT/Gemma-4 defect: its
+// vendor library (@litert-lm/core) has NO cancellation parameter at all, so
+// an adapter that never reacts to the signal must still be forced to settle
+// — otherwise a stuck load wedges the lifecycle lock forever (the switch-model
+// lease, the smoke gate, and the sustained probe all inherit the hang).
+
+describe('load timeout / cancellation', () => {
+  it('forces a timeout rejection when a non-cooperating adapter never settles', async () => {
+    const adapter = new FakeAdapter();
+    // Models a vendor library with no cancellation support: load() never
+    // resolves or rejects, matching LiteRT's real Engine.create().
+    adapter.load = () => new Promise(() => {});
+    setAdapterFactory(() => adapter);
+
+    const controller = new AbortController();
+    const pending = loadModel(MODEL_A, { signal: controller.signal });
+    controller.abort();
+
+    await expect(pending).rejects.toMatchObject({ code: 'timeout' });
+  });
+
+  it('rejects immediately with timeout when the signal is already aborted', async () => {
+    const adapter = new FakeAdapter();
+    adapter.load = () => new Promise(() => {});
+    setAdapterFactory(() => adapter);
+
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(loadModel(MODEL_A, { signal: controller.signal }))
+      .rejects.toMatchObject({ code: 'timeout' });
+  });
+
+  it("does not override a cooperating adapter's own abort classification", async () => {
+    const adapter = new FakeAdapter();
+    let notifyListenerRegistered: () => void;
+    const listenerRegistered = new Promise<void>((resolve) => {
+      notifyListenerRegistered = resolve;
+    });
+    // Models TransformersAdapter: genuinely listens to the signal and
+    // rejects with its own classification. Waiting for the listener to
+    // register before aborting makes the test deterministic — the real
+    // production race (adapter's own microtask-based rejection vs. our
+    // deliberately-deferred macrotask fallback) is exercised regardless of
+    // this ordering, but an unsynchronized abort() here could itself win
+    // the race against the adapter even registering its own listener.
+    adapter.load = (_model: ModelConfig, options?: import('../types').LoadOptions) =>
+      new Promise<void>((_resolve, reject) => {
+        options?.signal?.addEventListener('abort', () => {
+          reject(new AdapterError('load aborted', 'aborted', true));
+        }, { once: true });
+        notifyListenerRegistered();
+      });
+    setAdapterFactory(() => adapter);
+
+    const controller = new AbortController();
+    const pending = loadModel(MODEL_A, { signal: controller.signal });
+    await listenerRegistered;
+    controller.abort();
+
+    await expect(pending).rejects.toMatchObject({ code: 'aborted' });
+  });
+
+  it('does not record a cooldown for a forced timeout', async () => {
+    const adapter = new FakeAdapter();
+    adapter.load = () => new Promise(() => {});
+    setAdapterFactory(() => adapter);
+
+    const controller = new AbortController();
+    const pending = loadModel(MODEL_A, { signal: controller.signal });
+    controller.abort();
+    await pending.catch(() => undefined);
+
+    expect(getCooldown(MODEL_A.id)).toBeNull();
+  });
+});
+
 // ─── Lock ──────────────────────────────────────────────────────────────────
 
 describe('lock serialization', () => {
