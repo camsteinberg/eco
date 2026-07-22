@@ -399,8 +399,11 @@ describe('device/compatibility — WebKit-mobile gate (D1 designed tier)', () =>
     expect(isWebKitMobile(strippedMobile)).toBe(false); // 'mobile' class
   });
 
-  it('declines EVERY catalog model on iOS WebKit (no load ever attempted)', () => {
+  it('declines every NON-validated catalog model on iOS WebKit (no load ever attempted)', () => {
+    // The WebLLM/MLC pick is now validated for iOS (in WEBKIT_MOBILE_VALIDATED_MODEL_IDS),
+    // so it is offerable there; every OTHER build still crash-loops on load and stays declined.
     for (const m of getCatalog()) {
+      if (WEBKIT_MOBILE_VALIDATED_MODEL_IDS.includes(m.id)) continue;
       expect(isCompatible(m, iosSafariWebgpu), `${m.id} must decline on iOS WebKit`).toBe('unsupported');
       expect(isAssignable(m, iosSafariWebgpu)).toBe(false);
     }
@@ -409,12 +412,16 @@ describe('device/compatibility — WebKit-mobile gate (D1 designed tier)', () =>
   it('the validated-list override lets a listed model serve on iOS WebKit', () => {
     // The retest trigger: adding an id to WEBKIT_MOBILE_VALIDATED_MODEL_IDS
     // (after a real-device pass) must flip that model from declined to offerable.
+    // Save/restore the real contents — the list now ships a member, so a bare
+    // `length = 0` would wipe it for every later test in this file.
+    const original = [...WEBKIT_MOBILE_VALIDATED_MODEL_IDS];
     const id = 'local/qwen3-0.6b';
     (WEBKIT_MOBILE_VALIDATED_MODEL_IDS as string[]).push(id);
     try {
       expect(isCompatible(model(id), iosSafariWebgpu)).not.toBe('unsupported');
     } finally {
       (WEBKIT_MOBILE_VALIDATED_MODEL_IDS as string[]).length = 0;
+      (WEBKIT_MOBILE_VALIDATED_MODEL_IDS as string[]).push(...original);
     }
   });
 
@@ -427,7 +434,96 @@ describe('device/compatibility — WebKit-mobile gate (D1 designed tier)', () =>
     expect(isAssignable(model('candidate/qwen3.5-2b-onnx'), androidChrome)).toBe(true);
   });
 
-  it('starts with an empty validated list (every current build crash-loops on load)', () => {
-    expect(WEBKIT_MOBILE_VALIDATED_MODEL_IDS).toEqual([]);
+  it('lists exactly the WebKit-mobile-validated model ids', () => {
+    // The WebLLM/MLC Qwen2.5-0.5B pick graduated here after a real-iPhone pass;
+    // every ONNX build still crash-loops on load and stays off the list.
+    expect(WEBKIT_MOBILE_VALIDATED_MODEL_IDS).toEqual(['candidate/qwen2.5-0.5b-mlc']);
+  });
+});
+
+describe('device/compatibility — Qwen2.5-0.5B WebLLM (rung-1 WebKit-mobile pick)', () => {
+  const mlc = () => model('candidate/qwen2.5-0.5b-mlc');
+
+  const iosSafariWebgpu: DeviceProfile = {
+    browserClass: 'safari',
+    webgpuSupport: 'webgpu',
+    deviceMemoryGB: 8,
+    isMobile: true,
+    override: 'auto',
+    webgpuShaderF16: true,
+  };
+
+  it('is SUPPORTED and assignable on iOS WebKit with WebGPU', () => {
+    expect(isCompatible(mlc(), iosSafariWebgpu)).toBe('supported');
+    expect(isAssignable(mlc(), iosSafariWebgpu)).toBe(true);
+  });
+
+  it('is the ONLY catalog model assignable on iOS WebKit', () => {
+    const assignable = getCatalog()
+      .filter((m) => isAssignable(m, iosSafariWebgpu))
+      .map((m) => m.id);
+    expect(assignable).toEqual(['candidate/qwen2.5-0.5b-mlc']);
+  });
+
+  it('declines on iOS WebKit without WebGPU — the MLC engine requires WebGPU', () => {
+    expect(isCompatible(mlc(), { ...iosSafariWebgpu, webgpuSupport: 'wasm-only' })).toBe('unsupported');
+    expect(isCompatible(mlc(), { ...iosSafariWebgpu, webgpuSupport: 'none' })).toBe('unsupported');
+  });
+
+  // requireWebKitMobile scope: no non-iOS-WebKit profile may ever select it.
+  it('is UNSUPPORTED on every non-iOS-WebKit profile (the no-regression guard)', () => {
+    const nonWebKitMobile: readonly DeviceProfile[] = [
+      PROFILES.chromiumHighMem,
+      PROFILES.chromiumCapableLaptop,
+      PROFILES.chromiumLowMem,
+      PROFILES.chromiumWasmOnly,
+      PROFILES.chromiumNoShaderF16,
+      PROFILES.chromiumShaderF16,
+      PROFILES.safariDesktop,
+      PROFILES.firefoxDesktop,
+      PROFILES.unknownWebgpu,
+      PROFILES.unknownWasmOnly,
+      PROFILES.unknownNoCapability,
+      PROFILES.belowFloor,
+    ];
+    for (const p of nonWebKitMobile) {
+      const label = `${p.browserClass}/${p.webgpuSupport}/mobile=${p.isMobile}`;
+      expect(isCompatible(mlc(), p), label).toBe('unsupported');
+      expect(isAssignable(mlc(), p), label).toBe(false);
+    }
+  });
+
+  it('is UNSUPPORTED on desktop Safari even with WebGPU (rung-1 excludes desktop)', () => {
+    // Desktop Safari also classifies 'safari', but requireWebKitMobile gates on
+    // form factor, not browser — a webgpu-capable desktop Safari still declines.
+    // Desktop-Safari expansion is a later, envelope-gated decision.
+    const safariDesktopWebgpu: DeviceProfile = {
+      browserClass: 'safari',
+      webgpuSupport: 'webgpu',
+      deviceMemoryGB: 16,
+      isMobile: false,
+      override: 'auto',
+      webgpuShaderF16: true,
+    };
+    expect(isCompatible(mlc(), safariDesktopWebgpu)).toBe('unsupported');
+  });
+
+  it('is UNSUPPORTED on Android Chrome and the UA-stripped mobile class (mobile, not WebKit)', () => {
+    const androidChrome: DeviceProfile = {
+      browserClass: 'chromium',
+      webgpuSupport: 'webgpu',
+      deviceMemoryGB: 8,
+      isMobile: true,
+      override: 'auto',
+    };
+    const strippedMobile: DeviceProfile = {
+      browserClass: 'mobile',
+      webgpuSupport: 'webgpu',
+      deviceMemoryGB: 8,
+      isMobile: true,
+      override: 'auto',
+    };
+    expect(isCompatible(mlc(), androidChrome)).toBe('unsupported');
+    expect(isCompatible(mlc(), strippedMobile)).toBe('unsupported');
   });
 });

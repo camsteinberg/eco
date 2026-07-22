@@ -342,6 +342,10 @@ const PROFILE_BY_MODEL_ID: Record<string, GenerationProfileSlice> = {
   // profile, and concise product-path testing needs tighter caps. These remain
   // eval-only validation candidates, not shipping catalog/default entries.
   "candidate/gemma-4-e2b-litert": GEMMA4_LITERT_GEN,
+  // WebKit-mobile pick (Qwen2.5-0.5B via WebLLM/MLC). A small Qwen instruct model,
+  // so it rides the shared generic Qwen slice (same as qwen3-0.6b) — deliberately
+  // NOT QWEN35_GEN, which carries the Qwen3.5-family-only CJK-token suppression.
+  "candidate/qwen2.5-0.5b-mlc": QWEN_GEN,
   "candidate/gemma-4-e4b-litert": GEMMA4_LITERT_GEN,
 };
 

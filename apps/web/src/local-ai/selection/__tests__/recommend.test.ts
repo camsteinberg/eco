@@ -16,7 +16,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { getCatalog } from '../../catalog/catalog';
+import { getCatalog, getModel } from '../../catalog/catalog';
 import { isAssignable } from '../../device/compatibility';
 import { CURRENT_LEDGER_VERSION } from '../../evidence/ledger';
 import { canServe, listCandidates, listCatalog, NoAssignableModelError, recommend, starterModelForSlot } from '../recommend';
@@ -641,5 +641,68 @@ describe('catalog has no v1.0 experimental models', () => {
     for (const model of getCatalog()) {
       expect(['proven', 'predicted']).toContain(model.evidenceTier);
     }
+  });
+});
+
+// The rung-1 WebKit-mobile WebLLM entry (candidate/qwen2.5-0.5b-mlc) must be a
+// pure ADDITION for iOS/WebKit-mobile: it may never enter a candidate set,
+// recommendation, or catalog listing for any currently-served profile. This is
+// the recommendation-level no-regression proof that complements the
+// compatibility-level scope test — it exercises the real selection pipeline
+// (isAssignable → admit → slot → floor → score → promote), not just isCompatible.
+describe('recommend — WebKit-mobile MLC entry is additive only', () => {
+  const MLC_ID = 'candidate/qwen2.5-0.5b-mlc';
+
+  // Every non-iOS-WebKit profile the suite already models, spanning the served
+  // device classes: Chromium (high/low mem), Firefox WASM, and below-floor.
+  const nonWebKitMobileProfiles: Record<string, DeviceProfile> = {
+    chromium24: PROFILE_24GB,
+    chromium8: PROFILE_8GB,
+    firefoxWasm: PROFILE_FIREFOX,
+    chromiumWasmOnly: { browserClass: 'chromium', webgpuSupport: 'wasm-only', deviceMemoryGB: 8, isMobile: false, override: 'auto' },
+    chromiumNoShaderF16: { browserClass: 'chromium', webgpuSupport: 'webgpu', deviceMemoryGB: 16, isMobile: false, override: 'auto', webgpuShaderF16: false },
+    safariDesktopWebgpu: { browserClass: 'safari', webgpuSupport: 'webgpu', deviceMemoryGB: 16, isMobile: false, override: 'auto', webgpuShaderF16: true },
+    androidChrome: { browserClass: 'chromium', webgpuSupport: 'webgpu', deviceMemoryGB: 8, isMobile: true, override: 'auto' },
+  };
+
+  it('never appears in candidates or recommendations on any currently-served profile', () => {
+    for (const [label, profile] of Object.entries(nonWebKitMobileProfiles)) {
+      for (const slot of ['eco-fast', 'eco-smart'] as const) {
+        const ids = listCandidates(slot, profile).map((c) => c.model.id);
+        expect(ids, `${label}/${slot} candidates must exclude the MLC entry`).not.toContain(MLC_ID);
+        if (canServe(profile)) {
+          expect(recommend(slot, profile).id, `${label}/${slot} recommendation`).not.toBe(MLC_ID);
+        }
+      }
+      expect(
+        listCatalog(profile).available.map((a) => a.model.id),
+        `${label} catalog listing must exclude the MLC entry`,
+      ).not.toContain(MLC_ID);
+      expect(isAssignable(getModel(MLC_ID)!, profile), `${label} assignability`).toBe(false);
+    }
+  });
+
+  it('recommendations on served profiles are unchanged by the entry (spot-check known-good picks)', () => {
+    // Qwen3.5-2B stays the everyday default on capable Chromium; qwen3-0.6b stays
+    // the desktop-Safari / Firefox floor. If the MLC entry leaked into any of
+    // these, one of these ids would change.
+    expect(recommend('eco-fast', PROFILE_24GB).id).toBe('candidate/qwen3.5-2b-onnx');
+    expect(recommend('eco-smart', PROFILE_24GB).id).toBe('candidate/qwen3.5-2b-onnx');
+    expect(recommend('eco-fast', PROFILE_FIREFOX).id).toBe('local/qwen3-0.6b');
+  });
+
+  it('IS the recommendation on iOS/WebKit-mobile with WebGPU (the positive case)', () => {
+    const iosSafariWebgpu: DeviceProfile = {
+      browserClass: 'safari',
+      webgpuSupport: 'webgpu',
+      deviceMemoryGB: 8,
+      isMobile: true,
+      override: 'auto',
+      webgpuShaderF16: true,
+    };
+    expect(canServe(iosSafariWebgpu)).toBe(true);
+    expect(listCandidates('eco-fast', iosSafariWebgpu).length).toBeGreaterThan(0);
+    expect(recommend('eco-fast', iosSafariWebgpu).id).toBe(MLC_ID);
+    expect(recommend('eco-smart', iosSafariWebgpu).id).toBe(MLC_ID);
   });
 });

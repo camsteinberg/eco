@@ -34,6 +34,16 @@ type CompatibilityRule = {
   /** If true, returns `'with-warning'` on a mobile form factor. */
   warnIfMobile: boolean;
   /**
+   * Restricts the model to iOS/WebKit-mobile devices (`isWebKitMobile`): any
+   * other profile — desktop (Chromium/Safari/Firefox), Android, or the
+   * UA-stripped `'mobile'` class — is `'unsupported'`. Optional; absent means
+   * "no form-factor restriction." Set only for the rung-1 WebLLM mobile pick,
+   * whose real-device validation covers iPhone/WebKit-mobile alone. Widening it
+   * (e.g. to desktop Safari) is a separate, envelope-gated decision, not a
+   * default this flag should quietly grant.
+   */
+  requireWebKitMobile?: boolean;
+  /**
    * The model's build emits an op that onnxruntime-web's WebGPU EP supports but
    * its CPU/WASM EP does NOT — so it can never load on a `wasm-only` device
    * (where every model runs through the CPU EP). The proven case is
@@ -116,6 +126,25 @@ const RULES: Readonly<Record<string, CompatibilityRule>> = Object.freeze({
     allowedBrowsers: ['chromium'] as const,
     warnIfMobile: true,
   },
+  // Qwen2.5-0.5B served through the WebLLM/MLC runtime — the rung-1 WebKit-mobile
+  // pick. It is the FIRST model to clear the WebKit-mobile load gate: a real
+  // iPhone loads and generates coherent prose within iOS's per-tab memory
+  // envelope (whereas every ONNX build crash-loops the tab on load). The MLC
+  // engine is WebGPU-only, so requireWebgpu holds — iOS Safari without WebGPU
+  // declines to the handoff surface. requireWebKitMobile scopes it to iOS/WebKit
+  // mobile ALONE: desktop Safari also classifies `'safari'` but is deliberately
+  // NOT served here (its envelope is unmeasured for this build) — a desktop-Safari
+  // expansion is a later, envelope-gated decision. No memory floor: iOS does not
+  // expose a device-memory reading (the profile reports it as 0), and the resident
+  // working set is small. The id must ALSO be listed in WEBKIT_MOBILE_VALIDATED_MODEL_IDS below,
+  // which is what actually lifts the pre-load WebKit-mobile decline for it.
+  'candidate/qwen2.5-0.5b-mlc': {
+    requireWebgpu: true,
+    minDeviceMemoryGB: 0,
+    allowedBrowsers: ['safari'] as const,
+    warnIfMobile: false,
+    requireWebKitMobile: true,
+  },
 });
 
 /**
@@ -143,17 +172,34 @@ export function isWebKitMobile(profile: DeviceProfile): boolean {
 
 /**
  * Model ids proven to LOAD and run within the WebKit-mobile memory envelope.
- * Empty today: the iPhone-13 spike proved every current catalog build
- * crash-loops on load there. This is the retest trigger — when the Phase A/B
- * working-set fix lands, add a model id here ONLY after a real-device iOS
- * retest confirms it loads without the tab-restart loop. Until an id is listed,
- * WebKit-mobile declines to the designed handoff surface.
+ * A model earns a place here ONLY after a real-device iOS pass confirms it loads
+ * and generates without the tab-restart loop; until an id is listed, WebKit-mobile
+ * declines it to the designed handoff surface. Every ONNX build still crash-loops
+ * on load there (onnxruntime-web fully materializes the weights into the WASM heap,
+ * ~5× working set, blowing past iOS's ~2GB per-tab ceiling before the first token).
+ *
+ * Qwen2.5-0.5B (WebLLM/MLC runtime) is the first entry: the MLC engine keeps the
+ * resident working set inside the iOS envelope, and a real iPhone loaded it and
+ * produced coherent prose. Its rule additionally carries `requireWebKitMobile`, so
+ * listing it here opens iOS/WebKit-mobile ONLY — no desktop/Chromium profile is
+ * affected.
  */
-export const WEBKIT_MOBILE_VALIDATED_MODEL_IDS: readonly string[] = [];
+export const WEBKIT_MOBILE_VALIDATED_MODEL_IDS: readonly string[] = [
+  'candidate/qwen2.5-0.5b-mlc',
+];
 
 export function isCompatible(model: ModelConfig, profile: DeviceProfile): CompatibilityResult {
   const rule = RULES[model.id];
   if (!rule) return 'unsupported';
+
+  // Form-factor scope: a WebKit-mobile-only model (the rung-1 WebLLM pick) is
+  // unsupported on every non-iOS-WebKit profile — desktop (incl. desktop Safari,
+  // which also classifies `'safari'`), Android, and the UA-stripped `'mobile'`
+  // class. This is what keeps the entry from perturbing any currently-served
+  // desktop/Chromium recommendation; widening it is a separate envelope-gated call.
+  if (rule.requireWebKitMobile && !isWebKitMobile(profile)) {
+    return 'unsupported';
+  }
 
   // WebKit-mobile (iOS) gate — BEFORE any capability probe so no model is ever
   // load-attempted on a device where the load itself crash-loops the tab (see
