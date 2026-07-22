@@ -23,7 +23,7 @@
     "@huggingface/transformers": "4.2.0",
     "@litert-lm/core": "0.13.1",
     "@noble/hashes": "^2.0.1",
-    "@sentry/nextjs": "^10.43.0",
+    "@sentry/nextjs": "^10.67.0",
     "better-auth": "^1.6.23",
     "driver.js": "^1.4.0",
     "expr-eval": "^2.0.2",
