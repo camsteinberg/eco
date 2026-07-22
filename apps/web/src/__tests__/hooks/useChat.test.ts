@@ -13,7 +13,6 @@ const conversationStoreMock = vi.hoisted(() => ({
 
 vi.mock('../../lib/local-models', () => ({
   isLocalModel: (id: string) => id.startsWith('local/'),
-  isRwkvModel: () => false,
   LOCAL_MODELS: [],
   DEFAULT_LOCAL_MODEL: { id: 'local/smollm3-3b' },
   getLaunchLocalModels: () => [

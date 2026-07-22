@@ -52,7 +52,6 @@ describe('getLocalModelSystemPromptSuffix', () => {
   // -- Non-catalog models --
 
   it('returns null for non-catalog model ids', () => {
-    expect(getLocalModelSystemPromptSuffix('local/rwkv7-1.5b')).toBeNull();
     expect(getLocalModelSystemPromptSuffix('local/smollm3-3b')).toBeNull();
   });
 });

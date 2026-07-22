@@ -133,7 +133,7 @@ describe('getOnDeviceSystemPrompt', () => {
   });
 
   it('does NOT append directives for non-catalog models', () => {
-    const prompt = getOnDeviceSystemPrompt('local/rwkv7-1.5b');
+    const prompt = getOnDeviceSystemPrompt('local/smollm3-3b');
     expect(prompt).not.toContain('/no_think');
   });
 

@@ -193,14 +193,14 @@ describe("chat intent quality helpers", () => {
   });
 
   it("fails closed for hidden direct local model IDs before prompt-profile generation", () => {
-    const rwkvProfile = getGenerationProfile("deep", true, "local/rwkv7-1.5b");
-    expect(rwkvProfile).toMatchObject({
+    const hiddenProfile = getGenerationProfile("deep", true, "local/smollm3-3b");
+    expect(hiddenProfile).toMatchObject({
       temperature: 0.55,
       maxTokens: 2048,
     });
-    expect(rwkvProfile).not.toHaveProperty("topP");
-    expect(rwkvProfile).not.toHaveProperty("topK");
-    expect(rwkvProfile).not.toHaveProperty("repetitionPenalty");
+    expect(hiddenProfile).not.toHaveProperty("topP");
+    expect(hiddenProfile).not.toHaveProperty("topK");
+    expect(hiddenProfile).not.toHaveProperty("repetitionPenalty");
   });
 });
 

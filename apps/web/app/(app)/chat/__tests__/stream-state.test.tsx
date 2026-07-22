@@ -146,7 +146,6 @@ vi.mock("../../../../src/lib/local-models", () => ({
   getLocalModelTechnicalName: () => "Eco Fast",
   getLocalModelUserFacingSurfaceBlockers: () => [],
   isLocalModel: () => false,
-  isRwkvModel: () => false,
 }));
 
 vi.mock("../../../../src/lib/local-model-state-matrix", () => ({
