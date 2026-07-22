@@ -13,7 +13,9 @@
  *   - runtime/transformers-adapter.setWorkerFactory → constructs the
  *     real Worker that imports @huggingface/transformers.
  *   - runtime/lifecycle.setAdapterFactory → picks transformers vs
- *     litert per (model, profile) using runtime-router.
+ *     litert vs webllm per (model, profile) using runtime-router. No
+ *     production WebLLM engine factory is registered yet — see the
+ *     "Adapter factory" section below.
  *   - lifecycle/smoke.setSmokeGenerationFn → loads the model via
  *     runtime/lifecycle and streams a tiny generation.
  *
@@ -40,6 +42,7 @@ import {
   LiteRTAdapter,
   type LiteRTEngine,
 } from './runtime/litert-adapter';
+import { WebLLMAdapter } from './runtime/webllm-adapter';
 import {
   setAdapterFactory,
   hasAdapterFactory,
@@ -181,6 +184,14 @@ export async function bootstrapLocalAi(options?: BootstrapOptions): Promise<void
         // adapter streams the already-downloaded `.litertlm` instead of
         // re-fetching it.
         return new LiteRTAdapter({ storage: pickStorage() });
+      }
+      if (routing.runtime === 'webllm') {
+        // No production WebLLM engine factory is registered yet (see the
+        // module doc comment) — until one is, load() fails honestly with
+        // 'init-failed', matching every other not-yet-configured seam.
+        // Routing here is real regardless, so a webllm-tagged catalog
+        // entry is never silently misrouted to TransformersAdapter.
+        return new WebLLMAdapter();
       }
       return new TransformersAdapter({ storage: pickStorage() });
     });

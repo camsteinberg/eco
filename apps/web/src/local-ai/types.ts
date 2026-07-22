@@ -42,7 +42,7 @@ export type Intent = 'snappy' | 'balanced' | 'quality';
 
 // ─── Catalog model ─────────────────────────────────────────────────────────
 
-export type ModelRuntime = 'transformers' | 'litert';
+export type ModelRuntime = 'transformers' | 'litert' | 'webllm';
 
 /**
  * Concrete download artifact for a catalog model: HuggingFace id, pinned
@@ -65,7 +65,7 @@ export type ModelConfig = {
   vendor: string;
   sizeGB: number;
   runtime: ModelRuntime;
-  format: 'onnx-q4' | 'onnx-q4f16' | 'onnx-q2f16' | 'litertlm';
+  format: 'onnx-q4' | 'onnx-q4f16' | 'onnx-q2f16' | 'litertlm' | 'mlc-q4f16';
   capabilities: {
     intent: Intent[];
     tasks: ('chat' | 'code' | 'writing' | 'reasoning')[];

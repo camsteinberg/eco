@@ -237,6 +237,7 @@ export function formatRequiresShaderF16(format: ModelConfig['format']): boolean 
   switch (format) {
     case 'onnx-q4f16':
     case 'onnx-q2f16':
+    case 'mlc-q4f16':
       return true;
     case 'onnx-q4':
     case 'litertlm':
