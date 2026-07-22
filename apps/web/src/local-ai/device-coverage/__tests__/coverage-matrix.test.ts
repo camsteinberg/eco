@@ -147,12 +147,14 @@ describe('WebKit-mobile designed tier (D1 regression pins)', () => {
     smoke: 'pass',
   });
 
-  // iOS WebKit has WebGPU but the model LOAD crash-loops the tab, so it must be
-  // gated before load → below-floor. If the gate regresses, this flips to served
-  // (a crash loop shipped) and fails here.
-  it('safari + isMobile + webgpu + 8GB declines via below-floor (gate-before-load)', async () => {
+  // iOS WebKit now has a load-validated pick (Qwen2.5-0.5B via WebLLM/MLC) whose
+  // resident working set stays inside the per-tab memory envelope, so a WebGPU iOS
+  // device SERVES it. Every ONNX build still crash-loops on load and is gated
+  // before load; if the validated pick regressed out, this would flip back to
+  // declined/below-floor.
+  it('safari + isMobile + webgpu + 8GB serves the WebKit-validated MLC pick', async () => {
     const out = await classifyCell(cell({ browserClass: 'safari', isMobile: true }));
-    expect(out).toEqual({ kind: 'declined', surface: 'below-floor' });
+    expect(out).toEqual({ kind: 'served', modelId: 'candidate/qwen2.5-0.5b-mlc', via: 'setup-ladder' });
   });
 
   // Android guard: Android Chrome is NOT implicated and must keep serving. This

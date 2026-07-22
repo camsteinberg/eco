@@ -53,6 +53,11 @@ const DISPLAY_MAP: Record<string, Omit<DisplayInfo, 'provenance'> & { provider: 
     qualityPhrase: 'Strong all-round answers · runs on more devices',
     provider: 'Google',
   },
+  'candidate/qwen2.5-0.5b-mlc': {
+    friendlyName: 'Eco Mobile (Qwen)',
+    qualityPhrase: 'Made for iPhone · quick private chat on the go',
+    provider: 'Alibaba',
+  },
 };
 
 /**

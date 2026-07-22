@@ -1,9 +1,9 @@
 {
   "_documentation": {
     "source": "docs/design/2026-05-16/vision-and-architecture.md §2.4",
-    "scope": "The 6-model v1.0 user-facing catalog. Additional/experimental models are gated out of the shipped user bundle.",
+    "scope": "The 7-model v1.0 user-facing catalog. Additional/experimental models are gated out of the shipped user bundle.",
     "field_definitions": "apps/web/src/local-ai/types.ts (ModelConfig type)",
-    "last_updated": "2026-07-11",
+    "last_updated": "2026-07-22",
     "phase": "bonsai-retirement",
     "artifact_note": "Each model's `artifact` is the canonical download contract. `hfId` + `revision` + `files` feed the server-side proxy allowlist via apps/web/src/lib/local-model-registry.ts (getProxyAllowedLocalModelRegistryArtifacts), and every file MUST have a matching entry in artifact-metadata.json (the proxy's size/SHA-256 verification source — catalog.test.ts pins this invariant). Bootstrap reads this to build the DownloadPlan; mismatches surface as 403 from the proxy."
   },
@@ -187,6 +187,43 @@
         "hfId": "litert-community/gemma-4-E2B-it-litert-lm",
         "revision": "361a4010ad6d88fc5c86e148e333c0342b99763d",
         "files": ["gemma-4-E2B-it-web.litertlm"]
+      }
+    },
+    {
+      "id": "candidate/qwen2.5-0.5b-mlc",
+      "friendlyName": "Qwen2.5 0.5B",
+      "vendor": "Alibaba",
+      "sizeGB": 0.27,
+      "runtime": "webllm",
+      "format": "mlc-q4f16",
+      "capabilities": {
+        "intent": ["snappy", "balanced"],
+        "tasks": ["chat", "writing"],
+        "contextTokens": 4096
+      },
+      "bestFor": "A tiny, fast model built for iPhone and other Safari mobile browsers — quick private chat and light writing that runs on a phone.",
+      "knownLimitation": "Validated on recent iPhone hardware. A small model with a narrower quality envelope: answers are briefer than the everyday default, and open-world facts can be wrong without grounding.",
+      "evidenceTier": "predicted",
+      "systemRoleSupport": "native",
+      "artifact": {
+        "hfId": "mlc-ai/Qwen2.5-0.5B-Instruct-q4f16_1-MLC",
+        "revision": "32ff081fe7e4dfe4ffb167b94c66fdf11e02b8ad",
+        "files": [
+          "params_shard_0.bin",
+          "params_shard_1.bin",
+          "params_shard_2.bin",
+          "params_shard_3.bin",
+          "params_shard_4.bin",
+          "params_shard_5.bin",
+          "params_shard_6.bin",
+          "params_shard_7.bin",
+          "tensor-cache.json",
+          "mlc-chat-config.json",
+          "tokenizer.json",
+          "tokenizer_config.json",
+          "vocab.json",
+          "merges.txt"
+        ]
       }
     }
   ]

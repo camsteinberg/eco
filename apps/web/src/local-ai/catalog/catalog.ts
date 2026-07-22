@@ -4,7 +4,7 @@
 /**
  * Catalog — the v1.0 model list.
  *
- * Exactly 6 models ship in the user-facing catalog:
+ * Exactly 7 models ship in the user-facing catalog:
  *   1. local/phi3-mini-4k-q4f16    — Phi-3 Mini   (Chromium WebGPU ≥16GB, proven)
  *   2. local/qwen3-0.6b            — Qwen3       (universal small / Safari WASM, proven)
  *   3. candidate/lfm2.5-1.2b-instruct-onnx — LFM2.5 1.2B (capable-laptop, proven; DEFAULT)
@@ -14,6 +14,8 @@
  *   5. candidate/qwen3.5-2b-onnx   — Qwen3.5 2B  (capable-laptop, proven; SMART PICK,
  *                                    graduated 2026-06-11 from the chat #7 bake-off)
  *   6. candidate/gemma-4-e2b-litert — Gemma 4    (LiteRT; f16-less-WebGPU default, proven)
+ *   7. candidate/qwen2.5-0.5b-mlc  — Qwen2.5 0.5B (WebLLM/MLC; the WebKit-mobile pick,
+ *                                    real-iPhone validated; iOS-only via requireWebKitMobile)
  *
  * SmolLM2 (WebLLM/MLC) was retired 2026-07-10 and Bonsai 2026-07-11 — see the
  * retirement migrations in lifecycle/self-heal.ts and CHANGES.md.

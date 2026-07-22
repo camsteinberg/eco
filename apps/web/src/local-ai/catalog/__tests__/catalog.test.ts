@@ -25,13 +25,14 @@ const V1_CATALOG_IDS = [
   'candidate/lfm2.5-350m-onnx',
   'candidate/qwen3.5-2b-onnx',
   'candidate/gemma-4-e2b-litert',
+  'candidate/qwen2.5-0.5b-mlc',
 ] as const;
 
 const TECHNICAL_ID_PATTERN = /q4f16|q4f|q4_1|webllm|onnx|fp16|q8|q4\b|q2f16|bnb4|mlc/i;
 
 describe('local-ai catalog (Phase C)', () => {
-  it('ships exactly 6 models', () => {
-    expect(getCatalog()).toHaveLength(6);
+  it('ships exactly 7 models', () => {
+    expect(getCatalog()).toHaveLength(7);
   });
 
   it('ships the locked v1.0 catalog ids in source order', () => {
@@ -45,8 +46,8 @@ describe('local-ai catalog (Phase C)', () => {
     expect(model!.friendlyName, `${id}.friendlyName`).toMatch(/\S/);
     expect(model!.vendor, `${id}.vendor`).toMatch(/\S/);
     expect(model!.sizeGB, `${id}.sizeGB`).toBeGreaterThan(0);
-    expect(['transformers', 'litert']).toContain(model!.runtime);
-    expect(['onnx-q4', 'onnx-q4f16', 'litertlm']).toContain(model!.format);
+    expect(['transformers', 'litert', 'webllm']).toContain(model!.runtime);
+    expect(['onnx-q4', 'onnx-q4f16', 'litertlm', 'mlc-q4f16']).toContain(model!.format);
     expect(model!.capabilities.intent.length, `${id}.capabilities.intent`).toBeGreaterThan(0);
     expect(model!.capabilities.tasks.length, `${id}.capabilities.tasks`).toBeGreaterThan(0);
     expect(model!.capabilities.contextTokens, `${id}.capabilities.contextTokens`).toBeGreaterThan(0);
@@ -71,6 +72,12 @@ describe('local-ai catalog (Phase C)', () => {
       // LiteRT web/CPU/GPU builds are 2048-context (model card; only the NPU
       // build is 4096). Passed as the engine's maxNumTokens.
       'candidate/gemma-4-e2b-litert': 2048,
+      // Qwen2.5-0.5B is natively 32k, but the WebKit-mobile pick is deliberately
+      // capped at 4096 to bound the KV-cache working set inside iOS's per-tab
+      // memory envelope. This value is enforced engine-side via
+      // ModelRecord.overrides.context_window_size (see runtime/webllm-config.ts),
+      // not just clamped in what Eco sends. Raising it needs a fresh on-device run.
+      'candidate/qwen2.5-0.5b-mlc': 4096,
     };
     for (const id of V1_CATALOG_IDS) {
       expect(getModel(id)!.capabilities.contextTokens, id).toBe(expected[id]);
@@ -114,7 +121,7 @@ describe('local-ai catalog (Phase C)', () => {
     }).toThrow();
     // And the array itself is a copy — mutating it doesn't break the next reader.
     snapshot.length = 0;
-    expect(getCatalog()).toHaveLength(6);
+    expect(getCatalog()).toHaveLength(7);
   });
 
   // The catalog's artifact files must have corresponding entries in

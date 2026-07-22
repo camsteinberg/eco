@@ -6,9 +6,9 @@ import { getDisplayInfo } from '../display';
 import { getCatalog } from '../catalog/catalog';
 
 describe('getDisplayInfo', () => {
-  it('returns branded names for all 6 catalog models', () => {
+  it('returns branded names for all 7 catalog models', () => {
     const catalog = getCatalog();
-    expect(catalog.length).toBe(6);
+    expect(catalog.length).toBe(7);
 
     for (const model of catalog) {
       const info = getDisplayInfo(model.id, model);
@@ -73,6 +73,17 @@ describe('getDisplayInfo', () => {
     expect(info.friendlyName).toBe('Eco (Qwen)');
     expect(info.qualityPhrase).toBe('The everyday default · deeper, instruction-faithful answers');
     expect(info.provenance).toBe('Alibaba · 1.4 GB');
+  });
+
+  it('maps Qwen2.5 0.5B to Eco Mobile (Qwen) — the WebKit-mobile pick', () => {
+    const info = getDisplayInfo('candidate/qwen2.5-0.5b-mlc', {
+      friendlyName: 'Qwen2.5 0.5B',
+      vendor: 'Alibaba',
+      sizeGB: 0.27,
+    });
+    expect(info.friendlyName).toBe('Eco Mobile (Qwen)');
+    expect(info.qualityPhrase).toBe('Made for iPhone · quick private chat on the go');
+    expect(info.provenance).toBe('Alibaba · 0.3 GB');
   });
 
   it('falls back to raw friendlyName for unknown model ids', () => {

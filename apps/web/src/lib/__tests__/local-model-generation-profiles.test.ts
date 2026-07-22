@@ -333,6 +333,7 @@ describe("isCjkSuppressionEnabled", () => {
     "candidate/gemma-4-e2b-qat-q4-onnx", // QAT-q4 Gemma — same vendor-anchored slice, no CJK leak class
     "candidate/gemma-4-e2b-litert", // LiteRT-runtime Gemma — no CJK leak class
     "candidate/gemma-4-e4b-litert", // eval-only LiteRT-runtime Gemma — no CJK leak class
+    "candidate/qwen2.5-0.5b-mlc", // WebKit-mobile Qwen2.5 — generic Qwen slice, no measured CJK leak
   ])("is disabled for %s", (id) => {
     expect(isCjkSuppressionEnabled(id)).toBe(false);
   });

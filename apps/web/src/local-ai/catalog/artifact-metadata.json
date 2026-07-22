@@ -54,5 +54,21 @@
   },
   "candidate/gemma-4-e2b-litert": {
     "gemma-4-E2B-it-web.litertlm": { "sizeBytes": 2008432640, "oid": "3a08e8d94e23b814ae5414469c370c503813949acb8ceaa17e4ebf8a35af35b5" }
+  },
+  "candidate/qwen2.5-0.5b-mlc": {
+    "params_shard_0.bin": { "sizeBytes": 68067328, "oid": "9f309954d310dc63adfaf3ef6aa987c681b8aa6d1b9686aa2525b454b0d058d5" },
+    "params_shard_1.bin": { "sizeBytes": 33234176, "oid": "6d174758dd299d9ef4222b1ad4283be832ebd43853951da25b50501ab1b75ba7" },
+    "params_shard_2.bin": { "sizeBytes": 33505280, "oid": "83e0b530bf5c44cbead1a6c220af81040a975f7c81fb708977a02e3ac8d7ffa7" },
+    "params_shard_3.bin": { "sizeBytes": 33053696, "oid": "5ff16197c197d8783d398d0c35fa9641e606e6e2dc1d53b9f26a0c9c17a97921" },
+    "params_shard_4.bin": { "sizeBytes": 33020928, "oid": "a7a3d2b02aa9258154f250a714d1743672e423c5c7c8e5c5eefcb9bf337aa0fd" },
+    "params_shard_5.bin": { "sizeBytes": 29211648, "oid": "19dfd7a3064b84082915575c0e5a57fc1cd7108828e1ce9fbbbaf9db4b63b9af" },
+    "params_shard_6.bin": { "sizeBytes": 33297408, "oid": "192576d43956aa977ec60848b8a7fc8483b5fe38ca9669aa9a3ca2ba795a7a33" },
+    "params_shard_7.bin": { "sizeBytes": 14605824, "oid": "1ee25c2a41dad6833e000b7e3ec13a5a1761c32ffbed0ad8a98a6ad313338dc0" },
+    "tensor-cache.json": { "sizeBytes": 102431, "oid": "abf015d00188c0bf3839d24042100cd3587f9dc0" },
+    "mlc-chat-config.json": { "sizeBytes": 2041, "oid": "bc744a12987c4b57f0e7ff65ac07e5fbb5808312" },
+    "tokenizer.json": { "sizeBytes": 7031645, "oid": "443909a61d429dff23010e5bddd28ff530edda00" },
+    "tokenizer_config.json": { "sizeBytes": 7308, "oid": "2e174d67d63d86ccc35baecd4f3014549e325387" },
+    "vocab.json": { "sizeBytes": 2776833, "oid": "4783fe10ac3adce15ac8f358ef5462739852c569" },
+    "merges.txt": { "sizeBytes": 1671839, "oid": "20024bfe7c83998e9aeaf98a0cd6a2ce6306c2f0" }
   }
 }

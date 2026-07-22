@@ -27,9 +27,10 @@ const MODEL_CONNECT_SRC = [
   // it unconditionally is safe (CSP permits, it does not force use) and means
   // the CDN flag can flip with no separate CSP redeploy.
   'https://models.econetwork.ai',
-  // (Removed 2026-07-10) The GitHub raw-content origin was only needed by the
-  // WebLLM/MLC runtime to fetch its model_lib WASM. WebLLM was retired with
-  // SmolLM2 (registry C1/C2), so the origin is dropped to tighten connect-src.
+  // The GitHub raw-content origin stays out of connect-src: the WebLLM/MLC
+  // runtime's model_lib WASM is now served SAME-ORIGIN from /webllm/ (covered by
+  // `connect-src 'self'`), and weights come through the same-origin proxy/CDN
+  // already listed above — so no model asset needs a third-party fetch origin.
 ].join(' ')
 
 // Phase 5 grounding talks DIRECTLY from the browser to Wikimedia's public REST
@@ -59,7 +60,11 @@ const AUTH_PATHS = new Set(['/sign-in', '/sign-up'])
 // bypass the gate: engine loaders fetch them without page context, and a 307
 // to /gate hands WebAssembly.instantiate an HTML body (broke every real-prod
 // LiteRT load until 2026-07-03). They serve only allowlisted static assets.
-const SITE_GATE_BYPASS_PATHS = new Set(['/gate', '/api/gate', '/api/deploy-health', '/api/local-models', '/api/ort', '/api/litert-wasm', '/privacy', '/terms', '/transparency', '/impact'])
+// /webllm holds the WebLLM/MLC model_lib WASM (public/webllm/, build-copied) and
+// the same-origin model base its cache keys derive from — same reasoning; the
+// matcher below already excludes it from middleware entirely, this is the
+// defensive belt for any path that still reaches here.
+const SITE_GATE_BYPASS_PATHS = new Set(['/gate', '/api/gate', '/api/deploy-health', '/api/local-models', '/api/ort', '/api/litert-wasm', '/webllm', '/privacy', '/terms', '/transparency', '/impact'])
 
 function isPublicPath(pathname: string): boolean {
   for (const path of PUBLIC_PATHS) {
@@ -242,10 +247,10 @@ export const config = {
     // Static assets must bypass middleware entirely — when SITE_PASSWORD is set,
     // the site-gate would otherwise 307 these to /gate with a text/plain body,
     // causing Chromium's PWA validator to fail parsing manifest.webmanifest as JSON.
-    // litert-wasm/ and ort/ are the build-copied runtime engine assets
+    // litert-wasm/, ort/, and webllm/ are the build-copied runtime engine assets
     // (public/…, see scripts/copy-runtime-assets.mjs) — engine loaders fetch
     // them cookie-less, so the site-gate 307 would poison WebAssembly
     // instantiation just like it did the manifest.
-    '/((?!_next/static|_next/image|favicon.ico|sw\\.js|manifest\\.webmanifest|icons/|litert-wasm/|ort/|api/auth).*)',
+    '/((?!_next/static|_next/image|favicon.ico|sw\\.js|manifest\\.webmanifest|icons/|litert-wasm/|ort/|webllm/|api/auth).*)',
   ],
 }

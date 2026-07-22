@@ -15,6 +15,7 @@ import type { ProgressEvent } from '../download/progress';
 import { ProgressTracker } from '../download/progress';
 import { bootstrapLocalAi } from '../bootstrap';
 import { downloadModel, InsufficientStorageError, isModelFullyCached } from '../download/download';
+import { bridgeDownloadWebLLMModel } from '../runtime/webllm-cache-bridge';
 import { runSmoke } from './smoke';
 import { setSlot, setSlotStatus, getSlot, type SlotState, type SlotStatus } from './slots';
 import { isBelowFloor } from '../device/below-floor';
@@ -132,7 +133,16 @@ async function defaultRunAttempt(
   const unsubscribe = tracker.subscribe(onProgressEvent);
   try {
     try {
-      await downloadModel(model, { tracker });
+      // A `webllm` model routes through the cache bridge instead of the plain
+      // downloader: it still runs Eco's zero-retention download, then pre-stages
+      // the bytes in WebLLM's own cache so serving is a pure cache hit. Every
+      // other runtime is unchanged. The bridge re-throws download errors as-is
+      // (incl. InsufficientStorageError), so the classification below is uniform.
+      if (model.runtime === 'webllm') {
+        await bridgeDownloadWebLLMModel(model, { tracker });
+      } else {
+        await downloadModel(model, { tracker });
+      }
     } catch (err) {
       const reason = err instanceof Error ? err.message : 'Download failed.';
       logSetupAttemptFailure({ modelId: model.id, runtime: model.runtime, phase: 'download', reason, error: err });

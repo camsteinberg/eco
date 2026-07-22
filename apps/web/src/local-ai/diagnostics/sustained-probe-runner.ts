@@ -364,19 +364,28 @@ export async function runSustainedProbe(
     onProgress?.({ phase: 'loading' });
 
     // A probe never downloads WEIGHTS. Without this guard, loading an
-    // un-cached model falls through to TJS's internal remote fetch — a silent
-    // multi-hundred-MB single-GET (observed 504ing through the dev proxy,
-    // s32). Deliberately scoped to weights-class files rather than
-    // `isModelFullyCached`: the manifest plan lists files TJS never requests
+    // un-cached model falls through to the engine's internal remote fetch — a
+    // silent multi-hundred-MB single-GET (observed 504ing through the dev proxy).
+    // A `webllm` model serves from WebLLM's OWN Cache API namespaces, not
+    // Eco storage, so it is gated on the real `hasModelInCache` (against the
+    // self-hosted appConfig); every other runtime is gated on its Eco download
+    // plan. The plan check is deliberately scoped to weights-class files rather
+    // than `isModelFullyCached`: the manifest plan lists files TJS never requests
     // (vocab.json, merges.txt, …), so full-plan completeness reads false on a
     // cache populated by real loads. Small config/tokenizer fall-throughs are
     // bounded and cannot distort a memory measurement; the weights are what
     // wedge. Fails closed: no plan, no weights entry, or a verify error all
     // refuse.
-    if (!(await probeWeightsCached(model, peekDownloadPlan, pickStorage))) {
+    const weightsReady =
+      model.runtime === 'webllm'
+        ? await (await import('../runtime/webllm-cache-bridge')).webllmModelInCache(model)
+        : await probeWeightsCached(model, peekDownloadPlan, pickStorage);
+    if (!weightsReady) {
       return finalize(
         'error',
-        'Model weights are not fully downloaded on this device — a probe run never downloads them. Use “Download weights” in this panel, then re-run.',
+        model.runtime === 'webllm'
+          ? 'Model weights are not in the WebLLM cache on this device — a probe run never downloads them. Use “Download weights” in this panel, then re-run.'
+          : 'Model weights are not fully downloaded on this device — a probe run never downloads them. Use “Download weights” in this panel, then re-run.',
       );
     }
 
