@@ -153,12 +153,13 @@ const RULES: Readonly<Record<string, CompatibilityRule>> = Object.freeze({
  * classify `'safari'` + `isMobile` in `device/profile.ts`. So this predicate is
  * "iOS WebKit" exactly.
  *
- * Why it gates before any load: the real-device spike (iPhone 13, iOS Safari)
- * showed every model LOAD crashes the tab in a restart loop — onnxruntime-web
- * fully materializes the model weights into the WASM heap (~5× working set),
- * which blows past iOS's ~2GB per-tab memory ceiling before a single token is
- * generated. The structural fix (Phase A/B working-set reduction) is pursued
- * separately; until a phone-validated config exists, iOS must be declined
+ * Why it gates before any load: real-device testing (iPhone, iOS Safari)
+ * showed every ONNX model LOAD crashes the tab in a restart loop — onnxruntime-web
+ * fully materializes the model weights into the WASM heap (a multiple of the
+ * working set), which blows past iOS's per-tab memory ceiling before a single
+ * token is generated. A model escapes this decline only via
+ * WEBKIT_MOBILE_VALIDATED_MODEL_IDS below — earned by a real-device pass on a
+ * runtime that stays inside the envelope. Everything else must be declined
  * BEFORE any download/load attempt and welcomed with the designed handoff
  * surface, never a crash loop.
  *
@@ -176,7 +177,8 @@ export function isWebKitMobile(profile: DeviceProfile): boolean {
  * and generates without the tab-restart loop; until an id is listed, WebKit-mobile
  * declines it to the designed handoff surface. Every ONNX build still crash-loops
  * on load there (onnxruntime-web fully materializes the weights into the WASM heap,
- * ~5× working set, blowing past iOS's ~2GB per-tab ceiling before the first token).
+ * a multiple of the working set, blowing past iOS's per-tab memory ceiling before
+ * the first token).
  *
  * Qwen2.5-0.5B (WebLLM/MLC runtime) is the first entry: the MLC engine keeps the
  * resident working set inside the iOS envelope, and a real iPhone loaded it and
