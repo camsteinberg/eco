@@ -106,7 +106,7 @@ const CHAT_INTENT_MODEL_DATA: Record<string, ChatIntentModelSlice> = {
   // ─── Lab / validation-harness models (not in v1 catalog) ─────────────
   // These entries exist so allowValidationModel: true resolves generation
   // profiles during benchmark and eval harness runs. Their family strings
-  // (smollm3, bitnet, rwkv7) are outside the v1 LocalModelFamily union,
+  // (smollm3, bitnet) are outside the v1 LocalModelFamily union,
   // so they cast to ChatIntentModelSlice — runtime profile lookup falls
   // through to the baseline budgets, which is the intended behavior.
   //
@@ -259,18 +259,6 @@ const CHAT_INTENT_MODEL_DATA: Record<string, ChatIntentModelSlice> = {
   "candidate/bitnet-b158": {
     id: "candidate/bitnet-b158",
     family: "bitnet",
-    qualityTier: "experimental",
-    maxNewTokens: { webgpu: 1024 },
-  } as unknown as ChatIntentModelSlice,
-  "local/rwkv7-1.5b": {
-    id: "local/rwkv7-1.5b",
-    family: "rwkv7",
-    qualityTier: "experimental",
-    maxNewTokens: { webgpu: 1024 },
-  } as unknown as ChatIntentModelSlice,
-  "local/rwkv7-2.9b": {
-    id: "local/rwkv7-2.9b",
-    family: "rwkv7",
     qualityTier: "experimental",
     maxNewTokens: { webgpu: 1024 },
   } as unknown as ChatIntentModelSlice,
