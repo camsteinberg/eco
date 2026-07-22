@@ -22,7 +22,7 @@
  *     fails at load. Compatibility gating keeps it off such devices upstream.
  *
  *   - WebLLM/MLC runs only its own MLC-compiled builds — no cross-runtime
- *     fallback, same reasoning as LiteRT. Re-integrated (s38) as the WebKit
+ *     fallback, same reasoning as LiteRT. Re-integrated as the WebKit
  *     survival path ORT cannot serve; `WebLLMAdapter` exists and is routed
  *     to here, but no production engine factory is registered yet (that
  *     needs a specific self-hosted model_lib, a model-scope decision this

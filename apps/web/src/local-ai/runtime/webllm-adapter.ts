@@ -4,7 +4,7 @@
 /**
  * WebLLM (`@mlc-ai/web-llm`) adapter.
  *
- * Re-integrated s38 as the WebKit survival path: MLC/WebLLM measurably
+ * Re-integrated as the WebKit survival path: MLC/WebLLM measurably
  * retains far less memory than ONNX Runtime on the same engine and was
  * confirmed to survive the exact idle-quiescence pattern that reliably
  * killed ORT on a real iPhone. Eco shipped this runtime once before
