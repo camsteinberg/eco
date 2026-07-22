@@ -232,7 +232,7 @@ export class WebLLMAdapter implements RuntimeAdapter {
     let abortedDuringReload = false;
     const onAbort = (): void => {
       abortedDuringReload = true;
-      void engine.unload();
+      void engine.unload().catch(() => undefined);
     };
     if (options?.signal) {
       if (options.signal.aborted) onAbort();

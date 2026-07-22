@@ -32,6 +32,14 @@ const LITERT_MODEL: ModelConfig = {
   format: 'litertlm',
 };
 
+const WEBLLM_MODEL: ModelConfig = {
+  ...TJS_MODEL,
+  id: 'candidate/qwen2.5-1.5b-webllm',
+  friendlyName: 'Qwen2.5 1.5B',
+  runtime: 'webllm',
+  format: 'mlc-q4f16',
+};
+
 describe('selectRuntime', () => {
   it('honors the transformers catalog runtime regardless of profile', () => {
     for (const profile of Object.values(PROFILES)) {
@@ -45,6 +53,14 @@ describe('selectRuntime', () => {
     for (const profile of Object.values(PROFILES)) {
       const r = selectRuntime(LITERT_MODEL, profile);
       expect(r.runtime).toBe('litert');
+      expect(r.reason).toBe('catalog-runtime');
+    }
+  });
+
+  it('honors the webllm catalog runtime regardless of profile', () => {
+    for (const profile of Object.values(PROFILES)) {
+      const r = selectRuntime(WEBLLM_MODEL, profile);
+      expect(r.runtime).toBe('webllm');
       expect(r.reason).toBe('catalog-runtime');
     }
   });
