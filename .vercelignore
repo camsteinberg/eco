@@ -4,4 +4,11 @@ tests/load
 # Vercel archive. The leading slash limits this to the root-level tools/ dir.
 /tools
 .worktrees
+# Keep stray/vendored wasm out of the source upload, but NEVER the servable
+# runtime binaries under apps/web/public/ — Vercel serves those from the CDN,
+# and a bare `*.wasm` silently strips them from the deploy archive while local
+# dev still works (same failure class as the bare `tools` pattern above). The
+# re-include covers the tracked runtime assets and any future self-hosted
+# model_lib wasm placed under public/.
 *.wasm
+!apps/web/public/**/*.wasm
