@@ -17,6 +17,11 @@ import {
 } from '../smoke';
 import { loadDiagnostics, clearDiagnostics } from '../../diagnostics/capture';
 
+const webllmModelInCacheMock = vi.hoisted(() => vi.fn());
+vi.mock('../../runtime/webllm-cache-bridge', () => ({
+  webllmModelInCache: webllmModelInCacheMock,
+}));
+
 const MODEL: ModelConfig = {
   id: 'local/phi3-mini-4k-q4f16',
   friendlyName: 'Phi-3 Mini',
@@ -52,6 +57,7 @@ function stubCachesWithFiles(): void {
 beforeEach(() => {
   _resetSmokeForTesting();
   clearDiagnostics();
+  webllmModelInCacheMock.mockReset();
   // By default, stub caches so tests that exercise generation proceed past
   // the download guard. Tests that specifically test the empty-cache path
   // unstub before running.
@@ -673,6 +679,78 @@ describe('runSmoke — empty cache early exit', () => {
     expect(entry.outcome).toBe('smoke-fail');
     expect(entry.error?.message).toBe('Model not yet downloaded');
     expect(entry.events.some((e) => e.phase === 'load-fail')).toBe(true);
+  });
+});
+
+// ─── WebLLM cache gate ───────────────────────────────────────────────────
+// A `webllm` model never persists in Eco storage: the cache bridge stages
+// files there during download, copies them into WebLLM's own Cache API
+// namespaces, and deletes each staging copy. The download-guard for that
+// runtime must therefore consult WebLLM's cache, not the Eco namespace —
+// otherwise every successfully downloaded webllm model reads as "not yet
+// downloaded" and setup declines the device (observed on-device 2026-07-23).
+
+describe('runSmoke — webllm cache gate', () => {
+  const WEBLLM_MODEL: ModelConfig = {
+    ...MODEL,
+    id: 'candidate/qwen2.5-0.5b-mlc',
+    friendlyName: 'Qwen2.5 0.5B',
+    vendor: 'Alibaba',
+    sizeGB: 0.27,
+    runtime: 'webllm',
+    format: 'mlc-q4f16',
+  };
+
+  it('runs generation when WebLLM has the model cached even though Eco staging is empty', async () => {
+    // Post-bridge state: Eco staging cache empty by design.
+    vi.unstubAllGlobals();
+    webllmModelInCacheMock.mockResolvedValue(true);
+
+    let seamCalled = false;
+    setSmokeGenerationFn(async function* (): AsyncIterable<TokenEvent> {
+      seamCalled = true;
+      yield { kind: 'token', text: 'OK' };
+      yield { kind: 'done' };
+    });
+
+    const r = await runSmoke('eco-fast', WEBLLM_MODEL, { skipDiagnostics: true });
+    expect(seamCalled).toBe(true);
+    expect(r.passed).toBe(true);
+  });
+
+  it('still early-exits when the model is missing from the WebLLM cache, even if Eco staging has files', async () => {
+    // Mid-download leftovers in staging must not count as downloaded:
+    // running smoke then would let the engine fetch weights from the
+    // network, which the bridge exists to prevent.
+    webllmModelInCacheMock.mockResolvedValue(false);
+    let seamCalled = false;
+    setSmokeGenerationFn(async function* (): AsyncIterable<TokenEvent> {
+      seamCalled = true;
+      yield { kind: 'token', text: 'OK' };
+      yield { kind: 'done' };
+    });
+
+    const r = await runSmoke('eco-fast', WEBLLM_MODEL);
+    expect(r.passed).toBe(false);
+    if (!r.passed) {
+      expect(r.reason).toBe('Model not yet downloaded');
+    }
+    expect(seamCalled).toBe(false);
+    const entry = loadDiagnostics()[0]!;
+    expect(
+      entry.events.some((e) => e.phase === 'cache-probe' && e.note === 'webllm cache: miss'),
+    ).toBe(true);
+  });
+
+  it('does not consult the WebLLM cache for non-webllm runtimes', async () => {
+    vi.unstubAllGlobals();
+    setSmokeGenerationFn(async function* (): AsyncIterable<TokenEvent> {
+      yield { kind: 'token', text: 'OK' };
+      yield { kind: 'done' };
+    });
+    const r = await runSmoke('eco-fast', MODEL, { skipDiagnostics: true });
+    expect(r.passed).toBe(false);
+    expect(webllmModelInCacheMock).not.toHaveBeenCalled();
   });
 });
 
