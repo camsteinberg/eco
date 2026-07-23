@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Bos Computing LLC
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   clearDiagnostics,
   exportDiagnostics,
@@ -9,6 +9,10 @@ import {
   recordDiagnostic,
   type LocalAiDiagnostic,
 } from '../capture';
+import {
+  _resetSetupFailuresForTesting,
+  logSetupAttemptFailure,
+} from '../../lifecycle/setup-diagnostics';
 
 const STORAGE_KEY = 'eco-local-ai-diagnostics-v1';
 
@@ -40,10 +44,13 @@ function makeDiagnostic(overrides?: Partial<LocalAiDiagnostic>): LocalAiDiagnost
 
 beforeEach(() => {
   localStorage.clear();
+  _resetSetupFailuresForTesting();
 });
 
 afterEach(() => {
   localStorage.clear();
+  _resetSetupFailuresForTesting();
+  vi.restoreAllMocks();
 });
 
 describe('recordDiagnostic + loadDiagnostics', () => {
@@ -162,11 +169,38 @@ describe('exportDiagnostics', () => {
       env: { userAgent: string };
       entries: LocalAiDiagnostic[];
     };
-    expect(parsed.schemaVersion).toBe(2);
+    // Dump-envelope version is 3 (adds setupFailures); per-entry schema stays 2.
+    expect(parsed.schemaVersion).toBe(3);
+    expect(parsed.entries[0]!.schemaVersion).toBe(2);
     expect(typeof parsed.dumpedAt).toBe('string');
     expect(parsed.env).toBeDefined();
     expect(parsed.entries).toHaveLength(1);
     expect(parsed.entries[0]!.modelId).toBe('test-export');
+  });
+
+  it('carries recent setup-attempt failures in the dump', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    logSetupAttemptFailure({
+      modelId: 'candidate/qwen2.5-0.5b-mlc',
+      runtime: 'webllm',
+      phase: 'download',
+      reason: 'HTTP 404 fetching range of https://cdn.example/model.bin',
+    });
+
+    const parsed = JSON.parse(await exportDiagnostics()) as {
+      setupFailures: { modelId: string; phase: string; reason: string; at: string }[];
+    };
+    expect(parsed.setupFailures).toHaveLength(1);
+    expect(parsed.setupFailures[0]).toMatchObject({
+      modelId: 'candidate/qwen2.5-0.5b-mlc',
+      phase: 'download',
+    });
+    expect(parsed.setupFailures[0]!.reason).toContain('404');
+  });
+
+  it('reports an empty setupFailures array when none were recorded', async () => {
+    const parsed = JSON.parse(await exportDiagnostics()) as { setupFailures: unknown[] };
+    expect(parsed.setupFailures).toEqual([]);
   });
 
   it('returns empty entries array when no diagnostics', async () => {

@@ -33,16 +33,30 @@ import {
   type SustainedProbeLevers,
   type SustainedProbeRecord,
 } from './sustained-probe';
+import {
+  getRecentSetupFailures,
+  type RecordedSetupFailure,
+} from '../lifecycle/setup-diagnostics';
 
 const STORAGE_KEY = 'eco-local-ai-diagnostics-v1';
 const MAX_ENTRIES = 50;
 /**
- * v2 (slice 3): adds `resolvedBackend` — the execution provider a load actually
- * resolved to (webgpu can silently fall back to wasm). This is a best-effort
- * DEBUG store (FIFO, no recommender consumption), so a schema bump drops the
- * handful of older entries rather than migrating them.
+ * Per-ENTRY schema version. v2 (slice 3) adds `resolvedBackend` — the execution
+ * provider a load actually resolved to (webgpu can silently fall back to wasm).
+ * This is a best-effort DEBUG store (FIFO, no recommender consumption), so a
+ * schema bump drops the handful of older entries rather than migrating them.
+ *
+ * Deliberately separate from `DUMP_SCHEMA_VERSION`: adding a top-level field to
+ * the export envelope must NOT invalidate already-stored entries.
  */
 const SCHEMA_VERSION = 2;
+/**
+ * The export-envelope (dump) schema version, independent of the per-entry
+ * schema above. v3 adds `setupFailures` — the recent setup-attempt failures, so
+ * a support dump taken after setup exhausted carries the real reasons instead of
+ * an empty signal.
+ */
+const DUMP_SCHEMA_VERSION = 3;
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -162,17 +176,24 @@ export type DiagnosticDump = {
    * their own versioning — the smoke `schemaVersion` is unaffected.
    */
   sustainedProbes?: SustainedProbeRecord[];
+  /**
+   * Recent setup-attempt failures (additive, v3). Each first-run model that the
+   * cascade demoted is folded into the generic exhausted screen, so without this
+   * a dump taken after setup gave up carried no per-attempt reason.
+   */
+  setupFailures?: RecordedSetupFailure[];
 };
 
 export async function exportDiagnostics(): Promise<string> {
   const entries = loadDiagnostics();
   const dump: DiagnosticDump = {
-    schemaVersion: SCHEMA_VERSION,
+    schemaVersion: DUMP_SCHEMA_VERSION,
     dumpedAt: new Date().toISOString(),
     env: await getDiagnosticEnv(),
     entries,
     activeLevers: readActiveLevers(),
     sustainedProbes: loadSustainedProbes(),
+    setupFailures: getRecentSetupFailures(),
   };
   return JSON.stringify(dump, null, 2);
 }

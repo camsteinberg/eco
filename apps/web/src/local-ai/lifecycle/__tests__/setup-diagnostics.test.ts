@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Bos Computing LLC
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   SETUP_FAILURE_LOG_TAG,
+  _resetSetupFailuresForTesting,
   formatSetupAttemptFailure,
+  getRecentSetupFailures,
   logSetupAttemptFailure,
 } from '../setup-diagnostics';
 
@@ -83,5 +85,62 @@ describe('logSetupAttemptFailure', () => {
       phase: 'load-or-smoke',
       reason: 'WebGPU device lost',
     });
+  });
+});
+
+describe('getRecentSetupFailures ring buffer', () => {
+  beforeEach(() => {
+    _resetSetupFailuresForTesting();
+    // Silence the console.error side-effect; the buffer is what we assert here.
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    _resetSetupFailuresForTesting();
+  });
+
+  it('records each failure with an ISO timestamp, oldest first', () => {
+    logSetupAttemptFailure({
+      modelId: 'local/qwen3-0.6b',
+      runtime: 'transformers',
+      phase: 'download',
+      reason: 'HTTP 404 fetching range of https://cdn.example/w.bin',
+    });
+    logSetupAttemptFailure({
+      modelId: 'candidate/gemma-4-e2b-litert',
+      runtime: 'litert',
+      phase: 'load-or-smoke',
+      reason: 'WebGPU device lost',
+    });
+
+    const recent = getRecentSetupFailures();
+    expect(recent).toHaveLength(2);
+    expect(recent[0]).toMatchObject({ modelId: 'local/qwen3-0.6b', phase: 'download' });
+    expect(recent[1]).toMatchObject({ modelId: 'candidate/gemma-4-e2b-litert' });
+    // Each carries a parseable ISO capture time.
+    expect(Number.isNaN(Date.parse(recent[0]!.at))).toBe(false);
+  });
+
+  it('caps the buffer, evicting the oldest failures (FIFO)', () => {
+    for (let i = 0; i < 25; i++) {
+      logSetupAttemptFailure({
+        modelId: `m${i}`,
+        runtime: 'transformers',
+        phase: 'download',
+        reason: `fail ${i}`,
+      });
+    }
+    const recent = getRecentSetupFailures();
+    // Capped at 20; the five oldest (m0..m4) evicted, newest (m24) retained.
+    expect(recent).toHaveLength(20);
+    expect(recent[0]!.modelId).toBe('m5');
+    expect(recent.at(-1)!.modelId).toBe('m24');
+  });
+
+  it('returns a copy — mutating the result cannot corrupt the buffer', () => {
+    logSetupAttemptFailure({ modelId: 'm', runtime: 'transformers', phase: 'download', reason: 'x' });
+    const first = getRecentSetupFailures();
+    first.push({ modelId: 'injected', runtime: 'x', phase: 'download', reason: 'x', at: 'now' });
+    expect(getRecentSetupFailures()).toHaveLength(1);
   });
 });
