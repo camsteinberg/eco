@@ -324,7 +324,27 @@ export async function runSmoke(
   // a smoke failure, it's an orchestration state. Return early with a
   // specific reason so callers can distinguish "needs download" from "model
   // is broken."
-  const cacheIsEmpty = !cacheState || !cacheState.hit || (cacheState.fileCount ?? 0) === 0;
+  //
+  // A `webllm` model is the exception: Eco storage is only a staging area —
+  // the cache bridge copies every file into WebLLM's own Cache API
+  // namespaces and empties the staging cache after a successful download
+  // (see webllm-cache-bridge.ts), so the Eco namespace is empty precisely
+  // when the download SUCCEEDED. The authoritative signal is WebLLM's cache,
+  // checked through the same fail-closed gate the sustained probe uses.
+  let cacheIsEmpty = !cacheState || !cacheState.hit || (cacheState.fileCount ?? 0) === 0;
+  if (model.runtime === 'webllm') {
+    let inWebLLMCache = false;
+    try {
+      inWebLLMCache = await (
+        await import('../runtime/webllm-cache-bridge')
+      ).webllmModelInCache(model);
+    } catch {
+      // Fail closed — a bridge chunk that cannot load means the model
+      // cannot serve either, and runSmoke never throws.
+    }
+    pushDiagEvent('cache-probe', `webllm cache: ${inWebLLMCache ? 'hit' : 'miss'}`);
+    cacheIsEmpty = !inWebLLMCache;
+  }
   if (cacheIsEmpty) {
     const reason = 'Model not yet downloaded';
     pushDiagEvent('load-fail', reason);
