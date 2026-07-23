@@ -639,6 +639,36 @@ describe('downloadByPlan — CDN → proxy transport fallback', () => {
     warn.mockRestore();
   });
 
+  it('names the CDN transport URL in the error when a hard 4xx does not fall back', async () => {
+    // A 410 Gone is a genuine bad-object error, not mirror drift, so no fallback
+    // fires. The thrown message must name the URL actually requested — the CDN
+    // source — so field diagnosis is not misdirected to the proxy identity,
+    // while the structured `url` stays the stable storage key.
+    const CHUNK = 4;
+    const body = Uint8Array.from({ length: 10 }, (_, i) => i + 1);
+    const plan: DownloadPlan = {
+      modelId: MODEL_ID,
+      files: [{ url: IDENTITY, fetchUrl: CDN, sizeBytes: body.byteLength, oid: oidOf(body) }],
+    };
+    const log: string[] = [];
+
+    const err = await downloadByPlan(plan, {
+      storage,
+      rangeChunkBytes: CHUNK,
+      fetcher: dispatch(log, {
+        [CDN]: () => new Response(null, { status: 410 }),
+        [IDENTITY]: (init) => rangeResponse(body, init),
+      }),
+    }).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(DownloadFailedError);
+    expect((err as DownloadFailedError).message).toContain(CDN);
+    expect((err as DownloadFailedError).message).not.toContain(IDENTITY);
+    expect((err as DownloadFailedError).url).toBe(IDENTITY);
+    // No fallback on a hard 4xx that isn't 403/404 — the proxy is never touched.
+    expect(log).not.toContain(IDENTITY);
+  });
+
   it('makes a single request and propagates the error when fetchUrl is unset', async () => {
     const body = byteArr(1, 2, 3);
     const plan: DownloadPlan = {

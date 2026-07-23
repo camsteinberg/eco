@@ -706,7 +706,13 @@ async function streamResponseToBlob(
   tracker: ProgressTracker,
   signal: AbortSignal,
   modelId: string,
-  url: string,
+  // The transport URL actually being read — used in the error message so a
+  // failure names where the bytes came from (the CDN, or the proxy after a
+  // fallback), not the storage identity.
+  sourceUrl: string,
+  // The stable storage identity — kept as the structured `url` field so callers
+  // and the ledger key on it regardless of transport.
+  identityUrl: string,
 ): Promise<Blob> {
   if (!response.body) {
     // Fallback when the runtime cannot stream (jsdom under some configs).
@@ -730,8 +736,8 @@ async function streamResponseToBlob(
   } catch (err) {
     if (signal.aborted) throw new DownloadAbortedError(modelId);
     throw new DownloadFailedError(
-      `Network error streaming ${url}: ${errorMessage(err)}`,
-      { url },
+      `Network error streaming ${sourceUrl}: ${errorMessage(err)}`,
+      { url: identityUrl },
     );
   }
 }
@@ -1103,6 +1109,7 @@ async function downloadFileWhole(
     ctx.tracker,
     ctx.signal,
     ctx.modelId,
+    source,
     file.url,
   );
 
@@ -1176,6 +1183,10 @@ async function downloadFileInChunks(
   // Provisional total from the plan; corrected by the first 206 Content-Range
   // so a wrong heuristic estimate cannot truncate or over-run the download.
   let total = file.sizeBytes;
+  // The transport being read this pass (the CDN, or the proxy after a fallback
+  // pinned `fetchUrl` to `url`). Used in error messages so a failure names where
+  // the range request went, while the storage identity stays `file.url`.
+  const source = file.fetchUrl ?? file.url;
 
   // Resume: adopt any previously-persisted contiguous parts for this file's
   // current stamp, and sweep stale (superseded-revision) or non-contiguous ones.
@@ -1212,7 +1223,7 @@ async function downloadFileInChunks(
       // rather than re-requesting the same unsatisfiable range forever.
       await deletePartsBestEffort(ctx.storage, ctx.modelId, partKeys);
       throw new DownloadFailedError(
-        `Range request for ${file.url} was unsatisfiable (HTTP 416) with no Content-Range; `
+        `Range request for ${source} was unsatisfiable (HTTP 416) with no Content-Range; `
         + `cleared ${partKeys.length} resumed part(s) for a clean retry`,
         { url: file.url, status: 416 },
       );
@@ -1243,7 +1254,7 @@ async function downloadFileInChunks(
     if (chunk.total != null) total = chunk.total;
     if (chunk.blob.size === 0) {
       throw new DownloadFailedError(
-        `Empty range response for ${file.url} at offset ${received}`,
+        `Empty range response for ${source} at offset ${received}`,
         { url: file.url },
       );
     }
@@ -1424,7 +1435,7 @@ async function fetchRangeChunk(
       }
       if (response.status !== 200 && response.status !== 206) {
         throw new DownloadFailedError(
-          `HTTP ${response.status} fetching range of ${file.url}`,
+          `HTTP ${response.status} fetching range of ${source}`,
           { url: file.url, status: response.status },
         );
       }
@@ -1439,6 +1450,7 @@ async function fetchRangeChunk(
         ctx.tracker,
         ctx.signal,
         ctx.modelId,
+        source,
         file.url,
       );
       return { status: response.status, total, blob };
@@ -1461,7 +1473,7 @@ async function fetchRangeChunk(
   }
   throw lastError instanceof Error
     ? lastError
-    : new DownloadFailedError(`Range download failed for ${file.url}`, { url: file.url });
+    : new DownloadFailedError(`Range download failed for ${source}`, { url: file.url });
 }
 
 /** Parse the total size from a `Content-Range: bytes start-end/total` header. */
