@@ -946,14 +946,21 @@ async function fetchFileToBlob(
  *
  * A file's bytes are normally pulled from `file.fetchUrl` (the direct R2 CDN
  * URL when configured); `file.url` is the stable same-origin proxy path — Eco's
- * own re-emit of the HF object, which always resolves. A CDN outage should not
- * fail the download when the proxy can still serve, so on a transport-level
- * error (5xx/408/429/network, or a CDN serving corrupt bytes) this retries ONCE
- * against the proxy by pinning `fetchUrl` to `url`.
+ * own re-emit of the HF object, which always resolves. A CDN outage OR a CDN
+ * that is simply missing this artifact (an incompletely-mirrored model — the
+ * proxy still re-emits it from HF) should not fail the download when the proxy
+ * can still serve, so on a transport-level error (5xx/408/429/network, a CDN
+ * serving corrupt bytes, or a 403/404 mirror miss) this retries ONCE against the
+ * proxy by pinning `fetchUrl` to `url`.
  *
  * This is a second recovery axis, distinct from the per-chunk retry inside
  * `fetchRangeChunk`: that retries the SAME source on a blip; this switches
  * SOURCE after those retries are spent (chunked) or immediately (whole-file).
+ * The switch is structural, not a per-chunk latch: the whole per-file fetch is
+ * re-entered with the source pinned to the proxy, so EVERY subsequent chunk of
+ * that file resolves to the proxy (a chunked resume adopts any parts the CDN
+ * attempt persisted first). The doomed-CDN cost is bounded to the single request
+ * whose failure triggers the fallback — later chunks never re-probe the CDN.
  * It composes with — and does not consume — the setup cascade's one
  * model-level retry, so a whole download attempt can survive a dead CDN.
  *
@@ -970,7 +977,11 @@ async function fetchFileToBlobWithFallback(
     return await fetchFileToBlob(file, baseLoaded, ctx);
   } catch (err) {
     if (!shouldFallbackToProxy(err, file, ctx.signal)) throw err;
-    console.warn('[eco] CDN fetch failed, falling back to proxy', { url: file.url });
+    // Exactly one line per fallen-back file. Mirror drift (a 403/404 — the CDN
+    // is missing an artifact the proxy still serves) is called out by name so it
+    // is never silent; `shouldFallbackToProxy` guarantees `fetchUrl` is the
+    // distinct CDN source here.
+    console.warn(cdnFallbackWarning(file.fetchUrl ?? file.url, err));
     // Pin the transport source to the stable proxy identity for the retry. If
     // this attempt also fails, its error propagates normally (no third try).
     // The retry re-enters the chunked path, which resumes from any parts the
@@ -988,15 +999,18 @@ async function fetchFileToBlobWithFallback(
  *   - the download was aborted (a user/tab cancel is not a transport failure);
  *   - no distinct CDN is in use (`fetchUrl` unset or equal to `url`), so the
  *     proxy IS the source that just failed — a retry cannot differ;
- *   - the error is a hard 4xx (missing/forbidden object): the same path won't
- *     resolve on the proxy either. 408/429 are excluded — those are transient;
+ *   - the error is a hard 4xx OTHER than 403/404: a 400/410/etc. reflects a
+ *     genuinely bad request/object that the proxy won't resolve either. 408/429
+ *     are transient and fall back; 403/404 are the mirror-drift signal below;
  *   - the error is non-transport (e.g. `InsufficientStorageError`): a different
  *     source can't create disk space.
  *
  * True (fall back) for a `DownloadFailedError` carrying a 5xx/408/429 status or
- * no status (a network error), and for a `DownloadIntegrityError` — a CDN
- * serving corrupt bytes is worth re-fetching through the proxy, whose full-GET
- * path carries a server-side SHA guard.
+ * no status (a network error); for a `DownloadIntegrityError` — a CDN serving
+ * corrupt bytes is worth re-fetching through the proxy, whose full-GET path
+ * carries a server-side SHA guard; and for a 403/404 — an incompletely-mirrored
+ * CDN is missing an artifact the same-origin proxy still re-emits from HF, so
+ * the identical path DOES resolve on the proxy (this is the mirror-drift fix).
  */
 function shouldFallbackToProxy(
   err: unknown,
@@ -1015,6 +1029,8 @@ function shouldFallbackToProxy(
       status != null
       && status >= 400
       && status < 500
+      && status !== 403
+      && status !== 404
       && status !== 408
       && status !== 429
     ) {
@@ -1023,6 +1039,33 @@ function shouldFallbackToProxy(
     return true;
   }
   return false;
+}
+
+/**
+ * One-line console warning for a CDN→proxy fallback. A 403/404 mirror miss (the
+ * CDN never received this artifact) is named explicitly so drift between the
+ * shipped model and its R2 mirror is always visible in the field; transient
+ * (5xx/408/429), corrupt-bytes, and network failures get a plainer line.
+ * `cdnUrl` is the transport source that failed — always the distinct CDN URL at
+ * the call site (`shouldFallbackToProxy` returned true, which requires it).
+ */
+function cdnFallbackWarning(cdnUrl: string, err: unknown): string {
+  const prefix = '[eco-model-cdn]';
+  const status = err instanceof DownloadFailedError ? err.status : undefined;
+  if (status === 403 || status === 404) {
+    return `${prefix} CDN returned ${status} for ${cdnUrl} — falling back to the `
+      + `same-origin proxy. The model mirror is likely missing this artifact.`;
+  }
+  if (err instanceof DownloadIntegrityError) {
+    return `${prefix} CDN served bytes for ${cdnUrl} that failed the integrity check `
+      + `— falling back to the same-origin proxy.`;
+  }
+  if (status != null) {
+    return `${prefix} CDN returned ${status} for ${cdnUrl} — falling back to the `
+      + `same-origin proxy.`;
+  }
+  return `${prefix} CDN fetch failed for ${cdnUrl} (${errorMessage(err)}) — falling `
+    + `back to the same-origin proxy.`;
 }
 
 /** Single-GET path: one streaming fetch of the whole file. */

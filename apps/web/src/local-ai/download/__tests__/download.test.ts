@@ -351,9 +351,12 @@ describe('downloadByPlan — fetchUrl transport + single-GET SHA', () => {
 //
 // A file's bytes normally come from `fetchUrl` (the R2 CDN when configured);
 // `url` is the stable same-origin proxy path Eco always serves. On a
-// transport-level CDN failure the download retries ONCE against the proxy,
-// pinning fetchUrl to url — so a CDN outage no longer fails downloads with no
-// client-side recovery. Integrity and storage identity are unchanged.
+// transport-level CDN failure — a 5xx/408/429, a network error, corrupt bytes,
+// OR a 403/404 mirror miss (the CDN never received an artifact the proxy still
+// re-emits from HF) — the download retries ONCE against the proxy, pinning
+// fetchUrl to url, so a CDN outage or an incompletely-mirrored model no longer
+// fails downloads with no client-side recovery. Integrity and storage identity
+// are unchanged.
 
 describe('downloadByPlan — CDN → proxy transport fallback', () => {
   const IDENTITY = 'https://test/proxy/w.bin'; // stable storage identity (proxy path in prod)
@@ -510,26 +513,130 @@ describe('downloadByPlan — CDN → proxy transport fallback', () => {
     expect(await partEntries(await storage.listForModel(MODEL_ID))).not.toHaveLength(0);
   });
 
-  it('does NOT fall back on a hard CDN 404 (proxy never requested)', async () => {
+  it('falls back to the proxy on a CDN 404 (mirror missing the artifact)', async () => {
+    // The production bug: a model shipped in the catalog but never mirrored to
+    // R2 → every CDN request 404s. The identical path resolves on the proxy
+    // (Eco's HF re-emit), so the download must complete there, not fail.
     const body = byteArr(1, 2, 3, 4);
     const plan: DownloadPlan = {
       modelId: MODEL_ID,
       files: [{ url: IDENTITY, fetchUrl: CDN, sizeBytes: body.byteLength }],
     };
     const log: string[] = [];
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const result = await downloadByPlan(plan, {
+      storage,
+      fetcher: dispatch(log, {
+        [CDN]: () => new Response(null, { status: 404 }),
+        [IDENTITY]: () => okBody(body),
+      }),
+    });
+
+    expect(result.filesFetched).toBe(1);
+    expect(await storage.has({ modelId: MODEL_ID, url: IDENTITY })).toBe(true);
+    // Both sources exercised: CDN first (the doomed request that detects drift),
+    // then the proxy that actually serves.
+    expect(log).toContain(CDN);
+    expect(log).toContain(IDENTITY);
+    // Exactly one warning, naming the mirror miss so drift is visible in the field.
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]![0]).toContain('[eco-model-cdn]');
+    expect(warn.mock.calls[0]![0]).toContain('404');
+    expect(warn.mock.calls[0]![0]).toContain('mirror is likely missing');
+    warn.mockRestore();
+  });
+
+  it('falls back to the proxy on a CDN 403 (mirror miss / forbidden object)', async () => {
+    const body = byteArr(7, 7, 7, 7, 7);
+    const plan: DownloadPlan = {
+      modelId: MODEL_ID,
+      files: [{ url: IDENTITY, fetchUrl: CDN, sizeBytes: body.byteLength }],
+    };
+    const log: string[] = [];
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const result = await downloadByPlan(plan, {
+      storage,
+      fetcher: dispatch(log, {
+        [CDN]: () => new Response(null, { status: 403 }),
+        [IDENTITY]: () => okBody(body),
+      }),
+    });
+
+    expect(result.filesFetched).toBe(1);
+    expect(await storage.has({ modelId: MODEL_ID, url: IDENTITY })).toBe(true);
+    expect(log).toContain(CDN);
+    expect(log).toContain(IDENTITY);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]![0]).toContain('403');
+    warn.mockRestore();
+  });
+
+  it('after a mid-file CDN 404 the proxy serves the rest — later chunks never re-probe the CDN', async () => {
+    // A partially-mirrored file: the CDN answers the first chunk then 404s. The
+    // fallback re-enters the chunked path pinned to the proxy, resuming from the
+    // persisted first chunk. The doomed-CDN cost stays bounded to the single
+    // failing request — the CDN is hit for offsets 0 and 4, never for offset 8.
+    const CHUNK = 4;
+    const body = Uint8Array.from({ length: 10 }, (_, i) => i + 1);
+    const plan: DownloadPlan = {
+      modelId: MODEL_ID,
+      files: [{ url: IDENTITY, fetchUrl: CDN, sizeBytes: body.byteLength, oid: oidOf(body) }],
+    };
+    const log: string[] = [];
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const result = await downloadByPlan(plan, {
+      storage,
+      rangeChunkBytes: CHUNK,
+      fetcher: dispatch(log, {
+        [CDN]: (init) => {
+          const range = init?.headers ? new Headers(init.headers).get('range') : null;
+          // Serve only the first chunk (offset 0); 404 everything after it.
+          if (range && /bytes=0-/.test(range)) return rangeResponse(body, init);
+          return new Response(null, { status: 404 });
+        },
+        [IDENTITY]: (init) => rangeResponse(body, init),
+      }),
+    });
+
+    expect(result.filesFetched).toBe(1);
+    expect((await storage.get({ modelId: MODEL_ID, url: IDENTITY }))!.sizeBytes)
+      .toBe(body.byteLength);
+    // CDN hit exactly twice (chunk 0 served + chunk 1 that 404'd); no doomed
+    // per-chunk probe for the tail once the file has fallen back to the proxy.
+    expect(log.filter((u) => u === CDN)).toHaveLength(2);
+    expect(log.filter((u) => u === IDENTITY).length).toBeGreaterThanOrEqual(1);
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
+  it('still throws DownloadFailedError when the proxy also 404s after fallback', async () => {
+    // Fallback is a single retry — if the same-origin proxy is ALSO missing the
+    // artifact, the download fails honestly rather than looping.
+    const body = byteArr(1, 2, 3, 4);
+    const plan: DownloadPlan = {
+      modelId: MODEL_ID,
+      files: [{ url: IDENTITY, fetchUrl: CDN, sizeBytes: body.byteLength }],
+    };
+    const log: string[] = [];
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     await expect(
       downloadByPlan(plan, {
         storage,
         fetcher: dispatch(log, {
           [CDN]: () => new Response(null, { status: 404 }),
-          [IDENTITY]: () => okBody(body),
+          [IDENTITY]: () => new Response(null, { status: 404 }),
         }),
       }),
     ).rejects.toBeInstanceOf(DownloadFailedError);
 
-    expect(log).toContain(CDN);
-    expect(log).not.toContain(IDENTITY);
+    // Both were tried, in order, exactly once each — no third attempt.
+    expect(log).toEqual([CDN, IDENTITY]);
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
   });
 
   it('makes a single request and propagates the error when fetchUrl is unset', async () => {
