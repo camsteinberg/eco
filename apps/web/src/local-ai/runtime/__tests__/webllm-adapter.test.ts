@@ -400,6 +400,86 @@ describe('WebLLMAdapter — stream drain (deadlock regression)', () => {
   });
 });
 
+// ─── Usage via include_usage (trailing empty-choices chunk) ──────────────────
+// WebLLM only reports real completion-token counts when `create()` is called
+// with `stream_options: { include_usage: true }`. The counts then arrive on a
+// FINAL chunk whose `choices` array is EMPTY. The adapter must request that
+// option AND tolerate the trailing chunk without emitting a token or breaking
+// the #64 drain-to-completion contract.
+
+describe('WebLLMAdapter — usage (include_usage)', () => {
+  it('requests the trailing usage chunk via stream_options.include_usage', async () => {
+    let receivedArgs:
+      | Parameters<WebLLMEngine['chat']['completions']['create']>[0]
+      | undefined;
+    engine = {
+      reload: async () => undefined,
+      chat: {
+        completions: {
+          create: async (args) => {
+            receivedArgs = args;
+            return (async function* () {
+              yield { choices: [{ delta: { content: 'hi' }, finish_reason: 'stop' }] };
+            })();
+          },
+        },
+      },
+      interruptGenerate: () => undefined,
+      unload: async () => undefined,
+    };
+    adapter = new WebLLMAdapter({ engineFactory: async () => engine });
+    await adapter.load(MODEL);
+
+    for await (const _event of adapter.generate([{ role: 'user', content: 'hi' }])) {
+      // drain
+    }
+    expect(receivedArgs?.stream_options?.include_usage).toBe(true);
+  });
+
+  it('reads completion tokens from the trailing empty-choices chunk and still drains to completion', async () => {
+    let fullyDrained = false;
+    engine = {
+      reload: async () => undefined,
+      chat: {
+        completions: {
+          create: async () => (async function* () {
+            // Content chunks carry no usage; the FINAL chunk has an EMPTY choices
+            // array and the real token counts — the include_usage shape.
+            yield { choices: [{ delta: { content: 'Answer' }, finish_reason: 'stop' }] };
+            yield { choices: [], usage: { prompt_tokens: 9, completion_tokens: 42 } };
+            // Only reached when the consumer pulls PAST the usage chunk — proves
+            // the trailing chunk doesn't trigger an early break (the #64 contract).
+            fullyDrained = true;
+          })(),
+        },
+      },
+      interruptGenerate: () => undefined,
+      unload: async () => undefined,
+    };
+    adapter = new WebLLMAdapter({ engineFactory: async () => engine });
+    await adapter.load(MODEL);
+
+    const events: import('../types').TokenEvent[] = [];
+    for await (const event of adapter.generate([{ role: 'user', content: 'q' }])) {
+      events.push(event);
+    }
+
+    // The empty-choices usage chunk must NOT emit a token — exactly one token.
+    const tokens = events.filter((e) => e.kind === 'token');
+    expect(tokens).toHaveLength(1);
+    expect(tokens[0]).toMatchObject({ text: 'Answer' });
+
+    const done = events[events.length - 1];
+    expect(done?.kind).toBe('done');
+    if (done?.kind === 'done') {
+      expect(done.promptTokens).toBe(9);
+      expect(done.completionTokens).toBe(42);
+    }
+    // The trailing chunk was pulled → the generator ran to natural completion.
+    expect(fullyDrained).toBe(true);
+  });
+});
+
 // ─── Unload ────────────────────────────────────────────────────────────────
 
 describe('WebLLMAdapter — unload', () => {
