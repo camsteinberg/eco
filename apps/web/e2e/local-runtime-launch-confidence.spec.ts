@@ -8,7 +8,14 @@ const launchRcScreenshotDir = "test-results/launch-rc";
 const browserDirectLookupUrl =
   /^https:\/\/(?:en\.wikipedia\.org|www\.wikidata\.org|api\.open-meteo\.com|geocoding-api\.open-meteo\.com)\//;
 const localFixtureSearch =
-  "eco-local-generation-fixture=smoke-ready"
+  // Slot readiness rides on the URL through the validation harness — the
+  // legacy localStorage slot keys are no longer honored as a seeding seam, and
+  // without these params the gate runs REAL setup (a genuine model download
+  // through the dev proxy) which keeps the network busy for the whole test.
+  "eco-validation-slot-eco-fast=local/qwen3-0.6b"
+  + "&eco-validation-slot-status-eco-fast=ready"
+  + "&eco-validation-selected-model=eco-fast"
+  + "&eco-local-generation-fixture=smoke-ready"
   + "&eco-local-generation-model=local/qwen3-0.6b"
   + "&eco-local-generation-slot=eco-fast"
   + "&eco-force-capability=webgpu"

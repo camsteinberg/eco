@@ -163,7 +163,7 @@ test.describe("first-run journey", () => {
 
     // BelowFloorScreen copy (src/components/local-ai/BelowFloorScreen.tsx).
     await expect(
-      page.getByText(/doesn.t fully support that yet/i),
+      page.getByText(/can.t do that yet/i),
     ).toBeVisible({ timeout: 20_000 });
     await expect(
       page.getByText(/We.ll email you when Eco arrives/i),
