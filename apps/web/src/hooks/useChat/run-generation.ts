@@ -23,6 +23,15 @@
 
 import type { Generation } from "./generation";
 import type { StreamPhase } from "../../stores/chatStore";
+import { LocalInferenceStreamError } from "../../local-ai/runtime/errors";
+
+/**
+ * Time-to-first-token deadline. A generation that streams no first token within
+ * this window is treated as wedged rather than left to hang unbounded. Only the
+ * FIRST token is bounded; once a model is producing tokens the read loop is
+ * unbounded again.
+ */
+const TTFT_DEADLINE_MS = 90_000;
 
 /**
  * Outcome of draining one stream into an assistant message.
@@ -49,7 +58,49 @@ export type RunGenerationParams = {
   getStreamPhase: () => StreamPhase;
   /** Read the assistant message's current content for the structured result. */
   getMessageContent: (assistantId: string) => string;
+  /**
+   * Time-to-first-token deadline in ms. Defaults to {@link TTFT_DEADLINE_MS};
+   * overridable so tests can drive the watchdog without waiting real seconds.
+   */
+  ttftDeadlineMs?: number;
 };
+
+/**
+ * Await the next chunk, but bound the wait for the FIRST token by `deadlineMs`.
+ *
+ * The deadline must WIN the race, not merely signal — a bare `setTimeout →
+ * cancel()` can silently never take effect if the underlying read never settles
+ * against a non-cooperating runtime. So on expiry we BOTH cancel the reader —
+ * releasing the runtime cooperatively (`reader.cancel()` → shim `cancel()` →
+ * adapter abort → WebLLM `interruptGenerate`), never abandoning the stream — AND
+ * reject, so the loop unwinds even if the vendor stream never responds.
+ */
+async function readFirstTokenWithDeadline(
+  reader: ReadableStreamDefaultReader<string>,
+  deadlineMs: number,
+): Promise<ReadableStreamReadResult<string>> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      // Reject FIRST so the race settles as a timeout, THEN cancel the reader to
+      // release the runtime. Cancelling first would resolve the pending read()
+      // as `done` and win the race, silently masking the timeout as a clean end.
+      reject(
+        new LocalInferenceStreamError(
+          "TIMEOUT",
+          `No first token within ${deadlineMs}ms — treating the generation as timed out.`,
+          true,
+        ),
+      );
+      void reader.cancel().catch(() => undefined);
+    }, deadlineMs);
+  });
+  try {
+    return await Promise.race([reader.read(), deadline]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
 
 /**
  * Drain `stream` into the assistant message through the generation's batcher.
@@ -70,14 +121,21 @@ export async function runGeneration(
     getStreamPhase,
     getMessageContent,
   } = params;
+  const ttftDeadlineMs = params.ttftDeadlineMs ?? TTFT_DEADLINE_MS;
 
   const reader = stream.getReader();
   generation.currentReader = reader;
+  let sawFirstToken = false;
 
   try {
     while (true) {
-      const { done, value } = await reader.read();
+      // Only the wait for the first token is bounded — once tokens flow the read
+      // is unbounded again (a slow tail is not a wedge).
+      const { done, value } = sawFirstToken
+        ? await reader.read()
+        : await readFirstTokenWithDeadline(reader, ttftDeadlineMs);
       if (done) break;
+      sawFirstToken = true;
       // Transition to generating on the first token (no-op if already there).
       if (getStreamPhase() !== "generating") {
         setStreamPhase("generating");
