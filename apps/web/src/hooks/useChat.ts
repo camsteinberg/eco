@@ -58,6 +58,7 @@ import {
 } from "./useChat/failure-streak";
 import { recordGenerationReceipt, hashSystemPrompt } from "../local-ai/lifecycle/generation-receipt";
 import type { Slot as LocalAiSlot } from "../local-ai/types";
+import type { LifecycleEvent, LifecyclePhase } from "../local-ai/runtime/types";
 import { logger } from "../lib/logger";
 import {
   createGeneration,
@@ -1038,6 +1039,28 @@ export function useChat() {
 
     const receiptStreamStartMs = Date.now();
 
+    // Per-turn breadcrumb trail for the receipt. The runtime adapters emit
+    // lifecycle events during load and generation; the shim now forwards them
+    // to this callback. We stamp each with ms-from-stream-start off our own
+    // clock (event.at is a different time base) so the trail is self-consistent,
+    // and derive first-token latency from the first `first-token`. Timings and
+    // phase names only — never message content.
+    const generationEvents: { at: number; phase: LifecyclePhase }[] = [];
+    let firstTokenMs: number | null = null;
+    function recordLifecycleBreadcrumb(event: LifecycleEvent): void {
+      const at = Date.now() - receiptStreamStartMs;
+      generationEvents.push({ at, phase: event.phase });
+      if (event.phase === "first-token" && firstTokenMs === null) {
+        firstTokenMs = at;
+      }
+      // Cold-load "almost ready" signal: when the runtime finishes compiling
+      // (`load-finish`, generation about to start) flip the store hint the
+      // loading prelude reads. `onLoadProgress` is deliberately NOT wired — on a
+      // cached cold load byte-fractions burn out in ~1s of a much longer
+      // session-create, so they'd be misleading (see resolveInitialStreamPhase).
+      if (event.phase === "load-finish") setLoadAlmostReady(true);
+    }
+
     function buildReceiptBase(sph: string): Omit<
       GenerationReceipt,
       'status' | 'promptTokens' | 'completionTokens' | 'errorCode'
@@ -1067,6 +1090,8 @@ export function useChat() {
           answerShape: plan.turnShape,
         },
         durationMs: Date.now() - receiptStreamStartMs,
+        firstTokenMs,
+        events: [...generationEvents],
       };
     }
 
@@ -1127,14 +1152,7 @@ export function useChat() {
         generation,
         stream: v1LocalShim.generate(messagesWithSystem, model, {
           ...localGenerationOptions,
-          // Cold-load "almost ready" signal: when the runtime finishes compiling
-          // (`load-finish`, generation about to start) flip the store hint the
-          // loading prelude reads. `onLoadProgress` is deliberately NOT wired —
-          // on a cached cold load byte-fractions burn out in ~1s of a much longer
-          // session-create, so they'd be misleading (see resolveInitialStreamPhase).
-          onLifecycleEvent: (event) => {
-            if (event.phase === "load-finish") setLoadAlmostReady(true);
-          },
+          onLifecycleEvent: recordLifecycleBreadcrumb,
         }),
         assistantId,
         ...streamIO,
@@ -1205,7 +1223,7 @@ export function useChat() {
             stream: v1LocalShim.generate(
               repairMessages,
               model,
-              repairOptions,
+              { ...repairOptions, onLifecycleEvent: recordLifecycleBreadcrumb },
             ),
             assistantId,
             ...streamIO,

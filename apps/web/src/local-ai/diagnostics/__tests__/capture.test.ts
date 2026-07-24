@@ -13,6 +13,10 @@ import {
   _resetSetupFailuresForTesting,
   logSetupAttemptFailure,
 } from '../../lifecycle/setup-diagnostics';
+import {
+  clearGenerationReceipts,
+  recordGenerationReceipt,
+} from '../../lifecycle/generation-receipt';
 
 const STORAGE_KEY = 'eco-local-ai-diagnostics-v1';
 
@@ -45,11 +49,13 @@ function makeDiagnostic(overrides?: Partial<LocalAiDiagnostic>): LocalAiDiagnost
 beforeEach(() => {
   localStorage.clear();
   _resetSetupFailuresForTesting();
+  clearGenerationReceipts();
 });
 
 afterEach(() => {
   localStorage.clear();
   _resetSetupFailuresForTesting();
+  clearGenerationReceipts();
   vi.restoreAllMocks();
 });
 
@@ -169,8 +175,8 @@ describe('exportDiagnostics', () => {
       env: { userAgent: string };
       entries: LocalAiDiagnostic[];
     };
-    // Dump-envelope version is 3 (adds setupFailures); per-entry schema stays 2.
-    expect(parsed.schemaVersion).toBe(3);
+    // Dump-envelope version is 4 (adds generationReceipts); per-entry schema stays 2.
+    expect(parsed.schemaVersion).toBe(4);
     expect(parsed.entries[0]!.schemaVersion).toBe(2);
     expect(typeof parsed.dumpedAt).toBe('string');
     expect(parsed.env).toBeDefined();
@@ -201,6 +207,50 @@ describe('exportDiagnostics', () => {
   it('reports an empty setupFailures array when none were recorded', async () => {
     const parsed = JSON.parse(await exportDiagnostics()) as { setupFailures: unknown[] };
     expect(parsed.setupFailures).toEqual([]);
+  });
+
+  it('carries recent generation receipts (timings/phases) in the dump', async () => {
+    recordGenerationReceipt({
+      generationId: 'gen-1',
+      modelId: 'candidate/qwen3.5-2b-onnx',
+      timestamp: Date.now(),
+      templateName: 'chatml',
+      systemPromptHash: 'deadbeef',
+      samplingProfile: { temperature: 0.7, maxTokens: 512 },
+      promptTokens: 12,
+      completionTokens: 34,
+      durationMs: 4200,
+      status: 'complete',
+      firstTokenMs: 1800,
+      events: [
+        { at: 0, phase: 'load-start' },
+        { at: 1500, phase: 'load-finish' },
+        { at: 1800, phase: 'first-token' },
+        { at: 4200, phase: 'generation-complete' },
+      ],
+    });
+
+    const parsed = JSON.parse(await exportDiagnostics()) as {
+      generationReceipts: {
+        generationId: string;
+        firstTokenMs: number | null;
+        events: { at: number; phase: string }[];
+      }[];
+    };
+    expect(parsed.generationReceipts).toHaveLength(1);
+    expect(parsed.generationReceipts[0]!.generationId).toBe('gen-1');
+    expect(parsed.generationReceipts[0]!.firstTokenMs).toBe(1800);
+    expect(parsed.generationReceipts[0]!.events.map((e) => e.phase)).toEqual([
+      'load-start',
+      'load-finish',
+      'first-token',
+      'generation-complete',
+    ]);
+  });
+
+  it('reports an empty generationReceipts array when none were recorded', async () => {
+    const parsed = JSON.parse(await exportDiagnostics()) as { generationReceipts: unknown[] };
+    expect(parsed.generationReceipts).toEqual([]);
   });
 
   it('returns empty entries array when no diagnostics', async () => {

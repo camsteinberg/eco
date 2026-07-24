@@ -93,12 +93,14 @@ export type LegacyGenerateOptions = {
   no_repeat_ngram_size?: number;
   continueFinalMessage?: boolean;
   supervisorNested?: boolean;
-  // Cold-load affordance plumbing. Both are pure pass-through to the runtime's
-  // LoadOptions — the shim stays state-free (it does not read chatStore). A
-  // caller (chat) uses `onLifecycleEvent` to learn when compile finishes
-  // (`load-finish`) so it can flip an "almost ready" hint. `onLoadProgress`
-  // is forwarded for other callers; the chat path deliberately ignores it
-  // (cached cold-load byte progress is misleading — see useChat).
+  // Cold-load affordance plumbing. Both are pure pass-through to the runtime —
+  // the shim stays state-free (it does not read chatStore). A caller (chat) uses
+  // `onLifecycleEvent` to learn when compile finishes (`load-finish`) so it can
+  // flip an "almost ready" hint. `onLifecycleEvent` is forwarded to BOTH the load
+  // AND the generate options, so the caller also sees the generation phases
+  // (`first-token`, `generation-complete`/`-fail`) for breadcrumb capture.
+  // `onLoadProgress` is forwarded for other callers; the chat path deliberately
+  // ignores it (cached cold-load byte progress is misleading — see useChat).
   onLoadProgress?: (fraction: number) => void;
   onLifecycleEvent?: (event: LifecycleEvent) => void;
 };
@@ -217,6 +219,10 @@ export function createLocalAiLegacyInference(): LocalAiLegacyInference {
               ...(topK != null ? { topK } : {}),
               ...(repetitionPenalty != null ? { repetitionPenalty } : {}),
               ...(noRepeatNgramSize != null ? { noRepeatNgramSize } : {}),
+              // Forwarded to the generation phase too (same callback as load), so
+              // the caller sees `first-token` / `generation-complete` / `-fail`
+              // for breadcrumb capture. Omitted when the caller didn't supply it.
+              ...(onLifecycleEvent != null ? { onLifecycleEvent } : {}),
             });
             let lastUsageRecorded = false;
             for await (const event of iter) {
