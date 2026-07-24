@@ -316,6 +316,90 @@ describe('WebLLMAdapter — generate', () => {
   });
 });
 
+// ─── Stream drain (second-generation deadlock regression) ─────────────────
+// WebLLM finalizes a request — and releases its internal request lock — only
+// when its chunk generator runs to natural completion. Its cleanup is NOT in
+// a `finally`, so a consumer that `break`s out of the stream (an early
+// `generator.return()`) leaves the engine permanently "busy" and the NEXT
+// `create()` call deadlocks forever. Observed live 2026-07-23: every chat
+// generation after a passed smoke hung at "Reading over the conversation…"
+// on iPhone Safari and desktop Chromium alike. The adapter must therefore
+// drain the stream past the finish_reason chunk to the generator's natural
+// end, never abandoning it mid-protocol on the normal-completion path.
+
+describe('WebLLMAdapter — stream drain (deadlock regression)', () => {
+  it('drains the chunk generator to natural completion on a normal finish', async () => {
+    let fullyDrained = false;
+    engine = {
+      reload: async () => undefined,
+      chat: {
+        completions: {
+          create: async () => (async function* () {
+            yield { choices: [{ delta: { content: 'OK' }, finish_reason: 'stop' }] };
+            // Only reached when the consumer pulls PAST the finish_reason
+            // chunk — an early break/return() skips this line. This is where
+            // the real WebLLM finalizes the request and frees its lock.
+            fullyDrained = true;
+          })(),
+        },
+      },
+      interruptGenerate: () => undefined,
+      unload: async () => undefined,
+    };
+    adapter = new WebLLMAdapter({ engineFactory: async () => engine });
+    await adapter.load(MODEL);
+
+    const events: import('../types').TokenEvent[] = [];
+    for await (const event of adapter.generate([{ role: 'user', content: 'hi' }])) {
+      events.push(event);
+    }
+
+    expect(events[events.length - 1]?.kind).toBe('done');
+    expect(fullyDrained).toBe(true);
+  });
+
+  it('a second generate succeeds after a naturally-finished first one', async () => {
+    // Models WebLLM's request serialization: create() refuses while the
+    // previous request was never finalized (its generator abandoned).
+    let busy = false;
+    const makeChunks = (text: string) => (async function* () {
+      yield { choices: [{ delta: { content: text }, finish_reason: 'stop' }] };
+      busy = false; // the real engine's post-stream finalize
+    })();
+    engine = {
+      reload: async () => undefined,
+      chat: {
+        completions: {
+          create: async () => {
+            if (busy) {
+              throw new Error('previous request never finalized — engine deadlocked');
+            }
+            busy = true;
+            return makeChunks('reply');
+          },
+        },
+      },
+      interruptGenerate: () => undefined,
+      unload: async () => undefined,
+    };
+    adapter = new WebLLMAdapter({ engineFactory: async () => engine });
+    await adapter.load(MODEL);
+
+    const first: import('../types').TokenEvent[] = [];
+    for await (const event of adapter.generate([{ role: 'user', content: 'one' }])) {
+      first.push(event);
+    }
+    expect(first[first.length - 1]?.kind).toBe('done');
+
+    const second: import('../types').TokenEvent[] = [];
+    for await (const event of adapter.generate([{ role: 'user', content: 'two' }])) {
+      second.push(event);
+    }
+    expect(second.find((e) => e.kind === 'token')).toBeDefined();
+    expect(second[second.length - 1]?.kind).toBe('done');
+  });
+});
+
 // ─── Unload ────────────────────────────────────────────────────────────────
 
 describe('WebLLMAdapter — unload', () => {

@@ -394,9 +394,9 @@ export class WebLLMAdapter implements RuntimeAdapter {
         if (chunk.usage) {
           lastUsage = chunk.usage;
         }
-        if (chunk.choices[0]?.finish_reason) {
-          break;
-        }
+        // NOTE: no break on finish_reason — the generator must run to natural
+        // completion so WebLLM finalizes the request and releases its internal
+        // lock; breaking here deadlocks the NEXT create() forever.
       }
       emit?.({ phase: 'generation-complete', at: now() });
       yield {
