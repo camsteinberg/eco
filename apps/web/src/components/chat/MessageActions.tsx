@@ -5,6 +5,8 @@
 
 import { useState, useCallback, useEffect, useId, useLayoutEffect, useRef } from "react";
 
+import { copyTextWithFallback } from "../../lib/clipboard";
+
 type MessageActionsProps = {
   content: string;
   role: "user" | "assistant";
@@ -43,59 +45,43 @@ export function MessageActions({
   const menuId = useId();
 
   const handleCopyPlainText = useCallback(() => {
-    try {
-      // Canonical exact-answer results are already plain text — copy them verbatim.
-      // Running "17 * 23 = 391" through strip-markdown would parse the `*` as
-      // emphasis and drop it, corrupting the value the user asked for.
-      const textBlob = plainText
-        ? Promise.resolve(new Blob([content], { type: "text/plain" }))
-        : // Safari requires clipboard.write() to be called synchronously from the
-          // user gesture handler. Wrapping the async remark processing inside a
-          // ClipboardItem blob promise satisfies this requirement.
-          import("remark").then(async ({ remark }) => {
-            const { default: stripMarkdown } = await import("strip-markdown");
-            const result = await remark().use(stripMarkdown).process(content);
-            return new Blob([String(result).trim()], { type: "text/plain" });
-          });
+    // Canonical exact-answer results are already plain text — copy them verbatim.
+    // Running "17 * 23 = 391" through strip-markdown would parse the `*` as
+    // emphasis and drop it, corrupting the value the user asked for.
+    const textPromise = plainText
+      ? Promise.resolve(content)
+      : import("remark").then(async ({ remark }) => {
+          const { default: stripMarkdown } = await import("strip-markdown");
+          const result = await remark().use(stripMarkdown).process(content);
+          return String(result).trim();
+        });
 
-      void navigator.clipboard.write([
-        new ClipboardItem({ "text/plain": textBlob }),
-      ]);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Fallback for browsers without ClipboardItem support (older Firefox)
-      void navigator.clipboard
-        .writeText(content)
-        .then(() => {
-          setCopied(true);
-          setTimeout(() => setCopied(false), 2000);
-        })
-        .catch(() => {});
-    }
+    // copyTextWithFallback (writeText race + execCommand fallback) is the
+    // reliable cross-browser path — on iOS a bare writeText after async work
+    // silently fails because the tap's user-activation has expired. Success
+    // feedback only flips on an actual success.
+    void textPromise
+      .then((text) => copyTextWithFallback(text))
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      })
+      .catch(() => {
+        // Genuine failure (no async clipboard AND no execCommand) — leave the
+        // button idle rather than claim a copy that didn't happen.
+      });
   }, [content, plainText]);
 
   const handleCopyMarkdown = useCallback(() => {
-    try {
-      void navigator.clipboard.write([
-        new ClipboardItem({
-          "text/plain": new Blob([content], { type: "text/plain" }),
-        }),
-      ]);
-      setCopied(true);
-      setMenuOpen(false);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Fallback for browsers without ClipboardItem support
-      void navigator.clipboard
-        .writeText(content)
-        .then(() => {
-          setCopied(true);
-          setMenuOpen(false);
-          setTimeout(() => setCopied(false), 2000);
-        })
-        .catch(() => {});
-    }
+    setMenuOpen(false);
+    void copyTextWithFallback(content)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      })
+      .catch(() => {
+        // See handleCopyPlainText — don't surface a success state that didn't happen.
+      });
   }, [content]);
 
   // Close menu on click outside or Escape

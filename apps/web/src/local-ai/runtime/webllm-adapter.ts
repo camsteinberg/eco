@@ -75,6 +75,13 @@ export type WebLLMEngine = {
         stream: true;
         max_tokens?: number;
         temperature?: number;
+        /**
+         * With `include_usage: true`, the engine emits a FINAL chunk carrying
+         * `usage` whose `choices` array is EMPTY — the only chunk that reports
+         * real completion-token counts. Without it, `usage` never arrives and
+         * `completionTokens` is always 0.
+         */
+        stream_options?: { include_usage?: boolean };
       }): Promise<AsyncIterable<{
         choices: Array<{
           delta: { content?: string };
@@ -360,6 +367,10 @@ export class WebLLMAdapter implements RuntimeAdapter {
         stream: true,
         max_tokens: options?.maxTokens ?? 512,
         temperature: options?.temperature ?? 0.7,
+        // Ask for the trailing usage chunk — without it completionTokens is 0.
+        // The drain loop below tolerates that final empty-choices chunk (no
+        // token, no early break); see the finish_reason NOTE.
+        stream_options: { include_usage: true },
       });
     } catch (err) {
       emit?.({

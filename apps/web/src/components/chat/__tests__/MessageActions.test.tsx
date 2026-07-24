@@ -60,21 +60,18 @@ describe("MessageActions", () => {
     vi.restoreAllMocks();
   });
 
-  it("uses ClipboardItem for Safari-safe copy (plain text)", async () => {
+  it("copies plain text via copyTextWithFallback, stripping markdown", async () => {
     render(<MessageActions content="**bold** text" role="assistant" />);
     const copyBtn = screen.getByRole("button", { name: /copy message/i });
     fireEvent.click(copyBtn);
 
-    // clipboard.write should be called synchronously with a ClipboardItem
-    expect(writeMock).toHaveBeenCalledTimes(1);
-    expect(globalThis.ClipboardItem).toHaveBeenCalledTimes(1);
+    // The reliable path is writeText (raced + execCommand fallback), not the
+    // ClipboardItem blob. The mock strip-markdown drops the markdown chars, so
+    // writeText receives the stripped text.
+    await waitFor(() => {
+      expect(writeTextMock).toHaveBeenCalledWith("bold text");
+    });
 
-    // Verify ClipboardItem was created with text/plain blob promise
-    const clipboardItemCall = vi.mocked(globalThis.ClipboardItem).mock
-      .calls[0]![0];
-    expect(clipboardItemCall).toHaveProperty("text/plain");
-
-    // Verify "Copied" feedback
     await waitFor(() => {
       expect(
         screen.getByRole("button", { name: /copied/i }),
@@ -82,7 +79,7 @@ describe("MessageActions", () => {
     });
   });
 
-  it("uses ClipboardItem for Safari-safe markdown copy", () => {
+  it("copies markdown verbatim via copyTextWithFallback", async () => {
     render(<MessageActions content="**bold** text" role="assistant" />);
 
     // Open three-dot menu
@@ -90,50 +87,10 @@ describe("MessageActions", () => {
     fireEvent.click(menuBtn);
     fireEvent.click(screen.getByText("Copy as Markdown"));
 
-    // clipboard.write should be called with a ClipboardItem
-    expect(writeMock).toHaveBeenCalledTimes(1);
-    expect(globalThis.ClipboardItem).toHaveBeenCalledTimes(1);
-
-    // Verify ClipboardItem was created with a text/plain Blob
-    const clipboardItemCall = vi.mocked(globalThis.ClipboardItem).mock
-      .calls[0]![0];
-    const blob = clipboardItemCall["text/plain"] as Blob;
-    expect(blob).toBeInstanceOf(Blob);
-    expect(blob.type).toBe("text/plain");
-    expect(blob.size).toBe("**bold** text".length);
-  });
-
-  it("handleCopyPlainText is synchronous (not async)", () => {
-    render(<MessageActions content="test" role="assistant" />);
-    const copyBtn = screen.getByRole("button", { name: /copy message/i });
-
-    // Click is synchronous, and clipboard.write is called immediately
-    fireEvent.click(copyBtn);
-    expect(writeMock).toHaveBeenCalledTimes(1);
-  });
-
-  it("plain text copy passes async blob promise to ClipboardItem", async () => {
-    render(
-      <MessageActions content="**bold** _italic_ text" role="assistant" />,
-    );
-    const copyBtn = screen.getByRole("button", { name: /copy message/i });
-    fireEvent.click(copyBtn);
-
-    // Get the blob promise passed to ClipboardItem
-    const clipboardItemCall = vi.mocked(globalThis.ClipboardItem).mock
-      .calls[0]![0];
-    const blobPromise = clipboardItemCall["text/plain"];
-
-    // For plain text copy, the value is a Promise (async remark processing)
-    // not a raw Blob, since remark/strip-markdown runs asynchronously
-    expect(blobPromise).toBeDefined();
-    expect(typeof (blobPromise as Promise<Blob>).then).toBe("function");
-
-    // Resolve the promise and verify it produces a Blob
-    const blob = await (blobPromise as Promise<Blob>);
-    expect(blob).toBeInstanceOf(Blob);
-    expect(blob.type).toBe("text/plain");
-    expect(blob.size).toBeGreaterThan(0);
+    // Copy-as-Markdown copies the source verbatim (no strip-markdown).
+    await waitFor(() => {
+      expect(writeTextMock).toHaveBeenCalledWith("**bold** text");
+    });
   });
 
   it("copies a canonical exact-answer VERBATIM (plainText) — never strip-markdown, so `*` survives", async () => {
@@ -145,26 +102,26 @@ describe("MessageActions", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: /copy message/i }));
 
-    const clipboardItemCall = vi.mocked(globalThis.ClipboardItem).mock
-      .calls[0]![0];
-    const blob = await (clipboardItemCall["text/plain"] as Promise<Blob>);
-    // Verbatim: the copied blob is exactly the source bytes — nothing stripped, so
-    // the `*` survives (jsdom Blob has no .text(); size == source length proves it).
-    expect(blob.size).toBe("17 * 23 = 391".length);
+    // Verbatim: writeText receives exactly the source string, `*` intact.
+    await waitFor(() => {
+      expect(writeTextMock).toHaveBeenCalledWith("17 * 23 = 391");
+    });
   });
 
   it("without plainText, the same value is routed through strip-markdown (proves the flag matters)", async () => {
     // Contrast case: the default path strips markdown, which the mock renders as
-    // dropping `*` — shrinking the blob. That corruption is exactly what `plainText`
-    // avoids.
+    // dropping `*` — corrupting the value. That corruption is exactly what
+    // `plainText` avoids.
     render(<MessageActions content="17 * 23 = 391" role="assistant" />);
     fireEvent.click(screen.getByRole("button", { name: /copy message/i }));
 
-    const clipboardItemCall = vi.mocked(globalThis.ClipboardItem).mock
-      .calls[0]![0];
-    const blob = await (clipboardItemCall["text/plain"] as Promise<Blob>);
-    // The stripped `*` makes the markdown-copied blob strictly shorter than source.
-    expect(blob.size).toBeLessThan("17 * 23 = 391".length);
+    await waitFor(() => {
+      expect(writeTextMock).toHaveBeenCalled();
+    });
+    const copied = writeTextMock.mock.calls[0]![0] as string;
+    // The stripped `*` makes the copied text strictly shorter and `*`-free.
+    expect(copied.length).toBeLessThan("17 * 23 = 391".length);
+    expect(copied).not.toContain("*");
   });
 
   it("three-dot menu reveals Copy as Markdown option", async () => {
@@ -326,20 +283,27 @@ describe("MessageActions", () => {
     ).toBeInTheDocument();
   });
 
-  it("falls back to writeText when ClipboardItem throws", async () => {
-    // Make ClipboardItem throw to trigger fallback
-    globalThis.ClipboardItem = (() => {
-      throw new Error("ClipboardItem not supported");
-    }) as unknown as typeof ClipboardItem;
+  it("does not show a success state when the copy genuinely fails", async () => {
+    // writeText rejects (e.g. iOS lost user-activation) AND the execCommand
+    // fallback reports failure — copyTextWithFallback rejects, so the button
+    // must NOT claim success.
+    writeTextMock.mockRejectedValue(new Error("NotAllowed"));
+    document.execCommand = vi.fn(() => false);
 
-    render(<MessageActions content="fallback test" role="assistant" />);
+    render(<MessageActions content="fallback test" role="assistant" plainText />);
     const copyBtn = screen.getByRole("button", { name: /copy message/i });
     fireEvent.click(copyBtn);
 
-    // Should fall through to writeText fallback
     await waitFor(() => {
       expect(writeTextMock).toHaveBeenCalledWith("fallback test");
     });
+    // Truthful feedback: no "Copied" state after a real failure.
+    expect(
+      screen.queryByRole("button", { name: /copied/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /copy message/i }),
+    ).toBeInTheDocument();
   });
 });
 

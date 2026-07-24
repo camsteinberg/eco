@@ -18,6 +18,7 @@
 import { logger } from '../../lib/logger';
 import type { CjkSuppressionTelemetry } from '../runtime/cjk-suppression';
 import type { KvReuseTelemetry } from '../runtime/kv-cache';
+import type { LifecyclePhase } from '../runtime/types';
 
 // ─── Public types ─────────────────────────────────────────────────────────
 
@@ -57,6 +58,20 @@ export interface GenerationReceipt {
    * a token the scan missed (e.g. byte-composed).
    */
   cjkSuppression?: CjkSuppressionTelemetry;
+  /**
+   * Ms from generation-stream start to the FIRST streamed token, or null when
+   * no token arrived (error/aborted turns). This is where the first-message
+   * latency defect is attributable: a large value alongside a nearby
+   * `load-finish` breadcrumb points at cold-load; a large gap AFTER
+   * `load-finish` points at the runtime's first decode.
+   */
+  firstTokenMs?: number | null;
+  /**
+   * Compact lifecycle breadcrumb trail for this turn — load + generation phases,
+   * each `at` measured in ms from stream start. Timings and phase names only;
+   * never message content.
+   */
+  events?: { at: number; phase: LifecyclePhase }[];
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────

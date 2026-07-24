@@ -37,6 +37,10 @@ import {
   getRecentSetupFailures,
   type RecordedSetupFailure,
 } from '../lifecycle/setup-diagnostics';
+import {
+  getRecentReceipts,
+  type GenerationReceipt,
+} from '../lifecycle/generation-receipt';
 
 const STORAGE_KEY = 'eco-local-ai-diagnostics-v1';
 const MAX_ENTRIES = 50;
@@ -54,9 +58,11 @@ const SCHEMA_VERSION = 2;
  * The export-envelope (dump) schema version, independent of the per-entry
  * schema above. v3 adds `setupFailures` — the recent setup-attempt failures, so
  * a support dump taken after setup exhausted carries the real reasons instead of
- * an empty signal.
+ * an empty signal. v4 adds `generationReceipts` — the recent per-turn chat
+ * receipts (timings/phases/tokens), so a dump can attribute first-message
+ * latency instead of the chat path recording nothing.
  */
-const DUMP_SCHEMA_VERSION = 3;
+const DUMP_SCHEMA_VERSION = 4;
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -182,6 +188,12 @@ export type DiagnosticDump = {
    * a dump taken after setup gave up carried no per-attempt reason.
    */
   setupFailures?: RecordedSetupFailure[];
+  /**
+   * Recent per-turn generation receipts (additive, v4). In-memory ring (max 50),
+   * newest first — timings (incl. first-token), sampling profile, tokens, status,
+   * and the compact lifecycle breadcrumb trail. Never carries message content.
+   */
+  generationReceipts?: GenerationReceipt[];
 };
 
 export async function exportDiagnostics(): Promise<string> {
@@ -194,6 +206,7 @@ export async function exportDiagnostics(): Promise<string> {
     activeLevers: readActiveLevers(),
     sustainedProbes: loadSustainedProbes(),
     setupFailures: getRecentSetupFailures(),
+    generationReceipts: getRecentReceipts(),
   };
   return JSON.stringify(dump, null, 2);
 }

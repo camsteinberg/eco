@@ -22,6 +22,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 import { createGeneration, type Generation } from "../generation";
 import { runGeneration } from "../run-generation";
+import { LocalInferenceStreamError } from "../../../local-ai/runtime/errors";
 import { useChatStore, type StreamPhase } from "../../../stores/chatStore";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -92,6 +93,21 @@ function hangingStream(
     start(controller) {
       for (const t of tokens) controller.enqueue(t);
       // Never close — the consumer must cancel().
+    },
+    cancel() {
+      onCancel?.();
+    },
+  });
+}
+
+/**
+ * A stream that yields NOTHING and never closes — the first read() parks
+ * forever. `onCancel` fires when the consumer cancels (the TTFT watchdog path).
+ */
+function silentStream(onCancel?: () => void): ReadableStream<string> {
+  return new ReadableStream<string>({
+    start() {
+      // Never enqueue, never close — models a runtime wedged before first token.
     },
     cancel() {
       onCancel?.();
@@ -520,9 +536,9 @@ describe("runGeneration — intra-stream rAF flush + monotonic seq", () => {
 
     // Let the loop read "alpha ". The FIRST emission for a fresh msgId paints
     // immediately (unmetered) so TTFT is untouched — no frame is queued, and
-    // the first batch lands synchronously with seq 1.
-    await Promise.resolve();
-    await Promise.resolve();
+    // the first batch lands with seq 1. The first read passes through the TTFT
+    // race (an extra async hop), so flush enough microtasks for it to land.
+    for (let i = 0; i < 6; i++) await Promise.resolve();
     expect(rafQueue).toHaveLength(0);
     expect(batches).toEqual([
       { id: assistantId, token: "alpha ", generationId: generation.id, seq: 1 },
@@ -554,5 +570,63 @@ describe("runGeneration — intra-stream rAF flush + monotonic seq", () => {
     for (let i = 1; i < seqs.length; i++) {
       expect(seqs[i]!).toBe(seqs[i - 1]! + 1);
     }
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 6. Time-to-first-token watchdog
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("runGeneration — time-to-first-token watchdog", () => {
+  it("fails with a 'timeout'-class error when no first token arrives before the deadline", async () => {
+    const generation = makeGeneration();
+    const assistantId = seedAssistant(generation.id);
+    const phase = makePhaseShim();
+    let cancelled = false;
+
+    const result = await runGeneration({
+      generation,
+      stream: silentStream(() => {
+        cancelled = true;
+      }),
+      assistantId,
+      setStreamPhase: phase.setStreamPhase,
+      getStreamPhase: phase.getStreamPhase,
+      getMessageContent,
+      ttftDeadlineMs: 20,
+    });
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error).toBeInstanceOf(LocalInferenceStreamError);
+      expect((result.error as LocalInferenceStreamError).code).toBe("TIMEOUT");
+    }
+    // The watchdog cancels the reader (→ shim cancel → adapter abort → WebLLM
+    // interruptGenerate) rather than abandoning the stream mid-protocol.
+    expect(cancelled).toBe(true);
+    // No token ever arrived, so the phase never flipped to "generating".
+    expect(phase.setStreamPhase).not.toHaveBeenCalled();
+    expect(generation.currentReader).toBeNull();
+  });
+
+  it("does not fire once the first token has streamed — only TTFT is bounded", async () => {
+    const generation = makeGeneration();
+    const assistantId = seedAssistant(generation.id);
+    const phase = makePhaseShim();
+
+    // The first token is available immediately (well within the tiny deadline);
+    // the post-first-token reads are unbounded, so a completed stream is never
+    // misclassified as a timeout.
+    const result = await runGeneration({
+      generation,
+      stream: tokensStream(["hello", " world"]),
+      assistantId,
+      setStreamPhase: phase.setStreamPhase,
+      getStreamPhase: phase.getStreamPhase,
+      getMessageContent,
+      ttftDeadlineMs: 20,
+    });
+
+    expect(result).toEqual({ status: "completed", finalText: "hello world" });
   });
 });

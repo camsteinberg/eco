@@ -298,8 +298,9 @@ describe("stale-token rejection across generations", () => {
       getMessageContent,
     });
     setActiveGeneration(genA);
-    await Promise.resolve();
-    await Promise.resolve();
+    // The first read passes through the TTFT race (an extra async hop); flush
+    // enough microtasks for "A1 " to be read into the batcher before flushing.
+    for (let i = 0; i < 6; i++) await Promise.resolve();
     genA.batcher.flushSync(); // land "A1 "
     expect(getMessageContent(id)).toBe("A1 ");
 
