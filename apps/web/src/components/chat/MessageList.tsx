@@ -293,6 +293,7 @@ export function MessageList({
               key={msg.id}
               data-index={index}
               data-message-id={msg.id}
+              data-message-role={msg.role}
             >
               {showDivider && <ContextDivider />}
               <MessageBubble

@@ -2,22 +2,37 @@
 // Copyright (C) 2026 Bos Computing LLC
 
 /**
- * WebKit-mobile designed tier (D1) — gate-before-load proof.
+ * WebKit-mobile designed tier — post-#56 truth.
  *
- * The load-bearing guarantee: on iOS WebKit (Safari + mobile) Eco must decline
- * to the designed handoff surface WITHOUT ever attempting a model download or
- * load — because the load itself crash-loops the tab on real iPhones. This spec
- * forces an iOS-WebKit profile and asserts (a) the mobile surface renders and
- * (b) ZERO `/api/local-models/**` requests fire (nothing was load-attempted).
+ * PR #28 shipped mobile as a designed tier: iOS WebKit declined before ever
+ * attempting a model load, because the load itself crash-loops the tab on real
+ * iPhones. PR #56 narrowed that guarantee: iOS WebKit **with WebGPU** now
+ * enters the WebLLM lane (`candidate/qwen2.5-0.5b-mlc` is whitelisted in
+ * `WEBKIT_MOBILE_VALIDATED_MODEL_IDS`, device/compatibility.ts), while every
+ * other iOS profile still gets the designed handoff surface with ZERO load
+ * attempts.
  *
- * Runs in CI only (like the rest of e2e/). iOS WebKit has WebGPU, so the forced
- * profile keeps capability=webgpu — the gate must decline despite that.
+ * Two guarantees, one spec:
+ *  1. iOS WebKit + WebGPU engages the setup lane (model acquisition begins);
+ *  2. iOS WebKit without WebGPU declines gate-before-load — no model traffic.
+ *
+ * The real WebLLM download/generation journey is NOT tested here (no WebGPU in
+ * headless CI Chromium) — that lives in e2e-webllm/webllm-lane.spec.ts.
  */
 
 import { test, expect, type Page } from "@playwright/test";
 
-const FORCED_IOS_WEBKIT_PROFILE =
+const IOS_WEBGPU_PROFILE =
   "eco-force-capability=webgpu"
+  + "&eco-force-browser=safari"
+  + "&eco-force-platform=mobile"
+  + "&eco-force-device-memory=4"
+  + "&eco-force-opfs=true";
+
+// Same device, no WebGPU: the MLC model's requireWebgpu gate fails and the
+// blanket iOS pre-load decline covers everything else.
+const IOS_NO_WEBGPU_PROFILE =
+  "eco-force-capability=wasm"
   + "&eco-force-browser=safari"
   + "&eco-force-platform=mobile"
   + "&eco-force-device-memory=4"
@@ -61,22 +76,60 @@ async function clearStorage(page: Page): Promise<void> {
   });
 }
 
+const greetingHeading = (page: Page) =>
+  page.getByRole("heading", { name: /Good (morning|afternoon|evening)/ });
+
 test.describe("WebKit-mobile designed tier", () => {
-  test("iOS WebKit gets the handoff surface and NO model load is attempted", async ({ page }) => {
+  test("iOS WebKit with WebGPU enters the WebLLM setup lane", async ({ page }) => {
     await clearStorage(page);
 
-    // Track any hit to the model proxy. The guarantee is that this stays empty —
-    // the gate declines before download/load. If the gate regressed to serving,
-    // the setup cascade would hit this route and the assertion below would fail.
+    // Track model-proxy traffic — the new guarantee is that it DOES begin.
     const modelRequests: string[] = [];
     page.on("request", (req) => {
       if (req.url().includes("/api/local-models/")) modelRequests.push(req.url());
     });
-    // Also fail loudly at the network layer if anything tries: abort so a
+    // Hold (never settle) the proxy so the funnel parks on the wait surface:
+    // aborting instead would race the fallback cascade into SetupErrorState.
+    await page.route("**/api/local-models/**", () => {
+      /* intentionally never settle */
+    });
+
+    await page.goto(`/chat?${IOS_WEBGPU_PROFILE}`, {
+      waitUntil: "domcontentloaded",
+    });
+
+    // The setup wait surface — not the decline handoff.
+    await expect(page.locator("[data-eco-setup-surface]")).toBeVisible({
+      timeout: 20_000,
+    });
+    await expect(
+      page.getByRole("progressbar", { name: "Setup progress" }),
+    ).toBeVisible();
+    await expect(
+      page.getByText(/Phones don't have the memory for that yet/i),
+    ).toHaveCount(0);
+
+    // Model acquisition genuinely started.
+    await expect
+      .poll(() => modelRequests.length, { timeout: 20_000 })
+      .toBeGreaterThan(0);
+
+    // Still in setup — no chat surface yet.
+    await expect(greetingHeading(page)).toHaveCount(0);
+  });
+
+  test("iOS WebKit without WebGPU declines gate-before-load — zero model traffic", async ({ page }) => {
+    await clearStorage(page);
+
+    const modelRequests: string[] = [];
+    page.on("request", (req) => {
+      if (req.url().includes("/api/local-models/")) modelRequests.push(req.url());
+    });
+    // Fail loudly at the network layer if anything tries: abort so a
     // regression can't silently succeed against a live proxy.
     await page.route("**/api/local-models/**", (route) => route.abort());
 
-    await page.goto(`/chat?${FORCED_IOS_WEBKIT_PROFILE}`, {
+    await page.goto(`/chat?${IOS_NO_WEBGPU_PROFILE}`, {
       waitUntil: "domcontentloaded",
     });
 
@@ -90,17 +143,13 @@ test.describe("WebKit-mobile designed tier", () => {
     await expect(
       page.getByText(/We'll email you when Eco comes to phones\./i),
     ).toBeVisible();
-    // Handoff control: native share when available, else the copy-link fallback.
     await expect(
       page.getByRole("button", { name: /send eco to your computer|copy link/i }),
     ).toBeVisible();
 
-    // The chat greeting must NOT appear — the user never reaches a chat surface.
-    await expect(
-      page.getByRole("heading", { name: /Good (morning|afternoon|evening)/ }),
-    ).toHaveCount(0);
-
-    // The proof: nothing was ever load-attempted.
+    // The user never reaches a chat surface…
+    await expect(greetingHeading(page)).toHaveCount(0);
+    // …and nothing was ever load-attempted.
     expect(modelRequests).toEqual([]);
   });
 });
