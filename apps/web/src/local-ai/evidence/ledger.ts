@@ -42,6 +42,40 @@ const DEFAULT_RECENT_DAYS = 30;
 const DEFAULT_DOWNLOAD_FAIL_DAYS = 7;
 
 /**
+ * Instant before which recorded FAILURE evidence is not a valid device verdict.
+ *
+ * The recommender reads a recent failure row for (model × profile) as "this
+ * model doesn't work on this device" and stops auto-offering it. Because a
+ * suppressed model is never retried, no healing evidence is ever written — so
+ * the suppression persists for the whole recency window. That inference is only
+ * sound when the failure was the device's fault. When a defect in the
+ * download/serving funnel made otherwise-healthy devices fail, those rows are
+ * false verdicts: they blame the device for a bug that was ours, and they keep
+ * blaming it long after the bug shipped a fix.
+ *
+ * This timestamp is a read-side validity cutoff, nothing more. Every
+ * failure-counting read (`countRecentFailures`, `hasRecentFailure`,
+ * `countRecentDownloadFailures`) ignores failure rows recorded before it —
+ * those rows predate a shipped fix that invalidated them as device verdicts.
+ * No row is ever deleted or rewritten, and SUCCESS rows are never gated: a pass
+ * is a pass, whenever it happened.
+ *
+ * Bump this ONLY when a shipped fix to the download/serving funnel invalidates
+ * prior failure verdicts (i.e. a funnel defect was producing false device
+ * failures). NEVER bump it for a routine deploy: genuine device failures
+ * (out-of-memory, thermal) are not fixed by any deploy, so advancing the cutoff
+ * would merely re-nag devices whose failures were real.
+ */
+export const FAILURE_EVIDENCE_VALID_FROM = '2026-07-24T12:00:00Z';
+
+/**
+ * `FAILURE_EVIDENCE_VALID_FROM` parsed once into epoch-millis, for composing
+ * with each reader's recency cutoff (a failure counts only when it is both
+ * recent AND on/after this instant).
+ */
+const FAILURE_EVIDENCE_VALID_FROM_MS = Date.parse(FAILURE_EVIDENCE_VALID_FROM);
+
+/**
  * Coarse schema version stamped onto every new ledger entry.
  *
  * History:
@@ -198,7 +232,10 @@ export function countRecentFailures(
   maxAgeDays: number = DEFAULT_RECENT_DAYS,
   now: number = Date.now(),
 ): number {
-  const cutoff = now - maxAgeDays * MS_PER_DAY;
+  // A failure row is a valid device verdict only if it is both recent AND
+  // recorded on/after the failure-evidence epoch — rows from before a shipped
+  // funnel fix are not device verdicts. Compose the two cutoffs.
+  const cutoff = Math.max(now - maxAgeDays * MS_PER_DAY, FAILURE_EVIDENCE_VALID_FROM_MS);
   let n = 0;
   for (const entry of readEvidence(modelId, profile)) {
     if (entry.outcome !== 'smoke-fail' && entry.outcome !== 'generate-fail') continue;
@@ -215,7 +252,9 @@ export function hasRecentFailure(
   maxAgeDays: number = DEFAULT_RECENT_DAYS,
   now: number = Date.now(),
 ): boolean {
-  const cutoff = now - maxAgeDays * MS_PER_DAY;
+  // Failure rows count only when recent AND on/after the failure-evidence
+  // epoch (see FAILURE_EVIDENCE_VALID_FROM); pre-fix rows are invalid verdicts.
+  const cutoff = Math.max(now - maxAgeDays * MS_PER_DAY, FAILURE_EVIDENCE_VALID_FROM_MS);
   for (const entry of readEvidence(modelId, profile)) {
     if (entry.outcome !== 'smoke-fail' && entry.outcome !== 'generate-fail') continue;
     const recordedAtMs = Date.parse(entry.recordedAt);
@@ -238,7 +277,10 @@ export function countRecentDownloadFailures(
   maxAgeDays: number = DEFAULT_DOWNLOAD_FAIL_DAYS,
   now: number = Date.now(),
 ): number {
-  const cutoff = now - maxAgeDays * MS_PER_DAY;
+  // Download failures from before the failure-evidence epoch predate a shipped
+  // transport fix, so they are not valid device verdicts either — compose the
+  // epoch with the recency window (see FAILURE_EVIDENCE_VALID_FROM).
+  const cutoff = Math.max(now - maxAgeDays * MS_PER_DAY, FAILURE_EVIDENCE_VALID_FROM_MS);
   let n = 0;
   for (const entry of readEvidence(modelId, profile)) {
     if (entry.outcome !== 'download-fail') continue;

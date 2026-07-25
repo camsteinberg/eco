@@ -16,7 +16,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   clearEvidence,
   countRecentDownloadFailures,
+  countRecentFailures,
   CURRENT_LEDGER_VERSION,
+  FAILURE_EVIDENCE_VALID_FROM,
   hasRecentFailure,
   hasRecentSuccess,
   profileKey,
@@ -303,6 +305,90 @@ describe('countRecentDownloadFailures', () => {
   it('does not count smoke failures as download failures', () => {
     recordEvidence({ modelId: 'm', profile: PROFILE_24GB, outcome: 'smoke-fail' });
     expect(countRecentDownloadFailures('m', PROFILE_24GB)).toBe(0);
+  });
+});
+
+describe('failure-evidence epoch (FAILURE_EVIDENCE_VALID_FROM)', () => {
+  const MS_PER_DAY = 24 * 60 * 60 * 1000;
+  const EPOCH_MS = Date.parse(FAILURE_EVIDENCE_VALID_FROM);
+  // A fixed "now" a couple of days past the epoch — inside every recency window
+  // (7-day download, 30-day smoke/generate) so recency never confounds the epoch.
+  const NOW = EPOCH_MS + 2 * MS_PER_DAY;
+  const PRE_EPOCH = new Date(EPOCH_MS - 60 * 60 * 1000).toISOString(); // 1h before epoch
+  const POST_EPOCH = new Date(NOW - MS_PER_DAY).toISOString(); // 1 day before NOW, after epoch
+  const AT_EPOCH = FAILURE_EVIDENCE_VALID_FROM;
+
+  type Row = {
+    modelId: string;
+    outcome: string;
+    recordedAt: string;
+    errorCode?: string;
+  };
+
+  function seed(...rows: Row[]): void {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify(
+        rows.map((r) => ({
+          modelId: r.modelId,
+          profileKey: profileKey(PROFILE_24GB),
+          outcome: r.outcome,
+          errorCode: r.errorCode,
+          recordedAt: r.recordedAt,
+          ledgerVersion: CURRENT_LEDGER_VERSION,
+        })),
+      ),
+    );
+  }
+
+  it('ignores a pre-epoch smoke-fail in countRecentFailures', () => {
+    seed({ modelId: 'm', outcome: 'smoke-fail', recordedAt: PRE_EPOCH });
+    expect(countRecentFailures('m', PROFILE_24GB, 30, NOW)).toBe(0);
+  });
+
+  it('ignores a pre-epoch generate-fail in hasRecentFailure', () => {
+    seed({ modelId: 'm', outcome: 'generate-fail', recordedAt: PRE_EPOCH });
+    expect(hasRecentFailure('m', PROFILE_24GB, 30, NOW)).toBe(false);
+  });
+
+  it('ignores a pre-epoch download-fail in countRecentDownloadFailures', () => {
+    seed({ modelId: 'm', outcome: 'download-fail', errorCode: 'failed', recordedAt: PRE_EPOCH });
+    expect(countRecentDownloadFailures('m', PROFILE_24GB, 7, NOW)).toBe(0);
+  });
+
+  it('counts a post-epoch failure within the recency window (all three counters)', () => {
+    seed(
+      { modelId: 'm', outcome: 'smoke-fail', recordedAt: POST_EPOCH },
+      { modelId: 'm', outcome: 'download-fail', errorCode: 'failed', recordedAt: POST_EPOCH },
+    );
+    expect(countRecentFailures('m', PROFILE_24GB, 30, NOW)).toBe(1);
+    expect(hasRecentFailure('m', PROFILE_24GB, 30, NOW)).toBe(true);
+    expect(countRecentDownloadFailures('m', PROFILE_24GB, 7, NOW)).toBe(1);
+  });
+
+  it('counts a failure recorded exactly at the epoch instant (at-epoch counts)', () => {
+    seed(
+      { modelId: 'm', outcome: 'smoke-fail', recordedAt: AT_EPOCH },
+      { modelId: 'm', outcome: 'download-fail', errorCode: 'failed', recordedAt: AT_EPOCH },
+    );
+    expect(countRecentFailures('m', PROFILE_24GB, 30, NOW)).toBe(1);
+    expect(hasRecentFailure('m', PROFILE_24GB, 30, NOW)).toBe(true);
+    expect(countRecentDownloadFailures('m', PROFILE_24GB, 7, NOW)).toBe(1);
+  });
+
+  it('never gates SUCCESS rows — a pre-epoch smoke-pass still counts', () => {
+    seed({ modelId: 'm', outcome: 'smoke-pass', recordedAt: PRE_EPOCH });
+    expect(hasRecentSuccess('m', PROFILE_24GB, 30, NOW)).toBe(true);
+  });
+
+  it('un-poisons: a pre-epoch failure with no recent success is not counted', () => {
+    seed(
+      { modelId: 'm', outcome: 'smoke-fail', recordedAt: PRE_EPOCH },
+      { modelId: 'm', outcome: 'generate-fail', recordedAt: PRE_EPOCH },
+    );
+    expect(countRecentFailures('m', PROFILE_24GB, 30, NOW)).toBe(0);
+    expect(hasRecentFailure('m', PROFILE_24GB, 30, NOW)).toBe(false);
+    expect(hasRecentSuccess('m', PROFILE_24GB, 30, NOW)).toBe(false);
   });
 });
 
