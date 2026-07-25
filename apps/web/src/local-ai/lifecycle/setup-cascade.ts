@@ -14,7 +14,9 @@
  *
  * Traversal policy:
  *   - download failure  → retry the SAME model once (transient network), then
- *     demote. NOT recorded to the ledger (a blip must not poison a good model).
+ *     demote. The cascade records nothing itself: `downloadModel` already wrote
+ *     a `download-fail` row at the failure origin, and a second write here
+ *     would double-count the same failure.
  *   - load/smoke failure → demote immediately (deterministic for this
  *     model×device), recorded to the ledger so it is excluded on retry and in
  *     future sessions.
@@ -115,8 +117,9 @@ export async function runSetupCascade(opts: RunSetupCascadeOptions): Promise<Set
       continue;
     }
 
-    // Deterministic model×device failure → record + demote. Download failures
-    // that already exhausted their retry demote too, but are NOT recorded.
+    // Deterministic model×device failure → record + demote. A download failure
+    // that already exhausted its retry demotes too, but is not recorded HERE:
+    // `downloadModel` wrote its row at the failure origin.
     if (result.phase === 'load-or-smoke') {
       opts.recordFailure(model);
     }
