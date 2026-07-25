@@ -209,6 +209,14 @@ function byteArr(...bytes: number[]): Uint8Array {
 
 const MODEL_ID = 'local/phi3-mini-4k-q4f16';
 
+/**
+ * Zeroes the transient-retry backoff for tests that drive a retry path. What a
+ * retry DOES is asserted here; the real jittered schedule is asserted directly
+ * in retry.test.ts, so paying seconds of real sleep here would only slow the
+ * suite.
+ */
+const NO_RETRY_BACKOFF = 0;
+
 function makePlan(files: ReadonlyArray<{ url: string; body: Uint8Array }>): DownloadPlan {
   return {
     modelId: MODEL_ID,
@@ -419,6 +427,7 @@ describe('downloadByPlan — CDN → proxy transport fallback', () => {
 
     const result = await downloadByPlan(plan, {
       storage,
+      retryBaseDelayMs: NO_RETRY_BACKOFF,
       fetcher: dispatch(log, {
         [CDN]: () => new Response(null, { status: 503 }),
         [IDENTITY]: () => okBody(body),
@@ -444,6 +453,7 @@ describe('downloadByPlan — CDN → proxy transport fallback', () => {
 
     const result = await downloadByPlan(plan, {
       storage,
+      retryBaseDelayMs: NO_RETRY_BACKOFF,
       fetcher: dispatch(log, {
         [CDN]: () => { throw new TypeError('Failed to fetch'); },
         [IDENTITY]: () => okBody(body),
@@ -468,6 +478,7 @@ describe('downloadByPlan — CDN → proxy transport fallback', () => {
     const result = await downloadByPlan(plan, {
       storage,
       rangeChunkBytes: CHUNK,
+      retryBaseDelayMs: NO_RETRY_BACKOFF,
       fetcher: dispatch(log, {
         [CDN]: () => new Response(null, { status: 503 }),
         [IDENTITY]: (init) => rangeResponse(body, init),
@@ -669,7 +680,7 @@ describe('downloadByPlan — CDN → proxy transport fallback', () => {
     expect(log).not.toContain(IDENTITY);
   });
 
-  it('makes a single request and propagates the error when fetchUrl is unset', async () => {
+  it('makes no source-switch attempt when fetchUrl is unset', async () => {
     const body = byteArr(1, 2, 3);
     const plan: DownloadPlan = {
       modelId: MODEL_ID,
@@ -680,12 +691,15 @@ describe('downloadByPlan — CDN → proxy transport fallback', () => {
     await expect(
       downloadByPlan(plan, {
         storage,
+        retryBaseDelayMs: NO_RETRY_BACKOFF,
         fetcher: dispatch(log, { [IDENTITY]: () => new Response(null, { status: 503 }) }),
       }),
     ).rejects.toBeInstanceOf(DownloadFailedError);
 
-    // Exactly one request to the single source — no phantom second attempt.
-    expect(log).toEqual([IDENTITY]);
+    // The transient retries and nothing more: one attempt plus its two retries,
+    // all against the single source. A phantom source switch (the proxy IS the
+    // source that just failed) would double this to six.
+    expect(log).toEqual([IDENTITY, IDENTITY, IDENTITY]);
   });
 
   it('does not fall back when aborted mid-fetch (no proxy request)', async () => {
@@ -919,9 +933,174 @@ describe('downloadByPlan — failure paths', () => {
     await expect(
       downloadByPlan(plan, {
         storage,
+        retryBaseDelayMs: NO_RETRY_BACKOFF,
         fetcher: createFetcher({ [a.url]: { body: a.body, status: 503 } }),
       }),
     ).rejects.toBeInstanceOf(DownloadFailedError);
+  });
+});
+
+// ─── Transient retry (single-GET path) ─────────────────────────────────────
+//
+// The single-GET path had NO retry at all: one blip on a 40 KB config file
+// failed the whole model, and with no CDN configured there is no second source
+// to fall back to either. Retry is the inner axis — same source, short backoff.
+
+describe('downloadByPlan — transient retry', () => {
+  const URL_S = 'https://test/config.json';
+
+  function okBody(body: Uint8Array): Response {
+    return new Response(body as unknown as BodyInit, {
+      status: 200,
+      headers: { 'content-length': String(body.byteLength) },
+    });
+  }
+
+  /** Fails the first `failures` requests to any url, then serves `body`. */
+  function flaky(
+    body: Uint8Array,
+    failures: number,
+    log: string[],
+    status = 503,
+  ): typeof fetch {
+    let seen = 0;
+    return (async (input: RequestInfo | URL) => {
+      log.push(typeof input === 'string' ? input : (input as Request).url);
+      seen += 1;
+      return seen <= failures ? new Response(null, { status }) : okBody(body);
+    }) as typeof fetch;
+  }
+
+  it('absorbs a transient blip on the single-GET path and completes', async () => {
+    const body = byteArr(4, 5, 6);
+    const log: string[] = [];
+
+    const result = await downloadByPlan(
+      { modelId: MODEL_ID, files: [{ url: URL_S, sizeBytes: body.byteLength }] },
+      { storage, retryBaseDelayMs: NO_RETRY_BACKOFF, fetcher: flaky(body, 1, log) },
+    );
+
+    expect(result.filesFetched).toBe(1);
+    expect(log).toHaveLength(2); // the blip, then the retry that landed
+    expect((await storage.get({ modelId: MODEL_ID, url: URL_S }))!.sizeBytes)
+      .toBe(body.byteLength);
+  });
+
+  it('survives blips right up to the retry budget', async () => {
+    const body = byteArr(1, 2);
+    const log: string[] = [];
+
+    const result = await downloadByPlan(
+      { modelId: MODEL_ID, files: [{ url: URL_S, sizeBytes: body.byteLength }] },
+      { storage, retryBaseDelayMs: NO_RETRY_BACKOFF, fetcher: flaky(body, 2, log) },
+    );
+
+    expect(result.filesFetched).toBe(1);
+    expect(log).toHaveLength(3);
+  });
+
+  it('gives up once the budget is spent — a dead host still fails honestly', async () => {
+    const body = byteArr(1, 2);
+    const log: string[] = [];
+
+    await expect(
+      downloadByPlan(
+        { modelId: MODEL_ID, files: [{ url: URL_S, sizeBytes: body.byteLength }] },
+        { storage, retryBaseDelayMs: NO_RETRY_BACKOFF, fetcher: flaky(body, 3, log) },
+      ),
+    ).rejects.toBeInstanceOf(DownloadFailedError);
+
+    expect(log).toHaveLength(3);
+    expect(await storage.has({ modelId: MODEL_ID, url: URL_S })).toBe(false);
+  });
+
+  it('does not retry a hard 4xx — a bad object will not heal on a re-request', async () => {
+    const body = byteArr(1, 2);
+    const log: string[] = [];
+
+    await expect(
+      downloadByPlan(
+        { modelId: MODEL_ID, files: [{ url: URL_S, sizeBytes: body.byteLength }] },
+        { storage, retryBaseDelayMs: NO_RETRY_BACKOFF, fetcher: flaky(body, 1, log, 410) },
+      ),
+    ).rejects.toBeInstanceOf(DownloadFailedError);
+
+    expect(log).toHaveLength(1);
+  });
+
+  it('retries a network error (no status), not just an HTTP one', async () => {
+    const body = byteArr(7, 8, 9);
+    const log: string[] = [];
+    let seen = 0;
+    const fetcher = (async (input: RequestInfo | URL) => {
+      log.push(typeof input === 'string' ? input : (input as Request).url);
+      seen += 1;
+      if (seen === 1) throw new TypeError('Failed to fetch');
+      return okBody(body);
+    }) as typeof fetch;
+
+    const result = await downloadByPlan(
+      { modelId: MODEL_ID, files: [{ url: URL_S, sizeBytes: body.byteLength }] },
+      { storage, retryBaseDelayMs: NO_RETRY_BACKOFF, fetcher },
+    );
+
+    expect(result.filesFetched).toBe(1);
+    expect(log).toHaveLength(2);
+  });
+
+  it('protects the proxy-fallback attempt too — a blip after the source switch', async () => {
+    const IDENTITY = 'https://test/proxy/w.bin';
+    const CDN = 'https://cdn.example.com/w.bin';
+    const body = byteArr(3, 1, 4, 1, 5);
+    const log: string[] = [];
+    let proxyHits = 0;
+
+    const fetcher = (async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : (input as Request).url;
+      log.push(url);
+      if (url === CDN) return new Response(null, { status: 404 }); // mirror miss
+      proxyHits += 1;
+      return proxyHits === 1 ? new Response(null, { status: 502 }) : okBody(body);
+    }) as typeof fetch;
+
+    const result = await downloadByPlan(
+      {
+        modelId: MODEL_ID,
+        files: [{ url: IDENTITY, fetchUrl: CDN, sizeBytes: body.byteLength }],
+      },
+      { storage, retryBaseDelayMs: NO_RETRY_BACKOFF, fetcher },
+    );
+
+    expect(result.filesFetched).toBe(1);
+    // A 404 is a mirror miss, not a blip: one CDN request, then the proxy — whose
+    // own blip is absorbed by the retry rather than failing the download.
+    expect(log.filter((u) => u === CDN)).toHaveLength(1);
+    expect(log.filter((u) => u === IDENTITY)).toHaveLength(2);
+  });
+
+  it('aborts immediately rather than finishing the retry cycle', async () => {
+    const body = byteArr(1, 2, 3);
+    const controller = new AbortController();
+    const log: string[] = [];
+    const fetcher = (async (input: RequestInfo | URL) => {
+      log.push(typeof input === 'string' ? input : (input as Request).url);
+      controller.abort();
+      return new Response(null, { status: 503 });
+    }) as typeof fetch;
+
+    await expect(
+      downloadByPlan(
+        { modelId: MODEL_ID, files: [{ url: URL_S, sizeBytes: body.byteLength }] },
+        {
+          storage,
+          signal: controller.signal,
+          retryBaseDelayMs: NO_RETRY_BACKOFF,
+          fetcher,
+        },
+      ),
+    ).rejects.toBeInstanceOf(DownloadAbortedError);
+
+    expect(log).toHaveLength(1); // the abort beat the retry
   });
 });
 
@@ -978,6 +1157,7 @@ describe('downloadModel — resolver DI', () => {
       await expect(
         downloadModel(model, {
           storage,
+          retryBaseDelayMs: NO_RETRY_BACKOFF,
           fetcher: createFetcher({ [a.url]: { body: a.body, status: 503 } }),
         }),
       ).rejects.toBeInstanceOf(DownloadFailedError);
@@ -1004,6 +1184,34 @@ describe('downloadModel — resolver DI', () => {
         }),
       ).rejects.toBeInstanceOf(DownloadAbortedError);
 
+      expect(recordEvidenceMock).not.toHaveBeenCalled();
+    });
+
+    it('writes NO row when a transient blip is absorbed by the retry', async () => {
+      // The whole point of the retry layer: a flaky-network user must not
+      // accumulate download-fail rows that the recommender later reads as
+      // "this model doesn't work on this device".
+      const a = { url: 'https://test/a.bin', body: byteArr(1, 2, 3) };
+      setDownloadPlanResolver(async () => makePlan([a]));
+
+      let seen = 0;
+      const fetcher = (async () => {
+        seen += 1;
+        return seen === 1
+          ? new Response(null, { status: 503 })
+          : new Response(a.body as unknown as BodyInit, {
+              status: 200,
+              headers: { 'content-length': String(a.body.byteLength) },
+            });
+      }) as typeof fetch;
+
+      const result = await downloadModel(model, {
+        storage,
+        retryBaseDelayMs: NO_RETRY_BACKOFF,
+        fetcher,
+      });
+
+      expect(result.filesFetched).toBe(1);
       expect(recordEvidenceMock).not.toHaveBeenCalled();
     });
   });
@@ -1257,11 +1465,28 @@ describe('downloadByPlan — range-chunked large files', () => {
     const result = await downloadByPlan(chunkedPlan(url, body), {
       storage,
       rangeChunkBytes: CHUNK,
+      retryBaseDelayMs: NO_RETRY_BACKOFF,
       // Second range request (index 1) fails once, then the retry succeeds.
       fetcher: createRangeFetcher({ [url]: body }, { failOnceAtRequest: 1 }),
     });
     expect(result.filesFetched).toBe(1);
     expect((await storage.get({ modelId: MODEL_ID, url }))!.sizeBytes).toBe(body.byteLength);
+  });
+
+  it('backs off between chunk retries and still completes', async () => {
+    const url = 'https://test/big.bin';
+    const body = bigBody(10);
+    const started = Date.now();
+    const result = await downloadByPlan(chunkedPlan(url, body), {
+      storage,
+      rangeChunkBytes: CHUNK,
+      // Real but tiny, so the wiring is proven without a 500ms sleep.
+      retryBaseDelayMs: 20,
+      fetcher: createRangeFetcher({ [url]: body }, { failOnceAtRequest: 1 }),
+    });
+    expect(result.filesFetched).toBe(1);
+    expect((await storage.get({ modelId: MODEL_ID, url }))!.sizeBytes).toBe(body.byteLength);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(15); // 20ms less max jitter
   });
 
   it('throws DownloadAbortedError when aborted mid-chunk', async () => {
@@ -1522,6 +1747,7 @@ describe('downloadByPlan — mid-file chunk resume', () => {
         storage,
         estimateStorage: async () => null,
         rangeChunkBytes: RESUME_CHUNK,
+        retryBaseDelayMs: NO_RETRY_BACKOFF,
         // Fail from offset 8 → chunks at 0 and 4 persist, then interrupt.
         fetcher: rangeDispatch([], { [URL_A]: serveThen503(body, 8) }),
       }),
@@ -1540,6 +1766,7 @@ describe('downloadByPlan — mid-file chunk resume', () => {
         storage,
         estimateStorage: async () => null,
         rangeChunkBytes: RESUME_CHUNK,
+        retryBaseDelayMs: NO_RETRY_BACKOFF,
         fetcher: rangeDispatch([], { [URL_A]: serveThen503(body, 8) }),
       }),
     ).rejects.toBeInstanceOf(DownloadFailedError);
@@ -1608,6 +1835,7 @@ describe('downloadByPlan — mid-file chunk resume', () => {
         storage,
         estimateStorage: async () => null,
         rangeChunkBytes: RESUME_CHUNK,
+        retryBaseDelayMs: NO_RETRY_BACKOFF,
         fetcher: rangeDispatch([], { [URL_A]: failing }),
       }),
     ).rejects.toBeInstanceOf(DownloadFailedError);
@@ -1634,6 +1862,7 @@ describe('downloadByPlan — mid-file chunk resume', () => {
         storage,
         estimateStorage: async () => null,
         rangeChunkBytes: RESUME_CHUNK,
+        retryBaseDelayMs: NO_RETRY_BACKOFF,
         fetcher: rangeDispatch([], { [URL_A]: serveThen503(bodyOld, 8) }),
       }),
     ).rejects.toBeInstanceOf(DownloadFailedError);
@@ -1669,6 +1898,7 @@ describe('downloadByPlan — mid-file chunk resume', () => {
         storage,
         estimateStorage: async () => null,
         rangeChunkBytes: RESUME_CHUNK,
+        retryBaseDelayMs: NO_RETRY_BACKOFF,
         fetcher: rangeDispatch([], { [URL_A]: serveThen503(body, 8) }),
       }),
     ).rejects.toBeInstanceOf(DownloadFailedError);
@@ -1802,6 +2032,7 @@ describe('downloadByPlan — mid-file chunk resume', () => {
       storage,
       estimateStorage: async () => null,
       rangeChunkBytes: RESUME_CHUNK,
+      retryBaseDelayMs: NO_RETRY_BACKOFF,
       fetcher: rangeDispatch(log, {
         // CDN serves the first two chunks (0, 4) then 503s persistently at 8.
         [CDN]: serveThen503(body, 8),
