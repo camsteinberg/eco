@@ -318,6 +318,34 @@ export async function isModelFullyCached(
 }
 
 /**
+ * Runtime-aware "is this model downloaded and ready to serve?" — the check every
+ * orchestration (the upgrade ladder, offer eligibility) must use in place of
+ * `isModelFullyCached` directly.
+ *
+ * For most runtimes Eco's own Cache/OPFS namespace is the TERMINAL store, so
+ * `isModelFullyCached` is the whole truth. A `webllm` model is the exception:
+ * Eco storage is only a STAGING area — the cache bridge copies every file into
+ * WebLLM's own Cache API namespaces and EMPTIES the staging cache after a
+ * successful download, so an empty Eco namespace means the download SUCCEEDED.
+ * There the authoritative signal is WebLLM's cache (`webllmModelInCache`),
+ * reached through a lazy import so the bridge chunk stays out of eager graphs.
+ * Fails closed for webllm: a bridge chunk that cannot load — or a probe that
+ * throws — reads as "not downloaded", matching the fail-closed contract of the
+ * check it fronts.
+ */
+export async function isModelDownloaded(model: ModelConfig): Promise<boolean> {
+  if (model.runtime === 'webllm') {
+    try {
+      const { webllmModelInCache } = await import('../runtime/webllm-cache-bridge');
+      return await webllmModelInCache(model);
+    } catch {
+      return false;
+    }
+  }
+  return isModelFullyCached(model);
+}
+
+/**
  * The storage surface `verifyPlanFile` needs — a structural subset of `Storage`
  * so the diagnostics probe can pass its injected fake. A full `Storage`
  * satisfies it.
