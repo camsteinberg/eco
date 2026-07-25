@@ -15,6 +15,7 @@ import { generate as generateThroughLifecycle } from '../../local-ai/runtime/lif
 import { prepareModelForSlot } from '../../local-ai/lifecycle/switch-model';
 import { setSlot, setSlotStatus, type SlotStatus } from '../../local-ai/lifecycle/slots';
 import { isLocalAiSlot } from '../../local-ai/util';
+import { isDiagnosticsEnabled } from '../../lib/dev-diagnostics';
 import { useChatStore } from '../../stores/chatStore';
 import { SettingsEcoTab } from './SettingsEcoTab';
 import { SwitchAIDialog } from './SwitchAIDialog';
@@ -47,10 +48,13 @@ export function LocalAiSettingsAdapter() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  // Show the diagnostics link only when ?eco-diagnostics=1 is in the URL
-  // or when document.referrer contained it (coming back from the diag page).
+  // Show the diagnostics link when the sticky dev flag (or ?eco-diagnostics=1
+  // in the current URL) is set, or when document.referrer contained the param
+  // (coming back from the diag page). The sticky flag matters: this link is
+  // the only receipt-preserving route to the diagnostics export (receipts are
+  // in-memory only), and in-app navigation drops URL params.
   const showDiagnosticsLink = useMemo(() => {
-    if (searchParams.get('eco-diagnostics') === '1') return true;
+    if (isDiagnosticsEnabled(`?${searchParams.toString()}`)) return true;
     if (typeof document !== 'undefined' && document.referrer) {
       try {
         const ref = new URL(document.referrer);
