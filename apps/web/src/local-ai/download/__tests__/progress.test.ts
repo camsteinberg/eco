@@ -265,6 +265,125 @@ describe('ProgressTracker — speed + ETA', () => {
   });
 });
 
+// ─── Retried transfers: monotonic bar, non-negative speed ──────────────────
+//
+// `loaded` is absolute but not monotonic at the source: a transient-retry
+// re-request (and the CDN→proxy fallback re-entering a file) restarts its byte
+// counter at that transfer's base and re-reports figures already published.
+
+describe('ProgressTracker — retried transfer re-reports a lower figure', () => {
+  it('never runs the bar backwards', () => {
+    const { tracker, events } = makeTracker();
+    tracker.reportDownloadProgress(600, 1000);
+    tracker.reportDownloadProgress(400, 1000); // chunk retried from its base
+
+    const last = events[events.length - 1]!;
+    if (last.kind !== 'progress' || last.phase !== 'downloading') throw new Error('unexpected');
+    expect(last.loaded).toBe(600);
+    expect(last.percent).toBeCloseTo(0.6);
+    expect(tracker.snapshot().loaded).toBe(600);
+  });
+
+  it('never reports a negative speed or a garbage ETA', () => {
+    const { tracker, events, harness } = makeTracker();
+    tracker.reportDownloadProgress(600, 1000);
+    harness.advance(1_000);
+    tracker.reportDownloadProgress(400, 1000);
+
+    const last = events[events.length - 1]!;
+    if (last.kind !== 'progress' || last.phase !== 'downloading') throw new Error('unexpected');
+    expect(last.speedBytesPerSec).toBeGreaterThanOrEqual(0);
+    expect(last.etaSeconds).toBeGreaterThanOrEqual(0);
+  });
+
+  it('resumes advancing once the retry passes the high-water mark', () => {
+    const { tracker, events } = makeTracker();
+    tracker.reportDownloadProgress(600, 1000);
+    tracker.reportDownloadProgress(400, 1000);
+    tracker.reportDownloadProgress(500, 1000);
+    tracker.reportDownloadProgress(700, 1000);
+
+    const loadedSeries = events
+      .filter((e) => e.kind === 'progress' && e.phase === 'downloading')
+      .map((e) => (e.kind === 'progress' && e.phase === 'downloading' ? e.loaded : -1));
+    expect(loadedSeries).toEqual([600, 600, 600, 700]);
+  });
+
+  it('treats the restart as motion so the stall detector re-arms', () => {
+    // Re-downloading ground already shown is work, not a stall — firing
+    // early-stall on a recovering download would abort it needlessly.
+    const { tracker, events, harness } = makeTracker();
+    tracker.reportDownloadProgress(600, 1000);
+    harness.advance(20_000);
+    tracker.reportDownloadProgress(400, 1000); // retry restarts the transfer
+    harness.advance(20_000);                    // 40s since the last advance
+
+    expect(events.find((e) => e.kind === 'stall')).toBeUndefined();
+    harness.advance(10_000);                    // 30s since the restart
+    expect(events.find((e) => e.kind === 'stall')).toBeDefined();
+  });
+
+  it('re-baselines the high-water mark when the total is corrected downward', () => {
+    // A heuristic plan estimate overshoots; the origin's real size arrives (the
+    // 416 Content-Range correction). The mark was measured against a fiction.
+    const { tracker, events } = makeTracker();
+    tracker.reportDownloadProgress(900, 1000);
+    tracker.reportDownloadProgress(500, 600);
+
+    const last = events[events.length - 1]!;
+    if (last.kind !== 'progress' || last.phase !== 'downloading') throw new Error('unexpected');
+    expect(last.total).toBe(600);
+    expect(last.loaded).toBe(500); // follows the corrected accounting, not the old mark
+    expect(last.percent).toBeCloseTo(500 / 600);
+    expect(tracker.snapshot().loaded).toBe(500);
+  });
+
+  it('keeps percent at or below 1 however far the total is corrected down', () => {
+    const { tracker, events } = makeTracker();
+    tracker.reportDownloadProgress(990, 1000);
+    tracker.reportDownloadProgress(120, 100); // absurd correction: mark and report both overshoot
+
+    const last = events[events.length - 1]!;
+    if (last.kind !== 'progress' || last.phase !== 'downloading') throw new Error('unexpected');
+    expect(last.percent).toBeLessThanOrEqual(1);
+    expect(last.loaded).toBeLessThanOrEqual(last.total);
+  });
+
+  it('does not misclassify the post-correction stall as a finalize-stall', () => {
+    // Carrying a 99%-of-the-old-estimate mark into a smaller total would push
+    // percent past the finalize threshold and swap the 30s window for 60s.
+    const { tracker, events, harness } = makeTracker();
+    tracker.reportDownloadProgress(990, 1000);
+    tracker.reportDownloadProgress(500, 600);
+    harness.advance(30_000);
+
+    const stall = events.find((e) => e.kind === 'stall');
+    expect(stall).toBeDefined();
+    if (stall?.kind === 'stall') expect(stall.stall).toBe('early-stall');
+  });
+
+  it('reports no negative speed across a downward total correction', () => {
+    const { tracker, events, harness } = makeTracker();
+    tracker.reportDownloadProgress(900, 1000);
+    harness.advance(1_000);
+    tracker.reportDownloadProgress(500, 600);
+
+    const last = events[events.length - 1]!;
+    if (last.kind !== 'progress' || last.phase !== 'downloading') throw new Error('unexpected');
+    expect(last.speedBytesPerSec).toBeGreaterThanOrEqual(0);
+    expect(last.etaSeconds).toBeGreaterThanOrEqual(0);
+  });
+
+  it('still ignores an idle zero-delta re-read', () => {
+    const { tracker, events, harness } = makeTracker();
+    tracker.reportDownloadProgress(600, 1000);
+    harness.advance(20_000);
+    tracker.reportDownloadProgress(600, 1000); // stream closed a chunk, no bytes
+    harness.advance(10_000);                    // 30s since the only advance
+    expect(events.find((e) => e.kind === 'stall')).toBeDefined();
+  });
+});
+
 // ─── destroy ───────────────────────────────────────────────────────────────
 
 describe('ProgressTracker — destroy', () => {
