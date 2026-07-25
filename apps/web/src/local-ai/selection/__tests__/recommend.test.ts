@@ -550,6 +550,11 @@ describe('recommend — confidence floor', () => {
     const LEGACY_KEY = 'chromium|high-memory-laptop|webgpu';
     const STARTER_ID = 'candidate/lfm2.5-350m-onnx';
 
+    // Offsets are days-ago from now. "Recent" failures (small offsets) must
+    // post-date the failure-evidence epoch (FAILURE_EVIDENCE_VALID_FROM) to
+    // count — a failure recorded before a shipped funnel fix is not a device
+    // verdict. An hour-scale spread keeps distinct rows safely after the epoch.
+    const HOUR = 1 / 24;
     const seedDownloadFails = (modelId: string, daysAgoList: number[]): void => {
       const entries = daysAgoList.map((daysAgo) => ({
         modelId,
@@ -564,7 +569,7 @@ describe('recommend — confidence floor', () => {
 
     it('demotes a model with >=2 download-fails in 7d from the auto-offer', () => {
       const top = recommend('eco-fast', PROFILE_24GB);
-      seedDownloadFails(top.id, [0, 1]);
+      seedDownloadFails(top.id, [0, HOUR]);
       expect(recommend('eco-fast', PROFILE_24GB).id).not.toBe(top.id);
       expect(listCandidates('eco-fast', PROFILE_24GB).some((c) => c.model.id === top.id)).toBe(false);
     });
@@ -583,7 +588,7 @@ describe('recommend — confidence floor', () => {
 
     it('keeps a demoted model available when it is the currently-bound pick', () => {
       const top = recommend('eco-fast', PROFILE_24GB);
-      seedDownloadFails(top.id, [0, 1]);
+      seedDownloadFails(top.id, [0, HOUR]);
       const candidates = listCandidates('eco-fast', PROFILE_24GB, undefined, {
         currentlyBoundModelId: top.id,
       });
@@ -592,7 +597,7 @@ describe('recommend — confidence floor', () => {
 
     it('never blocks manual selection — listCatalog still lists a download-failed model', () => {
       const top = recommend('eco-fast', PROFILE_24GB);
-      seedDownloadFails(top.id, [0, 1]);
+      seedDownloadFails(top.id, [0, HOUR]);
       expect(listCatalog(PROFILE_24GB).available.some((a) => a.model.id === top.id)).toBe(true);
     });
 
@@ -601,7 +606,7 @@ describe('recommend — confidence floor', () => {
       expect(
         listCandidates('eco-fast', PROFILE_24GB).some((c) => c.model.id === STARTER_ID),
       ).toBe(true);
-      seedDownloadFails(STARTER_ID, [0, 1, 2]);
+      seedDownloadFails(STARTER_ID, [0, HOUR, 2 * HOUR]);
       expect(
         listCandidates('eco-fast', PROFILE_24GB).some((c) => c.model.id === STARTER_ID),
       ).toBe(true);
