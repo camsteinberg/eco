@@ -56,6 +56,12 @@ export default defineConfig({
         "PORT=3000",
         `NEXT_PUBLIC_API_URL=${API_BASE_URL}`,
         "NEXT_PUBLIC_ECO_VALIDATION_HARNESS=true",
+        // Serve model bytes CDN-first, matching production transport. Without
+        // this the gate streams every shard from Hugging Face through the dev
+        // proxy, which intermittently cuts sustained large streams — the gate's
+        // reliability then measures HF's mood, not the funnel under test. The
+        // proxy remains the in-app fallback either way.
+        "NEXT_PUBLIC_ECO_MODEL_CDN_BASE=https://models.econetwork.ai",
         "pnpm --filter @eco/web dev",
       ].join(" "),
       url: WEB_BASE_URL,
