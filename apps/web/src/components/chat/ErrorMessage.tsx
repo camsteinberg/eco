@@ -12,7 +12,7 @@ import { getDeviceProfile } from "../../local-ai/device/profile";
 import { listCandidates } from "../../local-ai/selection/recommend";
 import { getModel } from "../../local-ai/catalog/catalog";
 import { getSlot } from "../../local-ai/lifecycle/slots";
-import { isModelFullyCached } from "../../local-ai/download/download";
+import { isModelDownloaded } from "../../local-ai/download/download";
 import {
   LOCAL_GENERATION_FALLBACK_MESSAGE,
   LOCAL_GENERATION_REPEATED_MESSAGE,
@@ -126,7 +126,11 @@ async function detectLighterModelNudge(
     if (lighter.length === 0) return null;
     let chosen = lighter[0]!;
     for (const model of lighter) {
-      if (await isModelFullyCached(model)) {
+      // Runtime-aware: a downloaded `webllm` candidate lives in WebLLM's cache
+      // (its Eco staging copy is emptied after bridging), so a bare Eco-cache
+      // probe would misread it as not-cached and offer a download instead of
+      // the one-tap switch to already-present weights.
+      if (await isModelDownloaded(model)) {
         chosen = model;
         break;
       }

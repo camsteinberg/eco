@@ -6,7 +6,7 @@
  *
  * Walks the iOS WebKit-mobile journey (forced onto desktop Chrome via the
  * validation-harness profile params) with NO model mocks: fresh disk-backed
- * profile → auto-started download through `/api/local-models/` → WebLLM cache
+ * profile → auto-started download (CDN-first, proxy fallback) → WebLLM cache
  * bridge → smoke gate → ready → TWO real chat turns with streamed tokens.
  *
  * Each leg is a shipped-regression tripwire:
@@ -150,7 +150,13 @@ test.describe("webllm lane — real funnel", () => {
     });
     const modelRequests: string[] = [];
     page.on("request", (req) => {
-      if (req.url().includes("/api/local-models/")) modelRequests.push(req.url());
+      // Model bytes arrive CDN-first (models.econetwork.ai, per the config's
+      // NEXT_PUBLIC_ECO_MODEL_CDN_BASE) with the same-origin proxy as the
+      // in-app fallback — count either as "the download started".
+      const url = req.url();
+      if (url.includes("models.econetwork.ai/") || url.includes("/api/local-models/")) {
+        modelRequests.push(url);
+      }
     });
 
     await page.goto(`${WEB_BASE_URL}/chat?${FORCED_IOS_WEBKIT_PROFILE}`, {
@@ -175,7 +181,7 @@ test.describe("webllm lane — real funnel", () => {
     await expect
       .poll(() => modelRequests.length, {
         timeout: 60_000,
-        message: "no /api/local-models/ traffic — download never started",
+        message: "no model download traffic (CDN or proxy) — download never started",
       })
       .toBeGreaterThan(0);
 

@@ -36,8 +36,39 @@ import {
   writeUpgradeRecord,
   type UpgradeRecord,
 } from '../upgrade';
-import { InsufficientStorageError } from '../../download/download';
+import {
+  InsufficientStorageError,
+  downloadModel,
+  isModelDownloaded,
+} from '../../download/download';
+import {
+  bridgeDownloadWebLLMModel,
+  webllmModelInCache,
+} from '../../runtime/webllm-cache-bridge';
 import { readAllEntries } from '../../evidence/ledger';
+
+// The webllm runtime lane: `bridgeDownloadWebLLMModel` (upgrade's download seam
+// for a webllm target) and `webllmModelInCache` (the terminal-store probe the
+// runtime-aware `isModelDownloaded` defers to) are stubbed; every other export
+// stays real. `downloadModel` is stubbed so the webllm-vs-plain routing is
+// assertable. None of the pre-existing suites exercise these — they inject
+// their own download/cache seams — so the stubs only bite the new cases below.
+vi.mock('../../runtime/webllm-cache-bridge', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../runtime/webllm-cache-bridge')>();
+  return {
+    ...actual,
+    bridgeDownloadWebLLMModel: vi.fn(async () => {}),
+    webllmModelInCache: vi.fn(async () => false),
+  };
+});
+
+vi.mock('../../download/download', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../download/download')>();
+  return {
+    ...actual,
+    downloadModel: vi.fn(async () => {}),
+  };
+});
 
 const PROFILE = {
   browserClass: 'chromium',
@@ -48,6 +79,8 @@ const PROFILE = {
 } as DeviceProfile;
 
 const model = (id: string) => ({ id, sizeGB: 1.4, friendlyName: id } as ModelConfig);
+const webllmModel = (id: string) =>
+  ({ id, runtime: 'webllm', sizeGB: 1.4, friendlyName: id } as ModelConfig);
 
 function memoryStorage() {
   const map = new Map<string, string>();
@@ -68,6 +101,12 @@ let storage: ReturnType<typeof memoryStorage>;
 beforeEach(() => {
   storage = memoryStorage();
   setUpgradeStorage(storage);
+  // Clear the webllm-lane stubs (call history only — the factory defaults
+  // stand: bridge/download resolve, cache-probe misses) so per-test overrides
+  // and call-count assertions start clean.
+  vi.mocked(bridgeDownloadWebLLMModel).mockClear();
+  vi.mocked(webllmModelInCache).mockClear();
+  vi.mocked(downloadModel).mockClear();
 });
 
 afterEach(() => {
@@ -594,5 +633,93 @@ describe('isUpgradeInFlight', () => {
     }
     writeUpgradeRecord(null);
     expect(isUpgradeInFlight()).toBe(false);
+  });
+});
+
+// ─── Runtime-aware downloaded-ness (webllm staging vs terminal store) ─────────
+
+describe('isModelDownloaded', () => {
+  it('webllm target: true when WebLLM cache holds it', async () => {
+    vi.mocked(webllmModelInCache).mockResolvedValue(true);
+    expect(await isModelDownloaded(webllmModel('wm'))).toBe(true);
+    expect(webllmModelInCache).toHaveBeenCalledTimes(1);
+  });
+
+  it('webllm target: false when WebLLM cache misses', async () => {
+    vi.mocked(webllmModelInCache).mockResolvedValue(false);
+    expect(await isModelDownloaded(webllmModel('wm'))).toBe(false);
+  });
+
+  it('webllm target: fails closed to false when the bridge probe throws', async () => {
+    vi.mocked(webllmModelInCache).mockRejectedValue(new Error('bridge chunk failed to load'));
+    expect(await isModelDownloaded(webllmModel('wm'))).toBe(false);
+  });
+
+  it('non-webllm target: delegates to the Eco terminal-store check, never the bridge', async () => {
+    // The bridge would answer TRUE, but a transformers model must ignore WebLLM's
+    // cache and read Eco's own store — false here (no plan resolver registered).
+    vi.mocked(webllmModelInCache).mockResolvedValue(true);
+    expect(await isModelDownloaded(model('t'))).toBe(false);
+    expect(webllmModelInCache).not.toHaveBeenCalled();
+  });
+});
+
+describe('upgrade drivers — webllm runtime lane', () => {
+  it('performUpgradeSwap: a staged webllm target with an empty Eco cache but a WebLLM cache hit does NOT read as evicted', async () => {
+    // The infinite-loop guard. A webllm target stages into WebLLM's own cache and
+    // empties Eco storage, so a bare isModelFullyCached would see "evicted" and
+    // send the machine back to re-download forever. The runtime-aware default
+    // must consult WebLLM's cache instead.
+    writeUpgradeRecord(record({ phase: 'staged', targetModelId: 'wm' }));
+    vi.mocked(webllmModelInCache).mockResolvedValue(true);
+    const seams = {
+      // isModelFullyCached deliberately NOT injected — exercise the default.
+      getModel: vi.fn(() => webllmModel('wm')),
+      prepareModelForSlot: vi.fn(async () => ({ success: true as const })),
+      getSlot: vi.fn(() => ({ slot: 'eco-smart' as const, modelId: null, model: null, status: 'empty' as const })),
+      recordEvidence: vi.fn(),
+      getDeviceProfile: vi.fn(() => PROFILE),
+    };
+    const outcome = await performUpgradeSwap({ seams });
+    expect(outcome.kind).toBe('swapped');
+    expect(seams.prepareModelForSlot).toHaveBeenCalledTimes(1);
+    expect(readUpgradeRecord()?.phase).toBe('done');
+    expect(readUpgradeRecord()?.phase).not.toBe('accepted');
+  });
+
+  it('performUpgradeSwap: a genuine WebLLM cache miss still reverts to re-download (the probe is really consulted)', async () => {
+    writeUpgradeRecord(record({ phase: 'staged', targetModelId: 'wm' }));
+    vi.mocked(webllmModelInCache).mockResolvedValue(false);
+    const seams = {
+      getModel: vi.fn(() => webllmModel('wm')),
+      prepareModelForSlot: vi.fn(async () => ({ success: true as const })),
+      getSlot: vi.fn(() => ({ slot: 'eco-smart' as const, modelId: null, model: null, status: 'empty' as const })),
+      recordEvidence: vi.fn(),
+      getDeviceProfile: vi.fn(() => PROFILE),
+    };
+    const outcome = await performUpgradeSwap({ seams });
+    expect(outcome.kind).toBe('reverted-to-download');
+    expect(seams.prepareModelForSlot).not.toHaveBeenCalled();
+    expect(readUpgradeRecord()?.phase).toBe('accepted');
+  });
+
+  it('runUpgradeDownload: a webllm target routes through the cache bridge, not plain downloadModel', async () => {
+    writeUpgradeRecord(record({ phase: 'accepted', targetModelId: 'wm' }));
+    const seams = {
+      // `download` deliberately NOT injected — exercise the runtime-aware default.
+      getModel: vi.fn(() => webllmModel('wm')),
+      acquireLease: vi.fn(() => ({ ok: true as const, lease: {} as never, release: vi.fn() })),
+      describeBusy: vi.fn(() => 'busy copy'),
+      isModelFullyCached: vi.fn(async () => false),
+    };
+    const outcome = await runUpgradeDownload({ seams });
+    expect(outcome.kind).toBe('staged');
+    expect(bridgeDownloadWebLLMModel).toHaveBeenCalledTimes(1);
+    expect(bridgeDownloadWebLLMModel).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'wm', runtime: 'webllm' }),
+      expect.anything(),
+    );
+    expect(downloadModel).not.toHaveBeenCalled();
+    expect(readUpgradeRecord()?.phase).toBe('staged');
   });
 });

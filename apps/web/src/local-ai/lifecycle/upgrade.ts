@@ -46,8 +46,9 @@ import {
   DownloadAbortedError,
   InsufficientStorageError,
   downloadModel,
-  isModelFullyCached,
+  isModelDownloaded,
 } from '../download/download';
+import { bridgeDownloadWebLLMModel } from '../runtime/webllm-cache-bridge';
 import { ProgressTracker } from '../download/progress';
 import { getDeviceProfile } from '../device/profile';
 import { recordEvidence } from '../evidence/ledger';
@@ -330,7 +331,7 @@ export type PlanUpgradeOfferOptions = {
  */
 export async function planUpgradeOffer(options: PlanUpgradeOfferOptions): Promise<ModelConfig | null> {
   const recommendSmart = options.recommendSmart ?? defaultRecommendSmart;
-  const isTargetCached = options.isTargetCached ?? isModelFullyCached;
+  const isTargetCached = options.isTargetCached ?? isModelDownloaded;
   const target = recommendSmart(options.profile);
   if (!target) return null;
   if (target.id === options.currentModelId) return null;
@@ -382,12 +383,20 @@ const DEFAULT_DOWNLOAD_SEAMS: UpgradeDownloadSeams = {
       ? tracker.subscribe(options.onProgressEvent)
       : null;
     try {
-      await downloadModel(model, { tracker, signal: options.signal });
+      // A `webllm` model routes through the cache bridge (Eco download → stage
+      // into WebLLM's own cache); staging bytes without bridging them would
+      // leave the target "downloaded" yet unservable. Every other runtime is
+      // unchanged. Mirrors setup-runner's attempt path.
+      if (model.runtime === 'webllm') {
+        await bridgeDownloadWebLLMModel(model, { tracker, signal: options.signal });
+      } else {
+        await downloadModel(model, { tracker, signal: options.signal });
+      }
     } finally {
       unsubscribe?.();
     }
   },
-  isModelFullyCached,
+  isModelFullyCached: isModelDownloaded,
 };
 
 export type UpgradeDownloadOutcome =
@@ -495,7 +504,7 @@ export type UpgradeSwapSeams = {
 
 const DEFAULT_SWAP_SEAMS: UpgradeSwapSeams = {
   getModel,
-  isModelFullyCached,
+  isModelFullyCached: isModelDownloaded,
   getSlot,
   prepareModelForSlot,
   recordEvidence,
