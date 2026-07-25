@@ -10,20 +10,28 @@ import "@testing-library/jest-dom";
 // renders only when a manual recommendation is available for the user's
 // profile. The chat store mock keeps the slot stable as 'eco-fast' so the
 // link's deep-link href is predictable.
+type NudgeModel = { id: string; friendlyName: string; sizeGB?: number; runtime?: string };
+
 const recommendationState = vi.hoisted(() => ({
   current: null as null | {
     slot: "eco-fast" | "eco-smart";
     model: { id: string; friendlyName: string; sizeGB?: number };
   },
+  // Multi-candidate list for the lighter-model preference-ordering cases. When
+  // set it takes precedence; otherwise `current` drives the single-candidate
+  // path the capacity/lighter tests already rely on.
+  list: null as null | NudgeModel[],
 }));
 
 vi.mock("../../../local-ai/selection/recommend", () => ({
   // Pass the whole model through so both the capacity nudge (friendlyName) and
-  // the lighter-model nudge (id + sizeGB) can read what they need.
+  // the lighter-model nudge (id + sizeGB + runtime) can read what they need.
   listCandidates: () =>
-    recommendationState.current
-      ? [{ model: recommendationState.current.model, score: 0.9 }]
-      : [],
+    recommendationState.list
+      ? recommendationState.list.map((model) => ({ model, score: 0.9 }))
+      : recommendationState.current
+        ? [{ model: recommendationState.current.model, score: 0.9 }]
+        : [],
   recommend: () => null,
   NoAssignableModelError: class extends Error {},
 }));
@@ -58,7 +66,8 @@ vi.mock("../../../local-ai/catalog/catalog", () => ({
 }));
 
 vi.mock("../../../local-ai/download/download", () => ({
-  isModelFullyCached: async () => false,
+  // Runtime-aware downloaded-ness probe the lighter-model nudge consults.
+  isModelDownloaded: vi.fn(async () => false),
 }));
 
 vi.mock("../../../stores/chatStore", () => ({
@@ -67,6 +76,7 @@ vi.mock("../../../stores/chatStore", () => ({
 }));
 
 import { ErrorMessage } from "../ErrorMessage";
+import { isModelDownloaded } from "../../../local-ai/download/download";
 import {
   LOCAL_GENERATION_FALLBACK_MESSAGE,
   LOCAL_GENERATION_REPEATED_MESSAGE,
@@ -78,6 +88,9 @@ describe("ErrorMessage", () => {
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     recommendationState.current = null;
+    recommendationState.list = null;
+    vi.mocked(isModelDownloaded).mockReset();
+    vi.mocked(isModelDownloaded).mockResolvedValue(false);
   });
 
   it("renders a botanical illustration (WiltedPlantIllustration)", () => {
@@ -396,6 +409,25 @@ describe("ErrorMessage", () => {
     const link = screen.getByTestId("lighter-model-setup-link");
     expect(link).toHaveAttribute("href", "/settings?tab=models&setup=eco-fast");
     expect(link).toHaveTextContent(/Set up Bonsai Lite/);
+  });
+
+  it("prefers an already-downloaded lighter webllm candidate over a lighter uncached one (runtime-aware)", async () => {
+    // Two lighter candidates; the second is a webllm model already in WebLLM's
+    // cache. A bare Eco-cache probe would miss it and offer the first (a
+    // download); the runtime-aware probe must pick the cached webllm one for the
+    // one-tap switch.
+    recommendationState.list = [
+      { id: "local/onnx-lite", friendlyName: "Onnx Lite", sizeGB: 1.5 },
+      { id: "local/webllm-lite", friendlyName: "WebLLM Lite", sizeGB: 2, runtime: "webllm" },
+    ];
+    vi.mocked(isModelDownloaded).mockImplementation(
+      async (m) => (m as { id: string }).id === "local/webllm-lite",
+    );
+    render(<ErrorMessage onRetry={() => {}} message={LOCAL_GENERATION_REPEATED_MESSAGE} />);
+    await waitFor(() => {
+      expect(screen.getByTestId("lighter-model-setup-link")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("lighter-model-setup-link")).toHaveTextContent(/Set up WebLLM Lite/);
   });
 
   it("keeps the cooldown title for the warmed 'needs a short breather' copy", () => {

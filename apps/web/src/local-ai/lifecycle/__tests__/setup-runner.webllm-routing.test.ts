@@ -12,18 +12,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ModelConfig, Slot } from '../../types';
 import type { SmokeResult } from '../smoke';
 
-vi.mock('../../download/download', () => ({
-  downloadModel: vi.fn().mockResolvedValue(undefined),
-  InsufficientStorageError: class InsufficientStorageError extends Error {},
-}));
+// Preserve the real module (so the runtime-aware `isModelDownloaded` the
+// `isModelCached` seam defers to runs for real) and stub only the plain
+// downloader so the runtime routing stays assertable.
+vi.mock('../../download/download', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../download/download')>();
+  return { ...actual, downloadModel: vi.fn().mockResolvedValue(undefined) };
+});
 vi.mock('../../runtime/webllm-cache-bridge', () => ({
   bridgeDownloadWebLLMModel: vi.fn().mockResolvedValue(undefined),
+  webllmModelInCache: vi.fn().mockResolvedValue(false),
 }));
 vi.mock('../smoke', () => ({ runSmoke: vi.fn() }));
 
 import { DEFAULT_SEAMS } from '../setup-runner';
 import { downloadModel } from '../../download/download';
-import { bridgeDownloadWebLLMModel } from '../../runtime/webllm-cache-bridge';
+import { bridgeDownloadWebLLMModel, webllmModelInCache } from '../../runtime/webllm-cache-bridge';
 import { runSmoke } from '../smoke';
 
 const SLOT: Slot = 'eco-fast';
@@ -70,5 +74,36 @@ describe('DEFAULT_SEAMS.runAttempt — runtime download routing', () => {
 
     expect(result).toEqual({ ok: false, phase: 'download', reason: 'cache contract broken' });
     expect(runSmoke).not.toHaveBeenCalled();
+  });
+});
+
+describe('DEFAULT_SEAMS.isModelCached — runtime-aware downloaded-ness', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('a webllm target reports cached on a WebLLM-cache hit (returning-user fast path preserved, no downgrade to starter)', async () => {
+    // A webllm model stages into WebLLM's own cache and empties its Eco copy, so
+    // a bare Eco-cache probe would misread it as evicted and lead with the
+    // starter. The runtime-aware default must consult WebLLM's cache.
+    vi.mocked(webllmModelInCache).mockResolvedValue(true);
+    expect(await DEFAULT_SEAMS.isModelCached(webllmModel)).toBe(true);
+    expect(webllmModelInCache).toHaveBeenCalledTimes(1);
+  });
+
+  it('a webllm target reports not-cached on a genuine WebLLM-cache miss', async () => {
+    vi.mocked(webllmModelInCache).mockResolvedValue(false);
+    expect(await DEFAULT_SEAMS.isModelCached(webllmModel)).toBe(false);
+  });
+
+  it('a transformers target reads the Eco terminal store, never the WebLLM cache', async () => {
+    // The bridge would answer TRUE, but a non-webllm model must ignore it. No
+    // download-plan resolver is registered here, so the real Eco check is false.
+    vi.mocked(webllmModelInCache).mockResolvedValue(true);
+    expect(await DEFAULT_SEAMS.isModelCached(tjsModel)).toBe(false);
+    expect(webllmModelInCache).not.toHaveBeenCalled();
   });
 });

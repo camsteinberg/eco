@@ -14,7 +14,7 @@ import type { DeviceProfile, ModelConfig, Slot } from '../types';
 import type { ProgressEvent } from '../download/progress';
 import { ProgressTracker } from '../download/progress';
 import { bootstrapLocalAi } from '../bootstrap';
-import { downloadModel, InsufficientStorageError, isModelFullyCached } from '../download/download';
+import { downloadModel, InsufficientStorageError, isModelDownloaded } from '../download/download';
 import { bridgeDownloadWebLLMModel } from '../runtime/webllm-cache-bridge';
 import { runSmoke } from './smoke';
 import { setSlot, setSlotStatus, getSlot, type SlotState, type SlotStatus } from './slots';
@@ -54,7 +54,9 @@ export type SetupSeams = {
   runAttempt: (slot: Slot, model: ModelConfig, onProgressEvent: (e: ProgressEvent) => void) => Promise<AttemptResult>;
   /** Stage A starter pick — smallest offerable model for the slot (null = none). */
   starterModelForSlot: (slot: Slot, profile: DeviceProfile) => ModelConfig | null;
-  /** True when every file of the model's plan verifies in storage. */
+  /** True when the model is downloaded in whatever store its runtime serves
+   *  from — Eco's own cache, or (for a `webllm` model) WebLLM's cache, into
+   *  which the bridge stages and empties the Eco copy. */
   isModelCached: (model: ModelConfig) => Promise<boolean>;
 };
 
@@ -185,7 +187,7 @@ export const DEFAULT_SEAMS: SetupSeams = {
   recordEvidence,
   runAttempt: defaultRunAttempt,
   starterModelForSlot: (slot, profile) => starterModelForSlot(slot, profile),
-  isModelCached: (model) => isModelFullyCached(model),
+  isModelCached: (model) => isModelDownloaded(model),
 };
 
 export async function executeSetup(
