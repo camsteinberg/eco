@@ -66,7 +66,7 @@ const DEFAULT_DOWNLOAD_FAIL_DAYS = 7;
  * (out-of-memory, thermal) are not fixed by any deploy, so advancing the cutoff
  * would merely re-nag devices whose failures were real.
  */
-export const FAILURE_EVIDENCE_VALID_FROM = '2026-07-24T12:00:00Z';
+export const FAILURE_EVIDENCE_VALID_FROM = '2026-07-25T12:00:00Z';
 
 /**
  * `FAILURE_EVIDENCE_VALID_FROM` parsed once into epoch-millis, for composing
