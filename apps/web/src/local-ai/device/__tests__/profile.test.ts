@@ -14,11 +14,14 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  _resetGpuEnvelopeForTesting,
   describeDevice,
   getDeviceProfile,
   getDeviceProfileSnapshot,
   getHardwareConcurrency,
+  getLastProbedGpuEnvelope,
   getServerDeviceProfileSnapshot,
+  probeWebGPUAdapter,
   probeWebgpuSupport,
   readForcedWasm,
   readForcedOrtArtifact,
@@ -77,6 +80,7 @@ beforeEach(() => {
   setGpu(undefined);
   setDeviceMemory(undefined);
   resetProbedWebgpuCapability();
+  _resetGpuEnvelopeForTesting();
 });
 
 afterEach(() => {
@@ -85,6 +89,7 @@ afterEach(() => {
   setGpu(undefined);
   setDeviceMemory(undefined);
   resetProbedWebgpuCapability();
+  _resetGpuEnvelopeForTesting();
   vi.restoreAllMocks();
 });
 
@@ -762,5 +767,65 @@ describe('getHardwareConcurrency', () => {
   it('returns null when the count is unavailable', () => {
     setHardwareConcurrency(undefined);
     expect(getHardwareConcurrency()).toBeNull();
+  });
+});
+
+// ─── probeWebGPUAdapter — GPU-envelope caching (shadow evidence) ─────────────
+
+describe('probeWebGPUAdapter GPU-envelope cache', () => {
+  it('starts empty', () => {
+    expect(getLastProbedGpuEnvelope()).toBeNull();
+  });
+
+  it('caches maxBufferSize and maxStorageBufferBindingSize after a successful probe', async () => {
+    setGpu({
+      requestAdapter: async () => ({
+        features: new Set(),
+        limits: { maxBufferSize: 750_000_000, maxStorageBufferBindingSize: 128_000_000 },
+      }),
+    });
+
+    await probeWebGPUAdapter();
+
+    expect(getLastProbedGpuEnvelope()).toEqual({
+      maxBufferSize: 750_000_000,
+      maxStorageBufferBindingSize: 128_000_000,
+    });
+  });
+
+  it('caches a partial envelope when only maxBufferSize is exposed', async () => {
+    setGpu({
+      requestAdapter: async () => ({
+        features: new Set(),
+        limits: { maxBufferSize: 750_000_000 },
+      }),
+    });
+
+    await probeWebGPUAdapter();
+
+    expect(getLastProbedGpuEnvelope()).toEqual({ maxBufferSize: 750_000_000 });
+  });
+
+  it('a later failed probe does not erase a previously cached envelope', async () => {
+    setGpu({
+      requestAdapter: async () => ({
+        features: new Set(),
+        limits: { maxBufferSize: 750_000_000 },
+      }),
+    });
+    await probeWebGPUAdapter();
+
+    setGpu({ requestAdapter: async () => null });
+    await probeWebGPUAdapter();
+
+    expect(getLastProbedGpuEnvelope()).toEqual({ maxBufferSize: 750_000_000 });
+  });
+
+  it('a probe whose adapter exposes no numeric limits leaves the cache untouched', async () => {
+    setGpu({ requestAdapter: async () => ({ features: new Set(), limits: {} }) });
+
+    await probeWebGPUAdapter();
+
+    expect(getLastProbedGpuEnvelope()).toBeNull();
   });
 });

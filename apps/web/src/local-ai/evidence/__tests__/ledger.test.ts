@@ -12,7 +12,8 @@
  *   - Localstorage backed: persists across calls (within a single tab)
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { getLastProbedGpuEnvelope } from '../../device/profile';
 import {
   clearEvidence,
   countRecentDownloadFailures,
@@ -27,6 +28,13 @@ import {
   recordEvidence,
 } from '../ledger';
 import type { DeviceProfile } from '../../types';
+
+// Partial mock: the ledger stamps rows with the profile module's cached GPU
+// envelope; tests drive it through this seam instead of a real adapter probe.
+vi.mock('../../device/profile', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../device/profile')>();
+  return { ...actual, getLastProbedGpuEnvelope: vi.fn(() => null) };
+});
 
 const PROFILE_24GB: DeviceProfile = {
   browserClass: 'chromium',
@@ -418,5 +426,57 @@ describe('self-heal on malformed storage', () => {
     clearEvidence();
     recordEvidence({ modelId: 'a', profile: PROFILE_24GB, outcome: 'smoke-pass' });
     expect(readEvidence('a', PROFILE_24GB)).toHaveLength(1);
+  });
+});
+
+describe('gpuLimits shadow evidence', () => {
+  afterEach(() => {
+    vi.mocked(getLastProbedGpuEnvelope).mockReturnValue(null);
+  });
+
+  it('stamps rows with the session-cached GPU envelope when one was probed', () => {
+    vi.mocked(getLastProbedGpuEnvelope).mockReturnValue({
+      maxBufferSize: 750_000_000,
+      maxStorageBufferBindingSize: 128_000_000,
+    });
+
+    recordEvidence({ modelId: 'a', profile: PROFILE_24GB, outcome: 'smoke-pass' });
+
+    expect(readEvidence('a', PROFILE_24GB)[0]!.gpuLimits).toEqual({
+      maxBufferSize: 750_000_000,
+      maxStorageBufferBindingSize: 128_000_000,
+    });
+  });
+
+  it('omits the field entirely when no probe has run this session', () => {
+    recordEvidence({ modelId: 'a', profile: PROFILE_24GB, outcome: 'smoke-fail' });
+
+    const entry = readEvidence('a', PROFILE_24GB)[0]!;
+    expect(entry.gpuLimits).toBeUndefined();
+    expect('gpuLimits' in entry).toBe(false);
+  });
+
+  it('a caller-provided envelope wins over the cached one', () => {
+    vi.mocked(getLastProbedGpuEnvelope).mockReturnValue({ maxBufferSize: 1 });
+
+    recordEvidence({
+      modelId: 'a',
+      profile: PROFILE_24GB,
+      outcome: 'smoke-pass',
+      gpuLimits: { maxBufferSize: 750_000_000 },
+    });
+
+    expect(readEvidence('a', PROFILE_24GB)[0]!.gpuLimits).toEqual({
+      maxBufferSize: 750_000_000,
+    });
+  });
+
+  it('rows with gpuLimits survive a read/migrate round-trip unchanged', () => {
+    vi.mocked(getLastProbedGpuEnvelope).mockReturnValue({ maxBufferSize: 750_000_000 });
+    recordEvidence({ modelId: 'a', profile: PROFILE_24GB, outcome: 'smoke-pass' });
+
+    // Force a fresh parse from storage (readAllEntries validates + migrates).
+    const entries = readAllEntries();
+    expect(entries[0]!.gpuLimits).toEqual({ maxBufferSize: 750_000_000 });
   });
 });
