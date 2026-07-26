@@ -46,6 +46,7 @@ import {
 } from './storage';
 import { requestPersistentStorage } from './persistent-storage';
 import { ProgressTracker, type ProgressTrackerOptions } from './progress';
+import { TRANSIENT_RETRY_BASE_DELAY_MS, withTransientRetry } from './retry';
 import { getDeviceProfile } from '../device/profile';
 import { recordEvidence, type LedgerErrorCode } from '../evidence/ledger';
 import { getValidationDownloadFailure } from '../../lib/validation-harness';
@@ -108,9 +109,6 @@ export type DownloadFileSpec = {
  */
 export const RANGE_CHUNK_BYTES = 32 * 1024 * 1024;
 
-/** Extra attempts per chunk on a transient (non-abort, non-4xx) failure. */
-const MAX_CHUNK_RETRIES = 2;
-
 export type DownloadPlan = {
   modelId: string;
   files: ReadonlyArray<DownloadFileSpec>;
@@ -128,6 +126,12 @@ export type DownloadOptions = {
   progressOptions?: ProgressTrackerOptions;
   /** Override the Range-chunk threshold/size (defaults to RANGE_CHUNK_BYTES). Tests use a tiny value. */
   rangeChunkBytes?: number;
+  /**
+   * Base backoff between transient re-attempts of one source (defaults to
+   * TRANSIENT_RETRY_BASE_DELAY_MS). Tests use 0 so a retry path is exercised
+   * without a real sleep.
+   */
+  retryBaseDelayMs?: number;
   /**
    * Inject the storage-headroom probe (defaults to `navigator.storage.estimate`).
    * Returns null when no confident estimate is available — the preflight then
@@ -523,6 +527,7 @@ export async function downloadByPlan(
   // brand-check, so this only bites in a real browser).
   const fetcher = options?.fetcher ?? fetch.bind(globalThis);
   const rangeChunkBytes = options?.rangeChunkBytes ?? RANGE_CHUNK_BYTES;
+  const retryBaseDelayMs = options?.retryBaseDelayMs ?? TRANSIENT_RETRY_BASE_DELAY_MS;
   const estimateStorage = options?.estimateStorage ?? defaultEstimateStorage;
   const externalSignal = options?.signal;
   const controller = new AbortController();
@@ -605,6 +610,7 @@ export async function downloadByPlan(
       signal: controller.signal,
       modelId: plan.modelId,
       rangeChunkBytes,
+      retryBaseDelayMs,
       storage,
       remainingBytes,
     };
@@ -779,6 +785,8 @@ type FetchFileContext = {
   signal: AbortSignal;
   modelId: string;
   rangeChunkBytes: number;
+  /** Base backoff between transient re-attempts of one source (0 in tests). */
+  retryBaseDelayMs: number;
   /** Storage backend — chunked downloads persist/resume completed chunks through it. */
   storage: Storage;
   /**
@@ -962,6 +970,13 @@ async function sumPersistedPartBytes(
  * stream via sequential Range requests so no single request can outlive the
  * proxy function budget; smaller files keep the single-GET path (which also
  * gets the proxy's full-GET SHA verification for free).
+ *
+ * Transient retry sits at different granularities on the two paths: the chunked
+ * path retries INSIDE `fetchRangeChunk` (one 32 MiB request at a time, so a blip
+ * never re-downloads what already landed), while the single-GET path retries the
+ * whole request — it is small by definition and has no chunk boundary to resume
+ * from. Retrying the single-GET path here rather than in `downloadFileWhole`
+ * keeps the retry an attribute of the fetch, not of the streaming code.
  */
 async function fetchFileToBlob(
   file: DownloadFileSpec,
@@ -971,7 +986,51 @@ async function fetchFileToBlob(
   if (file.sizeBytes > ctx.rangeChunkBytes) {
     return downloadFileInChunks(file, baseLoaded, ctx);
   }
-  return downloadFileWhole(file, baseLoaded, ctx);
+  return withDownloadRetry(() => downloadFileWhole(file, baseLoaded, ctx), ctx);
+}
+
+/**
+ * Re-attempt `attempt` against the SAME transport source after a short,
+ * abort-aware backoff. Both source attempts of `fetchFileToBlobWithFallback`
+ * (the CDN and the proxy it falls back to) run through here, so a blip on
+ * either one is absorbed before the source switch is spent.
+ */
+function withDownloadRetry<T>(
+  attempt: () => Promise<T>,
+  ctx: FetchFileContext,
+): Promise<T> {
+  return withTransientRetry(attempt, {
+    signal: ctx.signal,
+    abortError: () => new DownloadAbortedError(ctx.modelId),
+    isRetryable: isRetryableTransportError,
+    baseDelayMs: ctx.retryBaseDelayMs,
+  });
+}
+
+/**
+ * Whether an identical re-attempt against the SAME source could plausibly
+ * succeed — the inner-axis counterpart to `shouldFallbackToProxy`.
+ *
+ * False for anything that is not a transport failure (an abort, an
+ * `InsufficientStorageError`, a storage-backend write error): a different
+ * moment cannot change any of those. False for a hard 4xx other than 408/429 —
+ * including the 416 that a heuristic-estimate overshoot raises, whose recovery
+ * is the part sweep and a fresh attempt, not a re-request of the same
+ * unsatisfiable range. False for a `DownloadIntegrityError`: corrupt bytes are
+ * not a blip, and re-reading the same source reproduces them — the CDN→proxy
+ * source switch is that failure's recovery axis.
+ *
+ * True for a 5xx/408/429 and for a status-less `DownloadFailedError` (a network
+ * error or a body stream that died mid-flight) — the flaky-link cases a second
+ * attempt genuinely fixes.
+ */
+function isRetryableTransportError(err: unknown): boolean {
+  if (err instanceof DownloadIntegrityError) return false;
+  if (!(err instanceof DownloadFailedError)) return false;
+  const { status } = err;
+  if (status == null) return true;
+  if (status >= 400 && status < 500) return status === 408 || status === 429;
+  return true;
 }
 
 /**
@@ -987,9 +1046,10 @@ async function fetchFileToBlob(
  * serving corrupt bytes, or a 403/404 mirror miss) this retries ONCE against the
  * proxy by pinning `fetchUrl` to `url`.
  *
- * This is a second recovery axis, distinct from the per-chunk retry inside
- * `fetchRangeChunk`: that retries the SAME source on a blip; this switches
- * SOURCE after those retries are spent (chunked) or immediately (whole-file).
+ * This is the OUTER recovery axis, distinct from the transient retry inside
+ * `fetchFileToBlob`: that retries the SAME source on a blip; this switches
+ * SOURCE after those retries are spent. Both source attempts carry the inner
+ * retry, so a blip on the proxy fallback is absorbed too.
  * The switch is structural, not a per-chunk latch: the whole per-file fetch is
  * re-entered with the source pinned to the proxy, so EVERY subsequent chunk of
  * that file resolves to the proxy (a chunked resume adopts any parts the CDN
@@ -1416,11 +1476,26 @@ async function resumeFromPersistedParts(
 type RangeChunk = { status: number; total: number | null; blob: Blob };
 
 /**
- * Fetch one Range chunk, retrying transient failures. A retried attempt
- * re-requests the same byte range into a fresh Blob, so retry never corrupts
- * the assembled output. Aborts and non-retryable 4xx responses fail fast.
+ * Fetch one Range chunk, retrying transient failures against the same source
+ * with a backoff. A retried attempt re-requests the same byte range into a
+ * fresh Blob, so retry never corrupts the assembled output. Aborts and
+ * non-retryable 4xx responses fail fast (see `isRetryableTransportError`).
  */
-async function fetchRangeChunk(
+function fetchRangeChunk(
+  file: DownloadFileSpec,
+  start: number,
+  end: number,
+  baseLoaded: number,
+  ctx: FetchFileContext,
+): Promise<RangeChunk> {
+  return withDownloadRetry(
+    () => fetchRangeChunkOnce(file, start, end, baseLoaded, ctx),
+    ctx,
+  );
+}
+
+/** One Range request — the retryable unit. */
+async function fetchRangeChunkOnce(
   file: DownloadFileSpec,
   start: number,
   end: number,
@@ -1428,80 +1503,56 @@ async function fetchRangeChunk(
   ctx: FetchFileContext,
 ): Promise<RangeChunk> {
   const source = file.fetchUrl ?? file.url;
-  let lastError: unknown;
-  for (let attempt = 0; attempt <= MAX_CHUNK_RETRIES; attempt++) {
-    throwIfAborted(ctx.signal, ctx.modelId);
-    try {
-      let response: Response;
-      try {
-        response = await ctx.fetcher(source, {
-          signal: ctx.signal,
-          headers: {
-            Accept: 'application/octet-stream',
-            Range: `bytes=${start}-${end}`,
-          },
-        });
-      } catch (err) {
-        if (ctx.signal.aborted) throw new DownloadAbortedError(ctx.modelId);
-        throw new DownloadFailedError(
-          `Network error fetching range of ${source}: ${errorMessage(err)}`,
-          { url: file.url },
-        );
-      }
-
-      if (response.status === 416) {
-        // Range Not Satisfiable is EOF evidence, not a failure: the requested
-        // start lies at/after the origin's real size. Return it as a chunk
-        // signal (an empty blob, NOT streamed) carrying the Content-Range total
-        // — the caller uses that to correct an overshooting plan estimate. See
-        // the 416 branch in downloadFileInChunks.
-        return {
-          status: 416,
-          total: parseContentRangeTotal(response.headers.get('content-range')),
-          blob: new Blob([]),
-        };
-      }
-      if (response.status !== 200 && response.status !== 206) {
-        throw new DownloadFailedError(
-          `HTTP ${response.status} fetching range of ${source}`,
-          { url: file.url, status: response.status },
-        );
-      }
-
-      const total = response.status === 206
-        ? parseContentRangeTotal(response.headers.get('content-range'))
-        : null;
-      const blob = await streamResponseToBlob(
-        response,
-        baseLoaded,
-        ctx.totalBytes,
-        ctx.tracker,
-        ctx.signal,
-        ctx.modelId,
-        source,
-        file.url,
-      );
-      return { status: response.status, total, blob };
-    } catch (err) {
-      if (err instanceof DownloadAbortedError) throw err;
-      if (ctx.signal.aborted) throw new DownloadAbortedError(ctx.modelId);
-      // A hard 4xx (other than 408/429) won't change on retry — fail fast.
-      if (
-        err instanceof DownloadFailedError
-        && err.status != null
-        && err.status >= 400
-        && err.status < 500
-        && err.status !== 408
-        && err.status !== 429
-      ) {
-        throw err;
-      }
-      lastError = err;
-    }
+  let response: Response;
+  try {
+    response = await ctx.fetcher(source, {
+      signal: ctx.signal,
+      headers: {
+        Accept: 'application/octet-stream',
+        Range: `bytes=${start}-${end}`,
+      },
+    });
+  } catch (err) {
+    if (ctx.signal.aborted) throw new DownloadAbortedError(ctx.modelId);
+    throw new DownloadFailedError(
+      `Network error fetching range of ${source}: ${errorMessage(err)}`,
+      { url: file.url },
+    );
   }
-  throw lastError instanceof Error
-    ? lastError
-    : new DownloadFailedError(`Range download failed for ${source}`, { url: file.url });
+
+  if (response.status === 416) {
+    // Range Not Satisfiable is EOF evidence, not a failure: the requested
+    // start lies at/after the origin's real size. Return it as a chunk
+    // signal (an empty blob, NOT streamed) carrying the Content-Range total
+    // — the caller uses that to correct an overshooting plan estimate. See
+    // the 416 branch in downloadFileInChunks.
+    return {
+      status: 416,
+      total: parseContentRangeTotal(response.headers.get('content-range')),
+      blob: new Blob([]),
+    };
+  }
+  if (response.status !== 200 && response.status !== 206) {
+    throw new DownloadFailedError(
+      `HTTP ${response.status} fetching range of ${source}`,
+      { url: file.url, status: response.status },
+    );
+  }
+
+  const total = response.status === 206
+    ? parseContentRangeTotal(response.headers.get('content-range'))
+    : null;
+  const blob = await streamResponseToBlob(
+    response,
+    baseLoaded,
+    ctx.totalBytes,
+    ctx.tracker,
+    ctx.signal,
+    ctx.modelId,
+    source,
+    file.url,
+  );
+  return { status: response.status, total, blob };
 }
 
 /** Parse the total size from a `Content-Range: bytes start-end/total` header. */

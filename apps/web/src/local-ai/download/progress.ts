@@ -111,7 +111,10 @@ export class ProgressTracker {
   private readonly subscribers = new Set<ProgressHandler>();
   private currentPhase: ProgressPhase = 'downloading';
   private currentPercent = 0;
+  /** High-water mark: the published figure, never allowed to run backwards. */
   private currentLoaded = 0;
+  /** Last raw figure reported, for detecting a restart (see the clamp below). */
+  private lastReportedLoaded = 0;
   private currentTotal = 0;
   private currentSpeed = 0;
   private currentEta = 0;
@@ -137,9 +140,27 @@ export class ProgressTracker {
 
   /**
    * Report download progress. Idempotent on `(loaded, total)` repeats — the
-   * stall timer only re-arms when `loaded` advances. This matters because
+   * stall timer only re-arms when `loaded` moves. This matters because
    * fetch ReadableStreams can fire a final zero-delta read at the close of
    * a chunk, which is not real progress.
+   *
+   * `loaded` is absolute but NOT monotonic at the source: a re-attempted
+   * transfer (a transient-retry re-request, or the CDN→proxy fallback
+   * re-entering a file) restarts its byte counter at that transfer's base and
+   * re-reports figures already seen. The published `loaded` is therefore a
+   * high-water mark — a bar that runs backwards reads as breakage, and the
+   * negative deltas would otherwise poison the speed window into a negative
+   * rate and a garbage ETA. A restart still counts as motion for the stall
+   * detector: bytes ARE flowing, just over ground already shown, and treating
+   * it as a stall would fire `early-stall` on a download that is recovering.
+   *
+   * A SHRINKING `total` is the one legitimate reason the published figure may
+   * drop. It means the plan's byte count was a heuristic estimate the origin
+   * has since corrected downward, so the high-water mark was measured against
+   * a fiction: carrying it forward would put `percent` above 1 and could
+   * misread an early stall as a finalize-stall. The mark re-baselines to the
+   * freshly reported figure, and the published figure is clamped to the total
+   * it is measured against so `percent <= 1` holds unconditionally.
    */
   reportDownloadProgress(loaded: number, total: number): void {
     if (this.destroyed) return;
@@ -148,22 +169,28 @@ export class ProgressTracker {
     }
 
     const safeTotal = Math.max(total, 0);
-    const safeLoaded = Math.max(0, Math.min(loaded, safeTotal || loaded));
+    const reported = Math.max(0, Math.min(loaded, safeTotal || loaded));
 
-    const advanced = safeLoaded > this.currentLoaded;
-    this.currentLoaded = safeLoaded;
+    const moved = reported !== this.lastReportedLoaded;
+    this.lastReportedLoaded = reported;
+    // An authoritative downward correction of the total discards the mark; any
+    // other report only ever raises it.
+    const correctedDown = safeTotal > 0 && safeTotal < this.currentTotal;
+    const highWater = correctedDown ? reported : Math.max(this.currentLoaded, reported);
+    this.currentLoaded = safeTotal > 0 ? Math.min(highWater, safeTotal) : highWater;
     this.currentTotal = safeTotal;
-    this.currentPercent = safeTotal > 0 ? safeLoaded / safeTotal : 0;
+    this.currentPercent = safeTotal > 0 ? this.currentLoaded / safeTotal : 0;
 
     // Record every sample so the next call can compute a delta — including
-    // the initial loaded=0 sample. The `advanced` gate is only there to
+    // the initial loaded=0 sample. Samples carry the published figure, which
+    // only decreases on a total correction. The `moved` gate is only there to
     // keep the stall timer from churning on idle re-reports.
-    this.recordSpeedSample(safeLoaded);
+    this.recordSpeedSample(this.currentLoaded);
     const { speedBytesPerSec, etaSeconds } = this.computeSpeedAndEta(safeTotal);
     this.currentSpeed = speedBytesPerSec;
     this.currentEta = etaSeconds;
 
-    if (advanced) {
+    if (moved) {
       this.armDownloadStallTimer();
     }
 
@@ -334,7 +361,9 @@ export class ProgressTracker {
     }
     const dtSeconds = (newest.time - oldest.time) / 1000;
     if (dtSeconds <= 0) return { speedBytesPerSec: 0, etaSeconds: 0 };
-    const bytesPerSec = (newest.loaded - oldest.loaded) / dtSeconds;
+    // Samples only ever decrease across a downward total correction, whose
+    // re-baseline is not a negative transfer rate — clamp rather than report one.
+    const bytesPerSec = Math.max(0, newest.loaded - oldest.loaded) / dtSeconds;
     const remaining = total > 0 ? Math.max(0, total - newest.loaded) : 0;
     const etaSeconds = bytesPerSec > 0 ? remaining / bytesPerSec : 0;
     return { speedBytesPerSec: bytesPerSec, etaSeconds };
