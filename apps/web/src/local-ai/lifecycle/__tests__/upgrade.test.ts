@@ -349,6 +349,38 @@ describe('planUpgradeOffer', () => {
   it('no offer when the recommendation cannot resolve', async () => {
     expect(await planUpgradeOffer({ ...base, recommendSmart: () => null })).toBeNull();
   });
+
+  it('BEHAVIOR PIN — WebKit-mobile: the ladder activates the moment the recommendation moves; no mobile-aware policy gates it', async () => {
+    // Today the upgrade ladder is dead on WebKit-mobile only because the
+    // catalog carries a single WebKit model, so the eco-smart recommendation
+    // always converges on the current model. Nothing in the offer path is
+    // platform- or runtime-aware: the moment a second WebKit model exists,
+    // this machinery goes live on phones — including consent popup, a
+    // GB-scale download offer, and the swap driver — with no mobile-specific
+    // policy (cellular data, thermal, storage pressure) in between.
+    //
+    // This test pins that truth. If it starts failing because an offer gate
+    // was added, that gate is the deliberate outcome of the mobile-ladder
+    // policy decision and this pin should be updated alongside it — not
+    // silently deleted.
+    const webkitMobile = {
+      browserClass: 'safari',
+      webgpuSupport: 'webgpu',
+      deviceMemoryGB: 0,
+      isMobile: true,
+      override: 'auto',
+    } as DeviceProfile;
+
+    const offered = await planUpgradeOffer({
+      ...base,
+      profile: webkitMobile,
+      currentModelId: 'webkit-starter',
+      recommendSmart: () => webllmModel('webkit-rung-2'),
+    });
+
+    expect(offered?.id).toBe('webkit-rung-2');
+    expect(offered?.runtime).toBe('webllm');
+  });
 });
 
 // ─── Download driver ────────────────────────────────────────────────────────
