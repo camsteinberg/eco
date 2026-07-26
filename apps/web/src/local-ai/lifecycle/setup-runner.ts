@@ -32,7 +32,7 @@ export type SetupRunnerActions = {
   onProgressEvent(event: ProgressEvent): void;
   setBelowFloor(reason: string): void;
   setReady(model: ModelConfig): void;
-  setError(reason: string, opts?: { exhausted?: boolean }): void;
+  setError(reason: string, opts?: { exhausted?: boolean; triedModelCount?: number }): void;
   markPriorAttemptFailed(): void;
   markFindingFit(): void;
   /** The run picked up a bound-but-unfinished pick (interrupted download /
@@ -284,6 +284,12 @@ export async function executeSetup(
     actions.setReady(result.model);
   } else {
     seams.setSlotStatus(slot, 'error');
-    actions.setError(result.reason, { exhausted: true });
+    // How many models the ladder actually tried. On a one-model platform (iOS,
+    // or an f16-less low-memory Android) that is exactly one, and the error
+    // surface must not claim we "tried a few options".
+    actions.setError(result.reason, {
+      exhausted: true,
+      triedModelCount: result.triedModelIds.length,
+    });
   }
 }

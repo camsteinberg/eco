@@ -78,6 +78,7 @@ export function LocalAiSetupGate({
       <SetupErrorState
         reason={setup.errorReason ?? 'Setup failed'}
         exhausted={setup.errorExhausted}
+        triedModelCount={setup.errorTriedModelCount}
         onTryAgain={() => {
           setup.actions.reset();
           void setup.start();

@@ -48,6 +48,10 @@ export type EcoSetupState = {
   findingFit: boolean;
   /** True when setup failed because the whole fallback ladder was exhausted. */
   errorExhausted: boolean;
+  /** How many models that exhausted ladder actually tried. One-model platforms
+   *  (iOS, f16-less low-memory Android) report 1, so the error surface can stop
+   *  claiming "we tried a few options". 0 = not known. */
+  errorTriedModelCount: number;
   /** True when start() resumed a bound-but-unfinished pick (interrupted
    * download / reconcile flip) rather than recommending fresh — WelcomeSetup
    * softens its copy to "finishing your download". */
@@ -61,8 +65,9 @@ export type EcoSetupActions = {
   setBelowFloor(reason: string): void;
   /** Called when a model becomes ready. */
   setReady(model: ModelConfig): void;
-  /** Called when setup fails terminally. `exhausted` = the whole ladder was spent. */
-  setError(reason: string, opts?: { exhausted?: boolean }): void;
+  /** Called when setup fails terminally. `exhausted` = the whole ladder was
+   *  spent; `triedModelCount` = how many models it got through. */
+  setError(reason: string, opts?: { exhausted?: boolean; triedModelCount?: number }): void;
   /** Called when the user clicks "Try again" from the error state. */
   reset(): void;
   /** Called when start() detects an error slot status from a prior session. */
@@ -94,6 +99,7 @@ const INITIAL_STATE: EcoSetupState = {
   priorAttemptFailed: false,
   findingFit: false,
   errorExhausted: false,
+  errorTriedModelCount: 0,
   resuming: false,
 };
 
@@ -154,9 +160,18 @@ export function useEcoSetup(): UseEcoSetupReturn {
     setState((s) => ({ ...s, status: 'ready', model, phase: 'done', percent: 100 }));
   }, []);
 
-  const setError = useCallback((reason: string, opts?: { exhausted?: boolean }) => {
-    setState((s) => ({ ...s, status: 'error', errorReason: reason, errorExhausted: opts?.exhausted ?? false }));
-  }, []);
+  const setError = useCallback(
+    (reason: string, opts?: { exhausted?: boolean; triedModelCount?: number }) => {
+      setState((s) => ({
+        ...s,
+        status: 'error',
+        errorReason: reason,
+        errorExhausted: opts?.exhausted ?? false,
+        errorTriedModelCount: opts?.triedModelCount ?? 0,
+      }));
+    },
+    [],
+  );
 
   const reset = useCallback(() => {
     setState(INITIAL_STATE);
