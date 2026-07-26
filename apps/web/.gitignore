@@ -1,5 +1,8 @@
 .vercel
 
+# Perf-gate browser profile (holds a real downloaded model, ~0.3GB)
+/e2e-perf/.browser-profile/
+
 # Runtime engine assets copied from node_modules at build (scripts/copy-runtime-assets.mjs)
 /public/litert-wasm/
 /public/ort/

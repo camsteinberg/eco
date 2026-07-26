@@ -11,6 +11,14 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./src/__tests__/setup.ts"],
-    exclude: ["e2e/**", "e2e-webllm/**", "node_modules/**"],
+    // Playwright lanes are excluded; `e2e-perf/lib/**` is deliberately NOT —
+    // the perf gate's comparison and baseline helpers are plain modules with
+    // vitest coverage, so only the Playwright spec itself is filtered out.
+    exclude: [
+      "e2e/**",
+      "e2e-webllm/**",
+      "e2e-perf/*.spec.ts",
+      "node_modules/**",
+    ],
   },
 });

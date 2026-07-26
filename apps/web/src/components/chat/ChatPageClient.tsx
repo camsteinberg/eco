@@ -14,6 +14,7 @@ import {
 } from "../../lib/pending-chat-prompt";
 import { syncCaptureFlagFromUrl } from "../../lib/dev-capture";
 import { syncDiagnosticsFlagFromUrl } from "../../lib/dev-diagnostics";
+import { installPerfBridge } from "../../local-ai/diagnostics/perf-bridge";
 
 function ChatPageInner() {
   const searchParams = useSearchParams();
@@ -33,6 +34,9 @@ function ChatPageInner() {
   useEffect(() => {
     syncCaptureFlagFromUrl();
     syncDiagnosticsFlagFromUrl();
+    // Read-only measurement seam for the E2E performance gate. No-ops unless
+    // the validation harness is enabled (never on a production host).
+    installPerfBridge();
   }, []);
 
   if (!hasHydrated) {

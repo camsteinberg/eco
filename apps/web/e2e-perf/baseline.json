@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "profiles": {
+    "desktop-chromium-webgpu": {
+      "label": "desktop Chrome + WebGPU, production build",
+      "machine": "Apple Silicon MacBook (macOS 15, Chrome stable, WebGPU/Metal)",
+      "modelId": "candidate/lfm2.5-350m-onnx",
+      "capturedAt": "2026-07-26T04:16:09.192Z",
+      "samples": 3,
+      "metrics": {
+        "warmReadinessMs": {
+          "value": 1466.25,
+          "unit": "ms",
+          "direction": "lower-is-better",
+          "tolerancePct": 50,
+          "noiseFloor": 500,
+          "hardLimit": 30000
+        },
+        "ttftTurn1Ms": {
+          "value": 177,
+          "unit": "ms",
+          "direction": "lower-is-better",
+          "tolerancePct": 50,
+          "noiseFloor": 50,
+          "hardLimit": 10000
+        },
+        "ttftTurn2Ms": {
+          "value": 127,
+          "unit": "ms",
+          "direction": "lower-is-better",
+          "tolerancePct": 50,
+          "noiseFloor": 50,
+          "hardLimit": 10000
+        },
+        "decodeTokensPerSec": {
+          "value": 61.16,
+          "unit": "tok/s",
+          "direction": "higher-is-better",
+          "tolerancePct": 50,
+          "noiseFloor": 2,
+          "hardLimit": 5
+        }
+      }
+    }
+  }
+}
