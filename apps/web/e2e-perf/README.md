@@ -56,6 +56,29 @@ cannot hold a model load.
 | `ECO_PERF_PROFILE_DIR` | `e2e-perf/.browser-profile` | browser profile location |
 | `ECO_PERF_FRESH_PROFILE` | unset | `1` wipes the profile first (forces a real download) |
 
+## The KV-reuse measurement (`kv-reuse.spec.ts`)
+
+A second spec in this lane measures — never gates — KV-cache reuse across turns:
+
+```bash
+pnpm --filter @eco/web perf-kv
+```
+
+It walks one conversation through three phases (plain follow-ups → ~4,400-char
+pastes that saturate the starter model's history budget → follow-ups after the
+eviction) and reports what the per-turn receipts recorded: hit rate, miss
+reasons, TTFT by decision, and whether reuse resumed after the eviction-forced
+re-prefill — the design claim behind `context-window.ts`'s quantized eviction.
+Results land in `test-results/kv-report.json`; the only assertions are
+instrument-liveness invariants (every turn completed, telemetry present, cache
+committed every turn). Hit rate is deliberately never asserted — how often
+reuse fires is the product truth this spec measures, not a band it enforces.
+
+It shares this lane's config, profile, and session plumbing (`lib/session.ts`),
+so a warm `perf-gate` profile is a warm `perf-kv` profile. The `perf-gate`
+scripts are pinned to `perf-gate.spec.ts`, so the measurement never runs inside
+the regression gate.
+
 ## How it decides
 
 Never a bare absolute-millisecond assertion — that is flaky within a week. Each metric

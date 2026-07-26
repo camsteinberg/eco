@@ -28,16 +28,19 @@
  * load the weights. It also does not stub the model — the first run downloads
  * the real starter model into a persistent profile that later runs reuse.
  *
+ * Session plumbing (auth stub, empty-workspace pages, receipt-driven turns,
+ * first-run prefetch) is shared with the KV-reuse measurement spec via
+ * `lib/session.ts`.
+ *
  * Requirements: real Chrome (channel "chrome"), a WebGPU-capable machine,
  * network access on the FIRST run only. Headed on purpose — WebGPU is not
  * available in default headless Chromium. Runs only via
  * playwright.perf.config.ts.
  */
 
-import { test, expect, chromium, type BrowserContext, type Page } from "@playwright/test";
+import { test, expect, chromium, type BrowserContext } from "@playwright/test";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import type { GenerationReceipt } from "../src/local-ai/lifecycle/generation-receipt";
 import {
   METRIC_KEYS,
   getProfileBaseline,
@@ -47,18 +50,16 @@ import {
   type MetricKey,
 } from "./lib/baseline";
 import { evaluateRun, formatReport, median } from "./lib/compare";
-
-const WEB_BASE_URL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3100";
-
-/** The gate's model: the smallest shipping desktop model (~0.28GB starter floor). */
-const MODEL_ID = "candidate/lfm2.5-350m-onnx";
-
-/** Forced device profile (WebGPU desktop) so selection is deterministic. */
-const FORCED_DESKTOP_PROFILE =
-  "eco-force-capability=webgpu"
-  + "&eco-force-browser=chromium"
-  + "&eco-force-platform=desktop"
-  + "&eco-force-device-memory=16";
+import {
+  MODEL_ID,
+  READY_TIMEOUT_MS,
+  decodeRate,
+  ensureModelReady,
+  openEmptyChat,
+  requireBridge,
+  runTurn,
+  stubAuth,
+} from "./lib/session";
 
 const BASELINE_PATH = join(__dirname, "baseline.json");
 const PROFILE_KEY = process.env.ECO_PERF_PROFILE ?? "desktop-chromium-webgpu";
@@ -72,135 +73,11 @@ const UPDATE_BASELINE = process.env.ECO_PERF_UPDATE_BASELINE === "1";
 const PROFILE_DIR =
   process.env.ECO_PERF_PROFILE_DIR ?? join(__dirname, ".browser-profile");
 
-const SETUP_TIMEOUT_MS = 900_000;
-const READY_TIMEOUT_MS = 180_000;
-const TURN_TIMEOUT_MS = 180_000;
-
 /** Long enough to make the decode rate stable, short enough to keep the gate quick. */
 const PROMPT_TURN_1 = "Write a short paragraph, about five sentences, describing a garden in spring.";
 const PROMPT_TURN_2 = "Now describe the same garden in autumn, in two sentences.";
 
 type Sample = Record<MetricKey, number>;
-
-const chatLog = (page: Page) => page.getByRole("log", { name: "Chat messages" });
-const assistantMessages = (page: Page) =>
-  chatLog(page).locator('[data-message-role="assistant"]');
-const composer = (page: Page) => page.getByLabel("Message input");
-
-async function stubAuth(context: BrowserContext): Promise<void> {
-  await context.route("**/api/auth/get-session", (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({
-        session: {
-          id: "perf-session",
-          userId: "perf-user-id",
-          expiresAt: "2099-01-01T00:00:00.000Z",
-        },
-        user: {
-          id: "perf-user-id",
-          email: "perf@eco.network",
-          name: "Perf User",
-          emailVerified: true,
-          createdAt: "2026-01-01T00:00:00.000Z",
-          updatedAt: "2026-01-01T00:00:00.000Z",
-        },
-      }),
-    }),
-  );
-  await context.route("**/api/auth/**", (route) =>
-    route.fulfill({ status: 200, contentType: "application/json", body: "{}" }),
-  );
-}
-
-/**
- * Open /chat on a page whose workspace starts EMPTY.
- *
- * Conversations persist in IndexedDB across pages in the reused profile. Without
- * this, run 2's "turn 1" would open with run 1's history — a grown prefill that
- * would inflate TTFT sample over sample — and the empty-state surfaces would
- * never render. `eco-skip-conversation-persistence-once` is the app's own
- * one-shot skip-hydration seam (sessionStorage, so it is per-tab); sign-out uses
- * it. The trade-off is that conversation-list hydration is excluded from
- * `warmReadinessMs`; it runs in parallel with the model load either way.
- */
-async function openEmptyChat(context: BrowserContext): Promise<Page> {
-  const page = await context.newPage();
-  await page.addInitScript(() => {
-    window.sessionStorage.setItem("eco-skip-conversation-persistence-once", "true");
-  });
-  await page.goto(`${WEB_BASE_URL}/chat?${FORCED_DESKTOP_PROFILE}`, {
-    waitUntil: "commit",
-  });
-  return page;
-}
-
-/** Fail fast and legibly if the harness bridge is missing (wrong build/env). */
-async function requireBridge(page: Page): Promise<void> {
-  await expect
-    .poll(() => page.evaluate(() => window.__ecoPerf?.version ?? null), {
-      timeout: READY_TIMEOUT_MS,
-      message:
-        "window.__ecoPerf missing — the server must be a production build started with "
-        + "NEXT_PUBLIC_ECO_VALIDATION_HARNESS=true on a loopback host (see playwright.perf.config.ts)",
-    })
-    .toBe(1);
-}
-
-/**
- * Run one turn and return its generation receipt.
- *
- * The turn is considered finished when the app records the receipt — the same
- * finalization point the product uses — not when the DOM stops changing.
- */
-async function runTurn(
-  page: Page,
-  prompt: string,
-  turnNumber: number,
-): Promise<GenerationReceipt> {
-  await expect(composer(page), {
-    message: "composer never re-enabled — the previous generation never finalized",
-  }).toBeEnabled({ timeout: TURN_TIMEOUT_MS });
-  await composer(page).fill(prompt);
-  await page.getByRole("button", { name: "Send message" }).click();
-
-  await page.waitForFunction(
-    (expected) => (window.__ecoPerf?.receipts() ?? []).length >= expected,
-    turnNumber,
-    { timeout: TURN_TIMEOUT_MS, polling: 100 },
-  );
-  await expect(assistantMessages(page)).toHaveCount(turnNumber, {
-    timeout: TURN_TIMEOUT_MS,
-  });
-
-  const receipt = await page.evaluate(() => window.__ecoPerf?.receipts(1)[0] ?? null);
-  expect(receipt, `turn ${turnNumber} produced no generation receipt`).not.toBeNull();
-  const turn = receipt!;
-
-  expect(turn.status, `turn ${turnNumber} did not complete cleanly`).toBe("complete");
-  expect(turn.modelId, "the gate measured a different model than it baselined").toBe(
-    MODEL_ID,
-  );
-  expect(
-    turn.firstTokenMs,
-    `turn ${turnNumber} recorded no first-token time`,
-  ).not.toBeNull();
-  expect(
-    turn.completionTokens,
-    `turn ${turnNumber} reported no completion tokens — decode rate is unmeasurable`,
-  ).toBeGreaterThan(1);
-
-  return turn;
-}
-
-/** Tokens per second AFTER the first token — prefill is measured by TTFT. */
-function decodeRate(receipt: GenerationReceipt): number {
-  const firstTokenMs = receipt.firstTokenMs ?? 0;
-  const decodeMs = receipt.durationMs - firstTokenMs;
-  expect(decodeMs, "decode window was not positive — timings are unusable").toBeGreaterThan(0);
-  return ((receipt.completionTokens - 1) / decodeMs) * 1_000;
-}
 
 /**
  * One full sample: a cold page load against a warm on-disk model cache, then
@@ -267,60 +144,10 @@ test.describe("local-AI performance gate", () => {
     expect(SAMPLES, "ECO_PERF_SAMPLES must be at least 1").toBeGreaterThan(0);
 
     // ── Prefetch (not measured) ─────────────────────────────────────────────
-    // First run on a fresh profile: real first-run setup downloads the starter
-    // model and proves it. Later runs land straight on a ready chat.
     // Phase logging: this gate can legitimately run for many minutes on a fresh
     // profile, so it must say where it is instead of looking hung.
-    console.log("  prefetch: opening /chat …");
-    const prefetch = await openEmptyChat(context);
-    try {
-      prefetch.on("console", (msg) => {
-        if (msg.text().includes("[eco-setup-failure]")) console.log(`  ${msg.text()}`);
-      });
-      // Ready = the setup gate released the workspace and the composer accepts
-      // input. Deliberately NOT the empty-state greeting: that only renders when
-      // no conversation is open, which makes it a readiness signal that silently
-      // stops working the moment the profile carries chat history.
-      const errorSurface = prefetch.locator("[data-eco-setup-error-surface]");
-      await expect(composer(prefetch).or(errorSurface).first()).toBeVisible({
-        timeout: SETUP_TIMEOUT_MS,
-      });
-      await expect(errorSurface, "first-run setup failed — nothing to measure").toHaveCount(0);
-      console.log("  prefetch: chat is ready, waiting for the model to load …");
-      await requireBridge(prefetch);
-
-      // The gate's numbers are model-specific. If selection ever stops landing
-      // on the starter floor here, fail loudly rather than baseline a different
-      // model against the committed numbers.
-      await expect
-        .poll(() => prefetch.evaluate(() => window.__ecoPerf?.activeModelId() ?? null), {
-          timeout: READY_TIMEOUT_MS,
-          message: `setup did not leave ${MODEL_ID} resident in the runtime`,
-        })
-        .toBe(MODEL_ID);
-
-      // Keep the consent-driven upgrade offer out of the measured runs: a
-      // background upgrade download would contend for bandwidth and the popup
-      // would sit over the composer. Recording a settled 'declined' phase is
-      // exactly what a user clicking "not now" leaves behind.
-      await prefetch.evaluate(() => {
-        window.localStorage.setItem(
-          "eco-local-ai-upgrade-v1",
-          JSON.stringify({
-            version: 1,
-            phase: "declined",
-            targetModelId: "candidate/qwen3.5-2b-onnx",
-            baseModelId: "candidate/lfm2.5-350m-onnx",
-            deferral: null,
-            swapAttempts: 0,
-            updatedAt: Date.now(),
-          }),
-        );
-      });
-      console.log(`  prefetch: ${MODEL_ID} resident — starting ${SAMPLES} samples`);
-    } finally {
-      await prefetch.close();
-    }
+    await ensureModelReady(context);
+    console.log(`  starting ${SAMPLES} samples`);
 
     // ── Measure ─────────────────────────────────────────────────────────────
     const samples: Sample[] = [];
