@@ -40,9 +40,10 @@ import {
   recommend,
 } from '../selection/recommend';
 import { clearEvidence } from '../evidence/ledger';
+import { getModel } from '../catalog/catalog';
 import { getDeviceProfile } from '../device/profile';
 import { isWebKitMobile, WEBKIT_MOBILE_VALIDATED_MODEL_IDS } from '../device/compatibility';
-import type { DeviceProfile } from '../types';
+import type { DeviceProfile, ModelConfig } from '../types';
 import { getActiveLocalHeavyWorkLease } from '../../lib/local-heavy-work-owner';
 import { isCacheVerificationForced } from '../../lib/validation-harness';
 import type { Slot } from '../types';
@@ -708,12 +709,29 @@ export type ReconcileOptions = {
    *  demote those fixture slots to 'preparing' and break the pre-seeded-ready
    *  convention their faked generation depends on. */
   isCacheVerificationForced?: () => boolean;
+  /** Test seam — maps a slot's modelId to its catalog config so the loop can
+   *  branch on `runtime`. Defaults to the catalog's getModel. */
+  resolveModel?: (modelId: string) => ModelConfig | null;
+  /** Test seam — authoritative presence probe for `webllm` models (WebLLM's
+   *  own cache namespaces, NOT Eco storage). Defaults to the cache bridge's
+   *  webllmModelInCache via dynamic import. */
+  webllmInCache?: (model: ModelConfig) => Promise<boolean>;
 };
+
+async function defaultWebllmInCache(model: ModelConfig): Promise<boolean> {
+  const { webllmModelInCache } = await import('../runtime/webllm-cache-bridge');
+  return webllmModelInCache(model);
+}
 
 /**
  * Reconcile every slot marked 'ready' against the actual cache state.
  *
  * For each ready slot:
+ *   0. If the model's runtime is `webllm`, skip the Eco-storage path
+ *      entirely and ask WebLLM's own cache (the authoritative store —
+ *      Eco's staging cache is empty by design). Absent ⇒ same
+ *      'preparing' flip; probe failure or definitely-offline ⇒ leave
+ *      the slot alone (absence unproven).
  *   1. Resolve the model's file plan via `planResolver`.
  *   2. Run `repairModelCache` — removes any file whose stored byte size
  *      doesn't match the plan's declared size (Bug #4 detection), and reports
@@ -759,6 +777,46 @@ export async function reconcileReadySlots(
   for (const slot of SLOTS) {
     const state = slotState[slot];
     if (state.status !== 'ready' || !state.modelId) continue;
+
+    // `webllm` models live in WebLLM's OWN cache namespaces — Eco's staging
+    // cache is empty by design once the bridge drains it into the engine, so
+    // the per-file Eco-storage repair below would count every file "missing"
+    // and demote a healthy ready slot on every single boot. Verify against
+    // the authoritative store instead (the same runtime branch
+    // download.ts's isModelDownloaded takes). Presence there is
+    // model-granular: a definitive "absent" means the browser evicted the
+    // engine's caches, which is exactly the wholly-missing case.
+    const resolveModel = options?.resolveModel ?? getModel;
+    const model = resolveModel(state.modelId);
+    if (model?.runtime === 'webllm') {
+      // A 'preparing' flip drives a re-download, which cannot succeed
+      // offline — and the probe itself fails closed on import/Cache-API
+      // errors, so probing while definitely-offline could demote a healthy
+      // slot. Leave it ready; a truly-evicted model still fails at engine
+      // load with in-session recovery, and the next online boot re-checks.
+      if (typeof navigator !== 'undefined' && !navigator.onLine) continue;
+      let present = true;
+      try {
+        present = await (options?.webllmInCache ?? defaultWebllmInCache)(model);
+      } catch (err) {
+        // Absence not proven — never demote on a probe failure (the
+        // 2026-06-11 lesson: verification errors must not destroy state).
+        report.errors.push(`webllm-probe(${state.modelId}): ${describe(err)}`);
+        continue;
+      }
+      if (!present) {
+        report.modelsRepaired.push({ modelId: state.modelId, removed: 0, missing: 1 });
+        try {
+          setStatus(slot, 'preparing');
+          report.slotsFlippedToPreparing.push(slot);
+          // No onCacheRepaired hint: nothing was removed — same silent
+          // re-download semantics as the wholly-missing branch below.
+        } catch (err) {
+          report.errors.push(`set-status(${slot}): ${describe(err)}`);
+        }
+      }
+      continue;
+    }
 
     let files: ReadonlyArray<{ url: string; sizeBytes: number }> | null = null;
     try {

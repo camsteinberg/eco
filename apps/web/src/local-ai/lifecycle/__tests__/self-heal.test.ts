@@ -17,6 +17,7 @@ import {
   type RetiredModelMigration,
 } from '../self-heal';
 import { setSlot, setSlotStatus, getSlot, readRawSlotIdForMigration } from '../slots';
+import { getModel } from '../../catalog/catalog';
 import { WEBKIT_MOBILE_VALIDATED_MODEL_IDS } from '../../device/compatibility';
 import type { DeviceProfile, Slot } from '../../types';
 
@@ -1166,5 +1167,124 @@ describe('reconcileReadySlots', () => {
     expect(report.slotsFlippedToPreparing).toEqual(['eco-smart']);
     expect(getSlot('eco-fast').status).toBe('ready');
     expect(getSlot('eco-smart').status).toBe('preparing');
+  });
+});
+
+// ─── reconcileReadySlots — webllm runtime branch ───────────────────────────
+//
+// WebLLM models live in WebLLM's own cache namespaces; Eco's staging cache is
+// empty BY DESIGN once the bridge drains it. The per-file Eco-storage repair
+// therefore counted every file "missing" and demoted a healthy iOS ready slot
+// on EVERY page load (third instance of the staging-cache runtime-blindness
+// pattern). These tests pin the runtime-aware branch: presence is answered by
+// the engine cache, absence must be PROVEN before any demotion, and the Eco
+// path (plan resolution included) is never touched for a webllm model.
+
+describe('reconcileReadySlots — webllm models verify against the engine cache', () => {
+  const MLC_ID = 'candidate/qwen2.5-0.5b-mlc';
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('catalog fixture guard: the MLC entry exists and is runtime webllm', () => {
+    // The suite below leans on the REAL catalog via the default resolveModel.
+    // If this entry is ever renamed/retired, fail loudly here instead of
+    // letting the branch tests silently test nothing.
+    expect(getModel(MLC_ID)?.runtime).toBe('webllm');
+  });
+
+  it('leaves a ready webllm slot alone when the engine cache holds the model — Eco storage and manifest never consulted', async () => {
+    setSlot('eco-fast', MLC_ID);
+    setSlotStatus('eco-fast', 'ready');
+    const planResolver = vi.fn(async () => {
+      throw new Error('plan resolver must not run for a webllm model');
+    });
+    const webllmInCache = vi.fn(async () => true);
+
+    const report = await reconcileReadySlots(planResolver, {
+      cacheStorage: new CacheApiStorage(new MemoryCacheStorage()),
+      webllmInCache,
+    });
+
+    expect(webllmInCache).toHaveBeenCalledTimes(1);
+    expect(planResolver).not.toHaveBeenCalled();
+    expect(getSlot('eco-fast').status).toBe('ready');
+    expect(report.slotsFlippedToPreparing).toEqual([]);
+    expect(report.modelsRepaired).toEqual([]);
+    expect(report.errors).toEqual([]);
+  });
+
+  it('flips a ready webllm slot to preparing when the engine cache definitively lacks the model — without the cleanup hint', async () => {
+    setSlot('eco-fast', MLC_ID);
+    setSlotStatus('eco-fast', 'ready');
+    const repaired: unknown[] = [];
+
+    const report = await reconcileReadySlots(async () => null, {
+      cacheStorage: new CacheApiStorage(new MemoryCacheStorage()),
+      webllmInCache: async () => false,
+      onCacheRepaired: (info) => { repaired.push(info); },
+    });
+
+    expect(getSlot('eco-fast').status).toBe('preparing');
+    expect(report.slotsFlippedToPreparing).toEqual(['eco-fast']);
+    expect(report.modelsRepaired).toEqual([
+      { modelId: MLC_ID, removed: 0, missing: 1 },
+    ]);
+    // Nothing was removed, so the "we cleaned up your cache" copy would be
+    // untruthful — same silent re-download semantics as wholly-missing files.
+    expect(repaired).toEqual([]);
+  });
+
+  it('never demotes on a probe failure — absence unproven', async () => {
+    setSlot('eco-fast', MLC_ID);
+    setSlotStatus('eco-fast', 'ready');
+
+    const report = await reconcileReadySlots(async () => null, {
+      cacheStorage: new CacheApiStorage(new MemoryCacheStorage()),
+      webllmInCache: async () => { throw new Error('bridge chunk failed to load'); },
+    });
+
+    expect(getSlot('eco-fast').status).toBe('ready');
+    expect(report.slotsFlippedToPreparing).toEqual([]);
+    expect(report.errors).toHaveLength(1);
+    expect(report.errors[0]).toContain(`webllm-probe(${MLC_ID})`);
+  });
+
+  it('skips the probe entirely while definitely offline — a preparing flip would drive a download that cannot succeed', async () => {
+    setSlot('eco-fast', MLC_ID);
+    setSlotStatus('eco-fast', 'ready');
+    vi.stubGlobal('navigator', { onLine: false });
+    const webllmInCache = vi.fn(async () => false);
+
+    const report = await reconcileReadySlots(async () => null, {
+      cacheStorage: new CacheApiStorage(new MemoryCacheStorage()),
+      webllmInCache,
+    });
+
+    expect(webllmInCache).not.toHaveBeenCalled();
+    expect(getSlot('eco-fast').status).toBe('ready');
+    expect(report.slotsFlippedToPreparing).toEqual([]);
+  });
+
+  it('non-webllm slots still take the Eco-storage path in the same pass', async () => {
+    setSlot('eco-fast', MLC_ID);
+    setSlotStatus('eco-fast', 'ready');
+    const tjsId = 'candidate/qwen3.5-2b-onnx';
+    setSlot('eco-smart', tjsId);
+    setSlotStatus('eco-smart', 'ready');
+    const cacheStorage = new CacheApiStorage(new MemoryCacheStorage());
+    // The TJS model's single planned file is wholly missing from Eco storage.
+    const report = await reconcileReadySlots(async (modelId) => {
+      if (modelId === tjsId) return [{ url: 'https://hf/smart.bin', sizeBytes: 999 }];
+      throw new Error(`unexpected plan resolution for ${modelId}`);
+    }, {
+      cacheStorage,
+      webllmInCache: async () => true,
+    });
+
+    expect(getSlot('eco-fast').status).toBe('ready');
+    expect(getSlot('eco-smart').status).toBe('preparing');
+    expect(report.slotsFlippedToPreparing).toEqual(['eco-smart']);
   });
 });
