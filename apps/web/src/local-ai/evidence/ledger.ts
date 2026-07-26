@@ -26,6 +26,7 @@
 
 import type { DeviceProfile } from '../types';
 import type { RuntimeBackend } from '../runtime/types';
+import { getLastProbedGpuEnvelope, type GpuEnvelope } from '../device/profile';
 import { classifyDeviceClass, type SeedDeviceClass } from './seed';
 import { safeStorage } from '../../lib/local-storage';
 
@@ -134,6 +135,15 @@ export type LedgerEntry = {
   backend?: RuntimeBackend;
   /** Wall-clock duration of the recorded operation, when measured. */
   durationMs?: number;
+  /**
+   * GPU adapter envelope the outcome was recorded under (last probed
+   * `maxBufferSize` / `maxStorageBufferBindingSize`), when a WebGPU probe has
+   * run this session. SHADOW EVIDENCE ONLY: recorded so future selection
+   * floors can be designed from measured (envelope × outcome) correlation —
+   * on WebKit these limits are the only hard numbers the platform exposes.
+   * Nothing reads this field; keep it that way until floors are adjudicated.
+   */
+  gpuLimits?: GpuEnvelope;
   recordedAt: string;
   /** Schema version. Old rows are migrated in place, never discarded. */
   ledgerVersion?: number;
@@ -181,6 +191,10 @@ function profileKeyMatches(stored: string, current: string): boolean {
 
 export function recordEvidence(input: LedgerRecordInput): void {
   if (typeof localStorage === 'undefined') return;
+  // Attach the session's last-probed GPU envelope to every row (shadow
+  // evidence — see the field doc). Callers may pass their own; the cached
+  // one fills in for the write sites that never touch the adapter.
+  const gpuLimits = input.gpuLimits ?? getLastProbedGpuEnvelope() ?? undefined;
   const entry: LedgerEntry = {
     modelId: input.modelId,
     profileKey: profileKey(input.profile),
@@ -190,6 +204,7 @@ export function recordEvidence(input: LedgerRecordInput): void {
     errorCode: input.errorCode,
     backend: input.backend,
     durationMs: input.durationMs,
+    ...(gpuLimits !== undefined ? { gpuLimits } : {}),
     recordedAt: new Date().toISOString(),
     ledgerVersion: CURRENT_LEDGER_VERSION,
   };

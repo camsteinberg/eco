@@ -656,6 +656,36 @@ export type WebGPUAdapterProbe = {
   limits?: Record<string, number>;
 };
 
+/**
+ * The two adapter limits that bound what a model can physically allocate:
+ * `maxBufferSize` caps any single GPU buffer, `maxStorageBufferBindingSize`
+ * caps what one shader binding can address. On WebKit these are the ONLY hard
+ * numbers the platform exposes (deviceMemory is always absent there).
+ */
+export type GpuEnvelope = {
+  maxBufferSize?: number;
+  maxStorageBufferBindingSize?: number;
+};
+
+/**
+ * Last successfully probed GPU envelope, cached module-scoped for the session.
+ * Adapter limits are stable for the life of the device, so any probe's result
+ * is as good as a fresh one. This exists so synchronous consumers — the
+ * evidence ledger stamping outcome rows — can attach the envelope without
+ * awaiting an adapter request on their write path. SHADOW EVIDENCE ONLY:
+ * recorded for future floor design, consulted by nothing.
+ */
+let lastProbedGpuEnvelope: GpuEnvelope | null = null;
+
+export function getLastProbedGpuEnvelope(): GpuEnvelope | null {
+  return lastProbedGpuEnvelope;
+}
+
+/** @internal Reset the cached envelope. Exported only for test isolation. */
+export function _resetGpuEnvelopeForTesting(): void {
+  lastProbedGpuEnvelope = null;
+}
+
 export async function probeWebGPUAdapter(): Promise<WebGPUAdapterProbe> {
   const state: WebGPUAdapterProbe = {
     available: false,
@@ -696,6 +726,21 @@ export async function probeWebGPUAdapter(): Promise<WebGPUAdapterProbe> {
       }
     }
     state.limits = limitsObj;
+
+    // Cache the envelope for synchronous consumers (evidence ledger rows).
+    // Only a probe that actually saw an adapter updates it — a later failed
+    // probe must not erase a good envelope from earlier in the session.
+    const envelope: GpuEnvelope = {
+      ...(typeof limitsObj.maxBufferSize === 'number'
+        ? { maxBufferSize: limitsObj.maxBufferSize }
+        : {}),
+      ...(typeof limitsObj.maxStorageBufferBindingSize === 'number'
+        ? { maxStorageBufferBindingSize: limitsObj.maxStorageBufferBindingSize }
+        : {}),
+    };
+    if (envelope.maxBufferSize !== undefined || envelope.maxStorageBufferBindingSize !== undefined) {
+      lastProbedGpuEnvelope = envelope;
+    }
   } catch (err) {
     state.adapterError = err instanceof Error ? err.message : String(err);
   }
