@@ -16,12 +16,53 @@ describe('SetupErrorState', () => {
       <SetupErrorState
         reason="We tried a few options..."
         exhausted
+        triedModelCount={3}
         onTryAgain={() => {}}
         onTellUsMore={() => {}}
       />,
     );
     expect(screen.getByText(/tried a few options/i)).toBeInTheDocument();
     expect(screen.queryByText(/trying again usually fixes it/i)).not.toBeInTheDocument();
+  });
+
+  it('does not claim "a few options" when the ladder only had one model to try', () => {
+    render(
+      <SetupErrorState
+        reason="Smoke timed out before any token"
+        exhausted
+        triedModelCount={1}
+        onTryAgain={() => {}}
+        onTellUsMore={() => {}}
+      />,
+    );
+    expect(screen.getByText(/couldn't get Eco's model running/i)).toBeInTheDocument();
+    expect(screen.queryByText(/tried a few options/i)).not.toBeInTheDocument();
+  });
+
+  it('keeps the plural copy when the tried-model count is unknown', () => {
+    render(
+      <SetupErrorState
+        reason="Smoke timed out before any token"
+        exhausted
+        onTryAgain={() => {}}
+        onTellUsMore={() => {}}
+      />,
+    );
+    expect(screen.getByText(/tried a few options/i)).toBeInTheDocument();
+  });
+
+  it('keeps storage-shortage copy ahead of either exhausted headline', () => {
+    render(
+      <SetupErrorState
+        reason="Eco needs about 2.0 GB of free space for this model, but only about 0.3 GB is available on this device."
+        exhausted
+        triedModelCount={1}
+        onTryAgain={() => {}}
+        onTellUsMore={() => {}}
+      />,
+    );
+    expect(screen.getByText(/needs a little more free space/i)).toBeInTheDocument();
+    expect(screen.queryByText(/couldn't get Eco's model running/i)).not.toBeInTheDocument();
   });
 
   it('names the host (not "some devices") when the exhausted failure is network/host-shaped', () => {

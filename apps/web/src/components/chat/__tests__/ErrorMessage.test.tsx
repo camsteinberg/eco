@@ -311,21 +311,30 @@ describe("ErrorMessage", () => {
     expect(screen.queryByRole("button", { name: /try again/i })).not.toBeInTheDocument();
   });
 
-  it("renders honest browser-unsupported copy when the message carries the browser-local-ai-not-supported marker", () => {
+  it("renders the device-specific diagnosis attached to the browser-local-ai-not-supported marker", () => {
     render(
       <ErrorMessage
         onRetry={() => {}}
-        message="browser-local-ai-not-supported: Eco hasn't validated Safari yet."
+        message="browser-local-ai-not-supported: Eco does run on iPhone and iPad — it just can't run on this one yet. Updating to the latest iOS is the most likely fix."
       />,
     );
-    expect(screen.getByRole("heading")).toHaveTextContent("Eco isn't ready for this browser yet");
-    expect(screen.getByText(/Try Chrome or Edge on a recent device/i)).toBeInTheDocument();
-    // Honest copy: the failure is local (this browser can't run on-device AI),
+    expect(screen.getByRole("heading")).toHaveTextContent("Eco can't run on this device yet");
+    // The diagnosis is the honest, profile-aware copy — it must reach the user
+    // instead of a static line that tells every device to try another browser.
+    expect(screen.getByText(/Updating to the latest iOS/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Try Chrome or Edge/i)).not.toBeInTheDocument();
+    // Honest copy: the failure is local (this device can't run on-device AI),
     // there is no network fallback to mention.
     expect(screen.queryByText(/eco network/i)).not.toBeInTheDocument();
     // Must NOT use the generic "Eco needs one quick setup" wording — that
     // reads as "you need to do something" rather than "we don't support this".
     expect(screen.queryByText(/Eco needs one quick setup/i)).not.toBeInTheDocument();
+  });
+
+  it("falls back to a device-neutral line when the marker carries no guidance", () => {
+    render(<ErrorMessage onRetry={() => {}} message="browser-local-ai-not-supported" />);
+    expect(screen.getByRole("heading")).toHaveTextContent("Eco can't run on this device yet");
+    expect(screen.getByText(/this device can't do that yet/i)).toBeInTheDocument();
   });
 
   // ─── Bundle: headline classes that must NOT read as "one quick setup" ─────

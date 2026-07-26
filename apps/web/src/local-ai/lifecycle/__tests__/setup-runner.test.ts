@@ -81,7 +81,12 @@ describe('executeSetup', () => {
       nextInCascade: vi.fn(() => null),
     });
     await executeSetup(a, { slot: 'eco-fast', seams: s });
-    expect(a.setError).toHaveBeenCalledWith(expect.any(String), { exhausted: true });
+    // The count is threaded so the error surface can be honest about how many
+    // models were actually attempted (one here — nextInCascade returns null).
+    expect(a.setError).toHaveBeenCalledWith(expect.any(String), {
+      exhausted: true,
+      triedModelCount: 1,
+    });
     expect(s.setSlotStatus).toHaveBeenCalledWith('eco-fast', 'error');
   });
 

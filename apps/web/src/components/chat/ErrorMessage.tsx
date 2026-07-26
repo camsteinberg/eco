@@ -51,10 +51,26 @@ const MODEL_PREPARING_TITLE = "Your model is still getting ready";
 // A context-window refusal isn't a setup problem either — the chat/file is just
 // too long for this local model. The honest fix is to shorten, not to "set up."
 const CONTEXT_WINDOW_REFUSAL_TITLE = "This conversation is too long";
-const BROWSER_UNSUPPORTED_MESSAGE_TITLE = "Eco isn't ready for this browser yet";
+// The blocker is this device, not necessarily its browser: Eco ships an
+// iPhone/iPad lane and serves Android Chromium, so a browser-shaped headline
+// would be false for both. The body carries the specific reason.
+const BROWSER_UNSUPPORTED_MESSAGE_TITLE = "Eco can't run on this device yet";
+/**
+ * Fallback body only. The marker normally carries device-specific guidance from
+ * `local-ai/device/diagnosis.ts` — the honest, profile-aware explanation — and
+ * that is what gets rendered. This generic line is for a marker with no
+ * guidance attached, so it must stay true for every device that can reach it.
+ */
 const BROWSER_UNSUPPORTED_MESSAGE_BODY =
-  "Eco runs its AI right on your device, and this browser can't do that yet. Try Chrome or Edge on a recent device.";
+  "Eco runs its AI right on your device, and this device can't do that yet.";
 const BROWSER_UNSUPPORTED_MARKER = "browser-local-ai-not-supported";
+
+/** The guidance the diagnosis attached to the marker, if any. */
+function browserUnsupportedBody(message: string | undefined): string {
+  const guidance = message?.split(`${BROWSER_UNSUPPORTED_MARKER}:`)[1]?.trim();
+  if (!guidance) return BROWSER_UNSUPPORTED_MESSAGE_BODY;
+  return guidance;
+}
 const MANAGE_MODELS_HREF = "/settings?tab=models";
 
 export type LocalModelPrepareState = {
@@ -221,7 +237,7 @@ export function ErrorMessage({
   const errorInfo = isBrowserUnsupportedError
     ? {
         title: BROWSER_UNSUPPORTED_MESSAGE_TITLE,
-        body: BROWSER_UNSUPPORTED_MESSAGE_BODY,
+        body: browserUnsupportedBody(message),
       }
     : isLocalCooldownError
     ? {

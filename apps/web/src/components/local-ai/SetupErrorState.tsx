@@ -19,6 +19,12 @@ export type SetupErrorStateProps = {
   reason: string;
   /** True when every compatible model on the fallback ladder was tried. */
   exhausted?: boolean;
+  /**
+   * How many models that ladder actually tried. On a one-model platform (iOS,
+   * or an f16-less low-memory Android) it is exactly one, and saying "we tried
+   * a few options" would be a small lie. 0 / omitted = unknown.
+   */
+  triedModelCount?: number;
   onTryAgain(): void;
   onTellUsMore(): void;
 };
@@ -47,14 +53,23 @@ function looksLikeNetworkOrHosting(reason: string): boolean {
  * The headline owns the honesty: once the ladder is exhausted we have
  * already tried every option, so the copy must NOT imply a quick retry
  * will fix it. The non-exhausted case keeps the calmer "trouble right now".
+ *
+ * It also has to be honest about HOW MUCH we tried. Some platforms ship a
+ * single compatible model (iOS; f16-less low-memory Android), so the ladder
+ * there is one model long — "a few options" would be a claim about effort we
+ * did not make. An unknown count keeps the plural line, which is what the
+ * multi-model desktop ladder does.
  */
-function headlineFor(reason: string, exhausted: boolean): string {
+function headlineFor(reason: string, exhausted: boolean, triedModelCount: number): string {
   if (looksLikeStorageShortage(reason)) {
     return 'Eco needs a little more free space to set up on this device.';
   }
-  return exhausted
-    ? "We tried a few options and couldn't get one running on this device just yet."
-    : "We're having trouble setting up your AI right now.";
+  if (!exhausted) {
+    return "We're having trouble setting up your AI right now.";
+  }
+  return triedModelCount === 1
+    ? "We couldn't get Eco's model running on this device just yet."
+    : "We tried a few options and couldn't get one running on this device just yet.";
 }
 
 /**
@@ -85,6 +100,7 @@ function subtitleFor(reason: string, exhausted: boolean): string {
 export function SetupErrorState({
   reason,
   exhausted = false,
+  triedModelCount = 0,
   onTryAgain,
   onTellUsMore,
 }: SetupErrorStateProps) {
@@ -127,7 +143,7 @@ export function SetupErrorState({
         <h1 className="font-display text-3xl tracking-tight">Eco</h1>
 
         <p className="text-base leading-relaxed" style={{ color: 'var(--eco-text)' }}>
-          {headlineFor(reason, exhausted)}
+          {headlineFor(reason, exhausted, triedModelCount)}
           <br />
           {subtitleFor(reason, exhausted)}
         </p>
