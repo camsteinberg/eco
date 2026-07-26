@@ -13,6 +13,8 @@
     "test": "vitest run",
     "test:e2e": "playwright test",
     "test:e2e:webllm": "playwright test --config playwright.webllm.config.ts",
+    "perf-gate": "playwright test --config playwright.perf.config.ts",
+    "perf-gate:update": "ECO_PERF_UPDATE_BASELINE=1 playwright test --config playwright.perf.config.ts",
     "verify:no-lab-bundle": "node scripts/verify-no-lab-bundled.mjs",
     "seed:evidence": "node scripts/build-seed-evidence.mjs",
     "test:visual": "playwright test --config playwright.visual.config.ts",
