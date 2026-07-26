@@ -13,6 +13,7 @@ import {
   rememberPendingChatPrompt,
 } from "../../lib/pending-chat-prompt";
 import { syncCaptureFlagFromUrl } from "../../lib/dev-capture";
+import { syncDiagnosticsFlagFromUrl } from "../../lib/dev-diagnostics";
 
 function ChatPageInner() {
   const searchParams = useSearchParams();
@@ -25,10 +26,13 @@ function ChatPageInner() {
     }
   }, [promptParam]);
 
-  // Persist ?eco-capture=1/0 into the sticky dev-capture flag (dogfooding —
-  // gates the "Flag for eval" affordance on assistant messages).
+  // Persist ?eco-capture=1/0 and ?eco-diagnostics=1/0 into their sticky dev
+  // flags (dogfooding — gate the "Flag for eval" affordance and the settings
+  // "Diagnostic info" link; the latter must survive in-app navigation so the
+  // in-memory generation receipts can reach the diagnostics export).
   useEffect(() => {
     syncCaptureFlagFromUrl();
+    syncDiagnosticsFlagFromUrl();
   }, []);
 
   if (!hasHydrated) {
