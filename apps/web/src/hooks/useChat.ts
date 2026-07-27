@@ -50,6 +50,7 @@ import {
   TEMPLATE_MISSING_USER_MESSAGE,
   LOCAL_GENERATION_FALLBACK_MESSAGE,
   LOCAL_GENERATION_REPEATED_MESSAGE,
+  DEVICE_PROTECTION_MESSAGE,
   describeLocalCooldownMessage,
 } from "../local-ai/adapters/error-messages";
 import {
@@ -513,8 +514,7 @@ export function useChat() {
       }
 
       if (err.code === "DEVICE_PROTECTION") {
-        const message =
-          "Battery is low, so Eco paused on-device AI to protect this device. Plug in, then try again to keep chatting locally.";
+        const message = DEVICE_PROTECTION_MESSAGE;
         updateMessage(assistantId, {
           status: "error",
           errorMessage: message,

@@ -83,6 +83,7 @@ import {
 } from "../../../local-ai/adapters/error-messages";
 import { MODEL_PREPARING_BUSY_MESSAGE } from "../../../lib/local-heavy-work-owner";
 import { CONTEXT_WINDOW_REFUSAL_MESSAGE } from "../../../lib/context-window";
+import { DEVICE_PROTECTION_MESSAGE } from "../../../local-ai/adapters/error-messages";
 
 describe("ErrorMessage", () => {
   beforeEach(() => {
@@ -355,6 +356,17 @@ describe("ErrorMessage", () => {
     // re-refuse, so there is no Try again button.
     expect(screen.getByText(/trim the long chat or file/i)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /try again/i })).not.toBeInTheDocument();
+  });
+
+  it("titles a low-battery pause honestly and keeps a way forward", () => {
+    render(<ErrorMessage onRetry={() => {}} message={DEVICE_PROTECTION_MESSAGE} />);
+    // The copy contains both "on-device" and "locally", which trip the setup
+    // regex. A flat battery is not a setup step the user skipped, and mislabelling
+    // it that way also suppressed Try again — leaving a card with NO action at all.
+    expect(screen.queryByText(/Eco needs one quick setup/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("heading")).toHaveTextContent("Paused to protect your device");
+    // The body tells them to plug in and try again, so that button must exist.
+    expect(screen.getByRole("button", { name: /try again/i })).toBeInTheDocument();
   });
 
   // ─── Bundle 3: capacity-error local-setup link ────────────────────────────
