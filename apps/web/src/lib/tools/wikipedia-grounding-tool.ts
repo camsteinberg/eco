@@ -144,12 +144,20 @@ function isGroundingArgs(value: unknown): value is GroundingArgs {
 // ---------------------------------------------------------------------------
 
 /**
- * Interrogative / quantitative cues that signal a factual question. Word-boundary
- * anchored, case-insensitive. "how many/much/tall/…" capture the quantitative asks
- * that the article extract often can't answer (and that route to Wikidata).
+ * Interrogative cues that signal a factual question. Word-boundary anchored,
+ * case-insensitive.
+ *
+ * Bare "how" rather than the former explicit "how many/much/tall/old/far/…" list:
+ * that list missed ordinary comparative asks ("How does this compare to South
+ * Korea?") entirely, so a genuine factual question carried no cue at all and the
+ * only cue found came from the article the user had pasted above it — grounding
+ * then fired on a subject lifted out of the paste. Broadening the word is safe
+ * ONLY because a match must also be question-positioned; see
+ * {@link isAskingAQuestion}, which is what stops a mid-paragraph "what" in body
+ * prose from reading as an interrogative.
  */
 const INTERROGATIVE_CUE =
-  /\b(?:who|what|whats|what's|where|when|which|whose|how many|how much|how tall|how old|how far|how big|how high|how long|how large|how deep|how populous)\b/i;
+  /\b(?:who|what|whats|what's|where|when|which|whose|how)\b/i;
 
 /**
  * Factual attribute nouns. Their presence (with an entity) signals a fact-shaped
@@ -423,9 +431,12 @@ export function extractLowercaseEntity(text: string): string | null {
 /**
  * Interrogative qualifier words that ENTITY_STOPWORDS doesn't cover — the tails of
  * "how many/much/…" and bare quantity/degree words. These are question scaffolding,
- * not content, so the keyword query drops them alongside ENTITY_STOPWORDS. Derived
- * directly from the INTERROGATIVE_CUE "how …" alternatives (kept in sync there) so
- * this isn't an independent parallel word set. Lowercased for comparison.
+ * not content, so the keyword query drops them alongside ENTITY_STOPWORDS.
+ *
+ * These were once the explicit "how …" alternatives of INTERROGATIVE_CUE, kept in
+ * sync with it. That cue is now bare "how" plus a question-position requirement, so
+ * this set stands on its own: it exists purely to strip quantity/degree scaffolding
+ * out of a keyword query, and adding a word here no longer affects candidacy.
  */
 const QUERY_QUALIFIER_WORDS = new Set([
   "many", "much", "tall", "old", "far", "big", "high", "long", "large", "deep",
@@ -533,6 +544,253 @@ const FOLLOWUP_REFERENCE =
 /** Elliptical follow-ups ("and the population?") are short — a hard char bound. */
 const FOLLOWUP_ELLIPTICAL_MAX_LEN = 40;
 
+// ---------------------------------------------------------------------------
+// ASK-WINDOW SCOPING (realistic-input sweep, 2026-07-27).
+//
+// Every guard above this line was designed, tested, and tuned against ONE input
+// shape: a person typing a short question. The false-positive corpus is 30 strings
+// and all 30 are short typed questions. So nothing in the design ever had to answer
+// the question "what if the user PASTES something?" — and the answer turned out to
+// be bad in a way no amount of regex tuning fixes, because the extractors were being
+// run over text the user was SHOWING rather than text the user was ASKING WITH.
+//
+// Measured against a realistic-input corpus (45 samples, authored blind to this
+// defect), 11 of 33 no-lookup-expected inputs produced an outbound Wikipedia
+// request. Not near misses:
+//   • a Python traceback sent "/Users/dana/work/pipeline/ingest.py" — the user's
+//     own username and directory layout, to a third party;
+//   • a pasted news article sent a quoted sentence from its body verbatim;
+//   • a pasted pair of articles sent a whole 200-character sentence;
+//   • an email draft sent a phrase quoted inside it.
+// The quoted-span extractor has no length bound at all, so pasted prose containing
+// any quotation marks hands the quoted region straight to a request URL.
+//
+// The fix is scope, not pattern-matching. Grounding exists to fetch a fact the user
+// asked about that is NOT already in the conversation. When a user pastes a
+// document, its content is already in the prompt — a lookup adds nothing and leaks
+// something. So extraction is bounded to the ask window, and the raw turn is never
+// read by an extractor again.
+//
+// Deliberately NOT solved with better entity extraction: a perfect named-entity
+// recogniser handed a pasted article about Tokyo extracts "Tokyo", correctly, and
+// still fires a lookup about the document the user pasted. This is a scope-and-
+// consent defect, not an accuracy one.
+// ---------------------------------------------------------------------------
+
+/**
+ * A turn at or under this length is one utterance — the user typed a message, so
+ * the whole thing is the ask and behaviour is unchanged from before this guard.
+ * Above it, the turn is treated as containing shown content and gets windowed.
+ * Sized from the corpus: genuine typed factual questions cluster well under this,
+ * while pasted-content turns run 500–1500 characters.
+ */
+const SHORT_TURN_MAX_CHARS = 280;
+
+/** Within a windowed turn, a block longer than this is body prose, never the ask. */
+const ASK_BLOCK_MAX_CHARS = 280;
+
+/** An entity longer than this is a sentence or a paragraph, not a subject. */
+const ENTITY_MAX_CHARS = 80;
+
+/** …and one wordier than this likewise. Real long names ("Trinidad and Tobago",
+ * "Structural Engineers Association") sit comfortably inside this bound. */
+const ENTITY_MAX_WORDS = 6;
+
+/**
+ * Path-like / code-like shapes that are never a Wikipedia subject. Anchored on
+ * structural characters (slashes, `::`, `@`) and on source/dump file extensions —
+ * the debris that reaches this code when someone pastes a stack trace and asks for
+ * help. A path is also the single worst thing to send outward: it carries the
+ * user's account name and directory layout.
+ */
+const PATH_OR_CODE_LIKE =
+  /[/\\@]|::|\.(?:py|js|mjs|cjs|ts|tsx|jsx|rs|go|java|rb|swift|kt|c|cc|cpp|h|hpp|cs|php|json|ya?ml|toml|ini|log|txt|md|sh|sql|html?|css|xml)\b/i;
+
+/**
+ * Spans headed by a demonstrative or possessive refer to something in the
+ * conversation ("this text", "that message", "your draft") — never to a lookupable
+ * subject. Without this, rejecting a sentence-initial capital simply pushes the
+ * turn down to lowercase recovery, which happily returns "this text" and makes the
+ * request anyway. Whack-a-mole is the failure mode this file is trying to escape,
+ * so the rule closes the fallthrough too.
+ */
+const DEMONSTRATIVE_HEAD =
+  /^(?:this|that|these|those|my|your|our|their|his|her|its)\b/i;
+
+/**
+ * An attribute noun with no interrogative and no lookup lead is the weakest cue we
+ * accept ("the population of Tokyo"). Real asks of that shape are terse, so it is
+ * bounded by length: without this, ordinary article prose supplies the cue by
+ * accident — a feature paragraph about water rights contains "committed capital",
+ * and "capital" is an attribute noun.
+ */
+const ATTRIBUTE_ONLY_ASK_MAX_CHARS = 120;
+
+/**
+ * True when the ask is actually ASKING, rather than merely containing a word that
+ * can begin a question.
+ *
+ * An interrogative is a cue only where it is doing interrogative work. Declarative
+ * prose is full of them — "no matter what", "What they disputed was the
+ * sequencing" — and each of those supplied a cue that carried a conversational
+ * place name or a body-prose Title-Case run into a lookup. Requiring an explicit
+ * question mark, or the cue at the very START of the ask, separates the two
+ * without a word list: real terse questions open with the interrogative ("who is
+ * the mayor of osaka"), while prose that merely contains one does not.
+ *
+ * Sentence-initial anywhere in the ask is deliberately NOT enough — "…the science.
+ * What they disputed was…" would qualify, and that is exactly a body paragraph.
+ */
+function isAskingAQuestion(ask: string): boolean {
+  if (ask.includes("?")) {
+    return true;
+  }
+  const match = INTERROGATIVE_CUE.exec(ask);
+  if (match === null) {
+    return false;
+  }
+  return ask.slice(0, match.index).trim() === "";
+}
+
+/** Split a turn into blocks: blank-line-separated paragraphs, else lines. */
+function splitBlocks(text: string): string[] {
+  const paragraphs = text
+    .split(/\n\s*\n/)
+    .map((b) => b.trim())
+    .filter((b) => b !== "");
+  if (paragraphs.length > 1) {
+    return paragraphs;
+  }
+  return text
+    .split(/\n/)
+    .map((l) => l.trim())
+    .filter((l) => l !== "");
+}
+
+/**
+ * The spans of the turn the user is ASKING WITH, in priority order.
+ *
+ * A short turn yields itself — the overwhelmingly common case, and the one every
+ * existing test exercises, so their behaviour is untouched. A long turn yields only
+ * its first and last block, and only when those are short enough to be an ask: real
+ * people put their question either above the paste ("can you summarise this?\n\n…")
+ * or below it ("…\n\nhow does this compare to South Korea?"), never buried in the
+ * middle. Everything else is body, and body is never scanned.
+ *
+ * Returned as separate windows rather than one concatenated string so a Title-Case
+ * run can never span the seam between two blocks that were never adjacent.
+ *
+ * @internal Exported for unit testing.
+ */
+export function askWindows(text: string): readonly string[] {
+  const trimmed = text.trim();
+  if (trimmed === "") {
+    return [];
+  }
+  if (trimmed.length <= SHORT_TURN_MAX_CHARS) {
+    return [trimmed];
+  }
+
+  const blocks = splitBlocks(trimmed);
+  if (blocks.length <= 1) {
+    // One long unbroken block: a pasted wall of text with no separable ask.
+    return [];
+  }
+
+  const first = blocks[0];
+  const last = blocks[blocks.length - 1];
+  const windows: string[] = [];
+  for (const block of first === last ? [first] : [first, last]) {
+    if (block !== undefined && block.length <= ASK_BLOCK_MAX_CHARS) {
+      windows.push(block);
+    }
+  }
+  return windows;
+}
+
+/**
+ * True when `token` appears somewhere in `text` that is NOT the first word of a
+ * sentence — i.e. its capitalisation is carrying information rather than just
+ * marking a sentence boundary.
+ */
+function occursAwayFromSentenceStart(token: string, text: string): boolean {
+  const sentences = text.split(/(?<=[.!?])\s+|\n+/);
+  for (const sentence of sentences) {
+    const words = sentence
+      .trim()
+      .split(/\s+/)
+      .map((w) => w.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, ""))
+      .filter((w) => w !== "");
+    for (let i = 1; i < words.length; i++) {
+      if (words[i] === token) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * Reject a span whose capitalisation is only sentence casing.
+ *
+ * `ENTITY_STOPWORDS` already blocks a list of words that can open a sentence, and
+ * that list can never be complete — "Raised" (a past participle opening a
+ * paragraph) and "Briefly" (a sentence adverb) both sailed through it and became
+ * high-confidence lookup subjects. The structural signal is not WHICH word it is
+ * but WHERE its capitals occur: a real subject either appears mid-sentence
+ * ("What is France?") or recurs, whereas sentence casing appears only at a
+ * sentence start. So this replaces list-extension with a rule.
+ *
+ * Scoped to single-token spans on purpose: a multi-word Title-Case run
+ * ("United States Industrial Alcohol Company") cannot be explained by sentence
+ * casing, so the rule would be wrong to touch it.
+ */
+function isSentenceCasingOnly(span: string, ask: string): boolean {
+  const words = span.split(/\s+/).filter((w) => w !== "");
+  if (words.length !== 1) {
+    return false;
+  }
+  const token = words[0];
+  if (token === undefined || !/^\p{Lu}/u.test(token)) {
+    return false;
+  }
+  return !occursAwayFromSentenceStart(token, ask);
+}
+
+/**
+ * The final gate every extracted span passes before it can become a request.
+ *
+ * Each clause corresponds to a measured false positive from the 2026-07-27 sweep,
+ * and all of them fail CLOSED — a rejected span abstains, it never downgrades to a
+ * lower confidence. Confidence only changes how `execute` handles a miss; it does
+ * not decide whether the network is touched. Only abstention does that.
+ *
+ * @internal Exported for unit testing.
+ */
+export function isPlausibleEntity(span: string, ask: string): boolean {
+  const s = span.trim();
+  if (s === "" || s.length > ENTITY_MAX_CHARS) {
+    return false;
+  }
+  // A span carrying a newline came out of body prose, not a subject.
+  if (/[\n\r]/.test(s)) {
+    return false;
+  }
+  if (PATH_OR_CODE_LIKE.test(s)) {
+    return false;
+  }
+  if (s.split(/\s+/).filter((w) => w !== "").length > ENTITY_MAX_WORDS) {
+    return false;
+  }
+  if (DEMONSTRATIVE_HEAD.test(s)) {
+    return false;
+  }
+  if (isSentenceCasingOnly(s, ask)) {
+    return false;
+  }
+  return true;
+}
+
 function matchGrounding(
   userText: string,
   context?: ToolMatchContext,
@@ -543,42 +801,84 @@ function matchGrounding(
 
   // Guard 1 — deny-set short-circuit. Screen creative/opinion/code/translation/meta
   // turns BEFORE any cue or entity work, so they can never reach a lookup.
+  //
+  // Scanned over the WHOLE turn, deliberately, even though every guard below is
+  // scoped to the ask window: denying is subtractive, so a wider scan can only
+  // abstain more often. Fail-safe direction (cf. the ask window, where a wider
+  // scan would fire more often — the unsafe direction).
   for (const deny of DENY_PATTERNS) {
     if (deny.test(userText)) {
       return null;
     }
   }
 
-  // Guard 2 — require a factual cue: an interrogative/quantitative cue, OR a factual
-  // attribute noun, OR a "tell me about / what is" lookup lead.
+  // Guard 2 — scope to what the user is ASKING WITH, not what they are SHOWING.
+  // Everything downstream reads `ask`, never the raw turn. See ASK-WINDOW SCOPING.
+  const windows = askWindows(userText);
+  if (windows.length === 0) {
+    return null;
+  }
+
+  for (const ask of windows) {
+    const args = matchWithinAsk(ask, context);
+    if (args !== null) {
+      return args;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Run the cue + extraction guards against ONE ask window.
+ *
+ * Takes ONLY the ask, deliberately: the raw turn is not a parameter, so no guard
+ * below can quietly start reading pasted content again. The one place the full turn
+ * still matters — the deny-set, where a wider scan can only abstain more often —
+ * runs in {@link matchGrounding} before this is ever called.
+ */
+function matchWithinAsk(
+  ask: string,
+  context?: ToolMatchContext,
+): GroundingArgs | null {
+  // Guard 3 — require a factual cue: an interrogative/quantitative cue, OR a factual
+  // attribute noun, OR a "tell me about / what is" lookup lead. Read from the ask
+  // window: an attribute noun occurring inside a pasted article is not the user
+  // asking a factual question, and treating it as one is what let a bare paste with
+  // no question attached reach a lookup.
   const hasCue =
-    INTERROGATIVE_CUE.test(userText) ||
-    FACTUAL_ATTRIBUTE.test(userText) ||
-    LOOKUP_LEAD.test(userText);
+    (INTERROGATIVE_CUE.test(ask) && isAskingAQuestion(ask)) ||
+    LOOKUP_LEAD.test(ask) ||
+    (FACTUAL_ATTRIBUTE.test(ask) && ask.length <= ATTRIBUTE_ONLY_ASK_MAX_CHARS);
   if (!hasCue) {
     return null;
   }
 
-  // Guard 3 — extract an entity. Quoted span / Title-Case n-gram are HIGH
+  // Guard 4 — extract an entity. Quoted span / Title-Case n-gram are HIGH
   // confidence; when both miss, the lowercase-recovery path may still produce a
   // LOW-confidence span (real users type lowercase). Abstain when all miss.
-  const entity = extractQuotedSpan(userText) ?? extractTitleCaseEntity(userText);
+  // Every candidate passes isPlausibleEntity before it can become a lookup.
+  const quoted = extractQuotedSpan(ask);
+  const titled = extractTitleCaseEntity(ask);
+  const entity =
+    (quoted !== null && isPlausibleEntity(quoted, ask) ? quoted : null) ??
+    (titled !== null && isPlausibleEntity(titled, ask) ? titled : null);
   if (entity !== null && entity.trim() !== "") {
-    return { entity, wikidataProperty: detectWikidataProperty(userText), confidence: "high" };
+    return { entity, wikidataProperty: detectWikidataProperty(ask), confidence: "high" };
   }
 
-  const recovered = extractLowercaseEntity(userText);
-  if (recovered !== null) {
+  const recovered = extractLowercaseEntity(ask);
+  if (recovered !== null && isPlausibleEntity(recovered, ask)) {
     return {
       entity: recovered,
-      wikidataProperty: detectWikidataProperty(userText),
+      wikidataProperty: detectWikidataProperty(ask),
       confidence: "low",
     };
   }
 
-  // Guard 4 — follow-up re-grounding. Only when the conversation carries a recent
+  // Guard 5 — follow-up re-grounding. Only when the conversation carries a recent
   // grounded subject AND no in-turn entity was extractable above. Two shapes, both
-  // already past Guards 1+2:
+  // already past Guards 1–3:
   //   • Pronoun: the turn references the prior subject ("how tall is it?").
   //   • Elliptical: a short attribute fragment with no entity ("and the
   //     population?") — Guard 2 already passed for an attribute cue, so this is
@@ -589,41 +889,48 @@ function matchGrounding(
   //     a wrong fire, not a follow-up. Same digit posture as recovery. (The
   //     uppercase form "K2" never gets here — capital+digit is a valid
   //     Title-Case token, so Guard 3 grounds it as the new subject.)
+  // Read from the ask window, not the raw turn: a pronoun occurring inside pasted
+  // prose is not the user referring back to a grounded subject.
   const lastGroundedTitle = context?.lastGroundedTitle;
   if (typeof lastGroundedTitle === "string" && lastGroundedTitle !== "") {
-    const isPronounFollowup = FOLLOWUP_REFERENCE.test(userText);
+    const isPronounFollowup = FOLLOWUP_REFERENCE.test(ask);
     const isElliptical =
-      userText.trim().length <= FOLLOWUP_ELLIPTICAL_MAX_LEN &&
-      FACTUAL_ATTRIBUTE.test(userText) &&
-      !/\d/.test(userText);
+      ask.trim().length <= FOLLOWUP_ELLIPTICAL_MAX_LEN &&
+      FACTUAL_ATTRIBUTE.test(ask) &&
+      !/\d/.test(ask);
     if (isPronounFollowup || isElliptical) {
       return {
         entity: lastGroundedTitle,
-        wikidataProperty: detectWikidataProperty(userText),
+        wikidataProperty: detectWikidataProperty(ask),
         confidence: "followup",
       };
     }
   }
 
-  // Guard 5 — zero-entity full-text recall (LAST). Reached only when the turn is
-  // factual-shaped (Guards 1+2 passed) yet NO entity was extractable by any path
+  // Guard 6 — zero-entity full-text recall (LAST). Reached only when the ask is
+  // factual-shaped (Guards 1–3 passed) yet NO entity was extractable by any path
   // above AND the follow-up path didn't claim it. Two extra conditions hold the
-  // precision line: the turn must LEAD with an interrogative (FULLTEXT_LEAD — a
+  // precision line: the ask must LEAD with an interrogative (FULLTEXT_LEAD — a
   // mid-sentence question word in a musing doesn't qualify), AND it must clean to a
-  // 2–8-token, digit-free content corpus. The RAW turn is then searched (it ranks
-  // far better on CirrusSearch than stripped keywords — see GroundingArgs.searchText)
-  // while the cleaned corpus anchors execute's inverted coverage gate. An
-  // entity-bearing or follow-up turn never reaches here, so this never competes
-  // with a named/carried subject.
-  if (FULLTEXT_LEAD.test(userText)) {
-    const query = buildKeywordQuery(userText);
+  // 2–8-token, digit-free content corpus. The ask is then searched (natural
+  // phrasing ranks far better on CirrusSearch than stripped keywords — see
+  // GroundingArgs.searchText) while the cleaned corpus anchors execute's inverted
+  // coverage gate. An entity-bearing or follow-up turn never reaches here, so this
+  // never competes with a named/carried subject.
+  //
+  // `searchText` is built from the ASK WINDOW, never the raw turn. This is a
+  // privacy boundary, not a tidiness one: the previous `userText.slice(0, 200)`
+  // put up to 200 characters of whatever the user had pasted directly into an
+  // outbound search URL (2026-07-27 realistic-input sweep).
+  if (FULLTEXT_LEAD.test(ask)) {
+    const query = buildKeywordQuery(ask);
     if (query !== null) {
       return {
         entity: query,
-        wikidataProperty: detectWikidataProperty(userText),
+        wikidataProperty: detectWikidataProperty(ask),
         fulltext: true,
         // Bounded defensively before it flows into a request URL.
-        searchText: userText.trim().slice(0, FULLTEXT_SEARCH_MAX_CHARS),
+        searchText: ask.trim().slice(0, FULLTEXT_SEARCH_MAX_CHARS),
       };
     }
   }
