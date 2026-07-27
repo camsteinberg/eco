@@ -713,14 +713,25 @@ export type ReconcileOptions = {
    *  branch on `runtime`. Defaults to the catalog's getModel. */
   resolveModel?: (modelId: string) => ModelConfig | null;
   /** Test seam — authoritative presence probe for `webllm` models (WebLLM's
-   *  own cache namespaces, NOT Eco storage). Defaults to the cache bridge's
-   *  webllmModelInCache via dynamic import. */
+   *  own cache namespaces, NOT Eco storage). Must THROW rather than return
+   *  false when it cannot determine presence; a `false` is read as proof of
+   *  absence and demotes the slot. Defaults to the bridge's
+   *  `webllmModelCachePresence` via dynamic import. */
   webllmInCache?: (model: ModelConfig) => Promise<boolean>;
 };
 
+/**
+ * Presence probe for the reconcile path. Uses `webllmModelCachePresence`, NOT
+ * the `webllmModelInCache` serving gate: the gate fails CLOSED (its body ends
+ * in `catch { return false }`, and the library's own `hasAllKeys` swallows too),
+ * so a failed chunk import on a weak connection would arrive here as a
+ * confident "absent" and demote a healthy slot — the exact defect this branch
+ * exists to remove. The presence variant lets infrastructure errors throw, and
+ * the dynamic import is deliberately left unguarded here for the same reason.
+ */
 async function defaultWebllmInCache(model: ModelConfig): Promise<boolean> {
-  const { webllmModelInCache } = await import('../runtime/webllm-cache-bridge');
-  return webllmModelInCache(model);
+  const { webllmModelCachePresence } = await import('../runtime/webllm-cache-bridge');
+  return webllmModelCachePresence(model);
 }
 
 /**

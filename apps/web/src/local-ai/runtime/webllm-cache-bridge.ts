@@ -48,6 +48,7 @@ import { downloadModel, DownloadAbortedError, type DownloadOptions } from '../do
 import { buildProxyURL } from '../download/proxy';
 import {
   pickStorage,
+  type CacheLike,
   type CacheStorageLike,
   type Storage,
 } from '../download/storage';
@@ -58,6 +59,7 @@ import {
   webllmCacheTargetFor,
   webllmModelBaseUrl,
   webllmModelLibPathFor,
+  type WebLLMCacheScope,
 } from './webllm-config';
 
 /** Injectable collaborators — defaulted to the real ones, overridden in tests. */
@@ -144,6 +146,61 @@ export async function webllmModelInCache(
   } catch {
     return false;
   }
+}
+
+/**
+ * Presence of a `webllm` model in WebLLM's own cache, for callers that must
+ * distinguish "the model is gone" from "the check could not be performed".
+ *
+ * `webllmModelInCache` above deliberately fails CLOSED — every failure becomes
+ * `false`, which is right for a serving gate (if we can't confirm the weights,
+ * don't let the engine fetch from the network) and WRONG for anything that
+ * destroys state on a `false`. The failures it absorbs are ordinary: the
+ * multi-MB `@mlc-ai/web-llm` chunk failing to load on a weak connection, no
+ * `location.origin`, a restricted Cache API. The library swallows too — its
+ * `hasAllKeys` ends in `.catch(() => false)`, so even a `cache.keys()`
+ * rejection reads as absence.
+ *
+ * This variant therefore does NOT delegate to the library. It looks the model's
+ * files up directly under the cache-key contract the bridge itself wrote
+ * (`webllmCacheTargetFor`), and lets every infrastructure error PROPAGATE:
+ *
+ *   - throws  ⇒ we could not look. Callers must treat this as unknown.
+ *   - `false` ⇒ we looked successfully and a file the engine needs is missing
+ *               (whole-namespace eviction or a partial wipe — both need repair).
+ *   - `true`  ⇒ every file the engine needs is present.
+ *
+ * Callers that demote state on absence MUST use this, not the fail-closed gate.
+ */
+export async function webllmModelCachePresence(
+  model: ModelConfig,
+  deps: Pick<WebLLMCacheBridgeDeps, 'caches' | 'origin'> = {},
+): Promise<boolean> {
+  const artifact = model.artifact;
+  if (!artifact?.hfId || !artifact.files?.length) {
+    throw new AdapterError(
+      `WebLLM cache presence: ${model.id} has no artifact file list to verify against.`,
+      'init-failed',
+      false,
+    );
+  }
+  // Deliberately unguarded: a throw here is the "could not look" signal.
+  const cacheStorage = resolveCaches(deps.caches);
+  const origin = resolveOrigin(deps.origin);
+  const base = webllmModelBaseUrl(stripMlcOrgPrefix(artifact.hfId), origin);
+
+  const openCaches = new Map<WebLLMCacheScope, CacheLike>();
+  for (const fileName of artifact.files) {
+    const { scope, key } = webllmCacheTargetFor(fileName, base);
+    let cache = openCaches.get(scope);
+    if (!cache) {
+      cache = await cacheStorage.open(scope);
+      openCaches.set(scope, cache);
+    }
+    const hit = await cache.match(key);
+    if (!hit) return false;
+  }
+  return true;
 }
 
 /**
