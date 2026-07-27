@@ -106,14 +106,14 @@ export function AppearanceTab() {
           }
         />
         <SettingsRow
-          label="Auto-accept tools"
-          description="Show tool results automatically instead of asking each time."
+          label="Expand tool results"
+          description="Open the details of a lookup or calculation automatically, instead of starting collapsed."
           divider={false}
           control={
             <SettingsSwitch
               checked={autoAcceptTools}
               onChange={setAutoAcceptTools}
-              ariaLabel="Toggle auto-accept tools"
+              ariaLabel="Toggle expand tool results"
             />
           }
         />

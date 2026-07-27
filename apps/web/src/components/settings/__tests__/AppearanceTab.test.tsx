@@ -48,7 +48,7 @@ describe('AppearanceTab', () => {
       screen.getByRole('button', { name: 'Comfortable' }),
       screen.getByRole('switch', { name: 'Toggle sound effects' }),
       screen.getByRole('button', { name: 'Preview sound effect' }),
-      screen.getByRole('switch', { name: 'Toggle auto-accept tools' }),
+      screen.getByRole('switch', { name: 'Toggle expand tool results' }),
     ]
 
     for (const control of controls) {
