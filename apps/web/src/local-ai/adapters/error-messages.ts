@@ -44,6 +44,16 @@ export const LOCAL_COOLDOWN_MESSAGE =
   "On-device AI needs a short breather after a snag. Give it a moment, then send your message again.";
 
 /**
+ * Copy for the DEVICE_PROTECTION fault: the battery is low, so on-device work is
+ * paused to protect the device. Named (rather than inlined at the throw site) so
+ * ErrorMessage can match it exactly — its wording contains both "on-device" and
+ * "locally", which would otherwise trip the setup-error regex and mislabel a flat
+ * battery as a setup step the user skipped.
+ */
+export const DEVICE_PROTECTION_MESSAGE =
+  "Battery is low, so Eco paused on-device AI to protect this device. Plug in, then try again to keep chatting locally.";
+
+/**
  * The runtime's cooldown error embeds the real remaining time as "(Ns left)"
  * (runtime/lifecycle.ts builds it). Recover that number from our own controlled
  * message so the warm copy keeps the honest countdown instead of inventing one

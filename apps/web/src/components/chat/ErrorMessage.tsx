@@ -17,6 +17,7 @@ import {
   LOCAL_GENERATION_FALLBACK_MESSAGE,
   LOCAL_GENERATION_REPEATED_MESSAGE,
   LOCAL_RUNTIME_HICCUP_MESSAGE,
+  DEVICE_PROTECTION_MESSAGE,
 } from "../../local-ai/adapters/error-messages";
 import { MODEL_PREPARING_BUSY_MESSAGE } from "../../lib/local-heavy-work-owner";
 import { CONTEXT_WINDOW_REFUSAL_MESSAGE } from "../../lib/context-window";
@@ -51,6 +52,7 @@ const MODEL_PREPARING_TITLE = "Your model is still getting ready";
 // A context-window refusal isn't a setup problem either — the chat/file is just
 // too long for this local model. The honest fix is to shorten, not to "set up."
 const CONTEXT_WINDOW_REFUSAL_TITLE = "This conversation is too long";
+const DEVICE_PROTECTION_TITLE = "Paused to protect your device";
 // The blocker is this device, not necessarily its browser: Eco ships an
 // iPhone/iPad lane and serves Android Chromium, so a browser-shaped headline
 // would be false for both. The body carries the specific reason.
@@ -201,11 +203,17 @@ export function ErrorMessage({
   // them from setup — each gets its own honest title.
   const isModelPreparingError = message === MODEL_PREPARING_BUSY_MESSAGE;
   const isContextWindowRefusal = message === CONTEXT_WINDOW_REFUSAL_MESSAGE;
+  // A low battery paused on-device work. The copy says "on-device" and "locally",
+  // so the setup regex below would label a flat battery "Eco needs one quick
+  // setup" — and, because that title also suppresses Try again, leave the card
+  // with no action at all. Classify it by exact string and exempt it.
+  const isDeviceProtectionPause = message === DEVICE_PROTECTION_MESSAGE;
   const isLocalSetupError =
     !isBrowserUnsupportedError
     && !isLocalGenerationFailure
     && !isModelPreparingError
     && !isContextWindowRefusal
+    && !isDeviceProtectionPause
     && (Boolean(localReadiness)
       || Boolean(
         message
@@ -254,6 +262,11 @@ export function ErrorMessage({
     : isContextWindowRefusal
     ? {
         title: CONTEXT_WINDOW_REFUSAL_TITLE,
+        body: message,
+      }
+    : isDeviceProtectionPause
+    ? {
+        title: DEVICE_PROTECTION_TITLE,
         body: message,
       }
     : isLocalGenerationFailure
