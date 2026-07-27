@@ -798,8 +798,11 @@ export async function reconcileReadySlots(
       // A 'preparing' flip drives a re-download, which cannot succeed
       // offline — and the probe itself fails closed on import/Cache-API
       // errors, so probing while definitely-offline could demote a healthy
-      // slot. Leave it ready; a truly-evicted model still fails at engine
-      // load with in-session recovery, and the next online boot re-checks.
+      // slot into an unsatisfiable download. Leave it ready: the next
+      // ONLINE boot runs this probe and repairs. (A genuinely-evicted model
+      // then fails at engine load — executeSetup trusts a 'ready' slot and
+      // returns, and no chat-path failure flips the slot — so the boot probe
+      // is the actual repair mechanism, not in-session recovery.)
       if (typeof navigator !== 'undefined' && !navigator.onLine) continue;
       let present = true;
       try {
