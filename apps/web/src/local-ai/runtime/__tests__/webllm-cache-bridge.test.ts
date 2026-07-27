@@ -18,6 +18,7 @@ import type { CacheStorageLike, Storage, StorageKey, CachedEntry } from '../../d
 import { AdapterError } from '../types';
 import {
   bridgeDownloadWebLLMModel,
+  webllmModelCachePresence,
   webllmModelInCache,
 } from '../webllm-cache-bridge';
 import { WebLLMAdapter } from '../webllm-adapter';
@@ -268,5 +269,79 @@ describe('webllmModelInCache', () => {
         },
       }),
     ).toBe(false);
+  });
+});
+
+// ─── webllmModelCachePresence (tri-state probe for state-destroying callers) ──
+//
+// The gate above fails CLOSED: every failure becomes `false`. Boot reconcile
+// DEMOTES a ready slot on `false`, so for that caller a swallowed error would
+// force a full re-download of a model that is actually fine. This probe must
+// therefore throw whenever it could not look, and return `false` only when it
+// looked successfully and a needed file is missing.
+
+describe('webllmModelCachePresence', () => {
+  it('returns true when every file the engine needs is cached', async () => {
+    const { storage } = makeEcoStorage();
+    await bridgeDownloadWebLLMModel(MODEL, {
+      storage,
+      download: vi.fn().mockResolvedValue(undefined),
+    });
+
+    expect(await webllmModelCachePresence(MODEL)).toBe(true);
+  });
+
+  it('returns false when a cached file is missing — a partial wipe still needs repair', async () => {
+    const { storage } = makeEcoStorage();
+    await bridgeDownloadWebLLMModel(MODEL, {
+      storage,
+      download: vi.fn().mockResolvedValue(undefined),
+    });
+    // Evict one weight file from WebLLM's model namespace.
+    const modelCache = await memCaches.open('webllm/model');
+    const evicted = [...modelCache.store.keys()].find((k) => k.endsWith('params_shard_0.bin'));
+    expect(evicted).toBeDefined();
+    modelCache.store.delete(evicted!);
+
+    expect(await webllmModelCachePresence(MODEL)).toBe(false);
+  });
+
+  it('THROWS (never returns false) when the Cache API itself fails', async () => {
+    const brokenCaches = {
+      open: async () => {
+        throw new Error('cache storage unavailable');
+      },
+      has: async () => false,
+      keys: async () => [],
+      delete: async () => false,
+    } as unknown as CacheStorageLike;
+
+    await expect(
+      webllmModelCachePresence(MODEL, { caches: brokenCaches }),
+    ).rejects.toThrow(/cache storage unavailable/);
+  });
+
+  it('THROWS when a per-key lookup rejects — indistinguishable from absence otherwise', async () => {
+    const rejectingCaches = {
+      open: async () => ({
+        match: async () => {
+          throw new Error('match rejected');
+        },
+      }),
+      has: async () => true,
+      keys: async () => ['webllm/model'],
+      delete: async () => false,
+    } as unknown as CacheStorageLike;
+
+    await expect(
+      webllmModelCachePresence(MODEL, { caches: rejectingCaches }),
+    ).rejects.toThrow(/match rejected/);
+  });
+
+  it('THROWS for a model with no artifact file list — absence is unprovable', async () => {
+    const noArtifact = { ...MODEL, artifact: undefined } as ModelConfig;
+    await expect(
+      webllmModelCachePresence(noArtifact),
+    ).rejects.toThrow(AdapterError);
   });
 });
