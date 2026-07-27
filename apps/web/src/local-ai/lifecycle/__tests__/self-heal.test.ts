@@ -19,7 +19,7 @@ import {
 import { setSlot, setSlotStatus, getSlot, readRawSlotIdForMigration } from '../slots';
 import { getModel } from '../../catalog/catalog';
 import { WEBKIT_MOBILE_VALIDATED_MODEL_IDS } from '../../device/compatibility';
-import type { DeviceProfile, Slot } from '../../types';
+import type { DeviceProfile, ModelConfig, Slot } from '../../types';
 
 class FakeStorage implements CooldownStorage {
   map = new Map<string, string>();
@@ -1249,6 +1249,25 @@ describe('reconcileReadySlots — webllm models verify against the engine cache'
     expect(report.slotsFlippedToPreparing).toEqual([]);
     expect(report.errors).toHaveLength(1);
     expect(report.errors[0]).toContain(`webllm-probe(${MLC_ID})`);
+  });
+
+  it('skips an artifact-less webllm model — the probe would answer a fails-closed false and demote it every boot', async () => {
+    const base = getModel(MLC_ID);
+    if (!base) throw new Error(`catalog fixture ${MLC_ID} is missing`);
+    const artifactless: ModelConfig = { ...base, artifact: undefined };
+    setSlot('eco-fast', MLC_ID);
+    setSlotStatus('eco-fast', 'ready');
+    const webllmInCache = vi.fn(async () => false);
+
+    const report = await reconcileReadySlots(async () => null, {
+      cacheStorage: new CacheApiStorage(new MemoryCacheStorage()),
+      resolveModel: () => artifactless,
+      webllmInCache,
+    });
+
+    expect(webllmInCache).not.toHaveBeenCalled();
+    expect(getSlot('eco-fast').status).toBe('ready');
+    expect(report.slotsFlippedToPreparing).toEqual([]);
   });
 
   it('skips the probe entirely while definitely offline — a preparing flip would drive a download that cannot succeed', async () => {

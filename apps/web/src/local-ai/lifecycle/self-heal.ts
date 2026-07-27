@@ -789,6 +789,12 @@ export async function reconcileReadySlots(
     const resolveModel = options?.resolveModel ?? getModel;
     const model = resolveModel(state.modelId);
     if (model?.runtime === 'webllm') {
+      // No artifact ⇒ the probe cannot resolve a cache key and answers a
+      // fails-closed `false`, which would demote this slot on every boot —
+      // the very defect this branch exists to fix. Absence is unprovable
+      // here, so skip (parity with the Eco path, which the null file plan
+      // makes skip for an artifact-less model).
+      if (!model.artifact?.hfId) continue;
       // A 'preparing' flip drives a re-download, which cannot succeed
       // offline — and the probe itself fails closed on import/Cache-API
       // errors, so probing while definitely-offline could demote a healthy
