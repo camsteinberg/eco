@@ -15,7 +15,8 @@ import {
   subscribe as subscribeSlots,
 } from "../local-ai/lifecycle/slots";
 import { runSmoke } from "../local-ai/lifecycle/smoke";
-import { getActiveModel } from "../local-ai/runtime/lifecycle";
+import { getActiveModel, loadModel } from "../local-ai/runtime/lifecycle";
+import { isModelDownloaded } from "../local-ai/download/download";
 import { computeRestriction, useBatteryAwareness } from "./useBatteryAwareness";
 import { ACTIVE_CONVERSATION_STORAGE_KEY } from "../lib/chat-workspace-storage";
 import {
@@ -35,6 +36,17 @@ import {
 } from "../lib/validation-conversation-history-fixture";
 import { resolveReadyLocalRecoveryModelId } from "../local-ai/lifecycle/recovery";
 import { hasStagedUpgrade } from "../local-ai/lifecycle/upgrade";
+
+/**
+ * Deadline for the invisible mount warm. Matches the bound the previous
+ * runSmoke call passed, deliberately: this change is single-variable (drop the
+ * discarded generation, keep everything else) so the readiness measurement
+ * attributes cleanly. NOTE: this bound overrides the adaptive 120–300s
+ * cold-load budget (`defaultLoadBudgetMs`), so a slow device's warm can be cut
+ * off having banked nothing — the same defect class as the chat Prepare path's
+ * 20s cap, and tracked with it rather than fixed here.
+ */
+const WARM_LOAD_BUDGET_MS = 90_000;
 
 export type LocalModelReadiness = {
   /** True when the eco-fast slot is ready and a recovery model is resolved. */
@@ -195,15 +207,26 @@ export function useLocalModelReadiness(): LocalModelReadiness {
     // switch mid-session doesn't re-warm — dispatch handles the switch lazily,
     // and re-warming would fight it. The empty dep array is intentional.
     void (async () => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), WARM_LOAD_BUDGET_MS);
       try {
-        // probeCache early-exit in runSmoke is the backstop if the cache was
-        // cleared between the 'ready' gate and here — it returns
-        // { passed: false } without starting a download. We ignore the result
-        // entirely: a background warm never surfaces success or failure.
-        await runSmoke(slot, warmModel, { timeoutMs: 90_000 });
+        // The cache gate is the backstop if the bytes went away between the
+        // 'ready' gate and here: warmup must never start a download. This is
+        // the runtime-aware check (it consults WebLLM's own cache for a
+        // `webllm` model, where Eco's staging cache is empty by design), and
+        // it replaces the equivalent early-exit that lived inside runSmoke.
+        if (!(await isModelDownloaded(warmModel))) return;
+        // Load only — no generation. The weight load and shader compile are
+        // the expensive part worth pre-paying; the 8-token proof generation
+        // this used to run was discarded on every page load. Load-only is
+        // done here rather than as a runSmoke mode because the smoke's load
+        // is fused into its generation stream, and abandoning that stream
+        // wedges the WebLLM engine (the gen-1-passes/gen-2-hangs deadlock).
+        await loadModel(warmModel, { signal: controller.signal });
       } catch {
         // Swallow everything — a background warm is invisible on failure.
       } finally {
+        clearTimeout(timer);
         lease.release();
       }
     })();

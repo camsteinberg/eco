@@ -6,8 +6,9 @@
  *
  * The hook loads the selected slot's model into the runtime on chat mount so
  * the first message skips the cold weight-load. These tests lock the GATE
- * decision and the silent-on-failure contract at the runSmoke/lease boundary —
- * they do NOT assert on the whole hook's render output.
+ * decision and the silent-on-failure contract at the loadModel/lease boundary,
+ * plus the cache check that keeps an invisible warm from ever starting a
+ * download — they do NOT assert on the whole hook's render output.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -18,6 +19,8 @@ import type { ModelConfig } from "../../local-ai/types";
 // ── Boundary mocks ─────────────────────────────────────────────────────────
 
 const mockRunSmoke = vi.fn();
+const mockLoadModel = vi.fn();
+const mockIsModelDownloaded = vi.fn();
 const mockAcquireLocalHeavyWork = vi.fn();
 const mockRelease = vi.fn();
 const mockGetActiveModel = vi.fn();
@@ -30,6 +33,10 @@ vi.mock("../../local-ai/lifecycle/smoke", () => ({
   runSmoke: (...args: unknown[]) => mockRunSmoke(...args),
 }));
 
+vi.mock("../../local-ai/download/download", () => ({
+  isModelDownloaded: (...args: unknown[]) => mockIsModelDownloaded(...args),
+}));
+
 vi.mock("../../lib/local-heavy-work-owner", () => ({
   acquireLocalHeavyWork: (...args: unknown[]) => mockAcquireLocalHeavyWork(...args),
   describeLocalHeavyWorkBusy: () => "busy",
@@ -37,6 +44,7 @@ vi.mock("../../lib/local-heavy-work-owner", () => ({
 
 vi.mock("../../local-ai/runtime/lifecycle", () => ({
   getActiveModel: () => mockGetActiveModel(),
+  loadModel: (...args: unknown[]) => mockLoadModel(...args),
 }));
 
 vi.mock("../../local-ai/lifecycle/slots", () => ({
@@ -152,6 +160,8 @@ describe("useLocalModelReadiness — mount-time warmup", () => {
       durationMs: 20,
       tokensReceived: 1,
     });
+    mockIsModelDownloaded.mockResolvedValue(true);
+    mockLoadModel.mockResolvedValue({});
     mockAcquireLocalHeavyWork.mockReturnValue(passingLease());
   });
 
@@ -159,18 +169,47 @@ describe("useLocalModelReadiness — mount-time warmup", () => {
     vi.restoreAllMocks();
   });
 
-  it("warms the selected slot's model when the slot is ready", async () => {
+  it("warms the selected slot's model by LOADING it — never by generating", async () => {
     mockGetSlot.mockReturnValue(slotState({ status: "ready" }));
 
     renderHook(() => useLocalModelReadiness());
 
-    await waitFor(() => expect(mockRunSmoke).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mockLoadModel).toHaveBeenCalledTimes(1));
 
-    // Warms the correct model bound to the selected slot, under the readiness lease.
-    expect(mockRunSmoke).toHaveBeenCalledWith("eco-fast", FAST_MODEL, expect.any(Object));
+    // Loads the correct model bound to the selected slot, under the readiness lease.
+    expect(mockLoadModel).toHaveBeenCalledWith(FAST_MODEL, expect.objectContaining({
+      signal: expect.any(AbortSignal),
+    }));
     expect(mockAcquireLocalHeavyWork).toHaveBeenCalledWith("readiness");
+    // The discarded 8-token proof generation is gone: the warm must not smoke.
+    expect(mockRunSmoke).not.toHaveBeenCalled();
     // Lease is released after the warm completes (no leak).
     await waitFor(() => expect(mockRelease).toHaveBeenCalledTimes(1));
+  });
+
+  it("checks the cache before loading and skips when the bytes are gone — a warm must never start a download", async () => {
+    // Replaces the early-exit that used to live inside runSmoke: if the cache
+    // was cleared between the 'ready' gate and here, loading would fetch
+    // hundreds of MB inside an invisible background task.
+    mockGetSlot.mockReturnValue(slotState({ status: "ready" }));
+    mockIsModelDownloaded.mockResolvedValue(false);
+
+    renderHook(() => useLocalModelReadiness());
+
+    await waitFor(() => expect(mockIsModelDownloaded).toHaveBeenCalledWith(FAST_MODEL));
+    await waitFor(() => expect(mockRelease).toHaveBeenCalledTimes(1));
+    expect(mockLoadModel).not.toHaveBeenCalled();
+  });
+
+  it("releases the lease when the cache probe itself throws", async () => {
+    mockGetSlot.mockReturnValue(slotState({ status: "ready" }));
+    mockIsModelDownloaded.mockRejectedValue(new Error("storage unavailable"));
+
+    const { result } = renderHook(() => useLocalModelReadiness());
+
+    await waitFor(() => expect(mockRelease).toHaveBeenCalledTimes(1));
+    expect(mockLoadModel).not.toHaveBeenCalled();
+    expect(result.current.getLocalPrepareState(FAST_MODEL.id).status).not.toBe("error");
   });
 
   it("does NOT warm (and never risks a download) when the slot is not ready", async () => {
@@ -181,6 +220,7 @@ describe("useLocalModelReadiness — mount-time warmup", () => {
     // Give any async path a chance to (incorrectly) fire.
     await settle();
 
+    expect(mockLoadModel).not.toHaveBeenCalled();
     expect(mockRunSmoke).not.toHaveBeenCalled();
     expect(mockAcquireLocalHeavyWork).not.toHaveBeenCalled();
   });
@@ -191,6 +231,7 @@ describe("useLocalModelReadiness — mount-time warmup", () => {
     renderHook(() => useLocalModelReadiness());
     await settle();
 
+    expect(mockLoadModel).not.toHaveBeenCalled();
     expect(mockRunSmoke).not.toHaveBeenCalled();
   });
 
@@ -200,6 +241,7 @@ describe("useLocalModelReadiness — mount-time warmup", () => {
     renderHook(() => useLocalModelReadiness());
     await settle();
 
+    expect(mockLoadModel).not.toHaveBeenCalled();
     expect(mockRunSmoke).not.toHaveBeenCalled();
   });
 
@@ -210,6 +252,7 @@ describe("useLocalModelReadiness — mount-time warmup", () => {
     renderHook(() => useLocalModelReadiness());
     await settle();
 
+    expect(mockLoadModel).not.toHaveBeenCalled();
     expect(mockRunSmoke).not.toHaveBeenCalled();
     expect(mockAcquireLocalHeavyWork).not.toHaveBeenCalled();
   });
@@ -225,6 +268,7 @@ describe("useLocalModelReadiness — mount-time warmup", () => {
     renderHook(() => useLocalModelReadiness());
     await settle();
 
+    expect(mockLoadModel).not.toHaveBeenCalled();
     expect(mockRunSmoke).not.toHaveBeenCalled();
     expect(mockAcquireLocalHeavyWork).not.toHaveBeenCalled();
   });
@@ -233,13 +277,13 @@ describe("useLocalModelReadiness — mount-time warmup", () => {
     mockGetSlot.mockReturnValue(slotState({ status: "ready" }));
 
     const { rerender } = renderHook(() => useLocalModelReadiness());
-    await waitFor(() => expect(mockRunSmoke).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mockLoadModel).toHaveBeenCalledTimes(1));
 
     rerender();
     rerender();
     await settle();
 
-    expect(mockRunSmoke).toHaveBeenCalledTimes(1);
+    expect(mockLoadModel).toHaveBeenCalledTimes(1);
   });
 
   it("resolves the slot a concrete selected model id is bound to", async () => {
@@ -248,10 +292,10 @@ describe("useLocalModelReadiness — mount-time warmup", () => {
     mockGetSlot.mockReturnValue(slotState({ status: "ready" }));
 
     renderHook(() => useLocalModelReadiness());
-    await waitFor(() => expect(mockRunSmoke).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mockLoadModel).toHaveBeenCalledTimes(1));
 
     expect(mockGetSlotForModel).toHaveBeenCalledWith(FAST_MODEL.id);
-    expect(mockRunSmoke).toHaveBeenCalledWith("eco-fast", FAST_MODEL, expect.any(Object));
+    expect(mockLoadModel).toHaveBeenCalledWith(FAST_MODEL, expect.any(Object));
   });
 
   it("falls back to eco-fast when a concrete model id has no owning slot", async () => {
@@ -260,13 +304,13 @@ describe("useLocalModelReadiness — mount-time warmup", () => {
     mockGetSlot.mockReturnValue(slotState({ status: "ready" }));
 
     renderHook(() => useLocalModelReadiness());
-    await waitFor(() => expect(mockRunSmoke).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mockLoadModel).toHaveBeenCalledTimes(1));
 
     // getSlotForModel was queried with the concrete id and returned null
     expect(mockGetSlotForModel).toHaveBeenCalledWith("candidate/some-unslotted-model");
     // Warmup fell back to eco-fast (the ?? "eco-fast" branch)
     expect(mockGetSlot).toHaveBeenCalledWith("eco-fast");
-    expect(mockRunSmoke).toHaveBeenCalledWith("eco-fast", FAST_MODEL, expect.any(Object));
+    expect(mockLoadModel).toHaveBeenCalledWith(FAST_MODEL, expect.any(Object));
   });
 
   it("does not contend when the heavy-work lease is already held", async () => {
@@ -282,17 +326,17 @@ describe("useLocalModelReadiness — mount-time warmup", () => {
 
     // Tried once, but did not run smoke (let the holder warm it).
     expect(mockAcquireLocalHeavyWork).toHaveBeenCalledTimes(1);
-    expect(mockRunSmoke).not.toHaveBeenCalled();
+    expect(mockLoadModel).not.toHaveBeenCalled();
     expect(mockRelease).not.toHaveBeenCalled();
   });
 
-  it("swallows a runSmoke rejection — no error surfaced, lease released", async () => {
+  it("swallows a loadModel rejection — no error surfaced, lease released", async () => {
     mockGetSlot.mockReturnValue(slotState({ status: "ready" }));
-    mockRunSmoke.mockRejectedValue(new Error("cold load exploded"));
+    mockLoadModel.mockRejectedValue(new Error("cold load exploded"));
 
     const { result } = renderHook(() => useLocalModelReadiness());
 
-    await waitFor(() => expect(mockRunSmoke).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mockLoadModel).toHaveBeenCalledTimes(1));
     // Lease still released despite the throw (finally block).
     await waitFor(() => expect(mockRelease).toHaveBeenCalledTimes(1));
 
@@ -300,19 +344,16 @@ describe("useLocalModelReadiness — mount-time warmup", () => {
     expect(result.current.getLocalPrepareState(FAST_MODEL.id).status).not.toBe("error");
   });
 
-  it("ignores a { passed: false } warm result silently (no error surfaced)", async () => {
+  it("passes an unaborted signal so a hung load can be bounded", async () => {
+    // The warm holds the heavy-work lease, so an unbounded load would block
+    // user-driven prepares indefinitely. The signal is the bound.
     mockGetSlot.mockReturnValue(slotState({ status: "ready" }));
-    mockRunSmoke.mockResolvedValue({
-      passed: false,
-      reason: "Model not yet downloaded",
-      durationMs: 5,
-    });
 
-    const { result } = renderHook(() => useLocalModelReadiness());
+    renderHook(() => useLocalModelReadiness());
 
-    await waitFor(() => expect(mockRunSmoke).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(mockRelease).toHaveBeenCalledTimes(1));
-
-    expect(result.current.getLocalPrepareState(FAST_MODEL.id).status).not.toBe("error");
+    await waitFor(() => expect(mockLoadModel).toHaveBeenCalledTimes(1));
+    const opts = mockLoadModel.mock.calls[0]?.[1] as { signal?: AbortSignal };
+    expect(opts.signal).toBeInstanceOf(AbortSignal);
+    expect(opts.signal?.aborted).toBe(false);
   });
 });
