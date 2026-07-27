@@ -335,6 +335,141 @@ describe("everyday-use sweep — the instrument", () => {
 });
 
 // ---------------------------------------------------------------------------
+// The fact layer: today's routing, pinned exactly.
+// ---------------------------------------------------------------------------
+
+/**
+ * Everything above this point rests on a judgement — our reading of what each
+ * bounce condition demands. That reading is arguable, which is exactly why it
+ * lives in its own layer. But a yardstick made only of judgements can be moved
+ * by changing the judgement, so the two snapshots below contain none.
+ *
+ * They are simply what the router does today, recorded so that any behaviour
+ * change shows up as a readable diff naming the rows that moved. Use them when
+ * reviewing a routing change: the checks above say whether a fix helped; these
+ * say what it actually DID — including to the thirty-nine items it was not
+ * aimed at. A moved row is not a failure. It is a change someone has to look at.
+ */
+const ROUTING_TODAY: Readonly<
+  Record<string, { intent: ChatIntent; maxTokens: number; temperature: number; hint: string }>
+> = {
+  "work-email-tone-fix": { intent: "deep", maxTokens: 2048, temperature: 0.6, hint: "Use clear sections; include concrete recommendations and tradeoffs." },
+  "work-followup-shorter": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
+  "rewrite-03": { intent: "writing", maxTokens: 1536, temperature: 0.48, hint: "Match the requested format and tone; avoid filler." },
+  "sw-15": { intent: "deep", maxTokens: 2048, temperature: 0.6, hint: "Use clear sections; include concrete recommendations and tradeoffs." },
+  "school-essay-not-ai": { intent: "deep", maxTokens: 2048, temperature: 0.6, hint: "Use clear sections; include concrete recommendations and tradeoffs." },
+  "work-sick-text": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "" },
+  "draft-01": { intent: "writing", maxTokens: 1536, temperature: 0.48, hint: "Match the requested format and tone; avoid filler." },
+  "admin-gym-cancellation": { intent: "writing", maxTokens: 1536, temperature: 0.48, hint: "Match the requested format and tone; avoid filler." },
+  "family-eulogy": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
+  "ft-06": { intent: "writing", maxTokens: 1536, temperature: 0.48, hint: "Match the requested format and tone; avoid filler." },
+  "health-blood-results": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
+  "health-hospital-letter": { intent: "deep", maxTokens: 2048, temperature: 0.6, hint: "Use clear sections; include concrete recommendations and tradeoffs." },
+  "school-letter-esl-parent": { intent: "writing", maxTokens: 1536, temperature: 0.48, hint: "Match the requested format and tone; avoid filler." },
+  "legal-rent-increase": { intent: "research", maxTokens: 2048, temperature: 0.6, hint: "Distinguish supported claims from uncertain ones; cite sources only when you can back the claim." },
+  "summarise-01": { intent: "writing", maxTokens: 1536, temperature: 0.48, hint: "" },
+  "explain-01": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
+  "school-fractions": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
+  "factual-01": { intent: "deep", maxTokens: 2048, temperature: 0.6, hint: "Use clear sections; include concrete recommendations and tradeoffs." },
+  "factual-02": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
+  "factual-04": { intent: "quick", maxTokens: 1024, temperature: 0.32, hint: "" },
+  "decide-01": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
+  "money-insurance-jump": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
+  "ft-14": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
+  "money-budget-house": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
+  "excel-sumif": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
+  "sw-13": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
+  "food-fridge-dinner": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
+  "travel-lisbon-kid": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
+  "ideas-01": { intent: "deep", maxTokens: 2048, temperature: 0.6, hint: "Use clear sections; include concrete recommendations and tradeoffs." },
+  "family-text-thread": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
+  "company-01": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
+  "company-02": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
+  "translate-01": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
+  "translate-02": { intent: "deep", maxTokens: 2048, temperature: 0.6, hint: "Use clear sections; include concrete recommendations and tradeoffs." },
+  "ft-01": { intent: "quick", maxTokens: 1024, temperature: 0.32, hint: "" },
+  "ft-04": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
+  "ft-08": { intent: "quick", maxTokens: 1024, temperature: 0.32, hint: "" },
+  "ft-13": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
+  "sw-12": { intent: "quick", maxTokens: 1024, temperature: 0.32, hint: "" },
+  "ft-15": { intent: "quick", maxTokens: 1024, temperature: 0.32, hint: "" },
+};
+
+/**
+ * The same facts per model, because the intent alone does not decide what the
+ * model receives. Format: `intent:maxTokens/temperature[/nNoRepeatNgram]`.
+ *
+ * Two things visible here that no per-item view shows:
+ *
+ *   - `candidate/lfm2.5-350m-onnx` — the model every first-time user's first
+ *     answer comes from — carries an n-gram ban on ALL SEVEN intents and caps
+ *     every one of them at 384 tokens.
+ *   - `candidate/qwen2.5-0.5b-mlc` is the one row whose temperatures are the
+ *     bare per-intent defaults rather than a model profile, because it is absent
+ *     from chat-intent's model registry. Its runtime forwards only max_tokens
+ *     and temperature, so this row IS the whole sampling policy for that lane —
+ *     which makes the default table live code, not the dead fallback it looks
+ *     like. Anything that touches it changes what those users get.
+ */
+const MODEL_MATRIX_TODAY: Readonly<Record<string, string>> = {
+  "local/phi3-mini-4k-q4f16":
+    "quick:1024/0.2 explain:1024/0.38 deep:1024/0.45 code:1024/0.18 writing:1024/0.44/n4 file:1024/0.45 research:1024/0.45",
+  "local/qwen3-0.6b":
+    "quick:512/0.32 explain:512/0.42 deep:512/0.6 code:512/0.2 writing:512/0.48/n4 file:512/0.6 research:512/0.6",
+  "candidate/lfm2.5-1.2b-instruct-onnx":
+    "quick:1024/0.2 explain:1536/0.3 deep:2048/0.3 code:2048/0.2 writing:1536/0.4 file:2048/0.3 research:2048/0.3",
+  "candidate/lfm2.5-350m-onnx":
+    "quick:384/0.25/n3 explain:384/0.45/n3 deep:384/0.45/n3 code:384/0.45/n3 writing:384/0.38/n4 file:384/0.45/n3 research:384/0.45/n3",
+  "candidate/qwen3.5-2b-onnx":
+    "quick:1024/0.32 explain:1536/0.42 deep:2048/0.6 code:2048/0.2 writing:1536/0.48/n4 file:2048/0.6 research:2048/0.6",
+  "candidate/gemma-4-e2b-litert":
+    "quick:256/0.18 explain:768/0.3 deep:1536/0.42 code:1024/0.18 writing:1024/0.45 file:1536/0.45 research:1536/0.45",
+  "candidate/qwen2.5-0.5b-mlc":
+    "quick:1024/0.45 explain:1536/0.55 deep:2048/0.55 code:2048/0.25 writing:1536/0.75 file:2048/0.4 research:2048/0.35",
+};
+
+const INTENT_ORDER: readonly ChatIntent[] = [
+  "quick",
+  "explain",
+  "deep",
+  "code",
+  "writing",
+  "file",
+  "research",
+];
+
+describe("everyday-use sweep — today's routing, pinned exactly", () => {
+  for (const item of EVERYDAY_USE_CORPUS) {
+    it(`routes ${item.id} unchanged`, () => {
+      const routing = route(item);
+      const hint =
+        routing.renderedTurn === item.userInput
+          ? ""
+          : routing.renderedTurn.slice(item.userInput.length + 2);
+      expect({
+        intent: routing.intent,
+        maxTokens: routing.maxTokens,
+        temperature: getGenerationProfile(routing.intent, true, BUDGET_MODEL).temperature,
+        hint,
+      }).toEqual(ROUTING_TODAY[item.id]);
+    });
+  }
+
+  it("hands every catalog model the same budgets and sampling as before", () => {
+    const actual: Record<string, string> = {};
+    for (const modelId of CATALOG_MODEL_IDS) {
+      actual[modelId] = INTENT_ORDER.map((intent) => {
+        const profile = getGenerationProfile(intent, true, modelId);
+        const ngram =
+          profile.noRepeatNgramSize != null ? `/n${String(profile.noRepeatNgramSize)}` : "";
+        return `${intent}:${String(profile.maxTokens)}/${String(profile.temperature)}${ngram}`;
+      }).join(" ");
+    }
+    expect(actual).toEqual(MODEL_MATRIX_TODAY);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // The four properties
 // ---------------------------------------------------------------------------
 
