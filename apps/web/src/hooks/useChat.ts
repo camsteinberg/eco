@@ -823,9 +823,9 @@ export function useChat() {
     // Gate browser-direct lookups on hydrated settings (#5 S5). Default-ON after
     // settings load, but unknown/unhydrated settings fail closed: a persisted web
     // lookup opt-out must not be bypassed during reload or pending-prompt races.
-    // When off/unhydrated we drop citation tools entirely, so factual/weather turns
-    // never detect/execute browser-direct lookups (no network, no chip) and fall
-    // through to normal on-device chat. Deterministic tools remain unaffected.
+    // When off/unhydrated we drop citation tools entirely, so factual turns never
+    // detect/execute browser-direct lookups (no network, no chip) and fall through
+    // to normal on-device chat. Deterministic tools remain unaffected.
     const settingsSnapshot = useSettingsStore.getState();
     const externalLookupsAllowed = canUseExternalLookups(settingsSnapshot);
     const effectiveTools = externalLookupsAllowed
@@ -843,11 +843,8 @@ export function useChat() {
       ? DEFAULT_TOOLS.filter((tool) => tool.presentation === "citation")
       : undefined;
     // Conversation-derived match hint: the SINGLE most-recent grounded subject, so
-    // a pronoun follow-up ("how tall is it?") or an elliptical weather follow-up
-    // ("what about Paris?") can resolve against it (chat #7 W2.2; weather follow-up
-    // T1). Recency-correct: whichever source grounded the latest turn decides the
-    // hint (lastGroundedTitle XOR lastWeatherLocation, never both), so a weather
-    // turn isn't skipped to reach an older Wikipedia subject. Derived from the
+    // a pronoun follow-up ("how tall is it?") can resolve against it (chat #7 W2.2).
+    // Recency-correct: the latest grounded turn decides the hint. Derived from the
     // store's CURRENT message list, which edit/regenerate already truncated to the
     // active branch BEFORE this runs (setMessages precedes streamResponse), so a
     // citation on a discarded later turn can't leak. The just-created streaming

@@ -19,7 +19,6 @@ import {
   type ToolMatchContext,
 } from "./registry";
 import { unitTool } from "./unit-tool";
-import { weatherTool } from "./weather-tool";
 import { wikipediaGroundingTool } from "./wikipedia-grounding-tool";
 
 export type {
@@ -36,7 +35,6 @@ export type { CalculatorArgs } from "./calculator-tool";
 export type { DatetimeArgs } from "./datetime-tool";
 export type { IdentityArgs } from "./identity-tool";
 export type { UnitArgs } from "./unit-tool";
-export type { WeatherArgs } from "./weather-tool";
 export type { GroundingArgs } from "./wikipedia-grounding-tool";
 export { calculatorTool } from "./calculator-tool";
 export { datetimeTool } from "./datetime-tool";
@@ -47,7 +45,6 @@ export {
   areYouXHostAnswer,
 } from "./identity-tool";
 export { unitTool } from "./unit-tool";
-export { weatherTool } from "./weather-tool";
 export { wikipediaGroundingTool } from "./wikipedia-grounding-tool";
 
 /**
@@ -59,10 +56,7 @@ export { wikipediaGroundingTool } from "./wikipedia-grounding-tool";
  * whole-turn anchored and abstains on anything that is not squarely an identity /
  * privacy question, so putting it first cannot pre-empt a genuine arithmetic /
  * factual turn. Then the deterministic tools (calculator → datetime → unit-
- * conversion) win their frames. Then `weatherTool` sweeps — a precise, network-
- * backed citation tool that must run BEFORE the broad grounding matcher, so "what's
- * the weather in London" resolves to weather rather than being stolen by grounding's
- * fuzzy "in London" entity extractor. Finally `wikipediaGroundingTool` sweeps LAST
+ * conversion) win their frames. Finally `wikipediaGroundingTool` sweeps LAST
  * (its matcher is the broadest/fuzziest, so it must not pre-empt a more specific
  * frame a preceding tool answers).
  *
@@ -71,18 +65,17 @@ export { wikipediaGroundingTool } from "./wikipedia-grounding-tool";
  * the host-authoritative pattern (calculator/datetime/unit canonical answers; the
  * F-1 lookups-off decline). Because it is NOT `presentation:"citation"`, the web-
  * lookups gate never removes it, so the identity/privacy truth is stated whether
- * lookups are on or off. Weather and grounding are the network-backed CITATION
- * tools: their `execute` is ASYNC and their `presentation` is `"citation"` (no
- * ToolCallBlock; the model phrases & cites, or declines / asks to clarify honestly).
- * The pipeline (#5 S3) ties their lookups to the generation's AbortController so a
- * user-stop mid-lookup cancels it.
+ * lookups are on or off. Grounding is the network-backed CITATION tool: its
+ * `execute` is ASYNC and its `presentation` is `"citation"` (no ToolCallBlock; the
+ * model phrases & cites, or declines / asks to clarify honestly). The pipeline
+ * (#5 S3) ties its lookup to the generation's AbortController so a user-stop
+ * mid-lookup cancels it.
  */
 export const DEFAULT_TOOLS: readonly AnyEcoTool[] = [
   identityTool,
   calculatorTool,
   datetimeTool,
   unitTool,
-  weatherTool,
   wikipediaGroundingTool,
 ];
 

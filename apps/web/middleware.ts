@@ -43,17 +43,6 @@ const GROUNDING_CONNECT_SRC = [
   'https://www.wikidata.org',
 ].join(' ')
 
-// The weather capability (capability wave, slice 1) fetches current conditions
-// DIRECTLY from the browser to Open-Meteo's public, keyless endpoints — the
-// geocoder resolves the city name the user typed, then the forecast endpoint
-// returns its current weather. No proxy, by design, so Eco's servers never see
-// the lookup. Without these origins the fetches are CSP-blocked and every
-// weather question silently degrades to "couldn't reach the weather service".
-const WEATHER_CONNECT_SRC = [
-  'https://api.open-meteo.com',
-  'https://geocoding-api.open-meteo.com',
-].join(' ')
-
 const PUBLIC_PATHS = new Set(['/', '/archive', '/sign-in', '/sign-up', '/forgot-password', '/reset-password', '/gate', '/privacy', '/terms', '/contributors', '/developers', '/impact', '/try', '/transparency', '/invite' /* legacy: bounces stale /invite links */, '/api/auth', '/api/gate', '/api/deploy-health', '/api/dev-login', '/api/dev-logout', '/api/local-models', '/api/ort', '/api/litert-wasm'])
 const AUTH_PATHS = new Set(['/sign-in', '/sign-up'])
 // Runtime-asset routes (/api/local-models, /api/ort, /api/litert-wasm) must
@@ -100,7 +89,7 @@ function buildCSP(nonce?: string): string {
     `style-src 'self' 'unsafe-inline'`,
     `img-src 'self' data: blob:`,
     `font-src 'self'`,
-    `connect-src 'self' ${MODEL_CONNECT_SRC} ${GROUNDING_CONNECT_SRC} ${WEATHER_CONNECT_SRC}`,
+    `connect-src 'self' ${MODEL_CONNECT_SRC} ${GROUNDING_CONNECT_SRC}`,
     `worker-src 'self' blob:`,
     // No plugin/embedded objects: clickjacking is already covered by
     // frame-ancestors 'none'; object-src 'none' closes the <object>/<embed>/

@@ -254,25 +254,22 @@ export default function PrivacyPage({
 
               <div className="rounded-xl border border-[var(--eco-border)] bg-[var(--eco-surface-elevated)] p-5">
                 <h3 className="mb-1 font-medium text-[var(--eco-text)]">
-                  Web lookups (Wikipedia, Wikidata, and Open-Meteo)
+                  Web lookups (Wikipedia and Wikidata)
                 </h3>
                 <p>
                   To help the AI answer factual questions with real sources
                   instead of guessing, Eco includes an optional &ldquo;Look up
                   facts from the web&rdquo; feature, on by default. When it is on,
                   your browser contacts Wikipedia and Wikidata directly to fetch
-                  the search terms from your question, and &mdash; for weather
-                  questions &mdash; Open-Meteo to fetch the current conditions for
-                  the city you ask about. These requests go straight from your
-                  device to those providers &mdash; they are not routed through,
-                  seen by, or stored on Eco&apos;s servers &mdash; and only those
-                  search terms or the named city are sent, never your full
-                  conversation and never your device location. Each provider
-                  receives the request (including your IP address and the terms or
-                  city) under its own privacy policy, as it would if you visited
-                  the site yourself. You can turn this off at any time in
-                  Settings &rarr; Eco; with it off, both fact and weather lookups
-                  stop and your requests stay entirely on your device.
+                  the search terms from your question. These requests go straight
+                  from your device to those providers &mdash; they are not routed
+                  through, seen by, or stored on Eco&apos;s servers &mdash; and
+                  only the search terms are sent, never your full conversation.
+                  Each provider receives the request (including your IP address
+                  and the terms) under its own privacy policy, as it would if you
+                  visited the site yourself. You can turn this off at any time in
+                  Settings &rarr; Eco; with it off, lookups stop and your requests
+                  stay entirely on your device.
                 </p>
               </div>
             </div>

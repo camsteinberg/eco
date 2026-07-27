@@ -28,12 +28,8 @@
  * source chip without re-fetching. Minimal by design.
  */
 export type EcoCitation = {
-  /**
-   * Which external surface the fact came from. Originally Wikimedia-only
-   * ("Wikipedia"/"Wikidata"); the capability wave adds non-Wikimedia sources
-   * ("Open-Meteo" for current weather), so this is no longer a Wikimedia-only union.
-   */
-  source: "Wikipedia" | "Wikidata" | "Open-Meteo";
+  /** Which external surface the fact came from ("Wikipedia"/"Wikidata"). */
+  source: "Wikipedia" | "Wikidata";
   /** The article / entity title (e.g. "Paris"). */
   title: string;
   /** The desktop article URL to link the chip to. */
@@ -76,18 +72,6 @@ export type ToolMatchContext = {
    * turn. Staleness is bounded by the host (see `deriveGroundedMatchContext`).
    */
   lastGroundedTitle?: string;
-  /**
-   * The location label of the most recently grounded weather subject in the
-   * conversation (e.g. "London"), when the single most-recent grounded turn was an
-   * Open-Meteo citation — so an elliptical weather follow-up ("what about Paris?")
-   * re-fetches a location instead of the model bleeding the prior turn's numbers.
-   * Absent when there is no recent grounded turn.
-   *
-   * Mutually exclusive with {@link lastGroundedTitle}: at most one is set,
-   * determined by the `citation.source` of the single most-recent grounded turn
-   * (see `deriveGroundedMatchContext`). They are never both set.
-   */
-  lastWeatherLocation?: string;
 };
 
 /** The result of running a tool's `execute`. */

@@ -6,7 +6,7 @@ import { mkdirSync } from "node:fs";
 
 const launchRcScreenshotDir = "test-results/launch-rc";
 const browserDirectLookupUrl =
-  /^https:\/\/(?:en\.wikipedia\.org|www\.wikidata\.org|api\.open-meteo\.com|geocoding-api\.open-meteo\.com)\//;
+  /^https:\/\/(?:en\.wikipedia\.org|www\.wikidata\.org)\//;
 const localFixtureSearch =
   // Slot readiness rides on the URL through the validation harness — the
   // legacy localStorage slot keys are no longer honored as a seeding seam, and
@@ -154,11 +154,10 @@ test("local fixture generation never sends prompt text to network routes", async
   expect(promptEgressRequests).toEqual([]);
 });
 
-test("web lookups off: fact and weather queries decline deterministically with no egress", async ({ page }) => {
-  // Sentinels ride along with realistic tool-triggering prompts so a regression
+test("web lookups off: fact query declines deterministically with no egress", async ({ page }) => {
+  // A sentinel rides along with a realistic tool-triggering prompt so a regression
   // that egressed the prompt via ANY route (not just the known lookup hosts) is
   // caught, while the host trap still proves the specific lookup hosts stay dark.
-  const weatherPrompt = "what's the weather in Paris ECOFACTPROBE-WEATHER";
   const factPrompt = "tell me about the Eiffel Tower ECOFACTPROBE-FACT";
   const browserDirectRequests: string[] = [];
   const promptEgressRequests: string[] = [];
@@ -168,10 +167,7 @@ test("web lookups off: fact and weather queries decline deterministically with n
     return route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
   });
   page.on("request", (request) => {
-    if (
-      requestContainsText(request, "ECOFACTPROBE-WEATHER")
-      || requestContainsText(request, "ECOFACTPROBE-FACT")
-    ) {
+    if (requestContainsText(request, "ECOFACTPROBE-FACT")) {
       promptEgressRequests.push(`${request.method()} ${request.url()}`);
     }
   });
@@ -188,23 +184,16 @@ test("web lookups off: fact and weather queries decline deterministically with n
   await waitForPersistedSetting(page, "grounding-enabled");
 
   await page.goto(`/chat?${localFixtureSearch}`, { waitUntil: "networkidle" });
-  await page.getByLabel("Message input").fill(weatherPrompt);
-  await page.getByRole("button", { name: "Send message" }).click();
-
-  // With lookups off, a weather/fact query is declined DETERMINISTICALLY by the
-  // host — the model is never invoked, so it cannot fabricate a falsely-sourced
-  // answer (F-1). The decline message renders instead of the fixture model output.
-  await expect(page.getByText(/web lookups are turned off/i)).toBeVisible();
-  // The fixture model never ran (no "Fixture complete" — generation was skipped).
-  await expect(page.getByText(/Fixture complete/i)).toHaveCount(0);
-
   await page.getByLabel("Message input").fill(factPrompt);
   await page.getByRole("button", { name: "Send message" }).click();
 
-  // Both the weather and the fact query produce a host decline (two of them now).
-  await expect(page.getByText(/web lookups are turned off/i)).toHaveCount(2);
+  // With lookups off, a factual query is declined DETERMINISTICALLY by the host —
+  // the model is never invoked, so it cannot fabricate a falsely-sourced answer
+  // (F-1). The decline message renders instead of the fixture model output.
+  await expect(page.getByText(/web lookups are turned off/i)).toBeVisible();
+  // The fixture model never ran (no "Fixture complete" — generation was skipped).
   await expect(page.getByText(/Fixture complete/i)).toHaveCount(0);
-  // The core guarantee is unchanged: neither query egressed anything.
+  // The core guarantee: the query never egressed anything.
   expect(browserDirectRequests).toEqual([]);
   expect(promptEgressRequests).toEqual([]);
 });

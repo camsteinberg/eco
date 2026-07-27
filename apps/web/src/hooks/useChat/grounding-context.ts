@@ -3,16 +3,15 @@
 
 /**
  * Derive the conversation's most recent grounded subject for tool match-context
- * (chat #7 W2.2; weather follow-up T1). A pure scan over the chat message list —
- * no store access — so it is trivial to unit-test and cannot drift from live state.
+ * (chat #7 W2.2). A pure scan over the chat message list — no store access — so
+ * it is trivial to unit-test and cannot drift from live state.
  *
- * A follow-up like "how tall is it?" or "what about Paris?" only makes sense
- * relative to the subject the prior turn grounded. The locked principle: a
- * follow-up's antecedent is the SINGLE most-recent grounded turn within the
- * lookback window, REGARDLESS of which source grounded it. So the scan stops at the
- * first (most-recent) grounded turn and lets that one citation's `source` decide
- * the kind of antecedent — it never skips a more-recent weather turn to reach an
- * older Wikipedia one. A later task feeds the result into each tool's `match`.
+ * A follow-up like "how tall is it?" only makes sense relative to the subject the
+ * prior turn grounded. The locked principle: a follow-up's antecedent is the SINGLE
+ * most-recent grounded turn within the lookback window, REGARDLESS of which source
+ * grounded it. So the scan stops at the first (most-recent) grounded turn and lets
+ * that one citation's `source` decide the kind of antecedent. A later task feeds
+ * the result into each tool's `match`.
  */
 
 import type { ChatMessage } from "../../stores/chatStore";
@@ -36,9 +35,9 @@ export const GROUNDED_TITLE_LOOKBACK = 6;
  * enough.
  *
  * Recency-correct by construction: it stops at the first grounded turn it sees, so
- * a more-recent non-Wikipedia (e.g. Open-Meteo) citation is never skipped past to
- * reach an older Wikipedia one. The caller maps the citation's `source` to the
- * right `ToolMatchContext` field.
+ * a more-recent non-Wikipedia citation is never skipped past to reach an older
+ * Wikipedia one. The caller maps the citation's `source` to the right
+ * `ToolMatchContext` field.
  *
  * Looks back at most {@link GROUNDED_TITLE_LOOKBACK} messages — see that constant
  * for the staleness rationale. The currently-streaming assistant message (typically
@@ -80,12 +79,10 @@ function findLastGroundedCitation(
 
 /**
  * Derive the {@link ToolMatchContext} for the next tool step from the single
- * most-recent grounded turn (weather follow-up T1).
+ * most-recent grounded turn.
  *
- * Maps the most-recent grounded citation's `source` to exactly one antecedent
- * field — the two are mutually exclusive, never both set:
+ * Maps the most-recent grounded citation's `source` to an antecedent field:
  *  - `"Wikipedia"`   → `{ lastGroundedTitle }`   (factual pronoun follow-up)
- *  - `"Open-Meteo"`  → `{ lastWeatherLocation }` (elliptical weather follow-up)
  *  - any other / unknown source → `{}` (no antecedent — we do not guess)
  *  - no grounded turn in the window → `{}`
  *
@@ -102,8 +99,6 @@ export function deriveGroundedMatchContext(
   switch (citation.source) {
     case "Wikipedia":
       return { lastGroundedTitle: citation.title };
-    case "Open-Meteo":
-      return { lastWeatherLocation: citation.title };
     default:
       // Unknown/other source (e.g. Wikidata) — no antecedent. Don't guess which
       // tool it would belong to; a wrong antecedent mis-grounds more than it helps.

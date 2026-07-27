@@ -83,12 +83,9 @@ test.describe("Content-Security-Policy headers", () => {
       expect(csp).toContain("https://en.wikipedia.org");
       expect(csp).toContain("https://www.wikidata.org");
 
-      // The weather capability fetches current conditions directly from Open-Meteo
-      // (browser-direct, no proxy: geocoder + forecast). Without these, weather
-      // lookups are CSP-blocked and every weather question silently degrades to
-      // "couldn't reach the weather service".
-      expect(csp).toContain("https://api.open-meteo.com");
-      expect(csp).toContain("https://geocoding-api.open-meteo.com");
+      // The weather tool (Open-Meteo) was cut from v1 — assert its hosts are NOT
+      // in connect-src so the allowlist stays tight.
+      expect(csp).not.toContain("open-meteo.com");
 
       // style-src allows unsafe-inline for Tailwind CSS
       expect(csp).toMatch(/style-src[^;]*'unsafe-inline'/);

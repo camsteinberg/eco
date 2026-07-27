@@ -481,7 +481,7 @@ describe("runToolStep — options.tools gate", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("runToolStep — options.declineTools (web lookups off honest decline)", () => {
-  /** The "grounding/weather OFF" enabled list, and the disabled citation tools. */
+  /** The "grounding OFF" enabled list, and the disabled citation tools. */
   const enabledTools = DEFAULT_TOOLS.filter((tool) => tool.presentation !== "citation");
   const citationTools = DEFAULT_TOOLS.filter((tool) => tool.presentation === "citation");
 

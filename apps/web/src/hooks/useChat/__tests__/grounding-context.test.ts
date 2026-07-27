@@ -2,15 +2,12 @@
 // Copyright (C) 2026 Bos Computing LLC
 
 /**
- * Unit tests for {@link deriveGroundedMatchContext} (chat #7 W2.2 T1; weather
- * follow-up T1).
+ * Unit tests for {@link deriveGroundedMatchContext} (chat #7 W2.2).
  *
  * Pure scan over a chat message list — no store, no mocks. Verifies the recency
  * bound, the no-citation case, exclusion of the in-flight streaming reply, and the
  * locked recency-correct rule: the SINGLE most-recent grounded turn decides the
- * antecedent, whatever its source — so a more-recent weather turn is never skipped
- * to reach an older Wikipedia one. lastGroundedTitle and lastWeatherLocation are
- * mutually exclusive.
+ * antecedent, whatever its source.
  */
 
 import { describe, it, expect } from "vitest";
@@ -48,26 +45,8 @@ function wikiCitation(title: string): Citation {
   };
 }
 
-/** An Open-Meteo citation as the weather path (capability wave) writes it. */
-function weatherCitation(location: string): Citation {
-  return {
-    id: 1,
-    title: location,
-    url: "https://open-meteo.com/",
-    source: "Open-Meteo",
-  };
-}
-
 function assistantGrounded(title: string, overrides: Partial<ChatMessage> = {}): ChatMessage {
   return msg("assistant", { content: `About ${title}.`, citations: [wikiCitation(title)], ...overrides });
-}
-
-function assistantWeather(location: string, overrides: Partial<ChatMessage> = {}): ChatMessage {
-  return msg("assistant", {
-    content: `Weather in ${location}.`,
-    citations: [weatherCitation(location)],
-    ...overrides,
-  });
 }
 
 describe("deriveGroundedMatchContext", () => {
@@ -78,44 +57,6 @@ describe("deriveGroundedMatchContext", () => {
       msg("user", { content: "how tall is it?" }),
     ];
     expect(deriveGroundedMatchContext(messages)).toEqual({ lastGroundedTitle: "Eiffel Tower" });
-  });
-
-  it("returns lastWeatherLocation when the most-recent grounded turn is Open-Meteo", () => {
-    const messages = [
-      msg("user", { content: "weather in London" }),
-      assistantWeather("London"),
-      msg("user", { content: "what about Paris?" }),
-    ];
-    expect(deriveGroundedMatchContext(messages)).toEqual({ lastWeatherLocation: "London" });
-  });
-
-  it("is recency-correct: a more-recent weather turn beats an older Wikipedia turn", () => {
-    // THE regression lock. Old behavior scanned past the weather turn to the
-    // Wikipedia one; the locked rule resolves against the single most-recent
-    // grounded turn — here, the weather turn — and never sets both fields.
-    const messages = [
-      msg("user", { content: "tell me about the Eiffel Tower" }),
-      assistantGrounded("Eiffel Tower"),
-      msg("user", { content: "weather in London" }),
-      assistantWeather("London"),
-      msg("user", { content: "and Paris?" }),
-    ];
-    const ctx = deriveGroundedMatchContext(messages);
-    expect(ctx).toEqual({ lastWeatherLocation: "London" });
-    expect(ctx.lastGroundedTitle).toBeUndefined();
-  });
-
-  it("is recency-correct the other way: a more-recent Wikipedia turn beats an older weather turn", () => {
-    const messages = [
-      msg("user", { content: "weather in London" }),
-      assistantWeather("London"),
-      msg("user", { content: "tell me about Rome" }),
-      assistantGrounded("Rome"),
-      msg("user", { content: "how old is it?" }),
-    ];
-    const ctx = deriveGroundedMatchContext(messages);
-    expect(ctx).toEqual({ lastGroundedTitle: "Rome" });
-    expect(ctx.lastWeatherLocation).toBeUndefined();
   });
 
   it("returns {} for an unknown/other citation source (no antecedent — don't guess)", () => {
@@ -164,14 +105,14 @@ describe("deriveGroundedMatchContext", () => {
 
   it("ignores the in-flight streaming reply (empty, no citation) at the end", () => {
     const messages = [
-      msg("user", { content: "weather in Tokyo" }),
-      assistantWeather("Tokyo"),
-      msg("user", { content: "what about Osaka?" }),
+      msg("user", { content: "tell me about Tokyo" }),
+      assistantGrounded("Tokyo"),
+      msg("user", { content: "how big is it?" }),
       msg("assistant", { id: "streaming", content: "", status: "streaming" }),
     ];
     // The empty streaming reply carries no citation, so it is skipped naturally
     // and the prior grounded subject is still found.
-    expect(deriveGroundedMatchContext(messages)).toEqual({ lastWeatherLocation: "Tokyo" });
+    expect(deriveGroundedMatchContext(messages)).toEqual({ lastGroundedTitle: "Tokyo" });
   });
 
   it("excludes a specified message id outright (excludeId)", () => {

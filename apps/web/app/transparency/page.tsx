@@ -170,15 +170,13 @@ export default function TransparencyPage({
                 Web lookups (optional, on by default).
               </strong>{" "}
               For factual questions, Eco can check Wikipedia and Wikidata so it
-              cites a real source instead of guessing, and for weather questions it
-              can check Open-Meteo. When this is on, your browser fetches the search
-              terms from your question directly from Wikimedia &mdash; and, for
-              weather, sends the city you ask about (never your device location) to
-              Open-Meteo. Eco&apos;s servers never see or store any of this, and your
-              full conversation is never sent; only those search terms or the named
-              city reach each provider, subject to its own privacy policy, much like
-              visiting the site yourself. Turn it off in Settings &rarr; Eco to keep
-              every request fully on your device; weather lookups stop too.
+              cites a real source instead of guessing. When this is on, your browser
+              fetches the search terms from your question directly from
+              Wikimedia. Eco&apos;s servers never see or store any of this, and your
+              full conversation is never sent; only those search terms reach the
+              provider, subject to its own privacy policy, much like visiting the
+              site yourself. Turn it off in Settings &rarr; Eco to keep every
+              request fully on your device.
             </p>
           </section>
 

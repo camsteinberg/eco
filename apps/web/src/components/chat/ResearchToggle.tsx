@@ -8,7 +8,7 @@
  * composer.
  *
  * "Research" here means a future deeper-research mode, not the everyday web
- * lookups (facts + weather) that are on by default and controlled in
+ * lookups (facts via Wikipedia) that are on by default and controlled in
  * Settings → Eco. It renders a disabled pill (search icon + "Research" label
  * + tooltip) with no toggle state, no click handler, and no store reads — it
  * reads as "coming later" and never becomes interactive.
@@ -21,7 +21,7 @@ export function ResearchToggle() {
       aria-disabled="true"
       data-testid="research-toggle"
       aria-label="Deeper research mode, coming later"
-      title="Deeper research mode isn't part of web v1 yet. Everyday lookups for facts and weather are on by default — manage them in Settings → Eco."
+      title="Deeper research mode isn't part of web v1 yet. Everyday lookups for facts are on by default — manage them in Settings → Eco."
       className="hidden min-h-11 shrink-0 cursor-not-allowed items-center gap-1.5 rounded-full border border-[var(--eco-border)] px-3 py-2 text-xs font-medium text-[var(--eco-text-secondary)] opacity-70 sm:flex"
     >
       <span className="flex items-center" aria-hidden="true">
