@@ -96,7 +96,13 @@ pnpm type-check      # type-check the monorepo
 pnpm lint            # lint
 pnpm test            # all TypeScript unit tests
 pnpm --filter @eco/web exec playwright test   # E2E (Playwright)
+
+pnpm qa              # everything CI gates on, in one command — run before a PR
 ```
+
+`pnpm qa` runs type-check, lint, the circular-dependency check, the unit suites, and
+the full build, failing on the first problem. It mirrors the jobs that gate a merge,
+so a green `pnpm qa` locally is the best signal that CI will be green too.
 
 The on-device chat needs only the web app — see `README.md` for the zero-service
 quickstart. **Ports:** web 3000, api 3001. Postgres `127.0.0.1:5432`, Redis
