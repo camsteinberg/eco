@@ -120,9 +120,11 @@ const shared = vi.hoisted(() => {
     recordedReceipts: [] as Array<{
       status: string;
       generationId: string;
+      generationRole?: string;
       errorCode?: string;
       systemPromptHash?: string;
       samplingProfile?: Record<string, unknown>;
+      events?: Array<{ at: number; phase: string }>;
     }>,
     lastUsage: null as
       | { promptTokens?: number; completionTokens?: number; maxTokens?: number }
@@ -185,6 +187,13 @@ vi.mock("../../local-ai/adapters/useChatLegacyShim", () => ({
       options: Record<string, unknown> | undefined,
     ): ReadableStream<string> => {
       shared.generateCalls.push({ messages, modelId, options });
+      // Mirror the real adapters: every generation emits its own lifecycle
+      // breadcrumbs. A repair turn runs generate() TWICE, so this is what
+      // proves each receipt's trail belongs to its own generation.
+      const onLifecycleEvent = options?.onLifecycleEvent as
+        | ((event: { phase: string; at: number }) => void)
+        | undefined;
+      onLifecycleEvent?.({ phase: "first-token", at: Date.now() });
       const script = shared.scripts.shift();
       if (!script) {
         // No script left — emit an empty closed stream so the loop completes.
@@ -252,15 +261,36 @@ vi.mock("../../local-ai/runtime/usage-store", () => ({
 // complete / aborted / error. We keep `hashSystemPrompt` real-ish (sync stub)
 // so the receipt promise resolves deterministically.
 
+type CapturedReceipt = {
+  status: string;
+  generationId: string;
+  generationRole?: string;
+  errorCode?: string;
+  systemPromptHash?: string;
+  samplingProfile?: Record<string, unknown>;
+  events?: Array<{ at: number; phase: string }>;
+};
+
 vi.mock("../../local-ai/lifecycle/generation-receipt", () => ({
-  recordGenerationReceipt: (receipt: {
-    status: string;
-    generationId: string;
-    errorCode?: string;
-    systemPromptHash?: string;
-    samplingProfile?: Record<string, unknown>;
-  }) => {
+  recordGenerationReceipt: (receipt: CapturedReceipt) => {
     shared.recordedReceipts.push(receipt);
+  },
+  // Keeps the real function's microtask gap between "caller hands off" and
+  // "receipt is built". Without that gap a lazily-built receipt body would
+  // read the same state a snapshotted one does, and the tests asserting
+  // per-generation attribution would pass even with the scope bug present.
+  recordGenerationReceiptAsync: (
+    prompt: string,
+    build: (sph: string) => CapturedReceipt,
+  ) => {
+    const sph = prompt.includes(
+      "Previous local draft missed an exact line-count constraint",
+    )
+      ? "repair-hash"
+      : "primary-hash";
+    void Promise.resolve().then(() => {
+      shared.recordedReceipts.push(build(sph));
+    });
   },
   hashSystemPrompt: async (prompt: string) =>
     prompt.includes("Previous local draft missed an exact line-count constraint")
@@ -351,6 +381,17 @@ function setLastTemplateName(name: string | null): void {
 
 function setFastSlot(state: SlotState): void {
   shared.fastSlotState = state;
+}
+
+/**
+ * Receipts are recorded fire-and-forget behind an awaited hash promise, and a
+ * repair turn records TWO of them. Flush enough microtask turns that every
+ * pending `.then()` has run.
+ */
+async function flushReceiptRecording(): Promise<void> {
+  await act(async () => {
+    for (let i = 0; i < 6; i++) await Promise.resolve();
+  });
 }
 
 beforeEach(() => {
@@ -594,6 +635,19 @@ describe("useChat — normal on-device stream (sendMessage)", () => {
       repetitionPenalty: expect.any(Number),
     });
   });
+
+  it("records exactly one receipt, roled 'primary', when no repair runs", async () => {
+    setScripts([{ kind: "tokens", tokens: ["a", "b"] }]);
+    setLastUsage({ promptTokens: 7, completionTokens: 2, maxTokens: 512 });
+
+    const { result } = renderHook(() => useChat());
+    await act(async () => {
+      await result.current.sendMessage("hi");
+    });
+    await flushReceiptRecording();
+
+    expect(recordedReceipts.map((r) => r.generationRole)).toEqual(["primary"]);
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -671,13 +725,79 @@ describe("useChat — hard-constraint repair loop", () => {
       top_p: 0.55,
       max_new_tokens: 80,
     });
-    const complete = recordedReceipts.find((r) => r.status === "complete");
-    expect(complete?.systemPromptHash).toBe("repair-hash");
-    expect(complete?.samplingProfile).toMatchObject({
+    const repaired = recordedReceipts.find((r) => r.generationRole === "repair");
+    expect(repaired?.systemPromptHash).toBe("repair-hash");
+    expect(repaired?.samplingProfile).toMatchObject({
       temperature: 0.1,
       topP: 0.55,
       maxTokens: 80,
     });
+  });
+
+  // A repair turn runs TWO generations. Recording one receipt for the pair
+  // silently merged them: the surviving row carried the repair's prompt hash
+  // and sampling but the PRIMARY's first-token trail, and the primary
+  // generation left no trace at all. That is what made the KV-reuse lane
+  // unable to tell "the chat turn re-prefilled" from "the repair generation
+  // re-prefilled" — the repair always misses by construction, because it
+  // rewrites the front of the prompt.
+  it("records a receipt for the superseded primary generation, not only the repair", async () => {
+    setScripts([
+      { kind: "tokens", tokens: ["Here is a preface.\n- Line one\n- Line two\n- Line three"] },
+      { kind: "tokens", tokens: ["- Line one\n- Line two\n- Line three"] },
+    ]);
+    setLastUsage({ promptTokens: 24, completionTokens: 3, maxTokens: 80 });
+
+    const { result } = renderHook(() => useChat());
+    await act(async () => {
+      await result.current.sendMessage("Give exactly three short bullet lines about better focus.");
+    });
+    await flushReceiptRecording();
+
+    expect(generateCalls).toHaveLength(2);
+    expect(recordedReceipts.map((r) => r.generationRole)).toEqual(["primary", "repair"]);
+  });
+
+  it("attributes each receipt to the system prompt its own generation ran with", async () => {
+    setScripts([
+      { kind: "tokens", tokens: ["Here is a preface.\n- Line one\n- Line two\n- Line three"] },
+      { kind: "tokens", tokens: ["- Line one\n- Line two\n- Line three"] },
+    ]);
+    setLastUsage({ promptTokens: 24, completionTokens: 3, maxTokens: 80 });
+
+    const { result } = renderHook(() => useChat());
+    await act(async () => {
+      await result.current.sendMessage("Give exactly three short bullet lines about better focus.");
+    });
+    await flushReceiptRecording();
+
+    const primary = recordedReceipts.find((r) => r.generationRole === "primary");
+    const repaired = recordedReceipts.find((r) => r.generationRole === "repair");
+    expect(primary?.systemPromptHash).toBe("primary-hash");
+    expect(repaired?.systemPromptHash).toBe("repair-hash");
+  });
+
+  it("scopes each receipt's lifecycle trail to its own generation", async () => {
+    setScripts([
+      { kind: "tokens", tokens: ["Here is a preface.\n- Line one\n- Line two\n- Line three"] },
+      { kind: "tokens", tokens: ["- Line one\n- Line two\n- Line three"] },
+    ]);
+    setLastUsage({ promptTokens: 24, completionTokens: 3, maxTokens: 80 });
+
+    const { result } = renderHook(() => useChat());
+    await act(async () => {
+      await result.current.sendMessage("Give exactly three short bullet lines about better focus.");
+    });
+    await flushReceiptRecording();
+
+    // One generation, one first-token breadcrumb. Before per-generation
+    // scoping the repair's trail carried both generations' events.
+    for (const receipt of recordedReceipts) {
+      expect(
+        receipt.events?.map((e) => e.phase),
+        `${receipt.generationRole} receipt carries another generation's breadcrumbs`,
+      ).toEqual(["first-token"]);
+    }
   });
 
   it("applies exact-token repairs deterministically without a second generate call", async () => {

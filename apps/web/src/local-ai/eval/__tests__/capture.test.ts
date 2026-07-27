@@ -26,6 +26,7 @@ function makeMessages(): CaptureSourceMessage[] {
 function makeReceipt(overrides?: Partial<GenerationReceipt>): GenerationReceipt {
   return {
     generationId: 'gen-1',
+    generationRole: 'primary',
     modelId: 'candidate/qwen3.5-2b-onnx',
     timestamp: 1_770_000_000_000,
     templateName: 'chat_template.jinja',

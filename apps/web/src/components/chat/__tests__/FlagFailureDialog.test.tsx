@@ -79,6 +79,7 @@ describe("FlagFailureDialog", () => {
   it("looks up the generation receipt for provenance", () => {
     getReceiptMock.mockReturnValue({
       generationId: "gen-7",
+      generationRole: "primary",
       modelId: "candidate/qwen3.5-2b-onnx",
       timestamp: 1,
       templateName: null,

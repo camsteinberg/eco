@@ -28,18 +28,25 @@ import { isValidationHarnessEnabled } from '../../lib/validation-harness';
 import { getActiveModel } from '../runtime/lifecycle';
 import {
   getRecentReceipts,
+  pendingReceiptCount,
   type GenerationReceipt,
 } from '../lifecycle/generation-receipt';
 
 /** Bump when the shape changes so a stale gate fails loudly instead of silently. */
-export const PERF_BRIDGE_VERSION = 1;
+export const PERF_BRIDGE_VERSION = 2;
 
 export type EcoPerfBridge = {
   readonly version: typeof PERF_BRIDGE_VERSION;
   /** Catalog id of the model currently resident in the runtime, or null. */
   activeModelId: () => string | null;
-  /** Recent per-turn generation receipts, newest first. */
+  /** Recent generation receipts, newest first — one per GENERATION, not per turn. */
   receipts: (limit?: number) => GenerationReceipt[];
+  /**
+   * Receipts hashed but not yet in the ring. A harness must wait for this to
+   * reach 0 before reading `receipts()` for a turn that just finalized, or it
+   * races the recording and measures the previous turn.
+   */
+  pendingReceipts: () => number;
 };
 
 declare global {
@@ -59,6 +66,7 @@ export function installPerfBridge(): boolean {
     version: PERF_BRIDGE_VERSION,
     activeModelId: () => getActiveModel()?.id ?? null,
     receipts: (limit?: number) => getRecentReceipts(limit),
+    pendingReceipts: () => pendingReceiptCount(),
   };
   return true;
 }

@@ -56,7 +56,7 @@ import {
   recordLocalGenerationFailure,
   resetLocalGenerationFailureStreak,
 } from "./useChat/failure-streak";
-import { recordGenerationReceipt, hashSystemPrompt } from "../local-ai/lifecycle/generation-receipt";
+import { recordGenerationReceiptAsync } from "../local-ai/lifecycle/generation-receipt";
 import type { Slot as LocalAiSlot } from "../local-ai/types";
 import type { LifecycleEvent, LifecyclePhase } from "../local-ai/runtime/types";
 import { logger } from "../lib/logger";
@@ -763,8 +763,9 @@ export function useChat() {
     };
   }
 
-  // Receipt type alias used by the per-generation receipt helpers below.
+  // Receipt type aliases used by the per-generation receipt helpers below.
   type GenerationReceipt = import("../local-ai/lifecycle/generation-receipt").GenerationReceipt;
+  type GenerationRole = import("../local-ai/lifecycle/generation-receipt").GenerationRole;
 
   /**
    * Stream an on-device model response into the given assistant message.
@@ -1037,16 +1038,37 @@ export function useChat() {
     let effectiveGenerationOptions = { ...localGenerationOptions };
     let effectiveSystemPrompt = systemPrompt;
 
-    const receiptStreamStartMs = Date.now();
-
-    // Per-turn breadcrumb trail for the receipt. The runtime adapters emit
-    // lifecycle events during load and generation; the shim now forwards them
-    // to this callback. We stamp each with ms-from-stream-start off our own
-    // clock (event.at is a different time base) so the trail is self-consistent,
-    // and derive first-token latency from the first `first-token`. Timings and
+    // ── Per-GENERATION receipt scope ───────────────────────────────────────
+    // A turn can run TWO generations: the primary, then a hard-constraint
+    // repair that rewrites the system prompt and the last user turn. They are
+    // separate inference runs with separate prompts, sampling and timings, so
+    // each one gets its own scope and its own receipt.
+    //
+    // These were once turn-scoped, which silently merged the pair: the single
+    // surviving row carried the repair's prompt hash and sampling but the
+    // PRIMARY's first-token time and BOTH trails, and the primary generation's
+    // compute vanished from diagnostics. That merge is what left the KV-reuse
+    // lane unable to separate "the chat turn re-prefilled" from "the repair
+    // re-prefilled" — and a repair always re-prefills by construction, since
+    // it changes the front of the prompt.
+    let generationRole: GenerationRole = 'primary';
+    let receiptStreamStartMs = Date.now();
+    // Breadcrumb trail for THIS generation. The runtime adapters emit lifecycle
+    // events during load and generation; the shim forwards them to this
+    // callback. We stamp each with ms-from-stream-start off our own clock
+    // (event.at is a different time base) so the trail is self-consistent, and
+    // derive first-token latency from the first `first-token`. Timings and
     // phase names only — never message content.
-    const generationEvents: { at: number; phase: LifecyclePhase }[] = [];
+    let generationEvents: { at: number; phase: LifecyclePhase }[] = [];
     let firstTokenMs: number | null = null;
+
+    /** Open a fresh receipt scope; every field above belongs to one generation. */
+    function beginGenerationScope(role: GenerationRole): void {
+      generationRole = role;
+      receiptStreamStartMs = Date.now();
+      generationEvents = [];
+      firstTokenMs = null;
+    }
     function recordLifecycleBreadcrumb(event: LifecycleEvent): void {
       const at = Date.now() - receiptStreamStartMs;
       generationEvents.push({ at, phase: event.phase });
@@ -1061,16 +1083,24 @@ export function useChat() {
       if (event.phase === "load-finish") setLoadAlmostReady(true);
     }
 
-    function buildReceiptBase(sph: string): Omit<
+    type ReceiptBase = Omit<
       GenerationReceipt,
-      'status' | 'promptTokens' | 'completionTokens' | 'errorCode'
-    > {
+      'status' | 'promptTokens' | 'completionTokens' | 'errorCode' | 'systemPromptHash'
+    >;
+
+    /**
+     * Freeze what the CURRENT generation scope knows. Called synchronously by
+     * `recordReceiptAsync`, because the prompt hash it awaits resolves a
+     * microtask later — and on a repair turn the scope has been reopened by
+     * then, so a lazily-built body would describe the wrong generation.
+     */
+    function snapshotReceiptBase(): ReceiptBase {
       return {
         generationId: generation.id,
+        generationRole,
         modelId: model,
         timestamp: Date.now(),
         templateName: getLocalAiLastTemplateName(),
-        systemPromptHash: sph,
         samplingProfile: {
           ...(effectiveGenerationOptions.temperature != null && {
             temperature: effectiveGenerationOptions.temperature,
@@ -1096,16 +1126,13 @@ export function useChat() {
     }
 
     function recordReceiptAsync(
-      receiptFn: (sph: string) => GenerationReceipt,
+      build: (base: ReceiptBase, sph: string) => GenerationReceipt,
       prompt = effectiveSystemPrompt,
     ): void {
-      hashSystemPrompt(prompt).then((sph) => {
-        recordGenerationReceipt(receiptFn(sph));
-      }).catch((err: unknown) => {
-        if (process.env.NODE_ENV !== 'production') {
-          logger.warn('[eco/receipt] failed to record', err);
-        }
-      });
+      // Snapshot BEFORE handing off: the hash resolves a microtask later, and
+      // on a repair turn `beginGenerationScope` has reopened the scope by then.
+      const base = snapshotReceiptBase();
+      recordGenerationReceiptAsync(prompt, (sph) => build(base, sph));
     }
 
     // Terminal-status handlers shared by the primary + repair generations. Each
@@ -1113,8 +1140,9 @@ export function useChat() {
     // matching receipt. Returning here means the turn is finished.
     function finalizeErrorResult(error: unknown): void {
       applyLocalGenerationError(error, assistantId, model);
-      recordReceiptAsync((sph) => ({
-        ...buildReceiptBase(sph),
+      recordReceiptAsync((base, sph) => ({
+        ...base,
+        systemPromptHash: sph,
         status: 'error' as const,
         promptTokens: 0,
         completionTokens: 0,
@@ -1138,8 +1166,9 @@ export function useChat() {
           inferenceMethod: "local",
         });
       }
-      recordReceiptAsync((sph) => ({
-        ...buildReceiptBase(sph),
+      recordReceiptAsync((base, sph) => ({
+        ...base,
+        systemPromptHash: sph,
         status: 'aborted' as const,
         promptTokens: 0,
         completionTokens: 0,
@@ -1187,6 +1216,24 @@ export function useChat() {
           });
           generation.batcher.resetSeq();
         } else {
+          // A second generation is about to run. Record the primary's receipt
+          // HERE, while the scope still describes it and before the context
+          // guard below can end the turn — otherwise the primary's prompt,
+          // sampling, timing and KV decision are lost, and a guard bail leaves
+          // the turn with no receipt at all.
+          const primaryUsage = getLocalAiLastUsage();
+          recordReceiptAsync((base, sph) => ({
+            ...base,
+            systemPromptHash: sph,
+            status: 'complete' as const,
+            promptTokens: primaryUsage?.promptTokens ?? 0,
+            completionTokens: primaryUsage?.completionTokens ?? 0,
+            ...(primaryUsage?.kvReuse != null ? { kvReuse: primaryUsage.kvReuse } : {}),
+            ...(primaryUsage?.cjkSuppression != null
+              ? { cjkSuppression: primaryUsage.cjkSuppression }
+              : {}),
+          }));
+
           const repairSystemPrompt = [systemPrompt, repair.systemInstruction].join("\n\n");
           const repairHintedMessages = [
             ...plan.hintedMessages.slice(0, -1),
@@ -1207,6 +1254,7 @@ export function useChat() {
             return;
           }
           repairOptions.max_new_tokens = repairContextGuard.grantedNewTokens;
+          beginGenerationScope('repair');
           effectiveGenerationOptions = repairOptions;
           effectiveSystemPrompt = repairSystemPrompt;
           updateMessage(assistantId, { content: "", lastSeq: 0 });
@@ -1271,8 +1319,9 @@ export function useChat() {
       if (!generation.abortController.signal.aborted) {
         finalizeAssistantMarkdown(assistantId, updateMessage);
       }
-      recordReceiptAsync((sph) => ({
-        ...buildReceiptBase(sph),
+      recordReceiptAsync((base, sph) => ({
+        ...base,
+        systemPromptHash: sph,
         status: 'complete' as const,
         promptTokens: lastUsage?.promptTokens ?? 0,
         completionTokens: lastUsage?.completionTokens ?? 0,

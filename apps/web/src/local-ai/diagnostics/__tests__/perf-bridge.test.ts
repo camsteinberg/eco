@@ -17,6 +17,7 @@ import {
 import {
   clearGenerationReceipts,
   recordGenerationReceipt,
+  recordGenerationReceiptAsync,
 } from '../../lifecycle/generation-receipt';
 
 beforeEach(() => {
@@ -54,12 +55,39 @@ describe('installPerfBridge', () => {
     expect(window.__ecoPerf?.activeModelId()).toBeNull();
   });
 
+  // A turn can record two receipts (primary + repair) and each lands a
+  // microtask after its hash resolves. Without this signal the harness reads
+  // the ring mid-flight and measures the previous turn.
+  it('exposes in-flight receipt recordings so a harness can wait for them', async () => {
+    installPerfBridge();
+    expect(window.__ecoPerf?.pendingReceipts()).toBe(0);
+
+    recordGenerationReceiptAsync('sys', (systemPromptHash) => ({
+      generationId: 'gen-pending',
+      generationRole: 'primary',
+      modelId: 'candidate/lfm2.5-350m-onnx',
+      timestamp: 1,
+      templateName: null,
+      systemPromptHash,
+      samplingProfile: {},
+      promptTokens: 1,
+      completionTokens: 1,
+      durationMs: 1,
+      status: 'complete',
+    }));
+
+    expect(window.__ecoPerf?.pendingReceipts()).toBe(1);
+    await vi.waitFor(() => expect(window.__ecoPerf?.pendingReceipts()).toBe(0));
+    expect(window.__ecoPerf?.receipts()).toHaveLength(1);
+  });
+
   it('reads through to the live generation-receipt buffer', () => {
     installPerfBridge();
     expect(window.__ecoPerf?.receipts()).toEqual([]);
 
     recordGenerationReceipt({
       generationId: 'gen-1',
+      generationRole: 'primary',
       modelId: 'candidate/lfm2.5-350m-onnx',
       timestamp: 1,
       templateName: null,
@@ -83,6 +111,7 @@ describe('installPerfBridge', () => {
     for (let i = 0; i < 3; i++) {
       recordGenerationReceipt({
         generationId: `gen-${i}`,
+        generationRole: 'primary',
         modelId: 'candidate/lfm2.5-350m-onnx',
         timestamp: i,
         templateName: null,

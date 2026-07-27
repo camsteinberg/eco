@@ -9,7 +9,9 @@ import {
   getRecentReceipts,
   hashSystemPrompt,
   MAX_RECEIPTS,
+  pendingReceiptCount,
   recordGenerationReceipt,
+  recordGenerationReceiptAsync,
   type GenerationReceipt,
 } from '../generation-receipt';
 
@@ -18,6 +20,7 @@ import {
 function makeReceipt(overrides: Partial<GenerationReceipt> = {}): GenerationReceipt {
   return {
     generationId: overrides.generationId ?? `gen-${Math.random().toString(36).slice(2, 8)}`,
+    generationRole: 'primary',
     modelId: 'local/phi3-mini-4k-q4f16',
     timestamp: Date.now(),
     templateName: null,
@@ -32,6 +35,47 @@ function makeReceipt(overrides: Partial<GenerationReceipt> = {}): GenerationRece
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────
+
+describe('generation-receipt — async recording', () => {
+  afterEach(() => {
+    clearGenerationReceipts();
+  });
+
+  it('records the receipt once the system-prompt hash resolves', async () => {
+    recordGenerationReceiptAsync('you are eco', (sph) =>
+      makeReceipt({ generationId: 'g-async', systemPromptHash: sph }),
+    );
+
+    // The hash is async, so nothing has landed yet.
+    expect(getRecentReceipts()).toHaveLength(0);
+
+    await vi.waitFor(() => expect(getRecentReceipts()).toHaveLength(1));
+    expect(getRecentReceipts()[0]?.systemPromptHash).toBe(
+      await hashSystemPrompt('you are eco'),
+    );
+  });
+
+  // A measurement harness reading receipts right after a turn finalizes would
+  // otherwise race the in-flight hash and read the PREVIOUS turn's row.
+  it('reports in-flight recordings until they land', async () => {
+    expect(pendingReceiptCount()).toBe(0);
+
+    recordGenerationReceiptAsync('p', (sph) => makeReceipt({ systemPromptHash: sph }));
+    expect(pendingReceiptCount()).toBe(1);
+
+    await vi.waitFor(() => expect(pendingReceiptCount()).toBe(0));
+    expect(getRecentReceipts()).toHaveLength(1);
+  });
+
+  it('clears the in-flight count when the receipt builder throws', async () => {
+    recordGenerationReceiptAsync('p', () => {
+      throw new Error('builder exploded');
+    });
+
+    await vi.waitFor(() => expect(pendingReceiptCount()).toBe(0));
+    expect(getRecentReceipts()).toHaveLength(0);
+  });
+});
 
 describe('generation-receipt', () => {
   afterEach(() => {

@@ -58,6 +58,7 @@ import {
   openEmptyChat,
   requireBridge,
   runTurn,
+  soleGeneration,
   stubAuth,
 } from "./lib/session";
 
@@ -105,8 +106,10 @@ async function measureSample(context: BrowserContext, index: number): Promise<Sa
     // the predicate is unreachable here.
     const warmReadinessMs = (await readyHandle.jsonValue()) ?? 0;
 
-    const turn1 = await runTurn(page, PROMPT_TURN_1, 1);
-    const turn2 = await runTurn(page, PROMPT_TURN_2, 2);
+    // These prompts are deliberately free of hard format constraints, so each
+    // turn is exactly one generation; `soleGeneration` keeps that true.
+    const turn1 = soleGeneration(await runTurn(page, PROMPT_TURN_1, 1), 1);
+    const turn2 = soleGeneration(await runTurn(page, PROMPT_TURN_2, 2), 2);
 
     const sample: Sample = {
       warmReadinessMs,

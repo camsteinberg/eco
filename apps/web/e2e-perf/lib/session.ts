@@ -93,7 +93,7 @@ export async function requireBridge(page: Page): Promise<void> {
         "window.__ecoPerf missing — the server must be a production build started with "
         + "NEXT_PUBLIC_ECO_VALIDATION_HARNESS=true on a loopback host (see playwright.perf.config.ts)",
     })
-    .toBe(1);
+    .toBe(2);
 }
 
 /**
@@ -154,49 +154,102 @@ export async function ensureModelReady(context: BrowserContext): Promise<void> {
 }
 
 /**
- * Run one turn and return its generation receipt.
+ * Run one turn and return EVERY receipt it produced, in execution order.
  *
- * The turn is considered finished when the app records the receipt — the same
- * finalization point the product uses — not when the DOM stops changing.
+ * A turn is not always one inference run. When the reply violates a hard
+ * constraint the user stated ("in one sentence", "exactly three lines"), the
+ * product runs a SECOND generation — the hard-constraint repair
+ * (`lib/local-generation-constraints`) — with the repair instruction prepended
+ * to the system prompt and the last user turn rewritten. Both generations
+ * record a receipt under the same `generationId`, roled `primary` then
+ * `repair`.
+ *
+ * That distinction is load-bearing for any measurement: a repair rewrites the
+ * FRONT of the prompt, so its KV decision is a structural miss that says
+ * nothing about how the conversation itself reuses cache. Measure the primary;
+ * read the last row for what the user actually saw.
+ *
+ * Waiting: the composer re-enabling means the turn (including any repair) is
+ * over, and `pendingReceipts() === 0` means every receipt has cleared its
+ * async hash and landed. Counting receipts per turn is NOT a valid wait — a
+ * repair turn records two, so a count-based predicate returns early and reads
+ * the previous turn's row.
  */
 export async function runTurn(
   page: Page,
   prompt: string,
   turnNumber: number,
-): Promise<GenerationReceipt> {
+): Promise<GenerationReceipt[]> {
   await expect(composer(page), {
     message: "composer never re-enabled — the previous generation never finalized",
   }).toBeEnabled({ timeout: TURN_TIMEOUT_MS });
   await composer(page).fill(prompt);
   await page.getByRole("button", { name: "Send message" }).click();
 
-  await page.waitForFunction(
-    (expected) => (window.__ecoPerf?.receipts() ?? []).length >= expected,
-    turnNumber,
-    { timeout: TURN_TIMEOUT_MS, polling: 100 },
-  );
+  // The assistant bubble appears on dispatch, so this also clears the window
+  // between click and the composer disabling.
   await expect(assistantMessages(page)).toHaveCount(turnNumber, {
     timeout: TURN_TIMEOUT_MS,
   });
+  await expect(composer(page), {
+    message: `turn ${turnNumber} never finalized — composer stayed disabled`,
+  }).toBeEnabled({ timeout: TURN_TIMEOUT_MS });
+  await page.waitForFunction(
+    () => (window.__ecoPerf?.pendingReceipts() ?? 1) === 0,
+    undefined,
+    { timeout: TURN_TIMEOUT_MS, polling: 50 },
+  );
 
-  const receipt = await page.evaluate(() => window.__ecoPerf?.receipts(1)[0] ?? null);
-  expect(receipt, `turn ${turnNumber} produced no generation receipt`).not.toBeNull();
-  const turn = receipt!;
+  // Receipts come back newest-first; one turn's rows share a generationId.
+  const turnReceipts = await page.evaluate(() => {
+    const all = window.__ecoPerf?.receipts() ?? [];
+    const newestId = all[0]?.generationId;
+    if (newestId === undefined) return [];
+    return all.filter((r) => r.generationId === newestId).reverse();
+  });
 
-  expect(turn.status, `turn ${turnNumber} did not complete cleanly`).toBe("complete");
-  expect(turn.modelId, "the lane measured a different model than it targets").toBe(
+  expect(
+    turnReceipts.length,
+    `turn ${turnNumber} produced no generation receipt`,
+  ).toBeGreaterThan(0);
+
+  const outcome = turnReceipts[turnReceipts.length - 1]!;
+  expect(outcome.status, `turn ${turnNumber} did not complete cleanly`).toBe("complete");
+  expect(outcome.modelId, "the lane measured a different model than it targets").toBe(
     MODEL_ID,
   );
   expect(
-    turn.firstTokenMs,
-    `turn ${turnNumber} recorded no first-token time`,
-  ).not.toBeNull();
-  expect(
-    turn.completionTokens,
+    outcome.completionTokens,
     `turn ${turnNumber} reported no completion tokens`,
   ).toBeGreaterThan(1);
+  for (const receipt of turnReceipts) {
+    expect(
+      receipt.firstTokenMs,
+      `turn ${turnNumber} ${receipt.generationRole} generation recorded no first-token time`,
+    ).not.toBeNull();
+  }
 
-  return turn;
+  return turnReceipts;
+}
+
+/**
+ * Assert a turn ran exactly one generation and return its receipt.
+ *
+ * The regression gate's baselines assume one inference run per turn. A
+ * hard-constraint repair adds a second with different sampling and a rewritten
+ * prompt, which would silently change what the committed numbers mean — so a
+ * prompt (or a model) that starts tripping the repair must fail loudly here
+ * rather than quietly re-baseline the lane.
+ */
+export function soleGeneration(
+  receipts: GenerationReceipt[],
+  turnNumber: number,
+): GenerationReceipt {
+  expect(
+    receipts.map((r) => r.generationRole),
+    `turn ${turnNumber} ran more than one generation — this lane's baselines assume one`,
+  ).toEqual(["primary"]);
+  return receipts[0]!;
 }
 
 /** Tokens per second AFTER the first token — prefill is measured by TTFT. */

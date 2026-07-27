@@ -212,6 +212,7 @@ describe('exportDiagnostics', () => {
   it('carries recent generation receipts (timings/phases) in the dump', async () => {
     recordGenerationReceipt({
       generationId: 'gen-1',
+      generationRole: 'primary',
       modelId: 'candidate/qwen3.5-2b-onnx',
       timestamp: Date.now(),
       templateName: 'chatml',

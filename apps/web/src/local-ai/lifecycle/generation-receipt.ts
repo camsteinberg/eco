@@ -22,8 +22,26 @@ import type { LifecyclePhase } from '../runtime/types';
 
 // ─── Public types ─────────────────────────────────────────────────────────
 
+/**
+ * Which inference run inside a turn this receipt describes.
+ *
+ * One user turn can run TWO generations: the primary, then a hard-constraint
+ * repair (`lib/local-generation-constraints`) that rewrites the system prompt
+ * and the last user turn and generates again. They have different prompts,
+ * sampling and timings, so they get one receipt each — a merged row would
+ * attribute one generation's facts to the other, and a repair's KV miss is
+ * structural (it changes the front of the prompt) rather than a property of
+ * the conversation.
+ */
+export type GenerationRole = 'primary' | 'repair';
+
 export interface GenerationReceipt {
   generationId: string;
+  /**
+   * Primary vs repair. Receipts for one turn share a `generationId` and are
+   * recorded in execution order, so a turn's rows read primary-then-repair.
+   */
+  generationRole: GenerationRole;
   modelId: string;
   timestamp: number;
   templateName: string | null;
@@ -82,6 +100,7 @@ export const MAX_RECEIPTS = 50;
 
 let receipts: GenerationReceipt[] = [];
 let warnedMissingSubtle = false;
+let pendingReceipts = 0;
 
 // ─── Public API ───────────────────────────────────────────────────────────
 
@@ -97,6 +116,46 @@ export function recordGenerationReceipt(receipt: GenerationReceipt): void {
   if (receipts.length > MAX_RECEIPTS) {
     receipts.shift();
   }
+}
+
+/**
+ * Hash `systemPrompt`, then build and record the receipt.
+ *
+ * Recording is fire-and-forget: the caller must not be blocked on a hash, and
+ * a diagnostics failure must never break a chat turn. `build` runs when the
+ * hash resolves, so callers whose state changes in the meantime (a repair
+ * reopens the generation scope mid-turn) must close over a snapshot rather
+ * than live state.
+ */
+export function recordGenerationReceiptAsync(
+  systemPrompt: string,
+  build: (systemPromptHash: string) => GenerationReceipt,
+): void {
+  pendingReceipts++;
+  hashSystemPrompt(systemPrompt)
+    .then((systemPromptHash) => {
+      recordGenerationReceipt(build(systemPromptHash));
+    })
+    .catch((err: unknown) => {
+      if (process.env.NODE_ENV !== 'production') {
+        logger.warn('[eco/receipt] failed to record', err);
+      }
+    })
+    .finally(() => {
+      pendingReceipts--;
+    });
+}
+
+/**
+ * How many receipts are mid-flight (hashed but not yet recorded).
+ *
+ * Exists so a measurement harness can wait for a turn's receipts to LAND
+ * instead of racing them: reading the ring the instant a turn finalizes can
+ * otherwise return the previous turn's row and silently measure the wrong
+ * generation.
+ */
+export function pendingReceiptCount(): number {
+  return pendingReceipts;
 }
 
 /**
@@ -119,7 +178,13 @@ export function clearGenerationReceipts(): void {
   receipts = [];
 }
 
-/** Look up a single receipt by its generation ID, or `null` if not found. */
+/**
+ * Look up a single receipt by its generation ID, or `null` if not found.
+ *
+ * A repair turn records two receipts under the same `generationId`; this
+ * returns the LAST one recorded, which is the generation whose output the user
+ * actually saw. Callers needing the pair should filter `getRecentReceipts()`.
+ */
 export function getReceiptByGenerationId(
   generationId: string,
 ): GenerationReceipt | null {
