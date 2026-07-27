@@ -814,7 +814,12 @@ export async function reconcileReadySlots(
       // then fails at engine load — executeSetup trusts a 'ready' slot and
       // returns, and no chat-path failure flips the slot — so the boot probe
       // is the actual repair mechanism, not in-session recovery.)
-      if (typeof navigator !== 'undefined' && !navigator.onLine) continue;
+      // `=== false` is load-bearing, not redundant: Node defines a global
+      // `navigator` with NO `onLine` property, so `!navigator.onLine` would
+      // read a missing property as "definitely offline" and skip verification
+      // outright. Only an explicit `false` means the browser is certain.
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-boolean-literal-compare
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) continue;
       let present = true;
       try {
         present = await (options?.webllmInCache ?? defaultWebllmInCache)(model);
