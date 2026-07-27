@@ -238,8 +238,16 @@ test.describe("local-AI KV-cache reuse measurement", () => {
           missReasons[row.reason ?? "unknown"] = (missReasons[row.reason ?? "unknown"] ?? 0) + 1;
         }
       }
+      // Eviction is the history WINDOW SLIDING, and its signature is the render
+      // getting SHORTER than the previous turn's — which surfaces as an
+      // `equal-or-shorter` miss, not `not-strict-prefix`. Keying off the reason
+      // string found the first prompt-shaped miss instead (a front-of-prompt
+      // injection several turns earlier) and reported it as the eviction turn.
       const evictionMissIndex = conversationRows.findIndex(
-        (row) => row.turn > 1 && row.reason === "not-strict-prefix",
+        (row, i) =>
+          i > 0
+          && row.decision === "miss"
+          && row.promptLen < conversationRows[i - 1]!.promptLen,
       );
       const summary = {
         generations: rows.length,
