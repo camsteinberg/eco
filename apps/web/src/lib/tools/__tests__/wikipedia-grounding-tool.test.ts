@@ -36,6 +36,8 @@ import {
   titleCoversEntity,
   userTextCoversTitle,
   buildKeywordQuery,
+  askWindows,
+  isPlausibleEntity,
   MAX_TITLE_LEN,
   type GroundingArgs,
 } from "../wikipedia-grounding-tool";
@@ -154,6 +156,157 @@ describe("wikipediaGroundingTool.match — false-positive guard (must abstain)",
       expect(match(input)).toBeNull();
     });
   }
+});
+
+// ---------------------------------------------------------------------------
+// match — pasted content must never become a lookup subject.
+//
+// The guard corpus above is 30 short typed questions, which is the shape this tool
+// was designed for. These cover the shape it was NOT: text the user PASTED. Each
+// case below was a live outbound Wikipedia request before the ask-window guards
+// (measured 2026-07-27 against a realistic-input corpus).
+// ---------------------------------------------------------------------------
+
+describe("wikipediaGroundingTool.match — pasted content is never the subject", () => {
+  const ARTICLE = [
+    "Raised beds are a form of gardening in which the soil is enclosed above",
+    "the surrounding ground level. Raised beds warm earlier in the season and",
+    "drain more freely than open ground, which extends the growing window in",
+    "colder regions. Gardeners often build them from untreated timber.",
+  ].join(" ");
+
+  it("abstains on a paste with a question attached", () => {
+    // Extracted { entity: "Raised", confidence: "high" } and fired a lookup:
+    // "Raised" is simply the first word of the paste's second sentence.
+    expect(match(`${ARTICLE}\n\nBriefly, what is this text about?`)).toBeNull();
+  });
+
+  it("abstains on a bare paste with no question at all", () => {
+    expect(match(ARTICLE)).toBeNull();
+  });
+
+  it("abstains on the question alone, without the paste", () => {
+    // "Briefly" is a sentence adverb, not a subject. ENTITY_STOPWORDS can never
+    // enumerate every word that can open a sentence, which is why the rule keys on
+    // WHERE the capital falls rather than on which word it is.
+    expect(match("Briefly, what is this text about?")).toBeNull();
+  });
+
+  it("never sends a quoted span lifted out of pasted prose", () => {
+    // The quoted-span extractor has no length bound, so a pasted article containing
+    // any quotation handed the quoted region straight to a request URL.
+    const pasted = [
+      "can you summarise this?",
+      "",
+      "The committee said inflation remained \"more persistent than anticipated\"",
+      "in the services sector, and that wage growth had not yet slowed enough to",
+      "justify easing. The vote was split six to three.",
+    ].join("\n");
+    expect(match(pasted)).toBeNull();
+  });
+
+  it("never sends a filesystem path from a pasted traceback", () => {
+    // A path carries the user's account name and directory layout — the single
+    // worst thing to hand to a third party.
+    const traceback = [
+      "why is this happening",
+      "",
+      'Traceback (most recent call last):',
+      '  File "/Users/dana/work/pipeline/ingest.py", line 42, in <module>',
+      "    row = payload[key]",
+      "KeyError: 'customer_id'",
+    ].join("\n");
+    const args = match(traceback);
+    expect(args?.entity ?? "").not.toContain("/Users/");
+  });
+
+  it("still grounds a genuine question asked below a paste", () => {
+    // The counterweight: scoping must not make grounding useless. Here the ask is
+    // the trailing block, and the subject is the one the USER named — not a phrase
+    // lifted out of the article above it.
+    const turn = [
+      "so i was reading this:",
+      "",
+      "Japan's population fell for the sixteenth consecutive year, according to",
+      "figures released by the Ministry of Internal Affairs. The total stood at",
+      "approximately 122.9 million as of October 1, a decline of roughly 550,000",
+      "from the previous year. The number of people aged 65 and over now accounts",
+      "for just over 29% of the population, and demographers say the measures",
+      "taken so far are unlikely to reverse the trend within this century.",
+      "",
+      "How does this compare to South Korea?",
+    ].join("\n");
+    expect(match(turn)).toEqual({
+      entity: "South Korea",
+      wikidataProperty: null,
+      confidence: "high",
+    });
+  });
+});
+
+describe("askWindows", () => {
+  it("returns a short turn unchanged", () => {
+    expect(askWindows("What is France?")).toEqual(["What is France?"]);
+  });
+
+  it("returns only the first and last block of a long turn", () => {
+    const body = "x".repeat(300);
+    expect(askWindows(`ask up top\n\n${body}\n\nmiddle\n\nask down low`)).toEqual([
+      "ask up top",
+      "ask down low",
+    ]);
+  });
+
+  it("yields nothing for one unbroken wall of pasted text", () => {
+    expect(askWindows("y".repeat(600))).toEqual([]);
+  });
+
+  it("drops a block too long to be an ask", () => {
+    const longFirst = "z".repeat(300);
+    expect(askWindows(`${longFirst}\n\nwhat is this?`)).toEqual(["what is this?"]);
+  });
+});
+
+describe("isPlausibleEntity", () => {
+  const ask = "some ask text";
+
+  it("accepts an ordinary multi-word subject", () => {
+    expect(isPlausibleEntity("South Korea", "How does it compare to South Korea?")).toBe(true);
+  });
+
+  it("rejects a span long enough to be a sentence", () => {
+    expect(isPlausibleEntity("a".repeat(120), ask)).toBe(false);
+  });
+
+  it("rejects a path or a source file", () => {
+    expect(isPlausibleEntity("/Users/dana/work/ingest.py", ask)).toBe(false);
+    expect(isPlausibleEntity("ingest.py", ask)).toBe(false);
+  });
+
+  it("rejects a demonstrative phrase, which refers to the conversation", () => {
+    // Without this, rejecting a sentence-initial capital just falls through to
+    // lowercase recovery, which returns "this text" and makes the request anyway.
+    expect(isPlausibleEntity("this text", ask)).toBe(false);
+    expect(isPlausibleEntity("your draft", ask)).toBe(false);
+  });
+
+  it("rejects a lone capital that only ever opens a sentence", () => {
+    expect(isPlausibleEntity("Briefly", "Briefly, what is this about?")).toBe(false);
+  });
+
+  it("accepts a lone capital that also appears mid-sentence", () => {
+    expect(isPlausibleEntity("France", "What is France? France is in Europe.")).toBe(true);
+  });
+
+  it("never applies sentence-casing logic to a multi-word span", () => {
+    // A multi-word Title-Case run cannot be explained by sentence casing.
+    expect(
+      isPlausibleEntity(
+        "United States Industrial Alcohol Company",
+        "United States Industrial Alcohol Company was sued.",
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("wikipediaGroundingTool.match — contraction safety (apostrophe bug regression)", () => {
