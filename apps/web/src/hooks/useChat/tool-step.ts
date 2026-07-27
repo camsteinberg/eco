@@ -137,15 +137,14 @@ function nextToolCallId(): string {
 /**
  * The authoritative, host-rendered answer shown verbatim when web lookups are OFF
  * but the turn WOULD have matched a disabled browser-direct lookup tool
- * (weather/grounding) — see the `declineTools` branch in {@link runToolStep} (F-1,
+ * (grounding) — see the `declineTools` branch in {@link runToolStep} (F-1,
  * 2026-06-24 launch rehearsal).
  *
  * This is rendered DETERMINISTICALLY as the assistant's reply with NO model
  * generation. We deliberately do NOT inject a "please decline" system note and hope
  * the model obeys: prod verification showed a 1–2B model treats a decline
  * instruction as conflicting with the user's direct question and fabricates a
- * falsely-sourced answer anyway (invented weather + "from the Open-Meteo database
- * directly", with no request ever made — manufactured provenance, corrosive for a
+ * falsely-sourced answer anyway (manufactured provenance, corrosive for a
  * trust-first product; see `pitfall-lookups-off-hallucinated-source`). Taking the
  * model out of the loop makes fabrication impossible. Warm-voiced, honest,
  * and actionable (points to the setting).
@@ -328,7 +327,7 @@ export async function runToolStep(
     return { systemNote: null, canonicalAnswer: result.display };
   }
 
-  // Citation tools (grounding/weather): the model phrases the answer itself. Carry
+  // Citation tools (grounding): the model phrases the answer itself. Carry
   // the citation only when the tool produced one (grounding's FOUND case). An empty
   // forModel is a deliberate post-execute ABSTAIN (grounding's low-confidence path
   // when the resolved title doesn't cover the entity) — normalize it to null so the

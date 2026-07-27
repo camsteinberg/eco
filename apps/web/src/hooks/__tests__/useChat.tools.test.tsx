@@ -182,39 +182,6 @@ vi.mock("../../lib/grounding", () => ({
   getWikidataStatement: vi.fn(async () => groundingMock.wikidata),
 }));
 
-const weatherMock = vi.hoisted(() => ({
-  result: {
-    found: true,
-    reading: {
-      locationLabel: "Paris, Île-de-France, France",
-      temperatureC: 18,
-      temperatureF: 64,
-      conditions: "Clear",
-    },
-  } as
-    | {
-        found: true;
-        reading: {
-          locationLabel: string;
-          temperatureC: number;
-          temperatureF: number;
-          conditions: string;
-        };
-      }
-    | { found: false; reason: "location-not-found" | "timeout" | "network-error" },
-  lookupCalls: [] as Array<{ location: string; signal?: AbortSignal }>,
-}));
-
-vi.mock("../../lib/weather", () => ({
-  DEFAULT_WEATHER_TIMEOUT_MS: 6000,
-  lookupWeather: vi.fn(
-    async (location: string, opts?: { signal?: AbortSignal }) => {
-      weatherMock.lookupCalls.push({ location, signal: opts?.signal });
-      return weatherMock.result;
-    },
-  ),
-}));
-
 // Imports AFTER the mocks so the hook picks up the mocked seams.
 import { useChat } from "../useChat";
 import { useChatStore } from "../../stores/chatStore";
@@ -268,16 +235,6 @@ beforeEach(() => {
   groundingMock.wikidata = null;
   groundingMock.lookupCalls.length = 0;
   groundingMock.gate = null;
-  weatherMock.result = {
-    found: true,
-    reading: {
-      locationLabel: "Paris, Île-de-France, France",
-      temperatureC: 18,
-      temperatureF: 64,
-      conditions: "Clear",
-    },
-  };
-  weatherMock.lookupCalls.length = 0;
   // Web lookups default ON only after settings hydrate (the locked default). Reset
   // before each test so the gate is in its default state; fail-closed tests flip it.
   useSettingsStore.setState({ hasLoaded: true, groundingEnabled: true });
@@ -699,39 +656,6 @@ describe("useChat — web lookup setting gate", () => {
     expect(assistant.content).toBe("Paris is the capital of France.");
   });
 
-  it("fails closed for weather before settings hydrate: no lookup, no citation, plain generation", async () => {
-    useSettingsStore.setState({ hasLoaded: false, groundingEnabled: true });
-    weatherMock.result = {
-      found: true,
-      reading: {
-        locationLabel: "Paris, Île-de-France, France",
-        temperatureC: 18,
-        temperatureF: 64,
-        conditions: "Clear",
-      },
-    };
-    setScripts([{ kind: "tokens", tokens: ["It's mild in Paris right now."] }]);
-
-    const { result } = renderHook(() => useChat());
-    await act(async () => {
-      await result.current.sendMessage("what's the weather in Paris");
-    });
-
-    expect(weatherMock.lookupCalls).toHaveLength(0);
-    expect(groundingMock.lookupCalls).toHaveLength(0);
-    expect(useChatStore.getState().activeToolCalls).toHaveLength(0);
-    expect(lastAssistant()!.citations).toBeUndefined();
-
-    expect(generateCalls).toHaveLength(1);
-    const sys = systemMessageOf(generateCalls[0]!);
-    expect(sys).not.toContain("Open-Meteo");
-    expect(sys).not.toContain("current conditions");
-
-    const assistant = lastAssistant()!;
-    expect(assistant.status).toBe("complete");
-    expect(assistant.content).toBe("It's mild in Paris right now.");
-  });
-
   it("declines DETERMINISTICALLY for a factual entity ask when explicitly disabled: host message, model NOT called (F-1)", async () => {
     // Turn grounding OFF explicitly. A factual entity ask that would normally ground
     // (case 5) must NOT reach the model at all — the host renders a fixed decline so
@@ -770,42 +694,6 @@ describe("useChat — web lookup setting gate", () => {
     expect(assistant.content).not.toContain("FABRICATED MODEL OUTPUT");
   });
 
-  it("declines DETERMINISTICALLY for weather when explicitly disabled: host message, model NOT called (F-1)", async () => {
-    useSettingsStore.setState({ groundingEnabled: false });
-    weatherMock.result = {
-      found: true,
-      reading: {
-        locationLabel: "Paris, Île-de-France, France",
-        temperatureC: 18,
-        temperatureF: 64,
-        conditions: "Clear",
-      },
-    };
-    setScripts([{ kind: "tokens", tokens: ["FABRICATED 18°C from Open-Meteo"] }]);
-
-    const { result } = renderHook(() => useChat());
-    await act(async () => {
-      await result.current.sendMessage("what's the weather in Paris");
-    });
-
-    // Neither the weather nor grounding lookup ran (decline is detection-only).
-    expect(weatherMock.lookupCalls).toHaveLength(0);
-    expect(groundingMock.lookupCalls).toHaveLength(0);
-    expect(useChatStore.getState().activeToolCalls).toHaveLength(0);
-    expect(lastAssistant()!.citations).toBeUndefined();
-    expect(lastAssistant()!.verification).toBeUndefined();
-
-    // The model is NEVER called — so it cannot invent weather and falsely cite
-    // Open-Meteo (the exact F-1 failure the rehearsal caught). The host renders
-    // the decline verbatim instead.
-    expect(generateCalls).toHaveLength(0);
-
-    const assistant = lastAssistant()!;
-    expect(assistant.status).toBe("complete");
-    expect(assistant.content).toBe(WEB_LOOKUPS_OFF_DECLINE_MESSAGE);
-    expect(assistant.content).not.toContain("Open-Meteo");
-  });
-
   it("still fires the deterministic calculator tool when grounding is OFF (and skips generation)", async () => {
     // The gate only removes the citation tool; calculator/datetime/unit are
     // unaffected and keep producing authoritative canonical answers.
@@ -830,30 +718,6 @@ describe("useChat — web lookup setting gate", () => {
     expect(assistant.canonicalToolAnswer).toBe(true);
   });
 
-  it("still routes a weather ask to the weather tool with the identity tool present (no over-match)", async () => {
-    // The identity tool is now FIRST in DEFAULT_TOOLS; prove it does not steal a
-    // genuine weather turn — the weather lookup still runs and the model phrases it.
-    weatherMock.result = {
-      found: true,
-      reading: {
-        locationLabel: "London, England, United Kingdom",
-        temperatureC: 14,
-        temperatureF: 57,
-        conditions: "Cloudy",
-      },
-    };
-    setScripts([{ kind: "tokens", tokens: ["It's cloudy and 14°C in London."] }]);
-
-    const { result } = renderHook(() => useChat());
-    await act(async () => {
-      await result.current.sendMessage("what's the weather in London?");
-    });
-
-    expect(weatherMock.lookupCalls).toHaveLength(1);
-    // No host-answer took over: the model generated the sourced reply.
-    expect(generateCalls).toHaveLength(1);
-    expect(lastAssistant()!.content).toBe("It's cloudy and 14°C in London.");
-  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

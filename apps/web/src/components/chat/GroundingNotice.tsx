@@ -12,15 +12,15 @@ import { buildSettingsHref } from "../settings/settingsNavigation";
  * One-time "first grounded answer" disclosure (#5 S5-notice).
  *
  * Web lookups ship default-ON. The first time a turn actually produces an answer
- * backed by a web source (Wikipedia/Wikidata for facts, Open-Meteo for weather),
- * this calm, dismissible note appears once under that message.
+ * backed by a web source (Wikipedia/Wikidata for facts), this calm, dismissible
+ * note appears once under that message.
  *
  * The copy is written for the USER, not the architecture. A person who just got a
  * grounded answer wants two reassurances: that it's reliable (came from a real
  * source, not a guess) and that it stayed private. So that is all the note says. It
  * deliberately does NOT enumerate which sources exist — naming our internal
- * source-routing ("Wikipedia for facts, Open-Meteo for weather") is dev-context
- * drift that means something to us, not to the user. The citation chip directly
+ * source-routing (e.g. "Wikipedia for facts") is dev-context drift that means
+ * something to us, not to the user. The citation chip directly
  * above already names the specific source for THIS answer, which is where a user
  * looks for that. (Keep this principle: reassurance microcopy speaks to the user's
  * concern; specifics live on the chip and the transparency page.)

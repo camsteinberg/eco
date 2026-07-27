@@ -65,10 +65,10 @@ function networkLookupFor(text: string): { tool: string; args: unknown } | null 
 }
 
 describe("realistic-input sweep — the network-backed tool set", () => {
-  it("is exactly weather + wikipedia-grounding", () => {
+  it("is exactly wikipedia-grounding", () => {
     // Guards the derivation above: if a tool starts reaching the network, this
     // fails until someone confirms the sweep covers it.
-    expect([...NETWORK_BACKED].sort()).toEqual(["weather", "wikipedia-grounding"]);
+    expect([...NETWORK_BACKED].sort()).toEqual(["wikipedia-grounding"]);
   });
 
   it("covers every input shape", () => {

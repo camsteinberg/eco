@@ -15,7 +15,6 @@ import {
   calculatorTool,
   datetimeTool,
   unitTool,
-  weatherTool,
   wikipediaGroundingTool,
 } from "../index";
 
@@ -109,19 +108,16 @@ describe("detectTool — first-confident-hit / priority order", () => {
 });
 
 describe("DEFAULT_TOOLS / DEFAULT_TOOL_REGISTRY shape", () => {
-  it("exposes the shipping tools in priority order (identity FIRST, weather before grounding LAST)", () => {
+  it("exposes the shipping tools in priority order (identity FIRST, grounding LAST)", () => {
     // identity sweeps FIRST (Finding G): identity/privacy/"are you <product>?" frames
     // must win before grounding's fuzzy extractor can steal e.g. "ChatGPT". grounding
     // sweeps last: its matcher is broadest/fuzziest, so it must not pre-empt an
-    // arithmetic / unit / date / weather frame a more specific tool answers. weather
-    // runs just before it: a precise citation tool that must win "weather in London"
-    // before grounding's fuzzy "in London" extractor sees it.
+    // arithmetic / unit / date frame a more specific tool answers.
     expect(DEFAULT_TOOLS.map((t) => t.name)).toEqual([
       "identity",
       "calculator",
       "datetime",
       "unit-conversion",
-      "weather",
       "wikipedia-grounding",
     ]);
   });
@@ -129,7 +125,6 @@ describe("DEFAULT_TOOLS / DEFAULT_TOOL_REGISTRY shape", () => {
     expect(DEFAULT_TOOL_REGISTRY.calculator).toBe(calculatorTool);
     expect(DEFAULT_TOOL_REGISTRY.datetime).toBe(datetimeTool);
     expect(DEFAULT_TOOL_REGISTRY["unit-conversion"]).toBe(unitTool);
-    expect(DEFAULT_TOOL_REGISTRY.weather).toBe(weatherTool);
     expect(DEFAULT_TOOL_REGISTRY["wikipedia-grounding"]).toBe(wikipediaGroundingTool);
   });
   it("every tool exposes the EcoTool contract", () => {

@@ -65,8 +65,8 @@ export const DATA_LOCATION_HOST_ANSWER =
   "nothing you type is sent to a cloud service to generate a reply. Your conversation " +
   "history is stored locally in this browser's storage (that's how it's here when you " +
   "come back), and you can clear it whenever you like. One honest note: if you turn on " +
-  "web lookups, the specific thing being looked up (like a city name for weather) is " +
-  "sent to that source — but never your conversation.";
+  "web lookups, the search terms from your question are sent to that source — but " +
+  "never your conversation.";
 
 /** The on-device truth for "are you <product>?" — an honest denial that self-identifies. */
 export function areYouXHostAnswer(subject: string): string {

@@ -155,7 +155,7 @@ export function SettingsEcoTab({
       <SettingsSection title="Web lookups">
         <SettingsRow
           label="Look up facts from the web"
-          description="When on, Eco can check trusted sources like Wikipedia for facts, and live data for the weather, so it answers from real information instead of guessing. Your device fetches it directly — for weather, only the city you ask about is sent, never your location — and Eco's servers never see your questions. Turn this off to keep every request fully on your device."
+          description="When on, Eco can check trusted sources like Wikipedia for facts so it answers from real information instead of guessing. Your device fetches the search terms directly — Eco's servers never see your questions. Turn this off to keep every request fully on your device."
           divider={false}
           control={
             <SettingsSwitch

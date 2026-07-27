@@ -9,11 +9,11 @@ import type { Citation } from "../../lib/citation-parser";
 /**
  * Renders the source attribution below a finished assistant message.
  *
- * The production paths are web lookups: a citation carrying a `source`
- * ("Wikipedia"/"Wikidata" from grounding, or "Open-Meteo" from the weather tool)
- * renders as a single calm "specimen-tag" chip — a direct link, not collapsible.
- * A lone source shouldn't hide behind an expand. The render is source-generic;
- * anything without a `source` (no path produces this today) renders nothing.
+ * The production path is web lookups: a citation carrying a `source`
+ * ("Wikipedia"/"Wikidata" from grounding) renders as a single calm "specimen-tag"
+ * chip — a direct link, not collapsible. A lone source shouldn't hide behind an
+ * expand. The render is source-generic; anything without a `source` (no path
+ * produces this today) renders nothing.
  */
 export function CitationBlock({ citations }: { citations: Citation[] }) {
   if (citations.length === 0) return null;
