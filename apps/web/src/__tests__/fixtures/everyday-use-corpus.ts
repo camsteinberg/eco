@@ -59,29 +59,41 @@ export type Frequency = "very-common" | "common" | "occasional";
 /**
  * A routing property this item's bounce condition demands.
  *
- * Each maps to exactly one mechanical assertion, so a failure names the defect
- * rather than a vibe:
+ * Each maps to exactly one mechanical assertion, so a failure names a defect
+ * rather than a vibe — and each is applied by a STATED RULE, so the labelling
+ * can be checked rather than trusted:
  *
- * - `no-elaboration-hint` — the user asked for a concrete artifact or a verdict.
- *   The deliverable IS the response. Appending "develop the details that matter —
- *   reasons, examples, practical implications" instructs the model to produce the
- *   thing their bounce condition describes.
- * - `direct-budget` — the item's own bounce condition or good-answer description
- *   bounds the length. The routed token budget must sit in the direct band.
- * - `faithful-reproduction` — the reply has to give back the user's own words.
- *   A prompt-inclusive n-gram ban makes that mechanically impossible, and the
- *   documented corruption class ("332,026", "capital ofFrance") is exactly what
- *   the user sees when it fires.
- * - `allows-development` — the counterweight. These items have structurally
- *   multi-part good answers, so flattening everything into the brief register is
- *   the opposite failure and must fail too. Without this the whole corpus would be
- *   satisfiable by routing every turn to the shortest treatment.
+ * - `no-elaboration-hint` — RULE: the user asked for a concrete artifact or a
+ *   verdict, so the deliverable IS the response. Being told to "develop the
+ *   details that matter — reasons, examples, practical implications" instructs
+ *   the model to produce the thing their bounce condition describes.
+ * - `direct-budget` — RULE: the item's own good-answer or bounce text names an
+ *   explicit length or quantity bound ("one or two sentences", "three simple
+ *   lines", "eight good ones", "nothing more"). SAID PLAINLY: on the everyday
+ *   default the reachable budgets are 1024 for `quick` and 1536/2048 for
+ *   everything else, so this check is today equivalent to `intent === "quick"`.
+ *   It is kept in budget terms because the budget is what actually reaches the
+ *   runtime — but it is not an independent signal from intent, and reading it
+ *   as one would double-count.
+ * - `faithful-reproduction` — RULE: the reply has to give the user's own words
+ *   or figures back. A prompt-inclusive n-gram ban makes that impossible.
+ * - `needs-guidance` — the counterweight. RULE: the good answer is structurally
+ *   multi-part (three or more distinct components) AND names no brevity bound.
+ *   These turns must still receive SOME instruction, so that emptying every hint
+ *   — which would satisfy `no-elaboration-hint` everywhere — fails here instead
+ *   of scoring as a clean sweep.
+ *
+ *   An earlier version asserted a token FLOOR for these items. That was dropped
+ *   as unfounded: nothing in this corpus needs more than the direct band (a 2-3
+ *   minute eulogy is roughly 400-600 tokens), so a floor asserted a requirement
+ *   the corpus does not state. Hint presence is the part that is actually
+ *   founded, and it guards the game a floor did not.
  */
 export type RoutingNeed =
   | "no-elaboration-hint"
   | "direct-budget"
   | "faithful-reproduction"
-  | "allows-development";
+  | "needs-guidance";
 
 /** One blind-authored corpus item, verbatim. */
 export type EverydayUseItem = {
@@ -530,7 +542,7 @@ export const EVERYDAY_USE_CORPUS: readonly EverydayUseItem[] = [
  */
 export const ROUTING_NEEDS: Readonly<Record<string, RoutingNeedEntry>> = {
   "work-email-tone-fix": {
-    needs: ["no-elaboration-hint", "faithful-reproduction"],
+    needs: ["no-elaboration-hint", "faithful-reproduction", "direct-budget"],
     why: "Bounce: \"Returns a bulleted 'analysis of the tone problems' before (or instead of) the rewrite … or triples the length into corporate boilerplate.\" The deliverable is the email itself, rebuilt from her sentences.",
   },
   "work-followup-shorter": {
@@ -543,11 +555,11 @@ export const ROUTING_NEEDS: Readonly<Record<string, RoutingNeedEntry>> = {
     why: "Bounce: \"A balanced essay on how tone is subjective … without ever answering.\" Wants a verdict in the first line, then their own sentence softened.",
   },
   "sw-15": {
-    needs: ["no-elaboration-hint", "faithful-reproduction"],
+    needs: ["no-elaboration-hint", "faithful-reproduction", "direct-budget"],
     why: "Bounce: \"Rewrites it into neutral business prose … which is precisely the thing they said not to do. Also bad: a list of every correction made instead of the clean text.\" Keeping their words IS the task.",
   },
   "school-essay-not-ai": {
-    needs: ["no-elaboration-hint", "faithful-reproduction"],
+    needs: ["no-elaboration-hint", "faithful-reproduction", "direct-budget"],
     why: "Bounce: \"quietly changes their argument to a more sophisticated one they can't explain in class.\" Their sentences and their argument must survive the edit.",
   },
   "work-sick-text": {
@@ -555,16 +567,16 @@ export const ROUTING_NEEDS: Readonly<Record<string, RoutingNeedEntry>> = {
     why: "The user typed \"keep it short and dont make it weird\". Bounce: \"a formal email with a subject line … or three labelled options with headings.\"",
   },
   "draft-01": {
-    needs: ["no-elaboration-hint"],
+    needs: ["no-elaboration-hint", "direct-budget"],
     why: "Bounce: \"Asks four follow-up questions … before writing anything. Or writes something so hedged and flowery it doesn't actually say the kid is struggling.\" The deliverable is one ready-to-send message.",
   },
   "admin-gym-cancellation": {
-    needs: ["no-elaboration-hint"],
-    why: "Good answer: \"A short, firm, unemotional letter.\" The deliverable is the letter; developing reasons and implications around it is the failure.",
+    needs: ["no-elaboration-hint", "direct-budget"],
+    why: "Good answer: \"A short, firm, unemotional letter\" that requests \"confirmation of cancellation and refund of those payments\". The deliverable is the letter itself; developing reasons and implications around it is the failure.",
   },
   "family-eulogy": {
-    needs: ["no-elaboration-hint", "allows-development"],
-    why: "Bounce: \"Opens with a list of clarifying questions before writing a word … or adds cheerful formatting and headings.\" But the artifact itself is \"a warm 2-3 minute draft\" — real length, so this is also the counterweight case.",
+    needs: ["no-elaboration-hint", "needs-guidance"],
+    why: "Bounce: \"Opens with a list of clarifying questions before writing a word … or adds cheerful formatting and headings.\" The good answer is \"A warm 2-3 minute draft in plain, spoken language\" weaving five supplied facts — structurally multi-part with no brevity bound, so it must still receive guidance rather than the barest treatment.",
   },
   "ft-06": {
     needs: ["no-elaboration-hint", "direct-budget"],
@@ -575,24 +587,24 @@ export const ROUTING_NEEDS: Readonly<Record<string, RoutingNeedEntry>> = {
     why: "Bounce: \"produces a paragraph of biochemistry on every single marker including the normal ones.\" Wants the two off numbers named, not a tour of the panel.",
   },
   "health-hospital-letter": {
-    needs: ["no-elaboration-hint", "allows-development", "faithful-reproduction"],
-    why: "Bounce: \"leads with 'I'm not a doctor' for two paragraphs before saying anything useful\" … and \"invents a detail the letter doesn't contain\". The answer has to carry \"6mm\" and \"3 months\" back out of the letter unaltered. Multi-part good answer, so also the counterweight.",
+    needs: ["no-elaboration-hint", "needs-guidance", "faithful-reproduction"],
+    why: "Bounce: \"leads with 'I'm not a doctor' for two paragraphs before saying anything useful\" … and \"invents a detail the letter doesn't contain\". The answer has to carry \"6mm\" and \"3 months\" back out unaltered. The good answer is \"Plain-English line by line\" plus an honest read on how worried to be — multi-part with no brevity bound, so it must still receive guidance.",
   },
   "school-letter-esl-parent": {
     needs: ["no-elaboration-hint", "direct-budget", "faithful-reproduction"],
     why: "Good answer: \"Three simple lines.\" Bounce: \"leaves out the 8 August deadline or the £45\" — the whole value of the reply is two figures lifted verbatim from a letter the reader could not parse.",
   },
   "legal-rent-increase": {
-    needs: ["no-elaboration-hint", "allows-development", "faithful-reproduction"],
-    why: "Bounce: \"misses the 10-day deadline or the intent-to-vacate line, which is the actually dangerous part.\" The dollar figures and the 10-day clock must come back out intact. Multi-part good answer, so also the counterweight.",
+    needs: ["no-elaboration-hint", "needs-guidance", "faithful-reproduction"],
+    why: "Bounce: \"misses the 10-day deadline or the intent-to-vacate line, which is the actually dangerous part.\" The dollar figures and the 10-day clock must come back out intact. The good answer reads the letter back, rules on legality, and \"names what to do first\" — multi-part with no brevity bound, so it must still receive guidance.",
   },
   "summarise-01": {
     needs: ["no-elaboration-hint", "direct-budget", "faithful-reproduction"],
     why: "The user typed \"tldr\". Bounce: \"Produces a summary as long as the thread\" and \"misses the one actionable thing ('send Tom £25 by Friday, and it's 7 not 8')\" — that one line is three specifics quoted straight from the transcript.",
   },
   "explain-01": {
-    needs: ["allows-development"],
-    why: "One of only two items that genuinely wants an explanation. Bounce: \"delivers a 900-word tutorial with headers when three paragraphs would do\" — so development is right, sprawl is not. Carries the counterweight: the redesign must not flatten this to the brief register.",
+    needs: ["direct-budget"],
+    why: "The one item that genuinely wants explaining, so it carries NO no-elaboration-hint. But it is still bounded: \"Two or three short paragraphs with one concrete dollar example\", against a bounce of \"delivers a 900-word tutorial with headers when three paragraphs would do\". Being told to explain and being given room to sprawl are different things.",
   },
   "school-fractions": {
     needs: ["no-elaboration-hint", "direct-budget"],
@@ -611,11 +623,11 @@ export const ROUTING_NEEDS: Readonly<Record<string, RoutingNeedEntry>> = {
     why: "Bounce: \"a comparison table with pharmacokinetics when they wanted 'take the Advil for your back'.\"",
   },
   "decide-01": {
-    needs: ["no-elaboration-hint"],
+    needs: ["no-elaboration-hint", "direct-budget"],
     why: "Bounce: \"A perfectly balanced pros-and-cons table ending in 'both are excellent choices, it depends on your priorities.' That is exactly the non-answer they came here to escape.\" A hint asking for tradeoffs writes the bounce.",
   },
   "money-insurance-jump": {
-    needs: ["no-elaboration-hint"],
+    needs: ["no-elaboration-hint", "direct-budget"],
     why: "Bounce: \"Answers only 'prices have gone up, shop around' with no phone script.\" The deliverable is 2-3 lines they can say on the call.",
   },
   "ft-14": {
@@ -623,27 +635,27 @@ export const ROUTING_NEEDS: Readonly<Record<string, RoutingNeedEntry>> = {
     why: "Bounce: \"'You should take it to a qualified mechanic as soon as possible' with no triage.\" Wants a verdict on whether to keep driving this week.",
   },
   "money-budget-house": {
-    needs: ["no-elaboration-hint", "allows-development"],
-    why: "Bounce: \"dumps the 50/30/20 rule as a lecture … or produces a 30-row spreadsheet-style plan they'll never open again.\" But the good answer does arithmetic AND gives an honest read AND one first step — multi-part, so also the counterweight.",
+    needs: ["no-elaboration-hint", "direct-budget"],
+    why: "Bounce: \"dumps the 50/30/20 rule as a lecture … or produces a 30-row spreadsheet-style plan they'll never open again.\" The good answer \"names one concrete first step — not five\", which is an explicit quantity bound.",
   },
   "excel-sumif": {
     needs: ["no-elaboration-hint", "direct-budget"],
     why: "Bounce: \"Explains SUMIF/SUMIFS syntax abstractly with placeholder arguments and never gives a formula they can paste.\" Good answer is a formula plus \"one sentence\".",
   },
   "sw-13": {
-    needs: ["no-elaboration-hint", "faithful-reproduction"],
+    needs: ["no-elaboration-hint", "faithful-reproduction", "direct-budget"],
     why: "Bounce: \"Silently 'fixes' or rounds a number … One wrong number in their own data destroys trust instantly.\" The reply must reproduce fourteen figures from the user's own turn exactly — the documented corruption class (\"332,026\").",
   },
   "food-fridge-dinner": {
-    needs: ["no-elaboration-hint"],
+    needs: ["no-elaboration-hint", "direct-budget"],
     why: "Bounce: \"offers three options with headings when they wanted dinner … or opens with a paragraph about how versatile chicken thighs are.\" The deliverable is one method.",
   },
   "travel-lisbon-kid": {
-    needs: ["allows-development"],
-    why: "Wants a real three-day itinerary with the walking limit accounted for — structurally multi-part. The counterweight case: flattening this into the brief register is the opposite failure.",
+    needs: ["needs-guidance"],
+    why: "The good answer is \"Three light days, two or three things per day\" with \"the kid-friendly picks called out and the hills/tram queues acknowledged\" — structurally multi-part with no brevity bound, so it must still receive guidance rather than the barest treatment.",
   },
   "ideas-01": {
-    needs: ["no-elaboration-hint"],
+    needs: ["no-elaboration-hint", "direct-budget"],
     why: "Bounce: \"twenty vague options instead of eight good ones\" and \"a category list like 'consider a hobby-related gift'.\" Wants specific one-line items, not developed reasoning.",
   },
   "family-text-thread": {
