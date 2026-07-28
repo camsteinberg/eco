@@ -46,15 +46,27 @@
  *
  *   THE JUDGED LAYER (the four checks and `KNOWN_GAPS`) encodes our reading of
  *   what each bounce condition demands. It is arguable and meant to be argued
- *   with — so it is deliberately built to be hard to satisfy dishonestly:
- *     - the elaboration markers are pinned against every hint the codebase can
- *       emit, so rewording a hint fails a test instead of closing twenty-five
- *       gaps (an adversarial audit found exactly that hole, using replacement
- *       wording that already ships in the same function);
- *     - `needs-guidance` fails if hints are emptied, which would otherwise
- *       satisfy `no-elaboration-hint` everywhere;
- *     - `NGRAM_EXPOSURE_CEILING` fails if turns drift toward the one intent that
- *       arms a prompt-inclusive n-gram ban, which the per-item checks reward.
+ *   with.
+ *
+ *   Each check is written to measure the property it NAMES rather than a symptom
+ *   of it — because a check that can be satisfied by a change which does not help
+ *   the user is not a weak check, it is a check measuring something other than
+ *   what its name says. An audit found three of those here, and the repairs are
+ *   worth understanding before adding a fifth check:
+ *     - the elaboration check matched four substrings of two hint strings, so it
+ *       measured "contains this wording", not "instructs development". Rewording
+ *       a hint — for good reasons, using text that already ships in this same
+ *       function — closed all twenty-five of its gaps. It now pins the
+ *       classification of every hint the codebase can emit, so new wording has to
+ *       be classified rather than silently pass.
+ *     - the faithfulness check asked whether ANY model bans n-grams at an intent.
+ *       One model bans them at every intent, so the check was a constant that no
+ *       routing change could move. It now measures only the bans routing arms.
+ *     - the per-item checks are all local, and the cheapest global change that
+ *       satisfies them (moving turns onto `writing`) more than doubles how many
+ *       turns are forbidden from quoting the user back. `NGRAM_EXPOSURE_CEILING`
+ *       measures that directly; `needs-guidance` likewise catches hint-emptying,
+ *       which would otherwise satisfy `no-elaboration-hint` everywhere.
  *
  * ★ WHEN IT FAILS. `KNOWN_GAPS` pins each shortfall to its mechanism at CURRENT
  * behaviour, so closing a gap fails this suite on purpose — delete the entry, do
