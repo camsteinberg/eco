@@ -169,21 +169,26 @@ describe("depth routing — turns that really are asking for depth", () => {
  * overfitting to the corpus they were tuned against. Twelve of fifteen reach
  * `deep`; these three do not, and each is a KNOWN miss with a named cause.
  *
- * Two of them missed before the narrowing as well. The first did not — and its
- * cause is NOT a depth regex:
+ * Two of them missed before the narrowing as well. The first did not, and its
+ * cause has never been a depth regex:
  *
- *   `WRITING_RE` matches the bare word `story`, so "give me the full story on
- *   why the roman empire fell" is claimed by the writing branch of the cascade
- *   before shape is consulted. That is a pre-existing defect this change
- *   exposes rather than causes. When `WRITING_RE` is narrowed, this pin will
- *   fail: update it to whatever the turn then routes to. Do NOT add `story` to
- *   LONG_FORM_RE's deliverable nouns to force `deep` — that was measured and
- *   rejected, because it fires on the pasted BODY of ordinary messages ("the
- *   flight thing was the whole story").
+ *   It routed `writing` while `WRITING_RE` still matched the bare word `story`.
+ *   That regex was narrowed on 2026-07-27 (`story` now needs an authoring verb
+ *   governing it), so the turn falls through to the shape classifier and lands
+ *   `explain` — a different wrong answer, one budget step closer to right, and
+ *   still not `deep`.
+ *
+ *   Do NOT add `story` to LONG_FORM_RE's deliverable nouns to force `deep`.
+ *   That was measured and rejected: it fires on the pasted BODY of ordinary
+ *   messages ("the flight thing was the whole story"), which is how a person
+ *   asking for feedback on an apology ends up being handed a lecture. Reaching
+ *   this turn honestly means recognising "the full story on X" as a request for
+ *   a complete account, which no current constant does.
  */
 const HELD_OUT_KNOWN_MISSES: readonly { input: string; intent: ChatIntent }[] = [
-  // WRITING_RE's bare `story` claims it first. Pre-existing, not this change.
-  { input: "give me the full story on why the roman empire fell", intent: "writing" },
+  // Falls through to the shape classifier now that WRITING_RE needs more than a
+  // bare `story`. Was `writing` until 2026-07-27.
+  { input: "give me the full story on why the roman empire fell", intent: "explain" },
   // No depth word and no depth idiom — a deliberate non-match, not a leak.
   { input: "what should i consider when choosing a college", intent: "explain" },
   // Short enough to read as a single-fact ask; also missed before the narrowing.

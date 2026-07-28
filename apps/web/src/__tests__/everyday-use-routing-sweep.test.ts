@@ -288,14 +288,13 @@ const GAP_MECHANISMS = {
   // `lib/__tests__/depth-word-routing.test.ts`, against the corpus that measured
   // it: 53 of 53 ordinary turns containing a depth word routed to `deep`, now 5.
 
-  "cascade-beats-brief-shape": [
-    "`inferChatIntent` tests the task-class regexes before it consults the answer shape,",
-    "so a turn the shape classifier correctly calls `brief` can still be handed a",
-    "task-class budget and hint. Here a group-chat transcript ending in 'tldr' is",
-    "classified `brief`, then WRITING_RE matches the word 'message' INSIDE the pasted",
-    "thread and the turn gets the writing budget anyway. The classifier that read the",
-    "user's ask loses to one that read their paste.",
-  ].join(" "),
+  // `cascade-beats-brief-shape` lived here and is deliberately gone. Its text
+  // described WRITING_RE matching the word 'message' INSIDE a pasted group-chat
+  // thread and overruling a correct `brief` shape — exactly what the WRITING_RE
+  // narrowing killed. `direct-budget/summarise-01` was its only citation, and
+  // that gap closed with it: the turn now routes `quick` at 1024, which is the
+  // shape classifier's own reading finally reaching the budget. Deleted rather
+  // than re-pointed at another item, per the test below.
 
   "writing-budget-is-middle": [
     "The `writing` intent's budget is the 1536-token middle for every model with room",
@@ -348,7 +347,11 @@ const KNOWN_GAPS: ReadonlyMap<GapKey, { mechanism: GapMechanism; intent: ChatInt
     ["direct-budget/health-blood-results", { mechanism: "explain-default-middle", intent: "explain" }],
     ["no-elaboration-hint/health-hospital-letter", { mechanism: "shape-length-catchall", intent: "deep" }],
     ["direct-budget/school-letter-esl-parent", { mechanism: "writing-budget-is-middle", intent: "writing" }],
-    ["direct-budget/summarise-01", { mechanism: "cascade-beats-brief-shape", intent: "writing" }],
+    // `direct-budget/summarise-01` was pinned here under
+    // `cascade-beats-brief-shape`. It CLOSED on 2026-07-27 when WRITING_RE
+    // stopped matching the bare word 'message' inside the user's pasted thread:
+    // the turn routes `quick` at 1024 now, which its `brief` shape said all
+    // along. The mechanism went with it.
     ["direct-budget/explain-01", { mechanism: "explain-default-middle", intent: "explain" }],
     ["no-elaboration-hint/school-fractions", { mechanism: "explain-default-middle", intent: "explain" }],
     ["direct-budget/school-fractions", { mechanism: "explain-default-middle", intent: "explain" }],
@@ -410,7 +413,7 @@ const ROUTING_TODAY: Readonly<
   "health-hospital-letter": { intent: "deep", maxTokens: 2048, temperature: 0.6, hint: "Use clear sections; include concrete recommendations and tradeoffs." },
   "school-letter-esl-parent": { intent: "writing", maxTokens: 1536, temperature: 0.48, hint: "Match the requested format and tone; avoid filler." },
   "legal-rent-increase": { intent: "research", maxTokens: 2048, temperature: 0.6, hint: "Distinguish supported claims from uncertain ones; cite sources only when you can back the claim." },
-  "summarise-01": { intent: "writing", maxTokens: 1536, temperature: 0.48, hint: "" },
+  "summarise-01": { intent: "quick", maxTokens: 1024, temperature: 0.32, hint: "" },
   "explain-01": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
   "school-fractions": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
   "factual-01": { intent: "quick", maxTokens: 1024, temperature: 0.32, hint: "" },
@@ -751,7 +754,11 @@ describe("everyday-use sweep — the headline", () => {
 describe("everyday-use sweep — the intent cascade reads pasted content", () => {
   const CASCADE_TRIGGERS: Readonly<Record<string, readonly string[]>> = {
     research: ["research", "sources", "cite", "latest", "current", "news", "up-to-date"],
-    writing: ["write", "rewrite", "draft", "tone", "copy", "email", "essay", "story", "post", "message", "headline", "recipe", "cook", "bake"],
+    // `cook` and `bake` were removed from WRITING_RE entirely on 2026-07-27, so
+    // they can no longer drive routing at all — leaving them here would let the
+    // instrument assert an attribution that is now impossible. The rest stay:
+    // they can still participate in a writing match, just never alone.
+    writing: ["write", "rewrite", "draft", "tone", "copy", "email", "essay", "story", "post", "message", "headline", "recipe"],
   };
 
   function pasteOnlyTrigger(item: EverydayUseItem): string | null {
@@ -780,8 +787,10 @@ describe("everyday-use sweep — the intent cascade reads pasted content", () =>
       "rewrite-03:writing:email",
       // The school letter's own "we write to advise".
       "school-letter-esl-parent:writing:write",
-      // "ill message him" inside a group chat, overriding a correct `brief` shape.
-      "summarise-01:writing:message",
+      // `summarise-01` ("ill message him" inside a pasted group chat, overriding
+      // a correct `brief` shape) LEFT this list on 2026-07-27: WRITING_RE no
+      // longer matches a bare `message`, so the paste can no longer route the
+      // turn. Three remain — the defect class is narrowed, not closed.
     ]);
   });
 });
