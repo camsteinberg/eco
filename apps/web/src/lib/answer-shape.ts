@@ -45,12 +45,53 @@ export type AnswerShapeContext = {
 // These previously lived as LONG_FORM_RE / DEEP_RE inside chat-intent.ts and
 // routed straight to `deep`. They are the STRONGEST teaching signal (the user
 // literally asked for depth), and exporting them here makes answer-shape the
-// single owner of the depth axis. chat-intent imports them back for its
-// cascade-order guarantee (explicit depth words keep beating WRITING_RE so
-// "give me a detailed dinner recipe" stays deep, exactly as before).
+// single owner of the depth axis. chat-intent imports them back so explicit
+// depth words keep beating WRITING_RE ("give me a detailed dinner recipe"
+// stays deep). Both constants have TWO call sites — that cascade, and signal
+// #4 of `inferAnswerShape` below — so any change here moves both.
+//
+// NARROWED 2026-07-27 from a measured sweep over 78 blind-authored turns. The
+// previous bare-word forms — /\b(long|detailed|full|complete|…)\b/ and
+// /\b(analyze|compare|plan|deep|…)\b/ — matched ALL 53 innocent everyday turns
+// in that corpus ("how long do you boil eggs", "my phone plan is 90 dollars a
+// month", "is deep frying a turkey actually dangerous"), each of which was
+// then handed the 2048-token deep budget and "Use clear sections; include
+// concrete recommendations and tradeoffs". They also UNDER-fired: "explain in
+// detail …" missed, because the idiom list carried "in depth" and not "in
+// detail". Measured after: innocent false positives 53 → 5, genuine-depth
+// recall 24/25 → 25/25, unseen-phrasing recall 10/15 → 12/15. Pinned by
+// `lib/__tests__/depth-word-routing.test.ts` — do NOT "simplify" either
+// constant back toward bare words; the bare words ARE the defect.
+//
+// LONG_FORM_RE is four alternatives:
+//   1. unambiguous idioms — "step by step", "in depth", "in detail", "at
+//      length", "pros and cons", "tradeoffs", "deep dive", "point by point",
+//      "everything i need to know";
+//   2. a STRONG adjective (detailed / comprehensive / thorough / full / …)
+//      followed within two words by a DELIVERABLE noun — "detailed plan",
+//      "full breakdown", "comprehensive beginners guide", "detailed 7 day
+//      itinerary";
+//   3. a WEAK adjective (long / deep / proper) followed within ONE word by a
+//      much SMALLER noun set — "long explanation", "long version", "deep
+//      dive". The weak class needs the tighter noun list, or "a long list of
+//      chores" and "a long history of the building" leak straight back in;
+//   4. a verb + "thoroughly" / "exhaustively" — "explain it thoroughly".
+//
+// DEEP_RE requires the analytic word to be ADDRESSED TO THE ASSISTANT or
+// ATTACHED TO A DELIVERABLE: turn-initial or "can you"-framed analyze /
+// compare / evaluate / assess / critique; "compare and contrast"; "strategy"
+// only when followed by for/to/on/… or possessed; "architecture of"; framed
+// "think through|about"; and a modifier + "plan" ("meal plan", "30 day plan").
+// Bare `plan`, bare `deep`, bare `comprehensive` and bare `architecture` are
+// deliberately gone. Generic "a … plan for" is NOT reinstated here — it is
+// already covered by PLURALITY_RE below, which correctly declines to fire on
+// "whats the best phone plan for two lines".
 
-export const LONG_FORM_RE = /\b(long|detailed|full|complete|comprehensive|step[- ]by[- ]step|in depth|thorough)\b/i;
-export const DEEP_RE = /\b(analyze|compare|evaluate|strategy|plan|tradeoffs|pros and cons|deep|comprehensive|think through|architecture)\b/i;
+export const LONG_FORM_RE =
+  /\b(?:step[- ]by[- ]step|in[- ]depth|in (?:full )?detail|in (?:more|greater|much more|further) detail|(?:more|greater|further) detail|into (?:more |greater |full )?detail|at length|pros and cons|trade[- ]?offs?|deep ?dives?|point by point|blow by blow|(?:everything|all) (?:i|you|we) need to know)\b|\b(?:detailed|comprehensive|thorough|exhaustive|in[- ]depth|complete|full|extensive|elaborate|granular|meticulous|step[- ]by[- ]step)\b(?:\s+\S+){0,2}?\s+\b(?:plans?|guides?|breakdowns?|lists?|checklists?|overviews?|explanations?|explainers?|comparisons?|analys[ei]s|walk ?throughs?|rundowns?|run[- ]downs?|summar(?:y|ies)|itinerar(?:y|ies)|answers?|responses?|write ?ups?|reports?|tutorials?|instructions?|steps?|outlines?|roadmaps?|schedules?|reviews?|versions?|pictures?|accounts?|primers?|histor(?:y|ies)|introductions?|intros?|understanding|looks?|dives?|tours?|examinations?|descriptions?|treatments?|documentation|courses?|manuals?|essays?|articles?|posts?|recipes?|menus?|workouts?|routines?|curriculums?|briefs?|timelines?|budgets?)\b|\b(?:long|deep|proper)\b(?:\s+\S+){0,1}?\s+\b(?:explanations?|answers?|versions?|write ?ups?|reads?|forms?|posts?|essays?|breakdowns?|dives?|analys[ei]s|guides?|understanding|walk ?throughs?|rundowns?)\b|\b(?:explain|describe|break it down|go over|tell me|spell it out)\b[^.?!]{0,24}?\b(?:thoroughly|exhaustively)\b/i;
+
+export const DEEP_RE =
+  /(?:^|[.!?]\s*|\b(?:can you|could you|would you|please|help me|i want you to|i'?d like you to|lets|let'?s|go ahead and)\s+)(?:analy[sz]e|compare|evaluate|assess|critique)\b|\bcompare and contrast\b|\bstrateg(?:y|ies)\b(?=\s+(?:for|to|on|about|when|be|is|would|should|around))|\b(?:my|your|our|the best|a good|what) strateg(?:y|ies)\b|\barchitecture of\b|\b(?:help me|let'?s|lets|can you|could you|i need to|i want to|trying to) think (?:through|about)\b|\b(?:meal|training|workout|exercise|study|lesson|business|game|financial|savings|action|budget|travel|trip|marketing|career|retirement|weekly|daily|monthly|\d+[- ]?(?:day|week|month|year))\s+plans?\b/i;
 
 // ─── Brief guards (checked FIRST — explicit instructions and single facts) ──
 

@@ -281,7 +281,67 @@ function getCatalogIds(): Set<string> {
 // ─── Intent inference ────────────────────────────────────────────────────
 
 const CODE_RE = /```|\b(debug|bug|stack trace|typescript|javascript|python|react|sql|function|component|api|test|refactor)\b/i;
-const WRITING_RE = /\b(write|rewrite|draft|tone|copy|email|essay|story|post|message|headline|summarize in my voice|recipe|cook|bake|meal plan|ingredients?)\b/i;
+
+// WRITING_RE, narrowed 2026-07-27. It was a list of bare words —
+// `write|rewrite|draft|tone|copy|email|essay|story|post|message|headline|
+// recipe|cook|bake|meal plan|ingredients?` — every one of which is an ordinary
+// English word people type without asking anyone to write anything. "how long
+// do i cook a 12 pound turkey" and "long story short my landlord kept my
+// deposit" were both claimed as drafting tasks, and a pasted `EXPLAIN ANALYZE`
+// plan was claimed as correspondence because `\bemail\b` matched inside
+// `c.email`.
+//
+// Three shapes, each generalising past the items that happened to fail:
+//   1. tokens that are about text whatever follows them;
+//   2. an authoring/editing verb governing an ambiguous text noun;
+//   3. `draft` as a verb, licensed only by a text object — so draft beer, a
+//      draft under the door and a fantasy-football draft are not writing asks.
+// EVERY arm requires a token the previous regex matched bare, so this is a
+// STRICT NARROWING: it can only shrink what routes to `writing`. That is not a
+// claim in a comment — `lib/__tests__/writing-intent-routing.test.ts` asserts it
+// against every committed corpus string, so a future widening that admits a
+// genuinely new token fails there by name.
+// `(?<!\.)` rejects dot-qualified identifiers (`c.email`, `req.post`,
+// `row.message`): a pasted query plan is code, not correspondence.
+const WRITING_TEXT_TOKENS =
+  "write|rewrite|essay|headline|email|recipe|meal plan|summarize in my voice";
+const WRITING_AUTHOR_VERBS =
+  "write|writes|writing|wrote|written|re-?write|re-?writes|re-?writing|re-?wrote|re-?written"
+  + "|draft|drafts|drafting|drafted|redraft|compose|composes|composing|composed|pen|penned"
+  + "|reword|rewords|rewording|reworded|rephrase|rephrases|rephrasing|rephrased"
+  + "|edit|edits|editing|edited|revise|revises|revising|revised|proofread|proof read"
+  + "|type up|typing up|ghost ?write";
+const WRITING_AMBIGUOUS_NOUNS = "email|message|post|story|copy|tone|draft|headline|essay|recipe";
+const WRITING_DRAFT_OBJECTS =
+  "email|e-mail|message|letter|note|post|reply|response|caption|bio|statement|essay|speech"
+  + "|text|paragraph|copy|blurb|memo|announcement|invite|invitation|description|listing"
+  + "|profile|summary|toast|eulogy|vows|poem|story|article|headline|resume|cv|obituary"
+  + "|newsletter|card|apology|complaint|pitch|proposal|brief|script|comment|review";
+
+// NOTE: `meal plan` is currently UNREACHABLE here — the narrowed DEEP_RE claims
+// it one branch earlier (`\b(?:meal|training|…)\s+plans?\b`), so a meal-plan ask
+// routes `deep` and never reaches this line. It is kept deliberately, not left
+// as dead code: it is the fallback that decides the case if DEEP_RE's modifier
+// list is ever narrowed, and a lookup that resolves to nothing today is still
+// live policy for whatever stops matching upstream tomorrow.
+//
+// ASSEMBLED WITH `+`, NOT TEMPLATE INTERPOLATION — deliberate, do not "tidy".
+// Written as `` `…(?:${WRITING_TEXT_TOKENS})\\b` `` the production build emits a
+// BROKEN pattern: Turbopack's constant folding inlines an interpolated simple
+// string const and drops the `)\b` that follows it, producing "Unterminated
+// group" at page-data collection. It bit alternatives 1 and 2 (whose parts are
+// single literals) and not 3 (whose part is a `+` expression, which is not
+// folded). Nothing catches this upstream — type-check, lint and the full unit
+// suite all pass, because vitest's transform folds correctly. Only `next build`
+// fails.
+const WRITING_RE = new RegExp(
+  "(?<!\\.)\\b(?:" + WRITING_TEXT_TOKENS + ")\\b"
+  + "|(?<!\\.)\\b(?:" + WRITING_AUTHOR_VERBS + ")\\b[^.?!]{0,45}?\\b(?:" + WRITING_AMBIGUOUS_NOUNS + ")\\b"
+  + "|(?<!\\.)\\bdraft\\b[^.?!]{0,45}?\\b(?:" + WRITING_DRAFT_OBJECTS + ")\\b"
+  + "|(?<!\\.)\\b(?:ad|advert|advertising|marketing|web|website|landing[- ]page|sales|product|homepage|body|email) copy\\b",
+  "i",
+);
+
 const RESEARCH_RE = /\b(research|sources|cite|latest|current|news|202[5-9]|up-to-date)\b/i;
 
 /**
@@ -307,13 +367,21 @@ export type InferChatIntentOptions = {
 /**
  * Task-class cascade + answer-shape depth arbitration (Wave 2.6 Stage 1).
  *
- * Task classes (research/file/code/writing) and the explicit depth words
- * (LONG_FORM_RE/DEEP_RE) keep their exact pre-Stage-1 precedence — explicit
- * asks behave byte-identically. The shape classifier replaces ONLY the old
- * EXPLAIN_RE + length catch-all, which Stage 0 measured at a 68% misroute
- * rate (teaching-shaped asks never reached deep; single facts rode the
- * explain padding register). See lib/answer-shape.ts for the signal set and
- * the Stage-0 shape-routing measurements for the evidence.
+ * The cascade ORDER is the pre-Stage-1 one and has not moved: research → file
+ * → code → explicit depth words (LONG_FORM_RE/DEEP_RE) → writing → shape. What
+ * those depth words MATCH has. They were narrowed on 2026-07-27 from bare word
+ * lists to idioms and adjective-plus-deliverable pairs, so a turn that merely
+ * CONTAINS "long" or "plan" — "how long do you boil eggs", "my phone plan is 90
+ * dollars a month" — now falls through to the shape classifier instead of
+ * taking the 2048-token deep budget, while a turn that genuinely asks for depth
+ * still short-circuits here ahead of WRITING_RE ("give me a detailed dinner
+ * recipe" stays deep). See lib/answer-shape.ts for the shape of each constant
+ * and lib/__tests__/depth-word-routing.test.ts for the corpus that pins it.
+ *
+ * The shape classifier replaces ONLY the old EXPLAIN_RE + length catch-all,
+ * which Stage 0 measured at a 68% misroute rate (teaching-shaped asks never
+ * reached deep; single facts rode the explain padding register). See the
+ * Stage-0 shape-routing measurements for that evidence.
  */
 export function inferChatIntent(content: string, options?: InferChatIntentOptions): ChatIntent {
   const text = content.trim();
