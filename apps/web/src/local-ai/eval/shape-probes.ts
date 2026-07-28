@@ -335,7 +335,9 @@ export const SHAPE_RESEARCH_ARMS: EvalPromptSpec[] = [
   {
     id: 'as3-explicit',
     category: 'answer-shape',
-    intent: 'deep', // "thorough"/"step-by-step" → LONG_FORM_RE; "plan" → DEEP_RE
+    intent: 'deep', // "step-by-step" idiom → LONG_FORM_RE. Bare "plan" stopped
+    // matching DEEP_RE when the depth constants were narrowed (2026-07-27); the
+    // idiom is what routes this prompt deep now.
     prompt: 'i want to learn spanish but dont know where to start — give me a thorough, step-by-step plan',
     expectedShape: 'teaching',
     depthBand: ARM_BAND,

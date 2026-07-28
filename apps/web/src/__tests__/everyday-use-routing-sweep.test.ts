@@ -281,14 +281,12 @@ const GAP_MECHANISMS = {
     "changes the flavour of the default.",
   ].join(" "),
 
-  "long-form-bare-long": [
-    "`LONG_FORM_RE` (answer-shape.ts) matches the bare word 'long', and `inferChatIntent`",
-    "tests it before consulting the shape, so 'how long do you boil eggs' is read as a",
-    "request for a long answer and routed to `deep` at 2048 tokens. The shape classifier",
-    "had it right — it called this `brief` — and was overruled by a one-word regex. The",
-    "constant has TWO call sites (the cascade, and the first teaching signal inside",
-    "`inferAnswerShape`), so a fix that reorders the cascade repairs only half of it.",
-  ].join(" "),
+  // `long-form-bare-long` lived here and is deliberately gone: LONG_FORM_RE and
+  // DEEP_RE no longer match bare words, so the mechanism explains no remaining
+  // gap and the test below requires it to be deleted rather than kept as
+  // history. What it described is now pinned as a standing net in
+  // `lib/__tests__/depth-word-routing.test.ts`, against the corpus that measured
+  // it: 53 of 53 ordinary turns containing a depth word routed to `deep`, now 5.
 
   "cascade-beats-brief-shape": [
     "`inferChatIntent` tests the task-class regexes before it consults the answer shape,",
@@ -354,8 +352,11 @@ const KNOWN_GAPS: ReadonlyMap<GapKey, { mechanism: GapMechanism; intent: ChatInt
     ["direct-budget/explain-01", { mechanism: "explain-default-middle", intent: "explain" }],
     ["no-elaboration-hint/school-fractions", { mechanism: "explain-default-middle", intent: "explain" }],
     ["direct-budget/school-fractions", { mechanism: "explain-default-middle", intent: "explain" }],
-    ["no-elaboration-hint/factual-01", { mechanism: "long-form-bare-long", intent: "deep" }],
-    ["direct-budget/factual-01", { mechanism: "long-form-bare-long", intent: "deep" }],
+    // `factual-01` ("how long do you boil eggs for hard boiled") had both of its
+    // needs pinned here under `long-form-bare-long`. Both CLOSED on 2026-07-27
+    // when LONG_FORM_RE and DEEP_RE were narrowed off bare words: the turn now
+    // routes `quick` at 1024 tokens with no hint, which is what its bounce
+    // condition asked for. The mechanism went with them.
     ["no-elaboration-hint/factual-02", { mechanism: "explain-default-middle", intent: "explain" }],
     ["no-elaboration-hint/decide-01", { mechanism: "explain-default-middle", intent: "explain" }],
     ["direct-budget/decide-01", { mechanism: "explain-default-middle", intent: "explain" }],
@@ -412,7 +413,7 @@ const ROUTING_TODAY: Readonly<
   "summarise-01": { intent: "writing", maxTokens: 1536, temperature: 0.48, hint: "" },
   "explain-01": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
   "school-fractions": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "factual-01": { intent: "deep", maxTokens: 2048, temperature: 0.6, hint: "Use clear sections; include concrete recommendations and tradeoffs." },
+  "factual-01": { intent: "quick", maxTokens: 1024, temperature: 0.32, hint: "" },
   "factual-02": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
   "factual-04": { intent: "quick", maxTokens: 1024, temperature: 0.32, hint: "" },
   "decide-01": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },

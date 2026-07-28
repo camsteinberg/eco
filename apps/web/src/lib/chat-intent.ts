@@ -307,13 +307,21 @@ export type InferChatIntentOptions = {
 /**
  * Task-class cascade + answer-shape depth arbitration (Wave 2.6 Stage 1).
  *
- * Task classes (research/file/code/writing) and the explicit depth words
- * (LONG_FORM_RE/DEEP_RE) keep their exact pre-Stage-1 precedence — explicit
- * asks behave byte-identically. The shape classifier replaces ONLY the old
- * EXPLAIN_RE + length catch-all, which Stage 0 measured at a 68% misroute
- * rate (teaching-shaped asks never reached deep; single facts rode the
- * explain padding register). See lib/answer-shape.ts for the signal set and
- * the Stage-0 shape-routing measurements for the evidence.
+ * The cascade ORDER is the pre-Stage-1 one and has not moved: research → file
+ * → code → explicit depth words (LONG_FORM_RE/DEEP_RE) → writing → shape. What
+ * those depth words MATCH has. They were narrowed on 2026-07-27 from bare word
+ * lists to idioms and adjective-plus-deliverable pairs, so a turn that merely
+ * CONTAINS "long" or "plan" — "how long do you boil eggs", "my phone plan is 90
+ * dollars a month" — now falls through to the shape classifier instead of
+ * taking the 2048-token deep budget, while a turn that genuinely asks for depth
+ * still short-circuits here ahead of WRITING_RE ("give me a detailed dinner
+ * recipe" stays deep). See lib/answer-shape.ts for the shape of each constant
+ * and lib/__tests__/depth-word-routing.test.ts for the corpus that pins it.
+ *
+ * The shape classifier replaces ONLY the old EXPLAIN_RE + length catch-all,
+ * which Stage 0 measured at a 68% misroute rate (teaching-shaped asks never
+ * reached deep; single facts rode the explain padding register). See the
+ * Stage-0 shape-routing measurements for that evidence.
  */
 export function inferChatIntent(content: string, options?: InferChatIntentOptions): ChatIntent {
   const text = content.trim();
