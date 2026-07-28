@@ -224,6 +224,13 @@ export function buildLocalHardConstraintRepair(input: {
         temperature: 0.2,
         top_p: 0.65,
         repetition_penalty: 1.12,
+        // Kept, unlike the `writing` profile overrides. Transformers.js bans
+        // n-grams across the prompt too, which is why those were removed — but
+        // this repair regenerates a recipe FROM SCRATCH against a closed
+        // ingredient set and deliberately wants different phrasing from the
+        // draft that broke the constraint. Nothing here has to be reproduced
+        // verbatim, so the ban costs nothing and discourages re-deriving the
+        // failed answer. (`buildConciseFormatRepair` correctly sets none.)
         no_repeat_ngram_size: 4,
       },
     };
