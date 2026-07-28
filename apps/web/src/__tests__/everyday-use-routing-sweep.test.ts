@@ -239,8 +239,15 @@ function ngramExposure(): number {
   return pairs;
 }
 
-/** Today's exposure. A routing change may lower this; it must never raise it. */
-const NGRAM_EXPOSURE_CEILING = 58;
+/**
+ * Today's exposure. A routing change may lower this; it must never raise it.
+ *
+ * Was 58 before the `writing` n-gram overrides came off phi3, qwen3-0.6b and the
+ * shipping default. The remaining 40 are all the 350M starter, whose ban is BASE
+ * and applies at every intent — see the deferred decision pinned at the end of
+ * this file. No routing change can lower it further.
+ */
+const NGRAM_EXPOSURE_CEILING = 40;
 
 // ---------------------------------------------------------------------------
 // Where today's routing disagrees with the corpus.
@@ -299,18 +306,6 @@ const GAP_MECHANISMS = {
     "the TASK CLASS and nothing encodes the SIZE of the thing being asked for.",
   ].join(" "),
 
-  "writing-ngram-ban": [
-    "★ The `writing` intent sets `noRepeatNgramSize: 4` in its per-intent override on",
-    "phi3, qwen3-0.6b and the shipping default qwen3.5-2b, and Transformers.js bans",
-    "n-grams across the full sequence including the prompt — verified by instantiating",
-    "the real logits processor and calling it at generation step zero with prompt tokens",
-    "only, which returned -Infinity. So on the one task class whose entire requirement is",
-    "faithfulness, the model can copy at most three consecutive tokens of the user's own",
-    "text. A 2026-06-09 audit removed this from the base setting of one model and missed",
-    "every per-intent override. Two other profiles already refuse the guard with in-code",
-    "comments naming this exact hazard, so the precedent is in the file.",
-  ].join(" "),
-
   "plurality-to-teaching": [
     "`PLURALITY_RE` treats 'ideas for', 'tips on', 'ways to' as teaching signals, so",
     "'gift ideas for my dad' routes to `deep` with the sections-and-tradeoffs hint.",
@@ -342,7 +337,6 @@ const KNOWN_GAPS: ReadonlyMap<GapKey, { mechanism: GapMechanism; intent: ChatInt
     ["no-elaboration-hint/work-followup-shorter", { mechanism: "explain-default-middle", intent: "explain" }],
     ["direct-budget/work-followup-shorter", { mechanism: "explain-default-middle", intent: "explain" }],
     ["direct-budget/rewrite-03", { mechanism: "writing-budget-is-middle", intent: "writing" }],
-    ["faithful-reproduction/rewrite-03", { mechanism: "writing-ngram-ban", intent: "writing" }],
     ["no-elaboration-hint/sw-15", { mechanism: "shape-length-catchall", intent: "deep" }],
     ["direct-budget/sw-15", { mechanism: "shape-length-catchall", intent: "deep" }],
     ["no-elaboration-hint/school-essay-not-ai", { mechanism: "shape-length-catchall", intent: "deep" }],
@@ -356,9 +350,7 @@ const KNOWN_GAPS: ReadonlyMap<GapKey, { mechanism: GapMechanism; intent: ChatInt
     ["direct-budget/health-blood-results", { mechanism: "explain-default-middle", intent: "explain" }],
     ["no-elaboration-hint/health-hospital-letter", { mechanism: "shape-length-catchall", intent: "deep" }],
     ["direct-budget/school-letter-esl-parent", { mechanism: "writing-budget-is-middle", intent: "writing" }],
-    ["faithful-reproduction/school-letter-esl-parent", { mechanism: "writing-ngram-ban", intent: "writing" }],
     ["direct-budget/summarise-01", { mechanism: "cascade-beats-brief-shape", intent: "writing" }],
-    ["faithful-reproduction/summarise-01", { mechanism: "writing-ngram-ban", intent: "writing" }],
     ["direct-budget/explain-01", { mechanism: "explain-default-middle", intent: "explain" }],
     ["no-elaboration-hint/school-fractions", { mechanism: "explain-default-middle", intent: "explain" }],
     ["direct-budget/school-fractions", { mechanism: "explain-default-middle", intent: "explain" }],
@@ -463,15 +455,15 @@ const ROUTING_TODAY: Readonly<
  */
 const MODEL_MATRIX_TODAY: Readonly<Record<string, string>> = {
   "local/phi3-mini-4k-q4f16":
-    "quick:1024/0.2 explain:1024/0.38 deep:1024/0.45 code:1024/0.18 writing:1024/0.44/n4 file:1024/0.45 research:1024/0.45",
+    "quick:1024/0.2 explain:1024/0.38 deep:1024/0.45 code:1024/0.18 writing:1024/0.44 file:1024/0.45 research:1024/0.45",
   "local/qwen3-0.6b":
-    "quick:512/0.32 explain:512/0.42 deep:512/0.6 code:512/0.2 writing:512/0.48/n4 file:512/0.6 research:512/0.6",
+    "quick:512/0.32 explain:512/0.42 deep:512/0.6 code:512/0.2 writing:512/0.48 file:512/0.6 research:512/0.6",
   "candidate/lfm2.5-1.2b-instruct-onnx":
     "quick:1024/0.2 explain:1536/0.3 deep:2048/0.3 code:2048/0.2 writing:1536/0.4 file:2048/0.3 research:2048/0.3",
   "candidate/lfm2.5-350m-onnx":
     "quick:384/0.25/n3 explain:384/0.45/n3 deep:384/0.45/n3 code:384/0.45/n3 writing:384/0.38/n4 file:384/0.45/n3 research:384/0.45/n3",
   "candidate/qwen3.5-2b-onnx":
-    "quick:1024/0.32 explain:1536/0.42 deep:2048/0.6 code:2048/0.2 writing:1536/0.48/n4 file:2048/0.6 research:2048/0.6",
+    "quick:1024/0.32 explain:1536/0.42 deep:2048/0.6 code:2048/0.2 writing:1536/0.48 file:2048/0.6 research:2048/0.6",
   "candidate/gemma-4-e2b-litert":
     "quick:256/0.18 explain:768/0.3 deep:1536/0.42 code:1024/0.18 writing:1024/0.45 file:1536/0.45 research:1536/0.45",
   "candidate/qwen2.5-0.5b-mlc":

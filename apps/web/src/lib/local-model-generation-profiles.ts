@@ -85,6 +85,27 @@ const DEFAULT_CONTEXT_BUDGET: ContextBudget = {
 };
 
 // ─── Per-model generation profiles ────────────────────────────────────────
+//
+// ★ NO `noRepeatNgramSize` ON `writing`. Transformers.js applies the n-gram ban
+// across the FULL sequence, prompt included — verified by instantiating the real
+// `NoRepeatNGramLogitsProcessor` from the pinned 4.2.0 package and calling it at
+// generation step 0 with prompt tokens only, which returned -Infinity for the
+// offending token. With n=4 the model can copy at most three consecutive tokens
+// of the user's own text before the fourth is hard-banned, at every position.
+//
+// `writing` is the intent that fires when someone pastes their own words and asks
+// for them back changed — "fix the spelling but don't change my voice", "make this
+// shorter", "put this in a table". Banning reuse of the user's phrasing on exactly
+// those turns is backwards, and the visible result is the corruption class an
+// earlier quality audit recorded: mangled figures and run-together words.
+//
+// This was already understood: LFM25_1_2B_GEN and GEMMA4_GEN each refuse the guard
+// with a comment naming this hazard. A 2026-06-09 fix removed it from one model's
+// BASE setting and missed every per-intent override, so it survived here for seven
+// weeks. `repetitionPenalty` remains the loop guard on these instruction-tuned
+// models.
+//
+// The 350M starter is deliberately excluded — see LFM25_350M_GEN.
 
 const QWEN_GEN: GenerationProfileSlice = {
   generationDefaults: {
@@ -95,7 +116,7 @@ const QWEN_GEN: GenerationProfileSlice = {
     intentOverrides: {
       quick: { temperature: 0.32, topP: 0.78, repetitionPenalty: 1.06 },
       explain: { temperature: 0.42, topP: 0.84, repetitionPenalty: 1.06 },
-      writing: { temperature: 0.48, topP: 0.84, repetitionPenalty: 1.09, noRepeatNgramSize: 4 },
+      writing: { temperature: 0.48, topP: 0.84, repetitionPenalty: 1.09 },
       code: { temperature: 0.2, topP: 0.8 },
     },
   },
@@ -134,7 +155,7 @@ const QWEN35_GEN: GenerationProfileSlice = {
     intentOverrides: {
       quick: { temperature: 0.32, topP: 0.78, repetitionPenalty: 1.06 },
       explain: { temperature: 0.42, topP: 0.8, repetitionPenalty: 1.06 },
-      writing: { temperature: 0.48, topP: 0.8, repetitionPenalty: 1.09, noRepeatNgramSize: 4 },
+      writing: { temperature: 0.48, topP: 0.8, repetitionPenalty: 1.09 },
       code: { temperature: 0.2, topP: 0.8 },
     },
   },
@@ -154,6 +175,22 @@ const LFM25_350M_GEN: GenerationProfileSlice = {
     repetitionPenalty: 1.08,
     // 350M model is extremely loop-prone; base n-gram guard prevents runaway repetition.
     // No authoritative sampling recs from Liquid AI; generation_config.json has no sampling params.
+    //
+    // ★ DELIBERATELY LEFT ARMED, unlike the other profiles above. Two reasons, and
+    // the second is easy to get backwards:
+    //
+    //   1. This ban is BASE, so it applies on all seven intents, and this is the
+    //      model every first-time user's first answer comes from. Removing it risks
+    //      runaway repetition on the loopiest model we ship — and every loop guard
+    //      the pinned Transformers.js offers is prompt-inclusive (it implements
+    //      neither presence_penalty nor min_p), so there is nothing to fall back to.
+    //      Settling it needs a measured A/B against a real loaded model, not a
+    //      judgement call.
+    //   2. The `writing` override below is LOOSER than the base, not tighter: n=4
+    //      permits copying three consecutive prompt tokens where the base n=3
+    //      permits two. Deleting it here — the obvious way to read "remove the
+    //      writing n-gram overrides" — would make faithful reproduction on this
+    //      model STRICTLY WORSE. It stays until the A/B settles the base value.
     noRepeatNgramSize: 3,
     intentOverrides: {
       quick: { temperature: 0.25, topP: 0.78, repetitionPenalty: 1.06 },
@@ -195,7 +232,7 @@ const PHI3_MINI_GEN: GenerationProfileSlice = {
     intentOverrides: {
       quick: { temperature: 0.2, topP: 0.72, repetitionPenalty: 1.1 },
       explain: { temperature: 0.38, topP: 0.88 },
-      writing: { temperature: 0.44, topP: 0.88, repetitionPenalty: 1.1, noRepeatNgramSize: 4 },
+      writing: { temperature: 0.44, topP: 0.88, repetitionPenalty: 1.1 },
       code: { temperature: 0.18, topP: 0.82 },
     },
   },

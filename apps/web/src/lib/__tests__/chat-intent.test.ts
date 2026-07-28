@@ -61,8 +61,32 @@ describe("chat intent quality helpers", () => {
       temperature: 0.48,
       topP: 0.84,
       repetitionPenalty: 1.09,
-      noRepeatNgramSize: 4,
     });
+  });
+
+  it("never bans n-grams on the intent that has to reuse the user's words", () => {
+    // `writing` fires when someone pastes their own text and asks for it back
+    // changed. Transformers.js applies the n-gram ban across the prompt as well
+    // as the completion, so arming it here forbids the model from reproducing
+    // any four-token span of what the user just wrote — on the one task class
+    // whose whole requirement is reproducing what the user just wrote.
+    //
+    // This assertion previously pinned `noRepeatNgramSize: 4` as correct. It was
+    // not; `repetitionPenalty` is the loop guard for these instruction-tuned
+    // models. `candidate/lfm2.5-350m-onnx` is excluded deliberately — its ban is
+    // a BASE setting pending a measured A/B, and its `writing` override is looser
+    // than that base rather than tighter (see local-model-generation-profiles.ts).
+    for (const modelId of [
+      "local/qwen3-0.6b",
+      "local/phi3-mini-4k-q4f16",
+      "candidate/qwen3.5-2b-onnx",
+      "candidate/lfm2.5-1.2b-instruct-onnx",
+    ]) {
+      expect(
+        getGenerationProfile("writing", true, modelId).noRepeatNgramSize,
+        `${modelId} would be unable to quote the user back`,
+      ).toBeUndefined();
+    }
   });
 
   it("gives local deep intent the full premium-chat budget", () => {
