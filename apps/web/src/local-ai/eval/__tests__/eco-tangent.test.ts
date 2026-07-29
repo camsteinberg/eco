@@ -174,6 +174,8 @@ function resultFor(promptId: string, modelId: string, output: string, sampleInde
       appropriateUncertainty: null,
       answerDepth: null,
       depthMatch: null,
+      deliversFirst: null,
+      preservesUserText: null,
       coherence: null,
       taskFit: null,
     },

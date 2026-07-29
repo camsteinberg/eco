@@ -11,6 +11,13 @@
 import { describe, expect, it } from 'vitest';
 import {
   CANNED_LEAKAGE_PATTERNS,
+  analyzeDeliversFirst,
+  analyzePreservesUserText,
+  longestCommonTokenSpan,
+  pastedBlockOf,
+  scoreDeliversFirst,
+  scorePreservesUserText,
+  tokenizeForReuse,
   scoreAnswerDepth,
   scoreCannedLeakage,
   scoreCjkLeak,
@@ -24,6 +31,7 @@ import {
   scoreThinkLeakage,
   scoreUncertaintyHeuristic,
 } from '../rubric';
+import { AUTOMATED_DIMENSIONS } from '../aggregate';
 import type { EvalPromptSpec, RubricContext } from '../types';
 
 function spec(overrides: Partial<EvalPromptSpec> = {}): EvalPromptSpec {
@@ -507,5 +515,264 @@ describe('scoreDepthMatch', () => {
 
     const unscored = scoreResult(spec(), ctx());
     expect(unscored.depthMatch).toBeNull();
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// The two dims added for the generation-eval instrument.
+//
+// These tests ARE the verification for both dims: the harness runs on demand
+// against a real model, so nothing in CI ever exercises them end to end. They
+// are written adversarially on purpose — for each dim, the cheapest output that
+// would satisfy it WITHOUT helping a user is constructed and asserted to fail.
+// A dim for which that test cannot be written is a dim measuring something
+// other than its name.
+// ───────────────────────────────────────────────────────────────────────────
+
+describe('scoreDeliversFirst', () => {
+  const delivers = (overrides: Partial<EvalPromptSpec> = {}): EvalPromptSpec =>
+    spec({ expectDeliverable: true, ...overrides });
+
+  it('is null unless the spec expects a deliverable', () => {
+    expect(scoreDeliversFirst(spec(), 'What is your name?')).toBeNull();
+  });
+
+  it('scores 1 when nothing is asked of the user', () => {
+    const output = "About 10-12 minutes once the water's boiling, then straight into cold water.";
+    expect(scoreDeliversFirst(delivers(), output)).toBe(1);
+    expect(analyzeDeliversFirst(output).requestCount).toBe(0);
+  });
+
+  it('★ a two-word preamble does NOT flip it', () => {
+    const output = [
+      'Sure —',
+      '',
+      'Hi Dave, following up on the client deck we discussed on Monday.',
+      'It was due Wednesday and I have not received it yet — could you send it across today?',
+    ].join('\n');
+
+    const analysis = analyzeDeliversFirst(output);
+    expect(analysis.requestCount).toBeGreaterThan(0); // the draft does contain a question
+    expect(analysis.deliverableBeforeFirstRequest).toBe(true);
+    expect(scoreDeliversFirst(delivers(), output)).toBe(1);
+  });
+
+  it('scores 0 when it asks and never delivers', () => {
+    const output =
+      "Before I write this, what's your working relationship with Dave like? And how formal is your team?";
+    expect(scoreDeliversFirst(delivers(), output)).toBe(0);
+  });
+
+  it('★ cheapest satisfying change — filler ahead of the questions — FAILS', () => {
+    // The cheapest way to pass a naive "some words before the question" check is
+    // to pad with pleasantries. It buys the user nothing, so it must score 0.
+    const output =
+      "Of course, I'd be absolutely delighted to help you with this today. What's your dog's name? What breed is he, and how old?";
+
+    const analysis = analyzeDeliversFirst(output);
+    expect(analysis.deliverableBeforeFirstRequest).toBe(false);
+    expect(analysis.deliverableAfterFirstRequest).toBe(false);
+    expect(scoreDeliversFirst(delivers(), output)).toBe(0);
+  });
+
+  it('★ dropping the question mark does not launder an interrogation', () => {
+    // The other cheap satisfier: ask without asking. A '?'-only implementation
+    // scores this 1.
+    const output = 'Of course. Tell me his name and breed first.';
+    expect(scoreDeliversFirst(delivers(), output)).toBe(0);
+  });
+
+  it('scores 0.5 when it asks first but still delivers in the same turn', () => {
+    const output = [
+      "What's his name?",
+      "Here's one you can use in the meantime:",
+      '',
+      'He waits beside the door each afternoon,',
+      'a small brown shadow humming like a tune,',
+      'and when the key turns he forgets the day,',
+      'the hours he spent just waiting for the play.',
+    ].join('\n');
+    expect(scoreDeliversFirst(delivers(), output)).toBe(0.5);
+  });
+
+  it('does not read a rhetorical question inside the answer as an interrogation', () => {
+    const output =
+      'Keep, flip, multiply: 3/4 divided by 1/2 becomes 3/4 times 2/1, which is 6/4, or one and a half. How many halves fit into three quarters? One and a half of them, which is why the answer comes out bigger than most people expect.';
+    expect(analyzeDeliversFirst(output).requestCount).toBe(0);
+    expect(scoreDeliversFirst(delivers(), output)).toBe(1);
+  });
+
+  it('counts a table as a deliverable whatever its length', () => {
+    const output = [
+      '| Category | Oct | Nov |',
+      '| --- | --- | --- |',
+      '| Travel | 887.45 | 1,540.88 |',
+      '',
+      'Do you want a totals row as well?',
+    ].join('\n');
+    expect(scoreDeliversFirst(delivers(), output)).toBe(1);
+  });
+
+  it('flows through scoreResult only when the spec opts in', () => {
+    const asked = 'What would you like me to do?';
+    expect(scoreResult(delivers(), ctx({ output: asked })).deliversFirst).toBe(0);
+    expect(scoreResult(spec(), ctx({ output: asked })).deliversFirst).toBeNull();
+  });
+});
+
+describe('scorePreservesUserText', () => {
+  const PASTED_TURN =
+    'fix the spelling and grammar but dont change my voice\n\nso basically what happend was we got to the site at 7 and the crew wasnt there, i called mike twice no answer.';
+  const PASTED_BLOCK = pastedBlockOf(PASTED_TURN);
+
+  const reuse = (overrides: Partial<EvalPromptSpec> = {}): EvalPromptSpec =>
+    spec({ expectUserTextReuse: true, prompt: PASTED_TURN, ...overrides });
+
+  it('is null unless the spec expects reuse', () => {
+    expect(scorePreservesUserText(spec({ prompt: PASTED_TURN }), PASTED_BLOCK)).toBeNull();
+  });
+
+  it('★ an output reusing none of the user text scores 0', () => {
+    expect(scorePreservesUserText(reuse(), 'Understood, everything has been noted.')).toBe(0);
+  });
+
+  it('★ cheapest satisfying change — a verbatim echo — FAILS', () => {
+    // Handing the text straight back maximises reuse and does none of the work.
+    const analysis = analyzePreservesUserText(PASTED_TURN, PASTED_BLOCK);
+    expect(analysis.echo).toBe(true);
+    expect(scorePreservesUserText(reuse(), PASTED_BLOCK)).toBe(0);
+  });
+
+  it('★ the next-cheapest — echo plus a tacked-on sentence — also FAILS', () => {
+    const output = `${PASTED_BLOCK} Let me know if you want anything else.`;
+    expect(analyzePreservesUserText(PASTED_TURN, output).echo).toBe(true);
+    expect(scorePreservesUserText(reuse(), output)).toBe(0);
+  });
+
+  it('scores a genuine correction highly — real edits shatter the copied span', () => {
+    const corrected =
+      "So basically what happened was we got to the site at 7 and the crew wasn't there. I called Mike twice, no answer.";
+    const analysis = analyzePreservesUserText(PASTED_TURN, corrected);
+    expect(analysis.echo).toBe(false);
+    expect(scorePreservesUserText(reuse(), corrected)).toBe(1);
+  });
+
+  it('reads the PASTED block, not the instruction line the user typed around it', () => {
+    // Parroting the instruction is another way to look faithful while returning
+    // nothing of the user's actual text.
+    const parroted = 'I will fix the spelling and grammar but dont change my voice.';
+    const parrotScore = scorePreservesUserText(reuse(), parroted)!;
+    const realScore = scorePreservesUserText(
+      reuse(),
+      "So basically what happened was we got to the site at 7 and the crew wasn't there.",
+    )!;
+    expect(parrotScore).toBeLessThan(0.2);
+    expect(realScore).toBeGreaterThan(parrotScore);
+  });
+
+  it('★ reads out a prompt-inclusive n-gram ban: n=3 caps the span at 2', () => {
+    const userText = 'alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima';
+    // What a ban with noRepeatNgramSize=3 permits: never three consecutive
+    // prompt tokens, so the longest common span is 2.
+    const banned = 'alpha bravo zulu charlie delta zulu echo foxtrot zulu golf hotel zulu india juliet';
+    // The same content unbanned: a whole clause comes back intact.
+    const unbanned =
+      'here is that line again: alpha bravo charlie delta echo foxtrot golf hotel india juliet, and that is all of it';
+
+    expect(analyzePreservesUserText(userText, banned).longestSpan).toBe(2);
+    expect(analyzePreservesUserText(userText, banned).score).toBeCloseTo(0.25);
+    expect(analyzePreservesUserText(userText, unbanned).longestSpan).toBe(10);
+    expect(analyzePreservesUserText(userText, unbanned).score).toBe(1);
+  });
+
+  it('keeps figures intact through tokenization', () => {
+    expect(tokenizeForReuse('Deposit of £45, due 8 August (1,450.00 total).')).toEqual([
+      'deposit', 'of', '£45', 'due', '8', 'august', '1,450.00', 'total',
+    ]);
+  });
+
+  it('longestCommonTokenSpan finds the longest contiguous run', () => {
+    expect(longestCommonTokenSpan(['a', 'b', 'c', 'd'], ['x', 'b', 'c', 'y'])).toBe(2);
+    expect(longestCommonTokenSpan(['a', 'b'], ['c', 'd'])).toBe(0);
+    expect(longestCommonTokenSpan([], ['a'])).toBe(0);
+  });
+});
+
+describe('★ the instrument is two-sided: terseness must not pay', () => {
+  // The founder's worry, as a test. "'What is France like' is a simple question,
+  // but the user is curious about day-to-day life, the food, the culture." An
+  // instrument that only detects over-length optimises us into terseness, so a
+  // short, direct, unhelpfully thin reply has to score BADLY — not neutrally.
+  const OPEN_ASK: EvalPromptSpec = {
+    id: 'open-ask',
+    category: 'everyday-use',
+    intent: 'explain',
+    prompt: 'what is france like',
+    expectDeliverable: true,
+    // What the probe derivation produces for an open ask: a richness floor and
+    // NO ceiling. Nothing in the instrument can reward brevity here.
+    minWords: 60,
+  };
+
+  const THIN = 'France is a country in Western Europe. It is known for its food and its culture.';
+  const DEVELOPED = [
+    'France is big enough that it feels like several countries stitched together.',
+    'Paris runs on cafés, museums and a fast métro; the Alps are for snow and long walks;',
+    'Provence smells of lavender and moves at half the speed.',
+    'Food is the daily backbone rather than an occasion — bread bought fresh, markets on set',
+    'mornings, lunch taken seriously. People can seem reserved at first and then turn out warm',
+    'once you have said bonjour properly, which matters more than visitors expect. Trains make',
+    'the whole place easy to cross without a car. One honest caveat: August empties the cities,',
+    'and plenty of small shops simply shut for the month.',
+  ].join(' ');
+
+  it('scores a thin, direct, unhelpful reply badly', () => {
+    const thin = scoreResult(OPEN_ASK, ctx({ output: THIN }));
+    expect(thin.answerDepth).toBeLessThan(0.35);
+    // It is not caught by anything else: it delivers, it does not loop, it leaks
+    // nothing. The richness floor is the ONLY dim that sees this failure.
+    expect(thin.deliversFirst).toBe(1);
+    expect(thin.noRepetition).toBe(1);
+  });
+
+  it('scores the developed reply full marks on the same ask', () => {
+    const developed = scoreResult(OPEN_ASK, ctx({ output: DEVELOPED }));
+    expect(developed.answerDepth).toBe(1);
+    expect(developed.depthMatch).toBeNull(); // an open ask has no ceiling to breach
+  });
+
+  it('★ no automated dim rewards the thin reply over the developed one', () => {
+    const thin = scoreResult(OPEN_ASK, ctx({ output: THIN }));
+    const developed = scoreResult(OPEN_ASK, ctx({ output: DEVELOPED }));
+
+    for (const dim of AUTOMATED_DIMENSIONS) {
+      const thinScore = thin[dim];
+      const developedScore = developed[dim];
+      if (thinScore === null || developedScore === null) continue;
+      expect(
+        thinScore,
+        `dim "${dim}" pays for terseness: thin ${thinScore} > developed ${developedScore}`,
+      ).toBeLessThanOrEqual(developedScore);
+    }
+  });
+
+  it('★ and the ceiling still bites on a closed ask — both directions, one instrument', () => {
+    const CLOSED_ASK: EvalPromptSpec = {
+      id: 'closed-ask',
+      category: 'everyday-use',
+      intent: 'quick',
+      prompt: 'how long do you boil eggs for hard boiled',
+      expectDeliverable: true,
+      // What the derivation produces for a closed ask: a ceiling and NO floor.
+      depthBand: { maxWords: 125 },
+    };
+
+    const direct = "About 10-12 minutes once the water's boiling, then straight into cold water.";
+    const lecture = Array.from({ length: 60 }, (_, i) => `point ${i} about egg cookery history`).join('. ');
+
+    expect(scoreResult(CLOSED_ASK, ctx({ output: direct })).depthMatch).toBe(1);
+    expect(scoreResult(CLOSED_ASK, ctx({ output: lecture })).depthMatch!).toBeLessThan(0.5);
+    // and nothing on a closed ask demands length
+    expect(scoreResult(CLOSED_ASK, ctx({ output: direct })).answerDepth).toBeNull();
   });
 });

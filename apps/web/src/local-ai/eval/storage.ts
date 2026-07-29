@@ -38,6 +38,7 @@ const EVAL_CATEGORIES: ReadonlySet<EvalCategory> = new Set([
   'format-json',
   'richness',
   'answer-shape',
+  'everyday-use',
   'captured',
 ]);
 

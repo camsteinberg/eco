@@ -31,6 +31,13 @@ export type EvalCategory =
   | 'format-json'
   | 'richness'
   | 'answer-shape'
+  /**
+   * The everyday-use probe set — one probe per item of the blind-authored
+   * `__tests__/fixtures/everyday-use-corpus.ts`, derived at module load
+   * (local-ai/eval/everyday-probes.ts). Its own category so a run can be
+   * filtered to "what ordinary people actually bring" as a unit.
+   */
+  | 'everyday-use'
   | 'captured';
 
 /**
@@ -102,6 +109,21 @@ export type EvalPromptSpec = {
   /** Uncertainty: should hedge/decline rather than confabulate. */
   expectDecline?: boolean;
   /**
+   * `deliversFirst`: this ask has a DELIVERABLE, so the reply must not withhold
+   * it behind questions to the user. Gated (rather than always-on) on purpose:
+   * turning the dim on everywhere would silently change every existing probe
+   * set's `compositeScore` and break comparability with stored runs.
+   */
+  expectDeliverable?: true;
+  /**
+   * `preservesUserText`: the reply has to give the user's own words or figures
+   * back, so reusing spans of the prompt is REQUIRED rather than penalised.
+   * Set only where the prompt actually carries the text to be reused — a
+   * follow-up whose antecedent lives in an earlier turn has nothing in
+   * `prompt` to preserve and must leave this unset.
+   */
+  expectUserTextReuse?: true;
+  /**
    * Richness: a genuinely helpful reply should reach at least this many words
    * (graduated floor, NOT a length target — catches the terse failure mode).
    */
@@ -169,6 +191,31 @@ export type RubricScores = {
    * a proxy for shape — a judge (taskFit) confirms structure quality.
    */
   depthMatch: number | null;
+  /**
+   * Whether the deliverable survived the reply's questions. null unless
+   * `expectDeliverable` is set.
+   *
+   *   1   — no request to the user, OR a deliverable precedes the first one;
+   *   0.5 — the reply asks first but still delivers in the same turn;
+   *   0   — the reply asks and never delivers (the corpus bounce, phrased
+   *         forty different ways as "before writing anything").
+   *
+   * Deliberately NOT first-sentence position: a two-word preamble ("Sure —")
+   * ahead of a real deliverable is not a defect, and scoring it as one would
+   * measure politeness rather than delivery.
+   */
+  deliversFirst: number | null;
+  /**
+   * Longest contiguous run of the user's own tokens the reply managed to reuse,
+   * scaled against a clause-length target. null unless `expectUserTextReuse`.
+   *
+   * This is the only dim that can read out a PROMPT-INCLUSIVE n-gram ban: with
+   * `noRepeatNgramSize = n` the model can copy at most n-1 consecutive prompt
+   * tokens at any position, so the measured span is a direct readout of the
+   * constraint. COMPARATIVE by design — read the delta between arms, not the
+   * absolute level.
+   */
+  preservesUserText: number | null;
   // ── judge ──
   coherence: number | null;
   taskFit: number | null;
@@ -206,6 +253,21 @@ export type EvalMessageTopology = (typeof EVAL_MESSAGE_TOPOLOGIES)[number];
 
 /** Non-content identifier for prompt contracts that affect message composition. */
 export type EvalPromptContractId = 'none' | 'gemma-native-eco-contract-v1';
+
+/**
+ * The everyday-use A/B cells (local-ai/eval/everyday-arms.ts). Two orthogonal
+ * switches — the system prompt's add-context clause, and the prompt-inclusive
+ * n-gram ban — plus the mandatory `control` cell where both are as shipped.
+ *
+ * Declared HERE rather than beside the arm table so the run fingerprint can
+ * record which cell produced a run without `types` importing the arm module
+ * (that edge would close a cycle: the arm module reads `EvalRun`).
+ */
+export type EvalEverydayArmId =
+  | 'control'
+  | 'no-add-context'
+  | 'ngram-off'
+  | 'no-add-context-ngram-off';
 
 /** Privacy-safe description of the prompt topology used for one result. */
 export type EvalPromptTrace = {
@@ -305,6 +367,13 @@ export type EvalRunConfigFingerprint = {
   perGenerationTimeoutMs: number;
   /** Whether the Stage-0 answer-shape research arms were included. */
   includeResearchArms: boolean;
+  /**
+   * Which everyday-use A/B cell produced this run, when one was selected.
+   * Absent on runs that did not set an arm (including every run persisted before
+   * the arms existed). `compareEverydayArms` reads this to find the control, and
+   * refuses to diff runs that lack it.
+   */
+  everydayArm?: EvalEverydayArmId;
   /** Number of prompt specs run per model. */
   promptCount: number;
   /** Deterministic non-content hash of selected prompt IDs, categories, topology metadata, and scoring flags. */
