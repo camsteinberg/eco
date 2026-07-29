@@ -79,9 +79,13 @@ export type Frequency = "very-common" | "common" | "occasional";
  *   or figures back. A prompt-inclusive n-gram ban makes that impossible.
  * - `needs-guidance` — the counterweight. RULE: the good answer is structurally
  *   multi-part (three or more distinct components) AND names no brevity bound.
- *   These turns must still receive SOME instruction, so that emptying every hint
- *   — which would satisfy `no-elaboration-hint` everywhere — fails here instead
- *   of scoring as a clean sweep.
+ *   These turns must receive an instruction that LETS THEM BE MULTI-PART, so
+ *   that the two cheap ways to satisfy `no-elaboration-hint` everywhere both
+ *   fail here instead of scoring as a clean sweep: emptying every hint, and
+ *   replacing every hint with a brevity directive. Presence alone was the whole
+ *   check once, and it caught only the first — an audit reached a false 86/86 by
+ *   handing a eulogy request "Answer directly and briefly … give the answer
+ *   first and stop", which is a hint, and is also the bounce condition.
  *
  *   An earlier version asserted a token FLOOR for these items. That was dropped
  *   as unfounded: nothing in this corpus needs more than the direct band (a 2-3

@@ -51,22 +51,39 @@
  *   Each check is written to measure the property it NAMES rather than a symptom
  *   of it — because a check that can be satisfied by a change which does not help
  *   the user is not a weak check, it is a check measuring something other than
- *   what its name says. An audit found three of those here, and the repairs are
- *   worth understanding before adding a fifth check:
+ *   what its name says. Repairs worth understanding before adding a fifth check:
  *     - the elaboration check matched four substrings of two hint strings, so it
  *       measured "contains this wording", not "instructs development". Rewording
  *       a hint — for good reasons, using text that already ships in this same
  *       function — closed all twenty-five of its gaps. It now pins the
  *       classification of every hint the codebase can emit, so new wording has to
  *       be classified rather than silently pass.
- *     - the faithfulness check asked whether ANY model bans n-grams at an intent.
- *       One model bans them at every intent, so the check was a constant that no
- *       routing change could move. It now measures only the bans routing arms.
+ *     - the faithfulness check asked whether ANY model bans n-grams at an intent;
+ *       one model bans at every intent, so it was rescoped to the bans routing
+ *       arms ABOVE `quick`. That rescoping made it a constant PASS: it granted
+ *       every item, every intent and every model a clean bill while the one
+ *       remaining defect — the starter's BASE ban, which blocks all ten "give me
+ *       my own words back" items — sat in the one blind spot it had created. It
+ *       is unscoped again, because the property is what the USER's turn reaches,
+ *       not which layer of config put it there. Attributing the harm to routing
+ *       is the aggregate's job, below, and mis-scoping the per-item check to do
+ *       it cost the check its whole subject.
  *     - the per-item checks are all local, and the cheapest global change that
- *       satisfies them (moving turns onto `writing`) more than doubles how many
- *       turns are forbidden from quoting the user back. `NGRAM_EXPOSURE_CEILING`
- *       measures that directly; `needs-guidance` likewise catches hint-emptying,
- *       which would otherwise satisfy `no-elaboration-hint` everywhere.
+ *       satisfies them (moving turns onto `writing`) can arm bans no single item
+ *       view would show. The exposure block below measures that as two separate
+ *       things — what the corpus is exposed to, and the part ROUTING added — and
+ *       pins the precondition that decides whether the second can move at all.
+ *       `needs-guidance` is the other counterweight: it catches both emptying
+ *       every hint AND replacing every hint with a brevity directive, either of
+ *       which would satisfy `no-elaboration-hint` everywhere.
+ *
+ * ★ A COUNTERWEIGHT CAN GO VACUOUS WITHOUT ANYONE TOUCHING IT. Both n-gram
+ * measures here degenerated into constants not through an edit to this file but
+ * because a PR elsewhere removed the last intent-specific n-gram overrides. A
+ * check whose sensitivity rests on a fact about other code must PIN THAT FACT,
+ * or its green means "the world stopped being measurable" rather than "we are
+ * fine". `MODELS_TIGHTENING_BANS_BY_INTENT` and the two `direct-budget`
+ * degeneracy pins exist for exactly that reason.
  *
  * ★ WHEN IT FAILS. `KNOWN_GAPS` pins each shortfall to its mechanism at CURRENT
  * behaviour, so closing a gap fails this suite on purpose — delete the entry, do
@@ -150,6 +167,26 @@ const ELABORATION_MARKERS: readonly string[] = [
   "reasons, examples",
 ];
 
+/**
+ * Phrases that instruct the model to CUT SHORT or STOP.
+ *
+ * RULE, applied mechanically: a hint curtails if it puts a ceiling on the answer
+ * ("at most three…", "keep the explanation short", "briefly") or tells the model
+ * to stop or to do only the one thing ("give the answer first and stop", "Stop
+ * when the distinction is clear"). "Avoid filler" is NOT a ceiling and does not
+ * count — a three-part answer with no filler is still a three-part answer.
+ *
+ * ★ THESE ARE ORDINARY WORDS PEOPLE TYPE, unlike the elaboration markers. Two
+ * corpus items say "shorter." and "keep it short" in the user's own voice. They
+ * are matched against the appended HINT ONLY, and `records that the curtailment
+ * markers are words users themselves type` below pins that as a live hazard
+ * rather than a comment: widening this match to the whole turn would read a
+ * user ASKING for brevity as us imposing it. The elaboration list gets a
+ * stronger guard because it can afford one; this list cannot, so it gets a
+ * standing reminder of why the scoping is load-bearing.
+ */
+const CURTAILMENT_MARKERS: readonly string[] = ["briefly", "at most", "short", "stop"];
+
 type Routing = {
   readonly shape: AnswerShape;
   readonly intent: ChatIntent;
@@ -157,15 +194,32 @@ type Routing = {
   /** The instruction appended to the turn; empty when none was. */
   readonly hint: string;
   readonly elaborationMarkers: readonly string[];
+  readonly curtailmentMarkers: readonly string[];
   /**
-   * Catalog models where THIS INTENT arms a prompt-inclusive n-gram ban that
-   * `quick` does not. Scoped that way on purpose: `candidate/lfm2.5-350m-onnx`
-   * carries a base ban on all seven intents, so an unscoped check would be a
-   * constant `false` that no routing change could ever satisfy — and would
-   * blame routing for a model-profile decision routing cannot reach.
+   * Every catalog model whose profile arms a prompt-inclusive n-gram ban at THIS
+   * turn's routed intent, with the ban size — i.e. what this turn actually meets
+   * on each model a user can be served.
+   *
+   * ★ DELIBERATELY UNSCOPED, and it was not always. It used to exclude models
+   * that ban at `quick` too, on the reasoning that a base ban is a model-profile
+   * decision routing cannot lift. The effect was a check that passed for every
+   * item, at every intent, on every model — while the single remaining base ban
+   * blocked all ten of the turns whose whole requirement is quoting the user
+   * back. A per-item check answers "what does this person's turn run into"; the
+   * answer does not change because the setting lives in a profile rather than a
+   * route. Attribution is the aggregate's job (`armedByRouting` below).
    */
   readonly ngramBanningModels: readonly string[];
 };
+
+/**
+ * The prompt-inclusive n-gram ban size this model applies at this intent, or
+ * `undefined` for no ban. Smaller is stricter: with `noRepeatNgramSize` of n the
+ * model may reuse at most n-1 consecutive tokens of the user's own text.
+ */
+function ngramSizeAt(intent: ChatIntent, modelId: string): number | undefined {
+  return getGenerationProfile(intent, true, modelId).noRepeatNgramSize;
+}
 
 function route(item: EverydayUseItem): Routing {
   const prior = hasPriorTurns(item.id);
@@ -180,10 +234,11 @@ function route(item: EverydayUseItem): Routing {
     elaborationMarkers: ELABORATION_MARKERS.filter((marker) =>
       hint.toLowerCase().includes(marker),
     ),
+    curtailmentMarkers: CURTAILMENT_MARKERS.filter((marker) =>
+      hint.toLowerCase().includes(marker),
+    ),
     ngramBanningModels: CATALOG_MODEL_IDS.filter(
-      (modelId) =>
-        getGenerationProfile(intent, true, modelId).noRepeatNgramSize != null
-        && getGenerationProfile("quick", true, modelId).noRepeatNgramSize == null,
+      (modelId) => ngramSizeAt(intent, modelId) != null,
     ),
   };
 }
@@ -201,11 +256,21 @@ const CHECKS = {
   "faithful-reproduction": (r: Routing) =>
     r.ngramBanningModels.length === 0
       ? null
-      : `routing arms a prompt-inclusive n-gram ban on ${r.ngramBanningModels.join(", ")} via intent "${r.intent}"`,
-  "needs-guidance": (r: Routing) =>
-    r.hint.length > 0
+      : `as routed (intent "${r.intent}") this turn meets a prompt-inclusive n-gram ban on ${r.ngramBanningModels
+          .map((m) => `${m} (n=${String(ngramSizeAt(r.intent, m) ?? 0)})`)
+          .join(", ")} — the model may reuse at most n-1 consecutive tokens of the user's own words`,
+  "needs-guidance": (r: Routing) => {
+    if (r.hint.length === 0) {
+      return `turn carries no instruction at all via intent "${r.intent}"`;
+    }
+    // Presence alone was the whole check, which made it satisfiable by handing a
+    // eulogy "Answer directly and briefly … give the answer first and stop." —
+    // a string that already ships two dozen lines away in the same function. An
+    // audit reached a false 86/86 through exactly that door.
+    return r.curtailmentMarkers.length === 0
       ? null
-      : `turn carries no instruction at all via intent "${r.intent}"`,
+      : `told to cut short (${r.curtailmentMarkers.join(", ")}) via intent "${r.intent}", on a turn whose good answer is multi-part and names no length bound`;
+  },
 } as const;
 
 type Need = keyof typeof CHECKS;
@@ -215,39 +280,101 @@ function checkOf(need: Need, item: EverydayUseItem): string | null {
   return CHECKS[need](route(item));
 }
 
+type NgramExposure = {
+  /**
+   * How many corpus turns reach a prompt-inclusive n-gram ban, per model, at the
+   * intent each turn is actually routed to.
+   */
+  readonly banned: Readonly<Record<string, number>>;
+  /**
+   * The part ROUTING is answerable for: `item:model` pairs where the routed
+   * intent bans where `quick` would not, or bans more strictly than `quick`
+   * does. `quick` is the no-treatment baseline, so this is "exposure that exists
+   * because of where we sent the turn", as opposed to exposure the model applies
+   * to everything regardless.
+   */
+  readonly armedByRouting: readonly string[];
+};
+
 /**
- * Every (turn, model) pair where routing arms a prompt-inclusive n-gram ban,
- * counted across the whole corpus and every catalog model — including the base
- * bans the per-item check deliberately excludes.
+ * The aggregate the per-item checks cannot see, as a structure rather than a
+ * count.
  *
- * This is the aggregate the per-item checks cannot see. An audit found that the
- * most obvious way to fix the biggest block — push everything off `explain` —
- * lands those turns on `writing`, whose hint carries no marker and whose budget
- * satisfies the rest. That change scores as an unqualified win per-item while
- * more than doubling how many turns are forbidden from quoting the user back.
+ * IT USED TO BE ONE NUMBER, and the number was 40 under every one of the seven
+ * intents — a constant wearing the word "ceiling". It was built to catch a real
+ * corpus-wide harm: the cheapest way to close the biggest per-item block is to
+ * push turns off `explain`, which lands them on `writing`, and `writing` used to
+ * carry an n-gram override on three models. Once those overrides came off, ban
+ * membership stopped varying with intent at all, so summing it produced the same
+ * total no matter what routing did.
+ *
+ * Split in two, because those were always two different questions:
+ *   - `banned` is a FACT — what the corpus meets today, per model. Keyed by
+ *     model so a newly-banning model appears as a new key instead of hiding
+ *     inside a total that another model's improvement cancelled out.
+ *   - `armedByRouting` is the COUNTERWEIGHT, and it is a list, not a count.
  */
-function ngramExposure(): number {
-  let pairs = 0;
+function ngramExposure(): NgramExposure {
+  const banned: Record<string, number> = {};
+  const armedByRouting: string[] = [];
   for (const item of EVERYDAY_USE_CORPUS) {
     const intent = inferTurnIntent(item.userInput, hasPriorTurns(item.id));
     for (const modelId of CATALOG_MODEL_IDS) {
-      if (getGenerationProfile(intent, true, modelId).noRepeatNgramSize != null) {
-        pairs += 1;
+      const routed = ngramSizeAt(intent, modelId);
+      if (routed == null) {
+        continue;
+      }
+      banned[modelId] = (banned[modelId] ?? 0) + 1;
+      const baseline = ngramSizeAt("quick", modelId);
+      if (baseline == null || routed < baseline) {
+        armedByRouting.push(`${item.id}:${modelId}`);
       }
     }
   }
-  return pairs;
+  return { banned, armedByRouting: armedByRouting.sort() };
 }
 
 /**
- * Today's exposure. A routing change may lower this; it must never raise it.
+ * Today's exposure, per model. Was 58 across three models before the `writing`
+ * n-gram overrides came off phi3, qwen3-0.6b and the shipping default.
  *
- * Was 58 before the `writing` n-gram overrides came off phi3, qwen3-0.6b and the
- * shipping default. The remaining 40 are all the 350M starter, whose ban is BASE
- * and applies at every intent — see the deferred decision pinned at the end of
- * this file. No routing change can lower it further.
+ * The 40 remaining are the starter's, whose ban is BASE and so applies at every
+ * intent — every turn in the corpus, on the model every first-time user's first
+ * answer comes from. Recorded here as a fact; named as a defect in
+ * `starter-base-ngram-ban` and pinned per item in `KNOWN_GAPS`.
  */
-const NGRAM_EXPOSURE_CEILING = 40;
+const NGRAM_EXPOSURE_TODAY: Readonly<Record<string, number>> = {
+  "candidate/lfm2.5-350m-onnx": 40,
+};
+
+/**
+ * ★ THE PRECONDITION `armedByRouting` DEPENDS ON, pinned so it cannot quietly
+ * stop holding.
+ *
+ * `armedByRouting` can only ever be non-empty for a model that bans n-grams more
+ * strictly at some intent than it does at `quick`. No catalog model does today,
+ * so the counterweight is ASLEEP: it reads green because nothing intent-specific
+ * exists to catch, not because a routing change was checked and cleared.
+ *
+ * That is precisely how its predecessor died. Three models carried a `writing`
+ * override; a PR removed all three for good reasons; the aggregate silently
+ * became a constant and kept reporting green for two more PRs. Nothing in this
+ * file mentioned that its sensitivity rested on a fact in
+ * `local-model-generation-profiles.ts`. Now it does, in both directions — adding
+ * an intent-specific ban wakes the counterweight and fails here, and removing
+ * the last one puts it back to sleep and fails here too.
+ */
+const MODELS_TIGHTENING_BANS_BY_INTENT: readonly string[] = [];
+
+function modelsTighteningBansByIntent(): readonly string[] {
+  return CATALOG_MODEL_IDS.filter((modelId) => {
+    const baseline = ngramSizeAt("quick", modelId);
+    return INTENT_ORDER.some((intent) => {
+      const n = ngramSizeAt(intent, modelId);
+      return n != null && (baseline == null || n < baseline);
+    });
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Where today's routing disagrees with the corpus.
@@ -311,6 +438,23 @@ const GAP_MECHANISMS = {
     "eight good ones'.",
   ].join(" "),
 
+  "starter-base-ngram-ban": [
+    "`candidate/lfm2.5-350m-onnx` sets `noRepeatNgramSize: 3` as a BASE default",
+    "(local-model-generation-profiles.ts, LFM25_350M_GEN), so it applies on all seven intents.",
+    "Transformers.js bans the n-gram across the FULL sequence, prompt included, so the model may",
+    "reuse at most two consecutive tokens of the user's own text — at every position, on every",
+    "turn. Every item whose entire requirement is handing the user's own words or figures back",
+    "is therefore copy-blocked on the model a first-time user's first answer comes from, and no",
+    "routing change can lift it: the cause is the model profile, not the intent, which is why",
+    "these gaps are pinned at seven different intents and share one mechanism. This is a LIVE",
+    "DEFECT, not an accepted limit — the starter is held to the same answer-quality bar as the",
+    "larger models. It is unfixed only because the fix is unmeasured: dropping the guard risks",
+    "runaway repetition on the loopiest model we ship, and the pinned Transformers.js implements",
+    "neither presence_penalty nor min_p, so there is no non-prompt-inclusive loop guard to fall",
+    "back to. Settling it needs an A/B against a real loaded model on real hardware. When that",
+    "lands, all ten of these entries close together.",
+  ].join(" "),
+
   "brevity-misses-the-budget": [
     "The user gave an explicit brevity instruction and the per-turn hint was correctly",
     "suppressed — but nothing carried that instruction to the BUDGET.",
@@ -329,6 +473,24 @@ type GapMechanism = keyof typeof GAP_MECHANISMS;
  */
 const KNOWN_GAPS: ReadonlyMap<GapKey, { mechanism: GapMechanism; intent: ChatIntent }> =
   new Map<GapKey, { mechanism: GapMechanism; intent: ChatIntent }>([
+    // ── faithful-reproduction, all ten of them ──────────────────────────────
+    // Every item that has to hand the user their own words back fails, on the
+    // starter, at whatever intent it routes to. Ten items, seven distinct
+    // intents, one mechanism — which is the shape of a model-profile defect
+    // rather than a routing one. This block was invisible until the check was
+    // unscoped: it had been narrowed to bans routing arms ABOVE `quick`, and
+    // the starter bans at `quick` too, so the check passed everywhere.
+    ["faithful-reproduction/work-email-tone-fix", { mechanism: "starter-base-ngram-ban", intent: "deep" }],
+    ["faithful-reproduction/work-followup-shorter", { mechanism: "starter-base-ngram-ban", intent: "explain" }],
+    ["faithful-reproduction/rewrite-03", { mechanism: "starter-base-ngram-ban", intent: "writing" }],
+    ["faithful-reproduction/sw-15", { mechanism: "starter-base-ngram-ban", intent: "deep" }],
+    ["faithful-reproduction/school-essay-not-ai", { mechanism: "starter-base-ngram-ban", intent: "deep" }],
+    ["faithful-reproduction/health-hospital-letter", { mechanism: "starter-base-ngram-ban", intent: "deep" }],
+    ["faithful-reproduction/school-letter-esl-parent", { mechanism: "starter-base-ngram-ban", intent: "writing" }],
+    ["faithful-reproduction/legal-rent-increase", { mechanism: "starter-base-ngram-ban", intent: "research" }],
+    ["faithful-reproduction/summarise-01", { mechanism: "starter-base-ngram-ban", intent: "quick" }],
+    ["faithful-reproduction/sw-13", { mechanism: "starter-base-ngram-ban", intent: "explain" }],
+
     ["no-elaboration-hint/work-email-tone-fix", { mechanism: "shape-length-catchall", intent: "deep" }],
     ["direct-budget/work-email-tone-fix", { mechanism: "shape-length-catchall", intent: "deep" }],
     ["no-elaboration-hint/work-followup-shorter", { mechanism: "explain-default-middle", intent: "explain" }],
@@ -515,21 +677,39 @@ describe("everyday-use sweep — today's routing, pinned exactly", () => {
  * bullets each", near-verbatim one item's own bounce condition. With this pin, a
  * reworded hint fails here and has to be classified deliberately.
  */
-const HINT_CLASSIFICATION: Readonly<Record<string, boolean>> = {
+type HintClassification = {
+  /** Instructs the model to DEVELOP rather than deliver — `no-elaboration-hint`. */
+  readonly elaborates: boolean;
+  /** Instructs the model to cut short or stop — `needs-guidance`. */
+  readonly curtails: boolean;
+};
+
+const HINT_CLASSIFICATION: Readonly<Record<string, HintClassification>> = {
   "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications.":
-    true,
-  "Use clear sections; include concrete recommendations and tradeoffs.": true,
-  "Lead with the working code or fix; keep the explanation short.": false,
-  "Match the requested format and tone; avoid filler.": false,
-  "Lead with the conclusion; cite specifics from the file.": false,
+    { elaborates: true, curtails: false },
+  "Use clear sections; include concrete recommendations and tradeoffs.": {
+    elaborates: true,
+    curtails: false,
+  },
+  "Lead with the working code or fix; keep the explanation short.": {
+    elaborates: false,
+    curtails: true,
+  },
+  "Match the requested format and tone; avoid filler.": { elaborates: false, curtails: false },
+  "Lead with the conclusion; cite specifics from the file.": { elaborates: false, curtails: false },
   "Distinguish supported claims from uncertain ones; cite sources only when you can back the claim.":
-    false,
+    { elaborates: false, curtails: false },
+  // ★ The three LiteRT strings below are the nearest available replacement
+  // wording for the two default hints that carry every `no-elaboration-hint`
+  // gap, which is exactly why an audit reached for them. Two of the three
+  // curtail, so adopting them now trips `needs-guidance` instead of scoring a
+  // clean sweep. That is the counterweight doing its job.
   "Answer directly and briefly. For a single factual question, give the answer first and stop. For a short follow-up, make only the requested change.":
-    false,
+    { elaborates: false, curtails: true },
   "Lead with the direct answer, then cover the essential details in at most three concise paragraphs or bullets. Stop when the distinction is clear.":
-    false,
+    { elaborates: false, curtails: true },
   "Use at most three short sections with two bullets each. Give concrete steps and a brief why for each. Finish with one short takeaway.":
-    true,
+    { elaborates: true, curtails: true },
 };
 
 describe("everyday-use sweep — the instrument", () => {
@@ -539,14 +719,17 @@ describe("everyday-use sweep — the instrument", () => {
   });
 
   it("pins every hint the codebase can emit, and how we classify it", () => {
-    const emitted: Record<string, boolean> = {};
+    const emitted: Record<string, HintClassification> = {};
     for (const modelId of [...CATALOG_MODEL_IDS, undefined]) {
       for (const intent of INTENT_ORDER) {
         const hint = buildTurnQualityInstruction(intent, true, modelId);
         if (hint.length === 0) {
           continue;
         }
-        emitted[hint] = ELABORATION_MARKERS.some((m) => hint.toLowerCase().includes(m));
+        emitted[hint] = {
+          elaborates: ELABORATION_MARKERS.some((m) => hint.toLowerCase().includes(m)),
+          curtails: CURTAILMENT_MARKERS.some((m) => hint.toLowerCase().includes(m)),
+        };
       }
     }
     // A reworded or new hint lands here as an unclassified key. Classify it on
@@ -556,12 +739,12 @@ describe("everyday-use sweep — the instrument", () => {
 
   it("keeps every marker earning its place in a hint we actually ship", () => {
     const shipped = Object.keys(HINT_CLASSIFICATION).join(" ").toLowerCase();
-    for (const marker of ELABORATION_MARKERS) {
+    for (const marker of [...ELABORATION_MARKERS, ...CURTAILMENT_MARKERS]) {
       expect(shipped, `marker "${marker}" matches no hint we emit`).toContain(marker);
     }
   });
 
-  it("never reads a marker out of the user's own words", () => {
+  it("never reads an elaboration marker out of the user's own words", () => {
     for (const item of EVERYDAY_USE_CORPUS) {
       for (const marker of ELABORATION_MARKERS) {
         expect(
@@ -570,6 +753,21 @@ describe("everyday-use sweep — the instrument", () => {
         ).toBe(false);
       }
     }
+  });
+
+  it("records that the curtailment markers ARE words users themselves type", () => {
+    // The guard above holds for elaboration markers because "tradeoffs" and
+    // "develop the details" are not how people write. It CANNOT hold here:
+    // asking for something shorter is one of the most ordinary things a person
+    // types. So the safety comes entirely from scoping the match to the hint,
+    // and this pins the hazard as a live fact rather than a comment — if
+    // anyone ever widens curtailment matching to the whole turn, these two
+    // items are what it will misread, calling a user's own brevity request our
+    // instruction to cut them off.
+    const spokenByUsers = EVERYDAY_USE_CORPUS.filter((item) =>
+      CURTAILMENT_MARKERS.some((m) => item.userInput.toLowerCase().includes(m)),
+    ).map((item) => item.id);
+    expect(spokenByUsers.sort()).toEqual(["work-followup-shorter", "work-sick-text"]);
   });
 
   it("derives a routing need, quoting the item, for every item", () => {
@@ -617,6 +815,49 @@ describe("everyday-use sweep — the instrument", () => {
     expect(CATALOG_MODEL_IDS).toContain(BUDGET_MODEL);
     expect(CATALOG_MODEL_IDS.length).toBeGreaterThanOrEqual(6);
   });
+
+  /**
+   * ★ WHAT `direct-budget` ACTUALLY MEASURES. Stated in prose three places in
+   * this repo and asserted in none, which is how the n-gram checks decayed. On
+   * the everyday default exactly one intent sits inside the direct band, so the
+   * check is today equivalent to `intent === "quick"` — a second reading of
+   * intent, not an independent length signal. Reading a `direct-budget` pass and
+   * a `no-elaboration-hint` pass as two pieces of evidence double-counts one.
+   *
+   * Not softened, because it is not wrong: the budget IS what reaches the
+   * runtime. It is under-powered, and the honest stronger form is unreachable
+   * from here — `getGenerationProfile` takes no content parameter, so the budget
+   * path cannot see the length bound the corpus item states (the standing
+   * `brevity-misses-the-budget` mechanism). Making it measure its name needs a
+   * behaviour change, not a test change.
+   */
+  it("says what `direct-budget` actually measures on the model it measures", () => {
+    const insideBand = INTENT_ORDER.filter(
+      (intent) => getGenerationProfile(intent, true, BUDGET_MODEL).maxTokens <= DIRECT_BAND_MAX_TOKENS,
+    );
+    expect(
+      insideBand,
+      "the set of intents inside the direct band changed — `direct-budget` is no longer equivalent to `intent === \"quick\"`, so re-read what it now measures",
+    ).toEqual(["quick"]);
+  });
+
+  it("names the models whose budget axis is flat, where a swept budget check would be vacuous", () => {
+    // Three of seven models hand every intent the same ceiling, so on them a
+    // budget assertion is satisfied by the model's own cap and says nothing
+    // about routing. That is WHY budget assertions run against the everyday
+    // default only — pinned so that sweeping this check across models later
+    // cannot silently be three-sevenths vacuous.
+    const flatBudgetAxis = CATALOG_MODEL_IDS.filter(
+      (modelId) =>
+        new Set(INTENT_ORDER.map((intent) => getGenerationProfile(intent, true, modelId).maxTokens))
+          .size === 1,
+    );
+    expect(flatBudgetAxis).toEqual([
+      "local/phi3-mini-4k-q4f16",
+      "local/qwen3-0.6b",
+      "candidate/lfm2.5-350m-onnx",
+    ]);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -624,15 +865,28 @@ describe("everyday-use sweep — the instrument", () => {
 // ---------------------------------------------------------------------------
 
 describe("everyday-use sweep — n-gram exposure across the corpus", () => {
-  it("never arms a prompt-inclusive n-gram ban on more turns than it does today", () => {
-    expect(
-      ngramExposure(),
-      "a routing change pushed more turns onto an intent that forbids quoting the user back",
-    ).toBeLessThanOrEqual(NGRAM_EXPOSURE_CEILING);
+  it("records which models forbid quoting the user back, and on how many turns", () => {
+    const { banned } = ngramExposure();
+    expect(banned).toEqual(NGRAM_EXPOSURE_TODAY);
+    // 40 of 40. The starter's ban is saturated across the corpus, so this count
+    // cannot absorb one turn fixed and another broken — there is nothing left to
+    // break. Per-turn movement shows up in ROUTING_TODAY, per-model in
+    // MODEL_MATRIX_TODAY.
+    expect(banned["candidate/lfm2.5-350m-onnx"]).toBe(EVERYDAY_USE_CORPUS.length);
   });
 
-  it("records today's exposure, so a reduction is noticed too", () => {
-    expect(ngramExposure()).toBe(NGRAM_EXPOSURE_CEILING);
+  it("arms no n-gram ban that routing itself put there", () => {
+    expect(
+      ngramExposure().armedByRouting,
+      "a routing change sent turns to an intent that forbids quoting the user back more strictly than `quick` would",
+    ).toEqual([]);
+  });
+
+  it("says out loud whether that counterweight can fire at all", () => {
+    expect(
+      modelsTighteningBansByIntent(),
+      "the set of models with intent-specific n-gram tightening changed — `armedByRouting` just woke up or went to sleep, and either way it needs a deliberate look",
+    ).toEqual(MODELS_TIGHTENING_BANS_BY_INTENT);
   });
 });
 
@@ -644,8 +898,9 @@ const NEED_DESCRIPTIONS: Record<Need, string> = {
   "no-elaboration-hint": "asks for an artifact or a verdict, so is not told to elaborate",
   "direct-budget": "is bounded in length, so routes inside the direct band",
   "faithful-reproduction":
-    "must give the user's own words back, so routing arms no n-gram ban",
-  "needs-guidance": "has a multi-part answer, so still receives an instruction",
+    "must give the user's own words back, so the turn as routed meets no n-gram ban",
+  "needs-guidance":
+    "has a multi-part answer, so receives an instruction that does not cut it short",
 };
 
 for (const need of Object.keys(CHECKS) as Need[]) {
@@ -821,15 +1076,25 @@ describe("everyday-use sweep — the system prompt is not routed", () => {
  *
  * `candidate/lfm2.5-350m-onnx` — the model every first-time user's first answer
  * comes from — carries `noRepeatNgramSize` as a BASE setting, so it applies on all
- * seven intents. No routing change can lift it, which is exactly why the per-item
- * faithfulness check is scoped to the bans routing arms: blaming routing for this
- * would make that check a constant no fix could ever satisfy.
+ * seven intents. No routing change can lift it.
  *
- * Deliberately not fixed. Removing it risks runaway repetition on the loopiest
- * model we ship, and every loop guard the pinned Transformers.js offers is
- * prompt-inclusive — there is no presence_penalty and no min_p to fall back on.
- * Settling it needs a measured A/B against a real loaded model on real hardware.
- * Pinned so the deferral stays a decision rather than an oversight.
+ * ★ THIS IS THE DEFECT, NOT THE EXCUSE. An earlier reading of this same fact
+ * concluded that the per-item faithfulness check should be scoped AWAY from it,
+ * so as not to blame routing for something routing cannot reach. The result was
+ * a check that passed for every item at every intent on every model while all
+ * ten "give me my own words back" turns were copy-blocked. The lesson is
+ * general: when a check's subject turns out to be unreachable from the layer the
+ * check lives in, the answer is to state the defect, not to narrow the check
+ * until the defect falls outside it. It is pinned per item in `KNOWN_GAPS` under
+ * `starter-base-ngram-ban`.
+ *
+ * Unfixed because the fix is UNMEASURED, not because the bar is lower here — the
+ * starter is held to the same answer-quality standard as the larger models.
+ * Removing the guard risks runaway repetition on the loopiest model we ship, and
+ * every loop guard the pinned Transformers.js offers is prompt-inclusive: there
+ * is no presence_penalty and no min_p to fall back on. Settling it needs an A/B
+ * against a real loaded model on real hardware. Pinned so the deferral stays a
+ * funded decision rather than an oversight.
  */
 describe("everyday-use sweep — the starter model's base n-gram ban (deferred)", () => {
   it("still applies on every intent, so every first answer is copy-blocked", () => {
