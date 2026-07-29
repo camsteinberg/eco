@@ -121,7 +121,7 @@ export function MessageActions({
     "flex w-full items-center gap-2 px-3 py-1.5 min-h-[44px] md:min-h-0 text-left text-sm text-[var(--eco-text)] transition-colors hover:bg-[var(--eco-primary-soft)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--eco-primary)] motion-reduce:transition-none";
 
   return (
-    <div className="flex items-center gap-1 rounded-lg border border-[var(--eco-border)] bg-[var(--eco-surface-elevated)] p-1 opacity-100 shadow-sm transition-opacity motion-reduce:transition-none md:opacity-0 md:group-hover:opacity-100">
+    <div className="flex items-center gap-1 rounded-lg border border-[var(--eco-border)] bg-[var(--eco-surface-elevated)] p-1 opacity-100 shadow-sm transition-opacity focus-within:opacity-100 motion-reduce:transition-none md:opacity-0 md:group-hover:opacity-100">
       <span className="sr-only" role="status" aria-live="polite">
         {copied ? "Message copied to clipboard" : ""}
       </span>

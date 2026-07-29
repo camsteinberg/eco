@@ -398,7 +398,7 @@ export function MessageBubble({
 
         {/* Consolidated metadata row: actions + token count + timestamp (hover-reveal) */}
         {!isStreaming && content && !isEditing && (
-          <div className={`flex items-center gap-2 mt-0.5 opacity-0 transition-opacity group-hover:opacity-100 ${isUser ? "justify-end" : "justify-start"}`}>
+          <div className={`flex items-center gap-2 mt-0.5 transition-opacity focus-within:opacity-100 motion-reduce:transition-none md:opacity-0 md:group-hover:opacity-100 ${isUser ? "justify-end" : "justify-start"}`}>
             <MessageActions
               content={content}
               role={role as "user" | "assistant"}
