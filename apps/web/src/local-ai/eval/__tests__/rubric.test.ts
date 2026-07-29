@@ -32,7 +32,7 @@ import {
   scoreUncertaintyHeuristic,
 } from '../rubric';
 import { AUTOMATED_DIMENSIONS } from '../aggregate';
-import type { EvalPromptSpec, RubricContext } from '../types';
+import type { EvalPromptSpec, RubricContext, RubricScores } from '../types';
 
 function spec(overrides: Partial<EvalPromptSpec> = {}): EvalPromptSpec {
   return {
@@ -699,10 +699,18 @@ describe('scorePreservesUserText', () => {
 });
 
 describe('★ the instrument is two-sided: terseness must not pay', () => {
-  // The founder's worry, as a test. "'What is France like' is a simple question,
+  // The product worry, as a test. "'What is France like' is a simple question,
   // but the user is curious about day-to-day life, the food, the culture." An
   // instrument that only detects over-length optimises us into terseness, so a
   // short, direct, unhelpfully thin reply has to score BADLY — not neutrally.
+  //
+  // ★★ AND READ THE DIMS, NEVER THE COMPOSITE. The unweighted mean is dominated
+  // by guard dims sitting at 1.0 on any well-formed reply, so the thin/developed
+  // gap collapses from 0.733 on `answerDepth` to 0.105 on the composite — which
+  // reads as noise and ships terseness. The last test in this block pins that
+  // dilution so the warning in `aggregate.resultComposite` cannot quietly stop
+  // being true. It is NOT fixed by reweighting: weights picked to make a number
+  // come out right are an unfounded counterweight.
   const OPEN_ASK: EvalPromptSpec = {
     id: 'open-ask',
     category: 'everyday-use',
@@ -754,6 +762,30 @@ describe('★ the instrument is two-sided: terseness must not pay', () => {
         `dim "${dim}" pays for terseness: thin ${thinScore} > developed ${developedScore}`,
       ).toBeLessThanOrEqual(developedScore);
     }
+  });
+
+  it('★ the COMPOSITE cannot resolve it — the dilution, pinned', () => {
+    const composite = (s: RubricScores): number => {
+      const applicable = AUTOMATED_DIMENSIONS.map((d) => s[d]).filter(
+        (v): v is number => typeof v === 'number' && Number.isFinite(v),
+      );
+      return applicable.reduce((a, v) => a + v, 0) / applicable.length;
+    };
+
+    const thin = scoreResult(OPEN_ASK, ctx({ output: THIN }));
+    const developed = scoreResult(OPEN_ASK, ctx({ output: DEVELOPED }));
+
+    // Measured: thin 16 words → answerDepth 0.267, composite 0.895;
+    //           developed 110 words → 1.000, 1.000.
+    const answerDepthGap = developed.answerDepth! - thin.answerDepth!;
+    const compositeGap = composite(developed) - composite(thin);
+
+    expect(answerDepthGap).toBeGreaterThan(0.7);
+    expect(compositeGap).toBeLessThan(0.15);
+    // ★ The dilution itself: the mean shrinks a four-to-one failure into a
+    // rounding error. Asserted as a ratio so that adding another always-1.0
+    // guard dim — which makes this WORSE — cannot slip by unnoticed.
+    expect(compositeGap).toBeLessThan(answerDepthGap / 4);
   });
 
   it('★ and the ceiling still bites on a closed ask — both directions, one instrument', () => {

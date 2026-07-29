@@ -109,6 +109,33 @@ function isFiniteNumber(v: unknown): v is number {
  * Returns `null` when the result has zero applicable automated dims — the
  * caller then skips it from the model-level composite mean rather than treating
  * it as a 0.
+ *
+ * ★★ THE COMPOSITE CANNOT ADJUDICATE A LENGTH OR POSTURE CHANGE. READ THE DIMS.
+ *
+ * An unweighted mean is dominated by the guard dims, which sit at 1.0 on any
+ * reply that is merely well-formed — `correctStop`, `noRepetition`,
+ * `noCannedLeakage`, `noThinkLeakage`, `noCjkLeak`, `deliversFirst`. Measured on
+ * an open, curiosity-shaped ask ("what is france like", richness floor 60):
+ *
+ *            words   answerDepth   composite
+ *   thin       16       0.267        0.895
+ *   developed  110      1.000        1.000
+ *
+ * A reply that fails the user by four to one on the only dim that can see the
+ * failure shows up as a ten-point composite gap — which reads as noise, gets
+ * called noise, and ships terseness. That is the exact outcome this instrument
+ * was built to prevent.
+ *
+ * So: when adjudicating a system-prompt posture, a hint, or any length-affecting
+ * change, read `answerDepth` and `depthMatch` DIRECTLY. The composite is for
+ * "did this model get broadly worse", nothing finer.
+ *
+ * This was deliberately NOT fixed by reweighting the dims. Weights chosen to
+ * make a number come out right are an unfounded counterweight: they would encode
+ * a claim about relative importance that nothing here measures, and they would
+ * fire on every future run. Naming the limit is honest; hiding it behind
+ * invented constants is not. `rubric.test.ts` pins the dilution as a test so
+ * this comment cannot quietly stop being true.
  */
 function resultComposite(scores: RubricScores): number | null {
   const applicable: number[] = [];
