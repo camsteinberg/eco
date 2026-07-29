@@ -34,12 +34,16 @@ import type {
 } from './types';
 
 /**
- * The 11 automated rubric dims (0..1). These — and only these — feed
+ * The 13 automated rubric dims (0..1). These — and only these — feed
  * `compositeScore`. `coherence` and `taskFit` are JUDGE dims (1..5) and are
  * intentionally excluded; they're surfaced via `judgeAverages` instead.
  * (Runs persisted before a dim existed — e.g. `answerDepth`, `noCjkLeak`,
- * `depthMatch` — simply lack the key; the `isFiniteNumber` guard drops it
- * from their means.)
+ * `depthMatch`, `deliversFirst`, `preservesUserText` — simply lack the key; the
+ * `isFiniteNumber` guard drops it from their means.)
+ *
+ * `deliversFirst` and `preservesUserText` are spec-gated (`expectDeliverable` /
+ * `expectUserTextReuse`), so they are null for every probe set that predates
+ * them and existing composites are unchanged by their arrival.
  */
 export const AUTOMATED_DIMENSIONS: readonly (keyof RubricScores)[] = [
   'correctStop',
@@ -53,6 +57,8 @@ export const AUTOMATED_DIMENSIONS: readonly (keyof RubricScores)[] = [
   'appropriateUncertainty',
   'answerDepth',
   'depthMatch',
+  'deliversFirst',
+  'preservesUserText',
 ] as const;
 
 /** All rubric dims, automated + judge — the universe for `dimensionAverages`. */
@@ -103,6 +109,33 @@ function isFiniteNumber(v: unknown): v is number {
  * Returns `null` when the result has zero applicable automated dims — the
  * caller then skips it from the model-level composite mean rather than treating
  * it as a 0.
+ *
+ * ★★ THE COMPOSITE CANNOT ADJUDICATE A LENGTH OR POSTURE CHANGE. READ THE DIMS.
+ *
+ * An unweighted mean is dominated by the guard dims, which sit at 1.0 on any
+ * reply that is merely well-formed — `correctStop`, `noRepetition`,
+ * `noCannedLeakage`, `noThinkLeakage`, `noCjkLeak`, `deliversFirst`. Measured on
+ * an open, curiosity-shaped ask ("what is france like", richness floor 60):
+ *
+ *            words   answerDepth   composite
+ *   thin       16       0.267        0.895
+ *   developed  110      1.000        1.000
+ *
+ * A reply that fails the user by four to one on the only dim that can see the
+ * failure shows up as a ten-point composite gap — which reads as noise, gets
+ * called noise, and ships terseness. That is the exact outcome this instrument
+ * was built to prevent.
+ *
+ * So: when adjudicating a system-prompt posture, a hint, or any length-affecting
+ * change, read `answerDepth` and `depthMatch` DIRECTLY. The composite is for
+ * "did this model get broadly worse", nothing finer.
+ *
+ * This was deliberately NOT fixed by reweighting the dims. Weights chosen to
+ * make a number come out right are an unfounded counterweight: they would encode
+ * a claim about relative importance that nothing here measures, and they would
+ * fire on every future run. Naming the limit is honest; hiding it behind
+ * invented constants is not. `rubric.test.ts` pins the dilution as a test so
+ * this comment cannot quietly stop being true.
  */
 function resultComposite(scores: RubricScores): number | null {
   const applicable: number[] = [];

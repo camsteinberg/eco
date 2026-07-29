@@ -428,6 +428,326 @@ export function scoreDepthMatch(spec: EvalPromptSpec, text: string): number | nu
   return 1;
 }
 
+// ─── delivers first (does the answer survive the questions?) ───────────────
+
+/**
+ * Naive sentence/line splitter that keeps each segment's offset, so a caller can
+ * ask what came BEFORE something. Same abbreviation/decimal weaknesses as
+ * `countSentences`; both dims that use it are graduated or backstopped by a
+ * judge, so an occasional extra boundary costs nothing.
+ */
+type Segment = { text: string; start: number };
+
+function splitSegments(text: string): Segment[] {
+  const out: Segment[] = [];
+  let start = 0;
+  const push = (end: number): void => {
+    const seg = text.slice(start, end);
+    if (seg.trim().length > 0) out.push({ text: seg, start });
+  };
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]!;
+    if (ch === '\n') {
+      push(i);
+      start = i + 1;
+      continue;
+    }
+    if (ch !== '.' && ch !== '!' && ch !== '?') continue;
+    let j = i;
+    while (j + 1 < text.length && '.!?'.includes(text[j + 1]!)) j++;
+    const next = text[j + 1];
+    if (next === undefined || /\s/.test(next)) {
+      push(j + 1);
+      start = j + 1;
+    }
+    i = j;
+  }
+  push(text.length);
+  return out;
+}
+
+/**
+ * Openers that carry no deliverable. Stripped as a PREFIX rather than dropped as
+ * a whole sentence: "Of course, here is a shorter version: Hi Dave, …" is one
+ * sentence in which everything after the comma is the answer, and dropping it
+ * whole would score a good reply as empty.
+ */
+export const FILLER_PREFIX_PATTERNS: readonly RegExp[] = [
+  /^(?:sure|certainly|absolutely|of course|okay|ok|no problem|no worries|got it|understood)\b[\s!,.…—–-]*/i,
+  /^i'?(?:d|ll| would| am|'m)? ?(?:be )?(?:\w+ )?(?:happy|glad|delighted|pleased) to help\b[^.!?]*/i,
+  /^(?:i'?m )?happy to help\b[^.!?]*/i,
+  /^i can (?:certainly |definitely |absolutely )?help\b[^.!?]*/i,
+  /^(?:that'?s a )?great question\b[\s!,.…—–-]*/i,
+  /^let'?s (?:dive in|get started|take a look|begin)\b[\s!,.…—–-]*/i,
+  /^thanks? (?:for|so much for) (?:asking|sharing|the)\b[^.!?]*/i,
+  /^i (?:understand|see)\b[\s!,.…—–-]*/i,
+  /^i'?m sorry (?:to hear|for the confusion|about that)\b[^.!?]*/i,
+  /^i apologi[sz]e\b[^.!?]*/i,
+];
+
+/**
+ * Statements that request information from the user without asking a question.
+ * These count as interrogation too — otherwise the cheapest way to satisfy the
+ * dim would be to drop the question mark, which helps nobody.
+ */
+export const INFO_REQUEST_PATTERNS: readonly RegExp[] = [
+  /\blet me know\b/i,
+  /\btell me\b/i,
+  /\bsend me\b/i,
+  /\bi(?:'ll| will)? ?(?:just )?need to know\b/i,
+  /\bbefore i (?:can )?(?:write|start|help|begin|do)\b/i,
+  /\bi need (?:a bit )?more (?:detail|info|context)/i,
+  /\b(?:a few|some|two|three|four) (?:quick |follow-up )?questions\b/i,
+  /\bcould you (?:provide|share|tell|clarify|confirm)\b/i,
+  /\bplease (?:provide|share|confirm|specify|clarify)\b/i,
+  /\bwhat(?:'s| is) (?:his|her|their|its) name\b/i,
+];
+
+const SECOND_PERSON_RE = /\b(?:you|your|you're|youre|yours|u|ur)\b/i;
+const TABLE_ROW_RE = /^\s*\|.*\|/m;
+const BLOCKQUOTE_RE = /^\s*>/m;
+/**
+ * Six words of non-filler content. Deliberately low: the floor's job is to stop
+ * pleasantries from counting, and the filler stripper already does that. Set it
+ * high enough to feel safe and it starts failing the corpus's own good answers —
+ * "a bit, yes — mainly 'per my last email'" is a complete, correct verdict in
+ * eight words.
+ */
+const MIN_DELIVERABLE_WORDS = 6;
+
+/** Whether a segment asks the user for something rather than answering them. */
+function isUserRequest(segment: string): boolean {
+  const trimmed = stripDecoration(segment).trim();
+  if (/\?\s*$/.test(segment.trim()) && SECOND_PERSON_RE.test(segment)) return true;
+  return INFO_REQUEST_PATTERNS.some((p) => p.test(trimmed));
+}
+
+function stripFillerPrefix(sentence: string): string {
+  let s = sentence.trim();
+  for (let pass = 0; pass < FILLER_PREFIX_PATTERNS.length; pass++) {
+    let changed = false;
+    for (const pattern of FILLER_PREFIX_PATTERNS) {
+      const match = pattern.exec(s);
+      if (match && match[0].length > 0) {
+        s = s.slice(match[0].length).replace(/^[\s,;:—–-]+/, '');
+        changed = true;
+      }
+    }
+    if (!changed) break;
+  }
+  return s;
+}
+
+/**
+ * Words of actual content in a chunk: filler prefixes and requests removed.
+ *
+ * ANY question is excluded, not just the ones aimed at the user. A question is
+ * never a deliverable, and counting the unaddressed ones as content let
+ * "What's your dog's name? What breed is he?" score as though it had answered —
+ * the second question is not addressed to anyone by the letter of the rule, but
+ * it is plainly not an answer.
+ */
+function deliverableWordCount(chunk: string): number {
+  let total = 0;
+  for (const segment of splitSegments(chunk)) {
+    if (/\?\s*$/.test(segment.text.trim())) continue;
+    if (isUserRequest(segment.text)) continue;
+    total += words(stripFillerPrefix(segment.text)).length;
+  }
+  return total;
+}
+
+/** A code block, table, blockquote or list is a deliverable whatever its length. */
+function hasStructuralDeliverable(chunk: string): boolean {
+  return (
+    /```[\s\S]*?```/.test(chunk) ||
+    TABLE_ROW_RE.test(chunk) ||
+    BLOCKQUOTE_RE.test(chunk) ||
+    BULLET_LINE_RE.test(chunk)
+  );
+}
+
+function containsDeliverable(chunk: string): boolean {
+  return hasStructuralDeliverable(chunk) || deliverableWordCount(chunk) >= MIN_DELIVERABLE_WORDS;
+}
+
+/** What `scoreDeliversFirst` saw. Exported so a run can report the counts. */
+export type DeliversFirstAnalysis = {
+  /** Segments that ask the user for something. */
+  requestCount: number;
+  /** Character offset of the first such segment, or null. */
+  firstRequestAt: number | null;
+  deliverableBeforeFirstRequest: boolean;
+  deliverableAfterFirstRequest: boolean;
+  score: number;
+};
+
+/**
+ * Did the deliverable survive the questions?
+ *
+ *   1   — nothing was asked of the user, or a deliverable precedes the first ask;
+ *   0.5 — the reply asks first but still delivers in the same turn;
+ *   0   — it asks and never delivers. The corpus writes this bounce forty ways,
+ *         and every one of them ends "…before writing anything".
+ *
+ * NOT first-sentence position. A two-word preamble ahead of a real answer is not
+ * a defect, and a dim that scored it as one would be measuring politeness.
+ */
+export function analyzeDeliversFirst(text: string): DeliversFirstAnalysis {
+  const segments = splitSegments(text);
+  const requests = segments.filter((s) => isUserRequest(s.text));
+  const first = requests[0];
+
+  if (first === undefined) {
+    return {
+      requestCount: 0,
+      firstRequestAt: null,
+      deliverableBeforeFirstRequest: containsDeliverable(text),
+      deliverableAfterFirstRequest: false,
+      score: 1,
+    };
+  }
+
+  const before = containsDeliverable(text.slice(0, first.start));
+  const after = containsDeliverable(text.slice(first.start + first.text.length));
+  return {
+    requestCount: requests.length,
+    firstRequestAt: first.start,
+    deliverableBeforeFirstRequest: before,
+    deliverableAfterFirstRequest: after,
+    score: before ? 1 : after ? 0.5 : 0,
+  };
+}
+
+/** null unless the spec sets `expectDeliverable`. */
+export function scoreDeliversFirst(spec: EvalPromptSpec, text: string): number | null {
+  if (!spec.expectDeliverable) return null;
+  return analyzeDeliversFirst(text).score;
+}
+
+// ─── preserves user text (the n-gram-ban readout) ──────────────────────────
+
+/**
+ * The block the user PASTED, as opposed to what they typed around it: real
+ * inputs separate the two with a blank line ("does this sound rude\n\nPer my
+ * last email …"). With no blank line the whole input is the pasted text.
+ *
+ * Lives here rather than beside the probe derivation so the instrument and the
+ * probes share ONE definition of "the text the user handed us" — the same reason
+ * the CJK predicate is shared with the runtime's suppression gate.
+ */
+export function pastedBlockOf(userInput: string): string {
+  const parts = userInput.split(/\n\s*\n/);
+  return parts.length > 1 ? parts.slice(1).join('\n\n') : userInput;
+}
+
+/**
+ * Whitespace tokens, lowercased, with surrounding punctuation trimmed but
+ * INTERNAL punctuation kept: "£45," → "£45" and "1,450.00" survives intact,
+ * because reproducing a figure exactly is the whole point on these items.
+ */
+export function tokenizeForReuse(text: string): string[] {
+  return text
+    .toLowerCase()
+    .split(/\s+/)
+    .map((t) => t.replace(/^[^\p{L}\p{N}£$€%]+/u, '').replace(/[^\p{L}\p{N}%]+$/u, ''))
+    .filter((t) => t.length > 0);
+}
+
+/** Guard against a pathological prompt turning an O(n·m) scan into a hang. */
+const MAX_REUSE_TOKENS = 4000;
+
+/** Longest run of tokens appearing contiguously in BOTH sequences. */
+export function longestCommonTokenSpan(a: readonly string[], b: readonly string[]): number {
+  const left = a.length > MAX_REUSE_TOKENS ? a.slice(0, MAX_REUSE_TOKENS) : a;
+  const right = b.length > MAX_REUSE_TOKENS ? b.slice(0, MAX_REUSE_TOKENS) : b;
+  if (left.length === 0 || right.length === 0) return 0;
+
+  let best = 0;
+  let previous = new Int32Array(right.length + 1);
+  let current = new Int32Array(right.length + 1);
+  for (let i = 1; i <= left.length; i++) {
+    for (let j = 1; j <= right.length; j++) {
+      if (left[i - 1] === right[j - 1]) {
+        const run = previous[j - 1]! + 1;
+        current[j] = run;
+        if (run > best) best = run;
+      } else {
+        current[j] = 0;
+      }
+    }
+    const swap = previous;
+    previous = current;
+    current = swap;
+    current.fill(0);
+  }
+  return best;
+}
+
+/**
+ * Span length that scores a full 1.0 — roughly a clause. The values this dim
+ * exists to tell apart are all below it and stay on distinct points: a
+ * prompt-inclusive ban at n=3 caps the span at 2 (0.25), n=4 caps it at 3
+ * (0.375), and an unbanned model reproducing a phrase clears 8 (1.0).
+ */
+const REUSE_SPAN_TARGET = 8;
+
+/**
+ * Fraction of the OUTPUT covered by one single copied span, above which the
+ * reply is a copy rather than a response.
+ *
+ * 0.7 rather than something near 1.0 because of what it has to catch: echoing
+ * the input and appending a sentence is the cheapest way to satisfy a reuse
+ * metric without doing the task. It is safe at 0.7 because every good-answer
+ * shape this dim applies to shatters long spans — an edit, a table, a summary
+ * and a translation all interleave new tokens, so their single-span coverage
+ * sits far below it.
+ */
+const ECHO_COVERAGE = 0.7;
+
+/** What `scorePreservesUserText` saw. */
+export type PreservesUserTextAnalysis = {
+  longestSpan: number;
+  outputTokens: number;
+  /** The reply is a copy of the input rather than a response to it. */
+  echo: boolean;
+  score: number;
+};
+
+export function analyzePreservesUserText(
+  userText: string,
+  output: string,
+): PreservesUserTextAnalysis {
+  const userTokens = tokenizeForReuse(pastedBlockOf(userText));
+  const outputTokens = tokenizeForReuse(output);
+  const longestSpan = longestCommonTokenSpan(userTokens, outputTokens);
+  const echo = outputTokens.length > 0 && longestSpan / outputTokens.length >= ECHO_COVERAGE;
+  return {
+    longestSpan,
+    outputTokens: outputTokens.length,
+    echo,
+    score: echo ? 0 : clamp(longestSpan / REUSE_SPAN_TARGET, 0, 1),
+  };
+}
+
+/**
+ * How much of the user's own phrasing came back. null unless the spec sets
+ * `expectUserTextReuse`.
+ *
+ * ★ The only dim that can read out a PROMPT-INCLUSIVE n-gram ban: Transformers.js
+ * applies `no_repeat_ngram` across the full sequence, prompt included, so with
+ * n set the model is hard-banned from copying n consecutive prompt tokens at
+ * every position. Nothing else in the rubric can see that, which is why "does
+ * the ban cost us anything?" has never been answerable.
+ *
+ * Read it COMPARATIVELY — the delta between arms. The absolute level is not a
+ * grade: an answer can be excellent while quoting only a figure or two.
+ */
+export function scorePreservesUserText(spec: EvalPromptSpec, text: string): number | null {
+  if (!spec.expectUserTextReuse) return null;
+  return analyzePreservesUserText(spec.prompt, text).score;
+}
+
 // ─── correct stop ──────────────────────────────────────────────────────────
 
 /**
@@ -471,6 +791,8 @@ export function scoreResult(spec: EvalPromptSpec, ctx: RubricContext): RubricSco
     appropriateUncertainty: scoreUncertaintyHeuristic(spec, ctx.output),
     answerDepth: scoreAnswerDepth(spec, ctx.output),
     depthMatch: scoreDepthMatch(spec, ctx.output),
+    deliversFirst: scoreDeliversFirst(spec, ctx.output),
+    preservesUserText: scorePreservesUserText(spec, ctx.output),
     coherence: null,
     taskFit: null,
   };

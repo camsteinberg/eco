@@ -38,9 +38,10 @@ const CONFIG = {
 };
 
 /**
- * A rubric scores object with every dim non-null except the judge dims and
- * `depthMatch` (null = not-applicable, like a probe without a depthBand —
- * keeps the hand-computed means below stable); override per test.
+ * A rubric scores object with every dim non-null except the judge dims,
+ * `depthMatch`, `deliversFirst` and `preservesUserText` (null = not-applicable,
+ * like a probe without a depthBand or without `expectDeliverable` — keeps the
+ * hand-computed means below stable); override per test.
  */
 function makeScores(overrides?: Partial<RubricScores>): RubricScores {
   return {
@@ -55,6 +56,8 @@ function makeScores(overrides?: Partial<RubricScores>): RubricScores {
     appropriateUncertainty: 1,
     answerDepth: 1,
     depthMatch: null,
+    deliversFirst: null,
+    preservesUserText: null,
     coherence: null,
     taskFit: null,
     ...overrides,
@@ -108,7 +111,7 @@ describe('median', () => {
 });
 
 describe('AUTOMATED_DIMENSIONS', () => {
-  it('lists the 11 automated dims and excludes the judge dims', () => {
+  it('lists the 13 automated dims and excludes the judge dims', () => {
     expect(AUTOMATED_DIMENSIONS).toEqual([
       'correctStop',
       'noRepetition',
@@ -121,6 +124,11 @@ describe('AUTOMATED_DIMENSIONS', () => {
       'appropriateUncertainty',
       'answerDepth',
       'depthMatch',
+      // Spec-gated (`expectDeliverable` / `expectUserTextReuse`), so they are
+      // null for every probe set that predates them and existing composites are
+      // unchanged by their arrival.
+      'deliversFirst',
+      'preservesUserText',
     ]);
     expect(AUTOMATED_DIMENSIONS).not.toContain('coherence');
     expect(AUTOMATED_DIMENSIONS).not.toContain('taskFit');

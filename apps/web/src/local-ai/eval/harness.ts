@@ -63,12 +63,18 @@ import type { ModelConfig } from '../types';
 import type { ChatMessage, GenerateOptions, TokenEvent } from '../runtime/types';
 import { getEvalCandidateModel } from './eval-candidates';
 import { applyEcoTangentArm, type EcoTangentArm } from './eco-tangent';
+import {
+  applyEverydayArmOptions,
+  applyEverydayArmSystemPrompt,
+  getEverydayArm,
+} from './everyday-arms';
 import { scoreResult } from './rubric';
 import { saveEvalRun } from './storage';
 import { EVAL_PROMPTS } from './prompts';
 import { FELT_PROBES } from './felt-probes';
 import { SHAPE_PROBES, SHAPE_RESEARCH_ARMS } from './shape-probes';
 import type {
+  EvalEverydayArmId,
   EvalMessageTopology,
   EvalPromptContractId,
   EvalPromptSpec,
@@ -205,6 +211,14 @@ export type EvalRunConfig = {
    * prod code — only the winning sentence ships, as a one-line prompt change.
    */
   identityArm?: EcoTangentArm;
+  /**
+   * Everyday-use A/B cell (local-ai/eval/everyday-arms.ts). Conditions the
+   * system prompt's add-context clause and/or drops the prompt-inclusive n-gram
+   * ban — a LOCAL, UNSHIPPED parameterization, stamped on the run's fingerprint
+   * so `compareEverydayArms` can find the control and refuse without it. Unset
+   * by default: production runs measure exactly what ships.
+   */
+  everydayArm?: EvalEverydayArmId;
   /** Hard cap per generation (default 512 — keeps runs fast). */
   maxTokensCap?: number;
   /** Applies to the TOKEN STREAM only, not load (default 60000). */
@@ -828,9 +842,21 @@ export async function runEval(config: EvalRunConfig, deps?: EvalRunnerDeps): Pro
   // the selected arm (a local, unshipped parameterization). Arm A is a no-op;
   // an unset arm leaves the shipped prompt untouched.
   const arm = config.identityArm;
-  const buildSystemPrompt = arm
+  const identityArmed = arm
     ? (modelId: string): string => applyEcoTangentArm(d.buildSystemPrompt(modelId), arm)
     : d.buildSystemPrompt;
+
+  // Everyday-use A/B: condition the add-context clause and/or drop the
+  // prompt-inclusive n-gram ban. Composes with the identity arm above rather
+  // than replacing it, so a run can never silently lose one of the two.
+  const everydayArm = config.everydayArm ? getEverydayArm(config.everydayArm) : null;
+  const buildSystemPrompt = everydayArm
+    ? (modelId: string): string => applyEverydayArmSystemPrompt(identityArmed(modelId), everydayArm)
+    : identityArmed;
+  const buildOptions = everydayArm
+    ? (modelId: string, intent: ChatIntent): GenerateOptions =>
+      applyEverydayArmOptions(d.buildOptions(modelId, intent), everydayArm)
+    : d.buildOptions;
 
   const emit = (p: EvalProgress): void => config.onProgress?.(p);
 
@@ -883,7 +909,7 @@ export async function runEval(config: EvalRunConfig, deps?: EvalRunnerDeps): Pro
     for (const spec of prompts) {
       if (runSignal?.aborted) break;
 
-      const profileOptions = d.buildOptions(modelId, spec.intent);
+      const profileOptions = buildOptions(modelId, spec.intent);
       // Greedy mode collapses to deterministic argmax for a reproducible arm;
       // sampled keeps the production per-model profile.
       const baseOptions =
@@ -945,6 +971,7 @@ export async function runEval(config: EvalRunConfig, deps?: EvalRunnerDeps): Pro
     maxTokensCap: cap,
     perGenerationTimeoutMs: timeoutMs,
     includeResearchArms: config.includeResearchArms ?? false,
+    ...(config.everydayArm ? { everydayArm: config.everydayArm } : {}),
     promptCount: prompts.length,
     promptSetHash: hashPromptSet(prompts),
     compositionEra: COMPOSITION_ERA,
