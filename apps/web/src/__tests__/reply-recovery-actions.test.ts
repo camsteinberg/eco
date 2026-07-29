@@ -68,6 +68,7 @@ import { hasExplicitFormatInstruction } from "../lib/answer-shape";
 import { getCatalog } from "../local-ai/catalog/catalog";
 import { PREFERRED_DEFAULT_MODEL_ID } from "../local-ai/selection/recommend";
 import type { AssistantFollowUpAction } from "../components/chat/MessageActions";
+import { checkSourceCitations } from "./helpers/source-citations";
 
 // ---------------------------------------------------------------------------
 // The measurement
@@ -464,13 +465,16 @@ const KNOWN_DEFECTS = {
     "the four with headroom above the `quick` budget the ceiling rises too — on the everyday",
     "default from 1024 to 1536 tokens. The affordance built to recover from an answer that",
     "was too long hands the model a bigger budget and a hotter sampler than doing nothing",
-    "would have. The cause is length: the canned sentence is long enough and prose-shaped",
-    "enough to miss the `brief` shape that a four-word human request lands on.",
+    "would have. The cause is length: `inferAnswerShape` (answer-shape.ts) calls anything",
+    "of SHORT_FRAGMENT_MAX_WORDS or fewer a `brief` fragment, so a three-word human request",
+    "lands there and takes the `quick` budget from `getLocalMaxTokens`, while the canned",
+    "sentence is long enough and prose-shaped enough to fall through to `uncertain`.",
   ].join(" "),
 
   "expand-tells-litert-to-stop": [
-    "On `candidate/gemma-4-e2b-litert` the same identity collapse runs the other way. That",
-    "model overrides the `explain` hint with its own compact wording — 'Lead with the direct",
+    "On `candidate/gemma-4-e2b-litert` the same identity collapse runs the other way.",
+    "`buildTurnQualityInstruction` (chat-intent.ts) branches on `isGemma4LiteRtModel` and",
+    "overrides the `explain` hint with its own compact wording — 'Lead with the direct",
     "answer, then cover the essential details in at most three concise paragraphs or bullets.",
     "Stop when the distinction is clear.' — which is a ceiling and a stop instruction. So",
     "pressing EXPAND on Gemma appends a directive to cap the answer at three paragraphs and",
@@ -484,12 +488,35 @@ const KNOWN_DEFECTS = {
 type Defect = keyof typeof KNOWN_DEFECTS;
 
 describe("reply recovery — known defects stay visible", () => {
-  it("explains every defect it names", () => {
+  it("points every defect it names at code that exists", () => {
+    // ★ THIS REPLACED A CHARACTER COUNT. The old form asserted `length > 200`
+    // under the name "explains every defect it names" — satisfiable by padding
+    // the prose with filler, which is the same defect this suite exists to
+    // catch, sitting in its own instrument. A citation is checkable; prose
+    // length is not.
+    //
+    // It also catches staleness, which the count never could: rename
+    // `PLURALITY_RE` or delete `answer-shape.ts` and every mechanism still
+    // citing them fails here by name instead of quietly describing code that no
+    // longer exists.
+    //
+    // ★ WHAT IT DOES NOT MEASURE. The cheapest change that satisfies it without
+    // helping a reader is to cite a real but IRRELEVANT file. That is accepted
+    // deliberately — it is a large improvement over a character count, it cannot
+    // be reached by prose alone, and any guard that tried to judge relevance
+    // would be a prose heuristic again. Read a pass as "this points at real
+    // code", never as "this is correct".
     for (const defect of Object.keys(KNOWN_DEFECTS) as Defect[]) {
+      const { resolved, staleFiles } = checkSourceCitations(KNOWN_DEFECTS[defect]);
       expect(
-        KNOWN_DEFECTS[defect].length,
-        `${defect} needs an explanation, not a label`,
-      ).toBeGreaterThan(200);
+        staleFiles,
+        `${defect} cites a file that does not exist — the mechanism has gone stale`,
+      ).toEqual([]);
+      expect(
+        resolved.length,
+        `${defect} names no file or symbol that resolves against the source tree. `
+          + `Cite the code it describes — a label is not an explanation.`,
+      ).toBeGreaterThan(0);
     }
   });
 

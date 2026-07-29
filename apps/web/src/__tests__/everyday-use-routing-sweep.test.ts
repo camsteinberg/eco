@@ -117,6 +117,7 @@ import {
   needsFor,
   type EverydayUseItem,
 } from "./fixtures/everyday-use-corpus";
+import { checkSourceCitations } from "./helpers/source-citations";
 
 // ---------------------------------------------------------------------------
 // The measurement
@@ -398,8 +399,9 @@ const GAP_MECHANISMS = {
   ].join(" "),
 
   "explain-default-middle": [
-    "Nothing in the cascade matches and the shape is `uncertain` or `focused`, so the",
-    "turn lands on the default middle: `explain`, 1536 tokens, carrying 'Lead with a",
+    "Nothing in the cascade matches and `inferAnswerShape` (answer-shape.ts) returns",
+    "`uncertain` or `focused`, both of which `mapShapeToDepthIntent` (chat-intent.ts) maps",
+    "to the default middle: `explain`, 1536 tokens, carrying 'Lead with a",
     "plain-language explanation, then develop the details that matter — reasons,",
     "examples, practical implications'. Good advice for a question about a concept, and",
     "a description of the failure mode for the twenty-odd items here that asked for an",
@@ -425,9 +427,10 @@ const GAP_MECHANISMS = {
 
   "writing-budget-is-middle": [
     "The `writing` intent's budget is the 1536-token middle for every model with room",
-    "for it, whatever the artifact is. A four-line poem, a three-line summary of a school",
-    "letter and a full cover letter all get the same ceiling, because the intent encodes",
-    "the TASK CLASS and nothing encodes the SIZE of the thing being asked for.",
+    "for it, whatever the artifact is — `getLocalMaxTokens` (chat-intent.ts) keys its",
+    "baseline and smart tables on the intent alone. A four-line poem, a three-line summary",
+    "of a school letter and a full cover letter all get the same ceiling, because the",
+    "intent encodes the TASK CLASS and nothing encodes the SIZE of the thing asked for.",
   ].join(" "),
 
   "plurality-to-teaching": [
@@ -937,10 +940,43 @@ describe("everyday-use sweep — known gaps stay visible", () => {
       const item = EVERYDAY_USE_CORPUS.find((i) => i.id === id);
       expect(item, `${key} names an item not in the corpus`).toBeDefined();
       expect(needsFor(id).needs, `${key} pins a need the item does not carry`).toContain(need);
+      expect(GAP_MECHANISMS[mechanism], `${key} names an unknown mechanism`).toBeDefined();
+    }
+  });
+
+  it("points every mechanism at code that exists", () => {
+    // ★ THIS REPLACED A CHARACTER COUNT — `length > 200`, asserted under the
+    // claim that a mechanism "needs an explanation, not a label". Padding the
+    // prose with filler satisfied it, which makes it a check measuring something
+    // other than its name: exactly the defect class this file was built to find,
+    // sitting in its own instrument. A citation is checkable; prose length is not.
+    //
+    // Second benefit the count never had: staleness. Rename `PLURALITY_RE` or
+    // delete `answer-shape.ts` and every mechanism still citing them fails here
+    // by name, rather than quietly describing code that no longer exists.
+    //
+    // ★ WHAT IT DOES NOT MEASURE. The cheapest change that satisfies it without
+    // helping a reader is citing a real but IRRELEVANT file. Accepted
+    // deliberately — a large improvement over a character count, unreachable by
+    // prose alone, and any guard judging relevance would be a prose heuristic
+    // again. A pass means "this points at real code", not "this is correct".
+    //
+    // Two mechanisms failed this when it was introduced — `explain-default-middle`
+    // and `writing-budget-is-middle`, which described real behaviour while naming
+    // only intent VALUES (`explain`, `writing`). Both were given the citation they
+    // were missing (`mapShapeToDepthIntent`, `getLocalMaxTokens`); the check was
+    // not weakened to admit them.
+    for (const mechanism of Object.keys(GAP_MECHANISMS) as GapMechanism[]) {
+      const { resolved, staleFiles } = checkSourceCitations(GAP_MECHANISMS[mechanism]);
       expect(
-        GAP_MECHANISMS[mechanism].length,
-        `${mechanism} needs an explanation, not a label`,
-      ).toBeGreaterThan(200);
+        staleFiles,
+        `${mechanism} cites a file that does not exist — the mechanism has gone stale`,
+      ).toEqual([]);
+      expect(
+        resolved.length,
+        `${mechanism} names no file or symbol that resolves against the source tree. `
+          + `Cite the code it describes — a label is not an explanation.`,
+      ).toBeGreaterThan(0);
     }
   });
 
