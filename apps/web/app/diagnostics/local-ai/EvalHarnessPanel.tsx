@@ -9,8 +9,10 @@ import { useSearchParams } from 'next/navigation';
 import { Button } from '@eco/ui';
 import type { EvalProgress, EvalRunConfig } from '../../../src/local-ai/eval/harness';
 import type { CapturedFailure } from '../../../src/local-ai/eval/capture';
+import type { EverydayArmComparison } from '../../../src/local-ai/eval/everyday-arms';
 import type {
   EvalMessageTopology,
+  EvalPromptSpec,
   EvalRun,
   Scorecard,
   ScorecardDiff,
@@ -84,6 +86,12 @@ export function EvalHarnessPanel() {
   // Diff selectors
   const [beforeRunId, setBeforeRunId] = useState<string | null>(null);
   const [afterRunId, setAfterRunId] = useState<string | null>(null);
+
+  // Everyday-use A/B: which saved runs the operator placed in the comparison.
+  const [everydayRunIds, setEverydayRunIds] = useState<string[]>([]);
+  const [everydayComparison, setEverydayComparison] = useState<EverydayArmComparison | null>(
+    null,
+  );
 
   // A-B selectors
   const [abRunId, setAbRunId] = useState<string | null>(null);
@@ -166,6 +174,8 @@ export function EvalHarnessPanel() {
       perGenerationTimeoutMs?: number;
       /** Autorun-only: eco-tangent A/B identity-sentence arm. */
       identityArm?: EvalRunConfig['identityArm'];
+      /** Autorun-only: everyday-use A/B cell (stamped on the run's fingerprint). */
+      everydayArm?: EvalRunConfig['everydayArm'];
       /** Autorun-only: session-scoped probes appended to the pool (e.g. the tangent set). */
       extraPrompts?: EvalRunConfig['extraPrompts'];
     }) => {
@@ -222,6 +232,7 @@ export function EvalHarnessPanel() {
           ...(override?.includeResearchArms ? { includeResearchArms: true } : {}),
           ...(override?.messageTopology ? { messageTopology: override.messageTopology } : {}),
           ...(override?.identityArm ? { identityArm: override.identityArm } : {}),
+          ...(override?.everydayArm ? { everydayArm: override.everydayArm } : {}),
           ...(override?.perGenerationTimeoutMs !== undefined
             ? { perGenerationTimeoutMs: override.perGenerationTimeoutMs }
             : {}),
@@ -336,6 +347,13 @@ export function EvalHarnessPanel() {
     const autoIdentityArm: EvalRunConfig['identityArm'] =
       rawArm === 'A' || rawArm === 'B' || rawArm === 'C' ? rawArm : undefined;
 
+    // `eco-eval-everyday-arm=control|no-add-context|ngram-off|no-add-context-ngram-off`:
+    // the everyday-use A/B cell (local, unshipped — local-ai/eval/everyday-arms.ts).
+    // Resolved against the real arm table inside the async block below rather
+    // than re-listing the ids here; anything unknown is ignored, matching
+    // `eco-eval-arm`. Absent = no arm, i.e. exactly what ships.
+    const rawEverydayArm = searchParams.get('eco-eval-everyday-arm');
+
     // `eco-eval-tangent=1`: append the eco-tangent experiment set and, unless an
     // explicit prompt/category subset is given, run ONLY that set (the A/B pass).
     const includeTangent = searchParams.get('eco-eval-tangent') === '1';
@@ -373,6 +391,35 @@ export function EvalHarnessPanel() {
     // state can't override them.
     autorunFiredRef.current = true;
     void (async () => {
+      // Resolve the everyday-use arm off the real table, so a new cell is
+      // reachable the moment it is added there and an unknown id can never be
+      // stamped on a run.
+      let everydayArm: EvalRunConfig['everydayArm'];
+      if (rawEverydayArm !== null) {
+        const { EVERYDAY_ARMS, getEverydayArm } = await import(
+          '../../../src/local-ai/eval/everyday-arms'
+        );
+        everydayArm = EVERYDAY_ARMS.find((a) => a.id === rawEverydayArm)?.id;
+        // ★ Greedy decode collapses generation options to { temperature: 0,
+        // maxTokens }, dropping noRepeatNgramSize for EVERY arm — so an n-gram
+        // arm run greedily is byte-identical to its control and can only report
+        // a zero for a change that was never applied. `compareEverydayArms`
+        // refuses that pairing after the fact; refusing to launch it says the
+        // same thing before a multi-GB, multi-minute on-device run is spent on
+        // it. Both sites read `ngramBan` off the same arm table, so neither can
+        // drift into permitting what the other forbids.
+        if (
+          everydayArm !== undefined &&
+          autoSamplingMode === 'greedy' &&
+          getEverydayArm(everydayArm).ngramBan === 'off'
+        ) {
+          setAutorunNote(
+            `Autorun skipped: the ${everydayArm} arm drops noRepeatNgramSize, but greedy decode already drops it for every arm — the n-gram switch cannot be measured here. Re-run it sampled (omit eco-eval-sampling=greedy).`,
+          );
+          return;
+        }
+      }
+
       let promptIds: string[] | undefined =
         requestedPromptIds.length > 0 ? requestedPromptIds : undefined;
       // The eco-tangent set rides as session-scoped extraPrompts (never in the
@@ -382,17 +429,27 @@ export function EvalHarnessPanel() {
         ? (await import('../../../src/local-ai/eval/eco-tangent')).ECO_TANGENT_PROBES
         : [];
       const loadPromptPool = async () => {
-        const [{ EVAL_PROMPTS }, { SHAPE_PROBES, SHAPE_RESEARCH_ARMS }, { FELT_PROBES }] =
-          await Promise.all([
-            import('../../../src/local-ai/eval/prompts'),
-            import('../../../src/local-ai/eval/shape-probes'),
-            import('../../../src/local-ai/eval/felt-probes'),
-          ]);
+        const [
+          { EVAL_PROMPTS },
+          { SHAPE_PROBES, SHAPE_RESEARCH_ARMS },
+          { FELT_PROBES },
+          { EVERYDAY_USE_PROBES },
+        ] = await Promise.all([
+          import('../../../src/local-ai/eval/prompts'),
+          import('../../../src/local-ai/eval/shape-probes'),
+          import('../../../src/local-ai/eval/felt-probes'),
+          import('../../../src/local-ai/eval/everyday-probes'),
+        ]);
         return [
           ...EVAL_PROMPTS,
           ...SHAPE_PROBES,
           ...FELT_PROBES,
           ...(includeResearchArms ? SHAPE_RESEARCH_ARMS : []),
+          // Derived from the everyday-use corpus, so they are NOT in the
+          // harness's checked-in pool — they are named here so
+          // `eco-eval-categories=everyday-use` / `eco-eval-prompts=everyday-…`
+          // can resolve them, and ride to the harness as extraPrompts below.
+          ...EVERYDAY_USE_PROBES,
           ...tangentProbes,
         ];
       };
@@ -437,6 +494,21 @@ export function EvalHarnessPanel() {
             : `Autorun started on [${validIds.join(', ')}].${promptNote}`,
         );
       }
+      // The everyday probes are derived from the corpus and live outside the
+      // harness's checked-in pool, so the selected set has to ride along as
+      // session-scoped extraPrompts. Armed only when the resolved selection
+      // actually names one: a run that selected none carries exactly the
+      // extras it carried before this existed.
+      let everydayProbes: EvalPromptSpec[] = [];
+      if (promptIds && promptIds.length > 0) {
+        const { EVERYDAY_USE_PROBES } = await import(
+          '../../../src/local-ai/eval/everyday-probes'
+        );
+        const wanted = new Set(promptIds);
+        everydayProbes = EVERYDAY_USE_PROBES.filter((p) => wanted.has(p.id));
+      }
+      const extraPrompts = [...tangentProbes, ...everydayProbes];
+
       await handleRun({
         modelIds: validIds,
         label: autoLabel,
@@ -448,7 +520,8 @@ export function EvalHarnessPanel() {
         ...(autoMessageTopology ? { messageTopology: autoMessageTopology } : {}),
         ...(autoTimeoutMs !== undefined ? { perGenerationTimeoutMs: autoTimeoutMs } : {}),
         ...(autoIdentityArm ? { identityArm: autoIdentityArm } : {}),
-        ...(tangentProbes.length > 0 ? { extraPrompts: tangentProbes } : {}),
+        ...(everydayArm ? { everydayArm } : {}),
+        ...(extraPrompts.length > 0 ? { extraPrompts } : {}),
       });
     })();
   }, [searchParams, pickerLoaded, pickerModels, maxTokensCap, handleRun]);
@@ -488,6 +561,7 @@ export function EvalHarnessPanel() {
     setBeforeRunId(null);
     setAfterRunId(null);
     setAbRunId(null);
+    setEverydayRunIds([]);
   }, []);
 
   // ── Captured-failure actions ──
@@ -740,6 +814,34 @@ export function EvalHarnessPanel() {
       }));
     })();
   }, [beforeRunId, afterRunId, runs]);
+
+  // ── Everyday-use A/B (vs control) ──
+  //
+  // The comparison is `compareEverydayArms` and nothing else: it is the module
+  // that knows a delta without a control arm — or an n-gram arm measured under
+  // greedy decode — is not evidence, and its refusals are rendered verbatim
+  // below. The operator picks which saved runs go in, so a stale duplicate
+  // control can be dropped without clearing storage, and every guard the module
+  // carries (unstamped run, missing control, two controls) stays reachable.
+  const toggleEverydayRun = useCallback((runId: string) => {
+    setEverydayRunIds((prev) =>
+      prev.includes(runId) ? prev.filter((id) => id !== runId) : [...prev, runId],
+    );
+  }, []);
+
+  useEffect(() => {
+    const picked = runs.filter((r) => everydayRunIds.includes(r.runId));
+    if (picked.length === 0) {
+      setEverydayComparison(null);
+      return;
+    }
+    void (async () => {
+      const { compareEverydayArms } = await import(
+        '../../../src/local-ai/eval/everyday-arms'
+      );
+      setEverydayComparison(compareEverydayArms(picked));
+    })();
+  }, [runs, everydayRunIds]);
 
   // ── A-B compare ──
   const abRun = useMemo(
@@ -1309,6 +1411,117 @@ export function EvalHarnessPanel() {
         )}
         {ab && <AbCompare ab={ab} />}
         {!ab && !abError && <EmptyHint>Pick a run and two different models.</EmptyHint>}
+      </PanelSection>
+
+      {/* ── Everyday-use A/B (vs control) ── */}
+      <PanelSection title="Everyday-use A/B (vs control)">
+        <p className="mb-3 text-xs" style={{ color: 'var(--eco-text-secondary)' }}>
+          Arm runs are launched from the URL:{' '}
+          <code style={{ fontFamily: 'var(--eco-font-mono)' }}>
+            ?eco-eval-everyday-arm=control
+          </code>{' '}
+          (also <code style={{ fontFamily: 'var(--eco-font-mono)' }}>no-add-context</code>,{' '}
+          <code style={{ fontFamily: 'var(--eco-font-mono)' }}>ngram-off</code>,{' '}
+          <code style={{ fontFamily: 'var(--eco-font-mono)' }}>no-add-context-ngram-off</code>).
+          Tick the runs to place in the comparison. Every delta is read against the control
+          arm — with no control, the comparison reports the reason instead of a number.
+        </p>
+
+        {runs.length === 0 ? (
+          <EmptyHint>No saved runs yet. Launch a control arm first.</EmptyHint>
+        ) : (
+          <ul className="space-y-2">
+            {[...runs].reverse().map((run) => {
+              const checked = everydayRunIds.includes(run.runId);
+              const arm = run.config?.everydayArm;
+              return (
+                <li key={run.runId}>
+                  <label
+                    className="flex cursor-pointer items-center gap-3 rounded-lg px-4 py-3"
+                    style={{
+                      border: `1px solid ${checked ? 'var(--eco-primary)' : 'var(--eco-border-muted)'}`,
+                      background: checked
+                        ? 'var(--eco-primary-soft)'
+                        : 'var(--eco-surface-elevated)',
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => {
+                        toggleEverydayRun(run.runId);
+                      }}
+                      style={{ accentColor: 'var(--eco-primary)' }}
+                      aria-label={`Place ${run.runId} in the everyday A/B`}
+                    />
+                    <span
+                      className="rounded-full px-2 py-0.5 text-xs font-medium"
+                      style={{
+                        background: 'var(--eco-surface)',
+                        color: 'var(--eco-text)',
+                        fontFamily: 'var(--eco-font-mono)',
+                      }}
+                    >
+                      {arm ?? 'no arm'}
+                    </span>
+                    <span
+                      className="min-w-0 flex-1 truncate text-xs"
+                      style={{ color: 'var(--eco-text-secondary)', fontFamily: 'var(--eco-font-mono)' }}
+                    >
+                      {run.label} — {run.runId}
+                      {run.config ? ` · ${run.config.samplingMode}` : ''}
+                    </span>
+                  </label>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+
+        {everydayComparison === null && runs.length > 0 && (
+          <div className="mt-4">
+            <EmptyHint>Tick the runs to place in the A/B.</EmptyHint>
+          </div>
+        )}
+
+        {everydayComparison && everydayComparison.problems.length > 0 && (
+          <ul className="mt-4 space-y-2">
+            {everydayComparison.problems.map((problem) => (
+              <li
+                key={problem}
+                className="rounded-lg p-3 text-xs leading-relaxed"
+                style={{
+                  background: 'var(--eco-error-soft, rgba(199, 92, 74, 0.1))',
+                  color: 'var(--eco-coral, #c75c4a)',
+                  fontFamily: 'var(--eco-font-mono)',
+                }}
+              >
+                {problem}
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {everydayComparison?.deltas.map((delta) => (
+          <div key={delta.runId} className="mt-4">
+            <p className="mb-2 text-xs" style={{ color: 'var(--eco-text-muted)' }}>
+              <span style={{ fontFamily: 'var(--eco-font-mono)' }}>control</span>
+              {' → '}
+              <span style={{ fontFamily: 'var(--eco-font-mono)' }}>{delta.armId}</span>
+              {` (${delta.label})`}
+            </p>
+            <DiffTable diff={delta.diff} />
+          </div>
+        ))}
+
+        {everydayComparison?.problems.length === 0 &&
+          everydayComparison.deltas.length === 0 && (
+            <div className="mt-4">
+              <EmptyHint>
+                Control arm only — add a treatment-arm run to see a delta.
+              </EmptyHint>
+            </div>
+          )}
       </PanelSection>
 
       {/* ── Saved runs ── */}
