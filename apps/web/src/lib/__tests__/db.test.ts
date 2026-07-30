@@ -382,6 +382,62 @@ describe("toDbMessage", () => {
 
     expect(result.canonicalToolAnswer).toBeUndefined();
   });
+
+  it("persists the truncation receipt so a reloaded reply keeps its Continue affordance", () => {
+    const chatMsg: ChatMessage = {
+      id: "msg-truncated",
+      role: "assistant",
+      content: "The three main causes were",
+      createdAt: 1700000000000,
+      status: "complete",
+      inferenceMethod: "local",
+      possiblyTruncated: true,
+      localCompletionTokens: 256,
+      localMaxTokens: 256,
+    };
+
+    const result = toDbMessage(chatMsg, "conv-truncated");
+
+    expect(result.possiblyTruncated).toBe(true);
+    expect(result.localCompletionTokens).toBe(256);
+    expect(result.localMaxTokens).toBe(256);
+  });
+
+  it("persists a reply that finished well short of the limit as not truncated", () => {
+    const chatMsg: ChatMessage = {
+      id: "msg-not-truncated",
+      role: "assistant",
+      content: "Short and complete.",
+      createdAt: 1700000000000,
+      status: "complete",
+      inferenceMethod: "local",
+      possiblyTruncated: false,
+      localCompletionTokens: 40,
+      localMaxTokens: 256,
+    };
+
+    const result = toDbMessage(chatMsg, "conv-not-truncated");
+
+    expect(result.possiblyTruncated).toBe(false);
+    expect(result.localCompletionTokens).toBe(40);
+    expect(result.localMaxTokens).toBe(256);
+  });
+
+  it("omits the truncation receipt for a message that never carried one", () => {
+    const chatMsg: ChatMessage = {
+      id: "msg-no-receipt",
+      role: "assistant",
+      content: "Answered without a local generation receipt.",
+      createdAt: 1700000000000,
+      status: "complete",
+    };
+
+    const result = toDbMessage(chatMsg, "conv-no-receipt");
+
+    expect(result.possiblyTruncated).toBeUndefined();
+    expect(result.localCompletionTokens).toBeUndefined();
+    expect(result.localMaxTokens).toBeUndefined();
+  });
 });
 
 describe("IndexedDB v3 — reactions", () => {
