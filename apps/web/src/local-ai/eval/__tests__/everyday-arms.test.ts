@@ -128,6 +128,7 @@ function scores(): RubricScores {
     depthMatch: null,
     deliversFirst: 1,
     preservesUserText: null,
+    preservesFacts: null,
     coherence: null,
     taskFit: null,
   };
