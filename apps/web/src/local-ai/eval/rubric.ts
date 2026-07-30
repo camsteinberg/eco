@@ -629,16 +629,34 @@ export function scoreDeliversFirst(spec: EvalPromptSpec, text: string): number |
 
 /**
  * The block the user PASTED, as opposed to what they typed around it: real
- * inputs separate the two with a blank line ("does this sound rude\n\nPer my
- * last email …"). With no blank line the whole input is the pasted text.
+ * inputs separate the two with a blank line, and the typed ask can sit at
+ * EITHER end — "does this sound rude\n\nPer my last email …" puts it first, a
+ * pasted chat thread followed by "tldr" puts it last. With no blank line the
+ * whole input is the pasted text.
+ *
+ * ★ THE CONSTRAINT THE RULE HAS TO SATISFY: the block returned must CONTAIN the
+ * words a caller is looking for. Hand back the ask instead and a reply that
+ * preserved every word of the paste measures as though it preserved none — the
+ * ask is a handful of tokens, so overlap against it is near zero whatever the
+ * model did. Over-including the ask is the milder error (it can only lengthen a
+ * match, never shorten one), so the rule drops an end block only when it is the
+ * minority of the turn, and otherwise falls back to the whole input.
  *
  * Lives here rather than beside the probe derivation so the instrument and the
  * probes share ONE definition of "the text the user handed us" — the same reason
  * the CJK predicate is shared with the runtime's suppression gate.
  */
 export function pastedBlockOf(userInput: string): string {
-  const parts = userInput.split(/\n\s*\n/);
-  return parts.length > 1 ? parts.slice(1).join('\n\n') : userInput;
+  const blocks = userInput.split(/\n\s*\n/).filter((b) => b.trim().length > 0);
+  if (blocks.length < 2) return userInput;
+
+  const size = (parts: readonly string[]): number => words(parts.join(' ')).length;
+  const afterFirst = blocks.slice(1);
+  const beforeLast = blocks.slice(0, -1);
+
+  if (size([blocks[0]!]) < size(afterFirst)) return afterFirst.join('\n\n');
+  if (size([blocks[blocks.length - 1]!]) < size(beforeLast)) return beforeLast.join('\n\n');
+  return userInput;
 }
 
 /**

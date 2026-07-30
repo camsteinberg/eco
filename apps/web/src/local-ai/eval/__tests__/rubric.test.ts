@@ -620,6 +620,52 @@ describe('scoreDeliversFirst', () => {
   });
 });
 
+describe('pastedBlockOf', () => {
+  it('returns the whole turn when nothing was pasted alongside it', () => {
+    const typed = 'how do i say "the appointment is at 3" in spanish';
+    expect(pastedBlockOf(typed)).toBe(typed);
+  });
+
+  it('drops the typed ask when it leads', () => {
+    const turn = 'does this sound rude\n\nPer my last email, the deadline was Friday.';
+    expect(pastedBlockOf(turn)).toBe('Per my last email, the deadline was Friday.');
+  });
+
+  it('★ drops the typed ask when it TRAILS — a short fragment is not the paste', () => {
+    // The shape that scored a faithful reply at zero: a pasted thread with the
+    // ask tacked on the end. Taking the last block hands back "tldr", and an
+    // overlap measured against one word is near zero however good the answer is.
+    const turn = [
+      'Priya: ok so for nadias 40th are we doing a group gift',
+      'Tom: yes ill sort it like last time',
+      'Mark: whats the budget',
+      'Tom: 25 each? theres 8 of us so 200',
+      '',
+      'tldr',
+    ].join('\n');
+    const block = pastedBlockOf(turn);
+    expect(block).toContain('nadias 40th');
+    expect(block).toContain('25 each');
+    expect(block).not.toContain('tldr');
+  });
+
+  it('keeps every paragraph of a multi-paragraph paste, greeting and sign-off included', () => {
+    const turn =
+      'can u make this sound less passive aggressive\n\nHi Dave,\n\nThe deck was due Wednesday and it is now Friday.\n\nPlease advise.\n\nSarah';
+    expect(pastedBlockOf(turn)).toBe(
+      'Hi Dave,\n\nThe deck was due Wednesday and it is now Friday.\n\nPlease advise.\n\nSarah',
+    );
+  });
+
+  it('keeps the whole turn when neither end is the minority — over-including is the safe error', () => {
+    // Two blocks of comparable size: nothing here identifies one as the ask, and
+    // a wrong guess would DROP the words a caller is looking for. Including the
+    // ask can only lengthen a match, so the fallback is the whole turn.
+    const turn = 'first block of roughly this many words here\n\nsecond block of roughly that many words too';
+    expect(pastedBlockOf(turn)).toBe(turn);
+  });
+});
+
 describe('scorePreservesUserText', () => {
   const PASTED_TURN =
     'fix the spelling and grammar but dont change my voice\n\nso basically what happend was we got to the site at 7 and the crew wasnt there, i called mike twice no answer.';
@@ -668,6 +714,44 @@ describe('scorePreservesUserText', () => {
     )!;
     expect(parrotScore).toBeLessThan(0.2);
     expect(realScore).toBeGreaterThan(parrotScore);
+  });
+
+  it('★ MIRROR: the proofread bounce — rewritten out of the user\'s voice — still scores LOW', () => {
+    // "fix the spelling and grammar but dont change my voice", answered with the
+    // neutral business prose the corpus names as the bounce. Every fact survives;
+    // none of the wording does, and this dim exists to see exactly that.
+    const businessProse =
+      'Upon arrival at the site at 07:00, the crew was not present. Two telephone calls were placed to Michael without response.';
+    const inTheirVoice =
+      "So basically what happened was we got to the site at 7 and the crew wasn't there, I called Mike twice no answer.";
+
+    const mangled = scorePreservesUserText(reuse(), businessProse)!;
+    const faithful = scorePreservesUserText(reuse(), inTheirVoice)!;
+
+    expect(mangled).toBeLessThan(0.5);
+    expect(faithful).toBe(1);
+    expect(faithful).toBeGreaterThan(mangled);
+    // What this pass means and does not mean. It means bad outputs did not start
+    // scoring well when the reference block changed — the ORDER is right and the
+    // gap is wide. It does not mean the low score is zero: two texts about the
+    // same morning share short runs of ordinary words ("the site at"), so this
+    // measure has a floor above zero on any on-topic rewrite. And 1.0 is not a
+    // grade — a reply can be excellent while quoting almost nothing, which is
+    // why the dim is read as a delta between arms rather than as a level.
+  });
+
+  it('★ a trailing ask no longer floors a faithful reproduction at zero', () => {
+    // The regression the block-selection fix is for: with the ask last, the
+    // reference block used to be the trailing fragment, so an output carrying the
+    // paste back word for word scored 0.00. (The everyday gate does not point
+    // this dim at summarise-class turns; this guards the scorer, not that gate.)
+    const trailingAsk =
+      'Tom: right ive booked it and paid on my card, can everyone send me 25 by friday\nMark: sent\n\ntldr';
+    const carriesItBack =
+      'Tom booked it and paid on my card, and asks that everyone send me 25 by friday. Mark has already paid.';
+    expect(
+      scorePreservesUserText(reuse({ prompt: trailingAsk }), carriesItBack)!,
+    ).toBeGreaterThan(0.5);
   });
 
   it('★ reads out a prompt-inclusive n-gram ban: n=3 caps the span at 2', () => {

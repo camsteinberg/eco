@@ -26,15 +26,18 @@ import { inferChatIntent } from '../../../lib/chat-intent';
 import {
   EVERYDAY_ANAPHORIC_PROBE_IDS,
   EVERYDAY_ASK_OPENNESS,
+  EVERYDAY_FACT_REPRODUCTION_ITEM_IDS,
   EVERYDAY_PROBE_IDS,
   EVERYDAY_UNMEASURED_CEILING_ITEM_IDS,
   EVERYDAY_USE_PROBES,
+  EVERYDAY_WORDING_PRESERVATION_ITEM_IDS,
   classifyAskOpenness,
   everydayProbeId,
   itemIdsWithOpenness,
   wantsBrevity,
   wantsSubstance,
 } from '../everyday-probes';
+import { scorePreservesUserText } from '../rubric';
 
 // ─── the pinned derivation ─────────────────────────────────────────────────
 
@@ -139,17 +142,27 @@ const TWO_SIDED_ITEMS = [
   'ft-04',
 ];
 
-/** Items whose reply has to hand the user's own words back, in this turn. */
-const REUSE_PROBE_IDS = [
-  'everyday-work-email-tone-fix',
-  'everyday-rewrite-03',
-  'everyday-sw-15',
-  'everyday-school-essay-not-ai',
-  'everyday-health-hospital-letter',
-  'everyday-school-letter-esl-parent',
-  'everyday-legal-rent-increase',
-  'everyday-summarise-01',
-  'everyday-sw-13',
+/**
+ * Items whose reply has to hand the user's own WORDING back, in this turn — the
+ * only place a longest-common-span measure reads the right way round.
+ */
+const REUSE_PROBE_IDS = ['everyday-sw-15'];
+
+/**
+ * The candidates that reaching for `faithful-reproduction` alone would have
+ * gated: pasted content present, the need derived. Every one of them needs the
+ * user's FACTS back while deliberately changing the wording, so span overlap
+ * would score their good answer and their bounce the wrong way round.
+ */
+const FACT_REPRODUCTION_ITEMS = [
+  'work-email-tone-fix',
+  'rewrite-03',
+  'school-essay-not-ai',
+  'health-hospital-letter',
+  'school-letter-esl-parent',
+  'legal-rent-increase',
+  'summarise-01',
+  'sw-13',
 ];
 
 const ANAPHORIC_PROBE_IDS = [
@@ -318,20 +331,63 @@ describe('★ open vs closed — the axis under the length question', () => {
 
 // ─── reuse and anaphora ────────────────────────────────────────────────────
 
-describe('preservesUserText applies only where the words are actually present', () => {
+describe('preservesUserText applies only where preserving the wording IS the job', () => {
   it('pins the items expecting reuse', () => {
     expect(EVERYDAY_USE_PROBES.filter((p) => p.expectUserTextReuse).map((p) => p.id)).toEqual(
       REUSE_PROBE_IDS,
     );
   });
 
-  it('requires BOTH corpus layers to agree', () => {
+  it('requires all three: the words in this turn, the need, and a wording job', () => {
     for (const item of EVERYDAY_USE_CORPUS) {
       const probe = EVERYDAY_USE_PROBES.find((p) => p.id === everydayProbeId(item.id))!;
       const expected =
-        item.hasPastedContent && needsFor(item.id).needs.includes('faithful-reproduction');
+        item.hasPastedContent &&
+        needsFor(item.id).needs.includes('faithful-reproduction') &&
+        EVERYDAY_WORDING_PRESERVATION_ITEM_IDS.includes(item.id);
       expect(probe.expectUserTextReuse === true).toBe(expected);
     }
+  });
+
+  it('★ every mechanical candidate is classified — a new one cannot join silently', () => {
+    // The drift guard. `hasPastedContent` + `faithful-reproduction` is a
+    // mechanical property of the corpus; which SIDE of the wording/facts split
+    // an item falls on is a judgement, and judgements have to be written down.
+    // Add a pasted item with that need and this fails until someone classifies it.
+    const candidates = EVERYDAY_USE_CORPUS.filter(
+      (item) =>
+        item.hasPastedContent && needsFor(item.id).needs.includes('faithful-reproduction'),
+    ).map((item) => item.id);
+
+    expect([...EVERYDAY_WORDING_PRESERVATION_ITEM_IDS, ...FACT_REPRODUCTION_ITEMS].sort()).toEqual(
+      [...candidates].sort(),
+    );
+    expect([...EVERYDAY_FACT_REPRODUCTION_ITEM_IDS]).toEqual(FACT_REPRODUCTION_ITEMS);
+    for (const id of EVERYDAY_WORDING_PRESERVATION_ITEM_IDS) {
+      expect(EVERYDAY_FACT_REPRODUCTION_ITEM_IDS).not.toContain(id);
+    }
+  });
+
+  it('★ a faithful SUMMARY is not scored by this dim at all', () => {
+    // "tldr" over a group-chat thread. This output keeps every fact and entity
+    // the corpus's bounce names — Tom, the £25, Friday, 7 not 8 — and reformats
+    // to bullets, which is the job. Span overlap cannot tell that apart from a
+    // model that copied the thread instead of compressing it, so the gate must
+    // not point the dim at it: the score is null, not high and not low.
+    const probe = EVERYDAY_USE_PROBES.find((p) => p.id === 'everyday-summarise-01')!;
+    const faithfulSummary = [
+      '- Tom booked the spa half-day (180) and paid on his card.',
+      '- Send Tom 25 by Friday, Revolut, same number as always.',
+      '- Ellie is doing the card; Priya is messaging Steve.',
+      '- The surprise bit is 7, not 8.',
+    ].join('\n');
+
+    expect(probe.expectUserTextReuse).toBeUndefined();
+    expect(scorePreservesUserText(probe, faithfulSummary)).toBeNull();
+    // What this pass means: this dim stays silent here. It does NOT mean the
+    // summary is good — whether it caught the actionable line is the judge's
+    // call (taskFit), and the bounce condition in the probe's notes is the
+    // criterion for it.
   });
 
   it('never sets it on a turn whose text lives in an earlier message', () => {
@@ -340,6 +396,22 @@ describe('preservesUserText applies only where the words are actually present', 
     const followUp = EVERYDAY_USE_PROBES.find((p) => p.id === 'everyday-work-followup-shorter')!;
     expect(followUp.expectUserTextReuse).toBeUndefined();
     expect(needsFor('work-followup-shorter').needs).toContain('faithful-reproduction');
+  });
+
+  it('★ MIRROR: the one gated probe still scores its own bounce LOW', () => {
+    // A gate that only ever scores well is not measuring anything. sw-15 says
+    // "dont change my voice"; its bounce is the same account in neutral business
+    // prose. That must stay far below a clean-up that keeps their register.
+    const probe = EVERYDAY_USE_PROBES.find((p) => p.id === 'everyday-sw-15')!;
+    const bounce =
+      'Upon arrival at the site at 07:00, the crew was not present. Two telephone calls were placed to Michael without response. Work on the demolition commenced at 08:30.';
+    const inTheirVoice =
+      "So basically what happened was we got to the site at 7 and the crew wasn't there, I called Mike twice no answer. By 8:30 I decided to start on the demo myself because we were already behind.";
+
+    const bounceScore = scorePreservesUserText(probe, bounce)!;
+    const goodScore = scorePreservesUserText(probe, inTheirVoice)!;
+    expect(bounceScore).toBeLessThan(0.5);
+    expect(goodScore).toBe(1);
   });
 });
 
