@@ -33,6 +33,7 @@ import {
   getGenerationProfile,
   inferChatIntent,
   inferTurnIntent,
+  type ChatIntent,
 } from "../lib/chat-intent";
 import { inferAnswerShape, type AnswerShape } from "../lib/answer-shape";
 import { buildLocalHardConstraintRepair } from "../lib/local-generation-constraints";
@@ -280,6 +281,74 @@ const DEDICATED_LOCAL_ERROR_CODES: ReadonlySet<string> = new Set([
 
 function errorHasDedicatedLocalMessage(err: unknown): boolean {
   return err instanceof LocalInferenceStreamError && DEDICATED_LOCAL_ERROR_CODES.has(err.code);
+}
+
+/**
+ * Per-generation overrides a caller may hand to a single regenerate. Both are
+ * REQUEST-LOCAL: nothing here is written to the conversation, so the stored
+ * user turn and the history every later turn re-renders stay exactly as the
+ * user typed them.
+ */
+export type RegenerateOverrides = {
+  /**
+   * Intent to resolve generation options with, in place of the one classified
+   * from the turn text. Substituted at the OPTIONS-RESOLUTION layer only — the
+   * classifiers (`inferChatIntent` / `inferAnswerShape`) keep their strict-prefix
+   * purity contract: pure functions of (turn text, hasPriorTurns), never handed
+   * a caller's preference.
+   */
+  intent?: ChatIntent;
+  /**
+   * Model-facing directive appended to the END of the final user turn for THIS
+   * generation. See `appendTurnDirective` for why the END placement is the
+   * design and not an implementation detail.
+   */
+  turnDirective?: string;
+};
+
+/** Everything `streamResponse` accepts for one dispatch. */
+export type StreamResponseOverrides = RegenerateOverrides & {
+  model?: string;
+  systemPrompt?: string;
+};
+
+/**
+ * Append a model-facing directive to the END of the final user turn.
+ *
+ * Returns a NEW array carrying the directive on a COPY of the last user
+ * message — the input list is never mutated, which is what keeps the directive
+ * out of the stored conversation.
+ *
+ * The END placement, and composing this BEFORE any intent/hint work, is the
+ * whole design: `buildHintedUserTurn` decides hint suppression from the turn's
+ * own bytes via `hasExplicitFormatInstruction`, so a directive phrased as an
+ * explicit format instruction suppresses the per-intent hint through the
+ * EXISTING mechanism — no directive-aware special case anywhere. A directive
+ * that does NOT read as one still gets the hint appended after it, exactly as
+ * a user's own phrasing would; that asymmetry is deliberate and load-bearing,
+ * so directive strings are chosen against the detector, not against this code.
+ * The blank-line join is the same separator `buildHintedUserTurn` uses.
+ *
+ * No-op for an absent/blank directive, or a list with no user turn.
+ */
+function appendTurnDirective(
+  messages: Array<{ role: "user" | "assistant" | "system"; content: string }>,
+  directive: string | undefined,
+): Array<{ role: "user" | "assistant" | "system"; content: string }> {
+  const trimmed = directive?.trim() ?? "";
+  if (trimmed.length === 0) return messages;
+  let lastUserIndex = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i]!.role === "user") {
+      lastUserIndex = i;
+      break;
+    }
+  }
+  const target = lastUserIndex >= 0 ? messages[lastUserIndex] : undefined;
+  if (!target) return messages;
+  const next = [...messages];
+  next[lastUserIndex] = { ...target, content: `${target.content}\n\n${trimmed}` };
+  return next;
 }
 
 export function useChat() {
@@ -733,26 +802,34 @@ export function useChat() {
   function buildPrompt(
     model: string,
     apiMessages: Array<{ role: "user" | "assistant" | "system"; content: string }>,
-    overrideSystemPrompt?: string,
+    overrides?: StreamResponseOverrides,
   ): LocalDispatchPlan {
-    const turnIntent = getLatestTurnIntent(apiMessages);
+    // Compose the directive onto the final user turn FIRST, so everything below
+    // — classification, the shape receipt, and above all `applyTurnHints` —
+    // sees the turn exactly as the model will. That ordering is what lets the
+    // existing explicit-format-instruction suppression apply to the directive.
+    const composedMessages = appendTurnDirective(apiMessages, overrides?.turnDirective);
+    // A forced intent substitutes for the classified one HERE, at the options
+    // layer — the classifiers themselves are never told about it. Receipts
+    // report this same value, so diagnostics describe the sampling actually run.
+    const turnIntent = overrides?.intent ?? getLatestTurnIntent(composedMessages);
     // Receipt observability only — derived with the SAME position rule the
     // hint path uses (hasPriorTurns = anything precedes the last user turn).
     let lastUserIndex = -1;
-    for (let i = apiMessages.length - 1; i >= 0; i--) {
-      if (apiMessages[i]!.role === "user") {
+    for (let i = composedMessages.length - 1; i >= 0; i--) {
+      if (composedMessages[i]!.role === "user") {
         lastUserIndex = i;
         break;
       }
     }
     const turnShape = inferAnswerShape(
-      (lastUserIndex >= 0 ? apiMessages[lastUserIndex]!.content : "").trim(),
+      (lastUserIndex >= 0 ? composedMessages[lastUserIndex]!.content : "").trim(),
       { hasPriorTurns: lastUserIndex > 0 },
     );
-    const systemPrompt = buildQualitySystemPrompt(model, overrideSystemPrompt);
+    const systemPrompt = buildQualitySystemPrompt(model, overrides?.systemPrompt);
     // Hints ride the user turns (every turn, deterministically re-derived —
     // see the KV contract at lib/chat-intent.applyTurnHints).
-    const hintedMessages = applyTurnHints(apiMessages, isLocalAiModel(model), model);
+    const hintedMessages = applyTurnHints(composedMessages, isLocalAiModel(model), model);
     return {
       turnIntent,
       turnShape,
@@ -778,13 +855,14 @@ export function useChat() {
   async function streamResponse(
     assistantId: string,
     apiMessages: Array<{ role: "user" | "assistant" | "system"; content: string }>,
-    overrides?: {
-      /** If a caller ever sets this, `resolveInitialStreamPhase` at the call site
-       *  must be passed the same resolved choice, or the loading indicator will
-       *  desync from the actual dispatch target. Currently unused by all callers. */
-      model?: string;
-      systemPrompt?: string;
-    },
+    /**
+     * `model` / `systemPrompt` are still unused by all callers. If a caller ever
+     * sets `model`, `resolveInitialStreamPhase` at the call site must be passed
+     * the same resolved choice, or the loading indicator will desync from the
+     * actual dispatch target. `intent` / `turnDirective` are the per-generation
+     * recovery seam — see `RegenerateOverrides`; also unused by all callers today.
+     */
+    overrides?: StreamResponseOverrides,
   ) {
     const selectedModelChoice = overrides?.model ?? useChatStore.getState().selectedModel;
 
@@ -794,7 +872,7 @@ export function useChat() {
     const { model } = dispatch;
 
     // ── Build prompt + generation options ──────────────────────────────────
-    const plan = buildPrompt(model, apiMessages, overrides?.systemPrompt);
+    const plan = buildPrompt(model, apiMessages, overrides);
     const { turnIntent, localGenerationOptions } = plan;
 
     // ── Create the per-generation object (BEFORE the tool step) ─────────────
@@ -817,6 +895,9 @@ export function useChat() {
     // an authoritative ToolCallBlock; the grounding tool instead returns a
     // `citation` (presentation:"citation") for the citation chip. On no match this
     // clears any prior turn's tool call and returns null (the common path).
+    // Read from the RAW turn, never the directive-composed one: tool detection
+    // is scoped to the user's actual ask, and a host-authored directive must
+    // not be able to change what gets looked up.
     const latestUserText = [...apiMessages]
       .reverse()
       .find((message) => message.role === "user")?.content ?? "";
@@ -1197,6 +1278,8 @@ export function useChat() {
       // Skipped when the user stopped (abort set) — the explicit user-stop
       // invariant: a stopped turn is never silently re-generated.
       let deterministicReplacementApplied = false;
+      // RAW turn again: a repair triggers on a hard constraint the USER stated,
+      // so a host-authored directive must not be able to trigger one.
       const latestUserPrompt = [...apiMessages]
         .reverse()
         .find((message) => message.role === "user")?.content ?? "";
@@ -1647,8 +1730,13 @@ export function useChat() {
   /**
    * Regenerate the latest assistant message: creates a new sibling assistant
    * message with the same parent, then streams a new response.
+   *
+   * `overrides` shapes THAT ONE generation (forced intent and/or a model-facing
+   * directive) without touching the conversation: the ancestors below are read
+   * from the store and passed through unchanged, and the directive is composed
+   * downstream in `buildPrompt` onto a copy. Omitted ⇒ a plain regenerate.
    */
-  async function regenerateMessage(messageId: string) {
+  async function regenerateMessage(messageId: string, overrides?: RegenerateOverrides) {
     if (useChatStore.getState().isStreaming) return;
 
     const currentMessages = useChatStore.getState().messages;
@@ -1713,7 +1801,7 @@ export function useChat() {
       );
 
     try {
-      await streamResponse(newAssistantId, apiMessages);
+      await streamResponse(newAssistantId, apiMessages, overrides);
     } catch (err) {
       if (!isActiveGenerationAborted()) {
         handleStreamError(err, newAssistantId);
