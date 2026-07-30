@@ -5,8 +5,11 @@
 
 import { useState, useCallback, useEffect, useId, useLayoutEffect, useRef } from "react";
 
+import { resolveActiveModelId } from "../../lib/active-model";
 import { copyTextWithFallback } from "../../lib/clipboard";
+import { canDeepen, SHORTER_MIN_COMPLETION_TOKENS } from "../../lib/reply-controls";
 import type { ReplyRegenerateControl } from "../../lib/reply-controls";
+import { useChatStore } from "../../stores/chatStore";
 
 type MessageActionsProps = {
   content: string;
@@ -15,6 +18,14 @@ type MessageActionsProps = {
   onRegenerate?: () => void;
   onAssistantAction?: (action: AssistantReplyControl) => void;
   isLatestAssistant?: boolean;
+  /**
+   * Completion tokens this reply actually produced, when known. Below
+   * `SHORTER_MIN_COMPLETION_TOKENS` there is no length left to remove, so
+   * "Just the answer" is not offered. Absent (any reply restored from
+   * IndexedDB, which does not carry the field) ⇒ offer it: never withhold a
+   * control on state we simply do not have.
+   */
+  localCompletionTokens?: number;
   /** Dev-gated (lib/dev-capture.ts): flag this reply into the eval capture set. */
   onFlagForEval?: () => void;
   /**
@@ -43,6 +54,7 @@ export function MessageActions({
   onRegenerate,
   onAssistantAction,
   isLatestAssistant,
+  localCompletionTokens,
   onFlagForEval,
   plainText = false,
 }: MessageActionsProps) {
@@ -52,6 +64,17 @@ export function MessageActions({
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const firstMenuItemRef = useRef<HTMLButtonElement>(null);
   const menuId = useId();
+
+  /**
+   * Can the model a regenerate would run on actually deliver more depth?
+   *
+   * Read through a store selector so the answer is re-derived whenever the chat
+   * store changes — switching to a model with a flat budget ladder takes the
+   * control away rather than leaving a button that does nothing. The resolution
+   * itself is imported, not restated: `handleAssistantAction` asks the exact
+   * same question before it runs, and the two must never disagree.
+   */
+  const modelCanDeepen = useChatStore(() => canDeepen(resolveActiveModelId()));
 
   const handleCopyPlainText = useCallback(() => {
     // Canonical exact-answer results are already plain text — copy them verbatim.
@@ -126,8 +149,27 @@ export function MessageActions({
 
   const actionButtonClass =
     "flex h-7 w-7 min-h-[44px] min-w-[44px] md:min-h-0 md:min-w-0 items-center justify-center rounded-md text-[var(--eco-text-secondary)] transition-colors hover:bg-[var(--eco-primary-soft)] hover:text-[var(--eco-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--eco-primary)] motion-reduce:transition-none";
+  // Same register as the icon buttons above — same height, same quiet
+  // secondary text, same hover and focus treatment. Only the hit area differs:
+  // a label is wider than 44px on its own, so the width floor is left to the
+  // text and only the height floor is asserted for touch.
+  const textActionButtonClass =
+    "flex h-7 min-h-[44px] md:min-h-0 items-center justify-center whitespace-nowrap rounded-md px-2 text-xs text-[var(--eco-text-secondary)] transition-colors hover:bg-[var(--eco-primary-soft)] hover:text-[var(--eco-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--eco-primary)] motion-reduce:transition-none";
   const menuItemClass =
     "flex w-full items-center gap-2 px-3 py-1.5 min-h-[44px] md:min-h-0 text-left text-sm text-[var(--eco-text)] transition-colors hover:bg-[var(--eco-primary-soft)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--eco-primary)] motion-reduce:transition-none";
+
+  // The two recovery controls sit in the row itself, in the open, because the
+  // copy IS the affordance: nobody opens a menu to find out that a reply can be
+  // made shorter. Each is HIDDEN rather than disabled where it cannot deliver —
+  // a disabled control still advertises a promise. The handler keeps its own
+  // guards regardless; these decide what to show, not what is allowed.
+  const canRunReplyControls =
+    role === "assistant" && isLatestAssistant === true && onAssistantAction !== undefined;
+  const showJustTheAnswer =
+    canRunReplyControls
+    && (localCompletionTokens === undefined
+      || localCompletionTokens >= SHORTER_MIN_COMPLETION_TOKENS);
+  const showMoreDepth = canRunReplyControls && modelCanDeepen;
 
   return (
     <div className="flex items-center gap-1 rounded-lg border border-[var(--eco-border)] bg-[var(--eco-surface-elevated)] p-1 opacity-100 shadow-sm transition-opacity focus-within:opacity-100 motion-reduce:transition-none md:opacity-0 md:group-hover:opacity-100">
@@ -210,6 +252,27 @@ export function MessageActions({
         </button>
       )}
 
+      {/* Recovery controls — text-labeled, because the words are the affordance */}
+      {showJustTheAnswer && onAssistantAction && (
+        <button
+          type="button"
+          onClick={() => onAssistantAction("shorter")}
+          className={textActionButtonClass}
+        >
+          Just the answer
+        </button>
+      )}
+
+      {showMoreDepth && onAssistantAction && (
+        <button
+          type="button"
+          onClick={() => onAssistantAction("expand")}
+          className={textActionButtonClass}
+        >
+          More depth
+        </button>
+      )}
+
       {/* Three-dot menu */}
       <div ref={menuRef} className="relative">
         <button
@@ -252,28 +315,11 @@ export function MessageActions({
                 >
                   Continue
                 </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    onAssistantAction("shorter");
-                    setMenuOpen(false);
-                  }}
-                  className={menuItemClass}
-                >
-                  Make shorter
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    onAssistantAction("expand");
-                    setMenuOpen(false);
-                  }}
-                  className={menuItemClass}
-                >
-                  Expand
-                </button>
+                {/*
+                  "Make shorter" and "Expand" used to live here. They are now
+                  the two labeled buttons in the row above — the same actions,
+                  reachable without opening a menu first.
+                */}
                 <button
                   type="button"
                   role="menuitem"

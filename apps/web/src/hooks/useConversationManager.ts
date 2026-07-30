@@ -22,8 +22,7 @@ import {
   REPLY_CONTROL_TREATMENTS,
   SHORTER_MIN_COMPLETION_TOKENS,
 } from "../lib/reply-controls";
-import { getSlot } from "../local-ai/lifecycle/slots";
-import { resolveSelectedModelId } from "../local-ai/util";
+import { resolveActiveModelId } from "../lib/active-model";
 import { requestOpenShareConversation } from "../lib/share-conversation-event";
 import { useScrollToMessage } from "./useScrollToMessage";
 
@@ -59,24 +58,6 @@ function getMessageSyncSignature(messages: ChatMessage[]): string {
  * parity and does not consume it. So this stays a canned turn on purpose.
  */
 const CONTINUE_TURN = "Continue your previous answer.";
-
-/**
- * The model id a regenerate pressed right now would actually run on.
- *
- * Mirrors the resolution `useChat.resolveDispatch` performs, including the
- * "auto" case (the store's pre-setup default, which dispatch resolves to the
- * best ready slot, eco-smart first). Only used to ask a capability question —
- * dispatch still resolves the model itself.
- */
-function resolveActiveModelId(): string {
-  const resolved = resolveSelectedModelId(useChatStore.getState().selectedModel);
-  if (resolved !== "auto") return resolved;
-  for (const slotId of ["eco-smart", "eco-fast"] as const) {
-    const slot = getSlot(slotId);
-    if (slot.status === "ready" && slot.model) return slot.model.id;
-  }
-  return resolved;
-}
 
 type ConversationManagerParams = {
   /** Live messages from useChat. */

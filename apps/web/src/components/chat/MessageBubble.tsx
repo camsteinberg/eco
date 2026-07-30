@@ -83,6 +83,12 @@ type MessageBubbleProps = {
   interruptedReason?: "user-stop" | "fault" | "restore-detected";
   /** When true, a local response ended near its generation limit. */
   possiblyTruncated?: boolean;
+  /**
+   * Completion tokens this reply produced, when known. Only used to decide
+   * whether "Just the answer" has any length left to remove — see
+   * `MessageActions`. Absent for any reply restored from IndexedDB.
+   */
+  localCompletionTokens?: number;
   /** Concrete model selected by orchestrator when user chose "auto". */
   resolvedModel?: string;
   /** Whether the message was generated locally or remotely. */
@@ -156,6 +162,7 @@ export function MessageBubble({
   streamInterrupted = false,
   interruptedReason,
   possiblyTruncated = false,
+  localCompletionTokens,
   resolvedModel: _resolvedModel,
   reactions: _reactions,
   onReact: _onReact,
@@ -406,6 +413,7 @@ export function MessageBubble({
               onRegenerate={onRegenerate}
               onAssistantAction={onAssistantAction}
               isLatestAssistant={isLatestAssistant}
+              localCompletionTokens={localCompletionTokens}
               onFlagForEval={onFlagForEval}
               plainText={isCanonicalAnswer}
             />
