@@ -512,12 +512,25 @@ async function initConversationStore() {
       pinnedAt: c.pinnedAt ?? null,
     }))
 
-    const restoredActiveConversationId = resolveRestoredActiveConversationId(conversations)
-    persistActiveConversationId(restoredActiveConversationId)
+    // The read above is a snapshot of a moment that has already passed, and the
+    // 3s safety timeout deliberately lets the user start chatting before it
+    // lands. Anything they started in the meantime is newer than this snapshot,
+    // so merge it in rather than replacing them with the past.
+    const liveState = useConversationStore.getState()
+    const hydratedIds = new Set(conversations.map((conversation) => conversation.id))
+    const startedDuringHydration = liveState.conversations.filter(
+      (conversation) => !hydratedIds.has(conversation.id),
+    )
+    const mergedConversations = [...startedDuringHydration, ...conversations]
+
+    const activeConversationId =
+      liveState.activeConversationId
+      ?? resolveRestoredActiveConversationId(mergedConversations)
+    persistActiveConversationId(activeConversationId)
 
     useConversationStore.setState({
-      conversations,
-      activeConversationId: restoredActiveConversationId,
+      conversations: mergedConversations,
+      activeConversationId,
       hasHydrated: true,
       persistenceError: null,
     })
