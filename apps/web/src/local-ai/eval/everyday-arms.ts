@@ -19,7 +19,10 @@
  *      prompt, so the model is hard-banned from copying n consecutive prompt
  *      tokens. The profile comment says settling it "needs a measured A/B
  *      against a real loaded model, not a judgement call". This is that A/B; the
- *      dim that reads it out is `preservesUserText`.
+ *      dims that read it out are `preservesUserText` (does their WORDING come
+ *      back, on the one proofread item) and `preservesFacts` (do their figures,
+ *      dates and names come back UNCORRUPTED, on the eight items where the
+ *      wording is supposed to change).
  *
  * ★ A CONTROL ARM IS MANDATORY, and enforced rather than encouraged.
  * `compareEverydayArms` returns a problem instead of a comparison when no
@@ -86,7 +89,7 @@ export const EVERYDAY_ARMS: readonly EverydayArm[] = [
     id: 'ngram-off',
     addContextClause: 'as-shipped',
     ngramBan: 'off',
-    notes: 'Does dropping the prompt-inclusive n-gram ban let the model give the user their own words back? preservesUserText is the readout; noRepetition is the risk being watched.',
+    notes: 'Does dropping the prompt-inclusive n-gram ban let the model give the user their own words and figures back? preservesUserText and preservesFacts are the readouts; noRepetition is the risk being watched.',
   },
   {
     id: 'no-add-context-ngram-off',
