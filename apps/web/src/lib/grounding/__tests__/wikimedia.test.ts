@@ -8,7 +8,13 @@
  * `global.fetch`. Fixtures are trimmed real response shapes from the Wikimedia REST
  * APIs. We assert real behavior — extract truncation, the title→page fallback,
  * disambiguation/timeout/abort declines, serial ordering, the `Api-User-Agent`
- * header, session-cache hits, and Wikidata amount/`asOf` parsing — not mocks of mocks.
+ * header, and Wikidata amount/`asOf` parsing — not mocks of mocks.
+ *
+ * Caching is asserted by REQUEST COUNT, because the property that matters is a
+ * privacy one: a query the user repeats must not be re-sent to Wikimedia. Both
+ * halves are covered — deterministic misses stop going out, transient failures keep
+ * going out. Note the caches are per-document-lifetime: a reload legitimately
+ * re-sends, which these tests model by clearing the cache between cases.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -410,18 +416,209 @@ describe("lookupWikipedia — etiquette and caching", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2); // not 4
   });
 
-  it("does NOT cache a decline (a later success still hits the network)", async () => {
+  it("keeps different queries in separate entries", async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(SEARCH_TITLE_HIT))
+      .mockResolvedValueOnce(jsonResponse(PARIS_SUMMARY))
+      .mockResolvedValueOnce(jsonResponse(SEARCH_EMPTY))
+      .mockResolvedValueOnce(jsonResponse(SEARCH_EMPTY));
+
+    const paris = await lookupWikipedia("paris");
+    const other = await lookupWikipedia("briznor hollow");
+
+    expect(paris.found).toBe(true);
+    expect(other).toEqual({ found: false, reason: "no-match" });
+    expect(fetchMock).toHaveBeenCalledTimes(4); // no entry was shared
+  });
+});
+
+// ─── lookupWikipedia: a failed lookup is not re-sent ───────────────────────────
+//
+// The privacy property under test: repeating a turn (pressing regenerate) must not
+// re-send the user's query to Wikimedia. Deterministic misses are cached and return
+// byte-identically; transient failures stay uncached so a retry can still succeed.
+//
+// Honest limit: these caches live for the lifetime of the document. A page reload
+// clears them and the next lookup does hit the network again — that is accepted.
+
+describe("lookupWikipedia — deterministic misses are cached", () => {
+  it("does not re-search after a no-match (identical outcome, no second request)", async () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse(SEARCH_EMPTY))
       .mockResolvedValueOnce(jsonResponse(SEARCH_EMPTY));
-    const declined = await lookupWikipedia("paris");
-    expect(declined).toEqual({ found: false, reason: "no-match" });
+
+    const first = await lookupWikipedia("briznor hollow");
+    expect(first).toEqual({ found: false, reason: "no-match" });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    const second = await lookupWikipedia("  Briznor Hollow  "); // same normalized key
+    expect(second).toEqual(first);
+    expect(fetchMock).toHaveBeenCalledTimes(2); // nothing re-sent
+  });
+
+  it("does not re-search after a disambiguation decline", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse({ pages: [{ key: "Mercury", title: "Mercury" }] })
+      )
+      .mockResolvedValueOnce(jsonResponse(DISAMBIG_SUMMARY));
+
+    const first = await lookupWikipedia("mercury");
+    expect(first).toEqual({ found: false, reason: "disambiguation" });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    expect(await lookupWikipedia("mercury")).toEqual(first);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not re-search after a summary that lacks citable fields", async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(SEARCH_TITLE_HIT))
+      .mockResolvedValueOnce(jsonResponse({ type: "standard", title: "Paris" }));
+
+    const first = await lookupWikipedia("paris");
+    expect(first).toEqual({ found: false, reason: "no-match" });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    expect(await lookupWikipedia("paris")).toEqual(first);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("caches a 404 summary, and still reports it as network-error", async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(SEARCH_TITLE_HIT))
+      .mockResolvedValueOnce(jsonResponse({}, { ok: false, status: 404 }));
+
+    const first = await lookupWikipedia("paris");
+    expect(first).toEqual({ found: false, reason: "network-error" });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    // The user-visible outcome is unchanged by caching — same reason, second time.
+    expect(await lookupWikipedia("paris")).toEqual(first);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("caches a 404 from the search endpoint", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({}, { ok: false, status: 404 }));
+
+    const first = await lookupWikipedia("paris");
+    expect(first).toEqual({ found: false, reason: "network-error" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    expect(await lookupWikipedia("paris")).toEqual(first);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("lookupWikipedia — transient failures stay retryable", () => {
+  it("re-fetches after a 500, and a later attempt can succeed", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({}, { ok: false, status: 500 }));
+    expect(await lookupWikipedia("paris")).toEqual({
+      found: false,
+      reason: "network-error",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
 
     fetchMock
       .mockResolvedValueOnce(jsonResponse(SEARCH_TITLE_HIT))
       .mockResolvedValueOnce(jsonResponse(PARIS_SUMMARY));
-    const found = await lookupWikipedia("paris");
-    expect(found.found).toBe(true);
+    expect((await lookupWikipedia("paris")).found).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("re-fetches after a fetch rejection", async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    expect(await lookupWikipedia("paris")).toEqual({
+      found: false,
+      reason: "network-error",
+    });
+
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(SEARCH_TITLE_HIT))
+      .mockResolvedValueOnce(jsonResponse(PARIS_SUMMARY));
+    expect((await lookupWikipedia("paris")).found).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("re-fetches after a timeout", async () => {
+    vi.useFakeTimers();
+    fetchMock.mockImplementationOnce((_input, init?: RequestInit) => {
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          reject(new DOMException("aborted", "AbortError"));
+        });
+      });
+    });
+
+    const pending = lookupWikipedia("paris", { timeoutMs: 50 });
+    await vi.advanceTimersByTimeAsync(60);
+    expect(await pending).toEqual({ found: false, reason: "timeout" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(SEARCH_TITLE_HIT))
+      .mockResolvedValueOnce(jsonResponse(PARIS_SUMMARY));
+    expect((await lookupWikipedia("paris")).found).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("re-fetches after an unreadable search body (200 with unparseable JSON)", async () => {
+    fetchMock
+      .mockResolvedValueOnce(badJsonResponse())
+      .mockResolvedValueOnce(badJsonResponse());
+    expect(await lookupWikipedia("paris")).toEqual({
+      found: false,
+      reason: "no-match",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(SEARCH_TITLE_HIT))
+      .mockResolvedValueOnce(jsonResponse(PARIS_SUMMARY));
+    expect((await lookupWikipedia("paris")).found).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("re-fetches after an unreadable summary body", async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(SEARCH_TITLE_HIT))
+      .mockResolvedValueOnce(badJsonResponse());
+    expect(await lookupWikipedia("paris")).toEqual({
+      found: false,
+      reason: "network-error",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(SEARCH_TITLE_HIT))
+      .mockResolvedValueOnce(jsonResponse(PARIS_SUMMARY));
+    expect((await lookupWikipedia("paris")).found).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+});
+
+describe("grounding cache — negative entries respect the shared cap", () => {
+  it("evicts the oldest cached miss once the cap is reached", async () => {
+    // Every search comes back cleanly empty → a deterministic, cacheable no-match.
+    fetchMock.mockImplementation(() => Promise.resolve(jsonResponse(SEARCH_EMPTY)));
+
+    // Fill the cache (cap 50) with 50 distinct negative entries: 2 requests each.
+    for (let i = 0; i < 50; i += 1) {
+      await lookupWikipedia(`nothing-here-${String(i)}`);
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(100);
+
+    // One more distinct miss evicts the oldest entry (`nothing-here-0`).
+    await lookupWikipedia("nothing-here-50");
+    expect(fetchMock).toHaveBeenCalledTimes(102);
+
+    // The newest entry is still cached…
+    await lookupWikipedia("nothing-here-50");
+    expect(fetchMock).toHaveBeenCalledTimes(102);
+
+    // …but the evicted one goes back to the network.
+    await lookupWikipedia("nothing-here-0");
+    expect(fetchMock).toHaveBeenCalledTimes(104);
   });
 });
 
@@ -648,16 +845,70 @@ describe("searchWikipediaFulltext", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("does NOT cache a decline (a later success still hits the network)", async () => {
+  it("does not re-search after a no-match (identical outcome, no second request)", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(SEARCH_EMPTY));
+
+    const first = await searchWikipediaFulltext("zzzznothing");
+    expect(first).toEqual({ found: false, reason: "no-match" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    const second = await searchWikipediaFulltext("  ZZZZnothing  ");
+    expect(second).toEqual(first);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("caches a 404, and still reports it as network-error", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({}, { ok: false, status: 404 }));
+
+    const first = await searchWikipediaFulltext("apple");
+    expect(first).toEqual({ found: false, reason: "network-error" });
+
+    expect(await searchWikipediaFulltext("apple")).toEqual(first);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-fetches after a 500 (transient failures stay retryable)", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({}, { ok: false, status: 500 }));
     expect(await searchWikipediaFulltext("apple")).toEqual({
       found: false,
-      reason: "no-match",
+      reason: "network-error",
     });
 
     fetchMock.mockResolvedValueOnce(jsonResponse(SEARCH_PAGE_MULTI));
-    const found = await searchWikipediaFulltext("apple");
-    expect(found.found).toBe(true);
+    expect((await searchWikipediaFulltext("apple")).found).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("re-fetches after a timeout", async () => {
+    vi.useFakeTimers();
+    fetchMock.mockImplementationOnce((_input, init?: RequestInit) => {
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          reject(new DOMException("aborted", "AbortError"));
+        });
+      });
+    });
+
+    const pending = searchWikipediaFulltext("apple", { timeoutMs: 50 });
+    await vi.advanceTimersByTimeAsync(60);
+    expect(await pending).toEqual({ found: false, reason: "timeout" });
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(SEARCH_PAGE_MULTI));
+    expect((await searchWikipediaFulltext("apple")).found).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps different queries in separate entries", async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(SEARCH_EMPTY))
+      .mockResolvedValueOnce(jsonResponse(SEARCH_PAGE_MULTI));
+
+    expect(await searchWikipediaFulltext("zzzznothing")).toEqual({
+      found: false,
+      reason: "no-match",
+    });
+    expect((await searchWikipediaFulltext("apple")).found).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -777,6 +1028,52 @@ describe("getWikidataStatement", () => {
 
     expect(first).toEqual(second);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not re-request after an empty-statements null", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ P1082: [] }));
+
+    expect(await getWikidataStatement("Q90", "P1082")).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    expect(await getWikidataStatement("Q90", "P1082")).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not re-request after a 404", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({}, { ok: false, status: 404 }));
+
+    expect(await getWikidataStatement("Q404", "P1082")).toBeNull();
+    expect(await getWikidataStatement("Q404", "P1082")).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-requests after a 500 or a fetch rejection (transient, stays retryable)", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({}, { ok: false, status: 500 }));
+    expect(await getWikidataStatement("Q90", "P1082")).toBeNull();
+
+    fetchMock.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    expect(await getWikidataStatement("Q90", "P1082")).toBeNull();
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(PARIS_POPULATION_STATEMENT));
+    expect(await getWikidataStatement("Q90", "P1082")).toEqual({
+      value: "2102650",
+      asOf: "2023",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("keeps different qid|property pairs in separate entries", async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ P1082: [] }))
+      .mockResolvedValueOnce(jsonResponse(PARIS_POPULATION_STATEMENT));
+
+    expect(await getWikidataStatement("Q99", "P1082")).toBeNull();
+    expect(await getWikidataStatement("Q90", "P1082")).toEqual({
+      value: "2102650",
+      asOf: "2023",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("parses a bare amount (no leading +) and a negative amount correctly", async () => {
