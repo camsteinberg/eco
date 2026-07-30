@@ -61,13 +61,17 @@ const MAX_RETRY_AFTER_MS = 3000;
 
 // ---------------------------------------------------------------------------
 // Session caches (module-level, bounded). Keyed by normalized query / `qid|prop`.
-// We cache only SUCCESSES — declines and nulls are cheap to recompute and may be
-// transient (timeout, network blip), so retrying them next turn is correct.
+//
+// Constraint: cache successes AND deterministic misses — a decline, a zero-hit
+// search, an HTTP 404 — so repeating a turn (regenerate) does not re-send the user's
+// query to Wikimedia again and again. TRANSIENT failures (timeout, caller abort,
+// fetch rejection, unreadable body, 429/5xx) are NEVER cached, so a retry can still
+// succeed. Negative entries share the same cap and FIFO eviction as successes.
 // ---------------------------------------------------------------------------
 
-const wikipediaCache = new Map<string, Extract<WikipediaResult, { found: true }>>();
-const wikidataCache = new Map<string, WikidataStatement>();
-const fulltextCache = new Map<string, Extract<WikipediaFulltextResult, { found: true }>>();
+const wikipediaCache = new Map<string, WikipediaResult>();
+const wikidataCache = new Map<string, WikidataStatement | null>();
+const fulltextCache = new Map<string, WikipediaFulltextResult>();
 
 /** Simple FIFO eviction: drop the oldest insertion when at capacity. */
 function setBounded<V>(cache: Map<string, V>, key: string, value: V): void {
@@ -78,6 +82,20 @@ function setBounded<V>(cache: Map<string, V>, key: string, value: V): void {
     }
   }
   cache.set(key, value);
+}
+
+/** Store a deterministic miss under the shared cap, then hand it back to the caller. */
+function cacheDecline<V>(cache: Map<string, V>, key: string, value: V): V {
+  setBounded(cache, key, value);
+  return value;
+}
+
+/**
+ * Does this HTTP status mean "this request will always miss" rather than "try again"?
+ * Only 404 qualifies — 429/5xx are operational and clear on their own.
+ */
+function isDeterministicStatus(status: number): boolean {
+  return status === 404;
 }
 
 function normalizeQuery(query: string): string {
@@ -348,9 +366,11 @@ export async function lookupWikipedia(
   }
 
   try {
-    const title = await resolveTitle(query, opts);
+    const { title, readable } = await resolveTitle(query, opts);
     if (title === null) {
-      return { found: false, reason: "no-match" };
+      const declined: WikipediaResult = { found: false, reason: "no-match" };
+      // A search body we couldn't parse is transient; a clean zero-hit search isn't.
+      return readable ? cacheDecline(wikipediaCache, cacheKey, declined) : declined;
     }
 
     const summaryResponse = await groundedFetch(
@@ -359,7 +379,10 @@ export async function lookupWikipedia(
       true
     );
     if (!summaryResponse.ok) {
-      return { found: false, reason: "network-error" };
+      const declined: WikipediaResult = { found: false, reason: "network-error" };
+      return isDeterministicStatus(summaryResponse.status)
+        ? cacheDecline(wikipediaCache, cacheKey, declined)
+        : declined;
     }
 
     const summary = await readJson(summaryResponse);
@@ -368,7 +391,10 @@ export async function lookupWikipedia(
     }
 
     if (summary.type === "disambiguation") {
-      return { found: false, reason: "disambiguation" };
+      return cacheDecline(wikipediaCache, cacheKey, {
+        found: false,
+        reason: "disambiguation",
+      });
     }
 
     const resolvedTitle = summary.title;
@@ -381,7 +407,7 @@ export async function lookupWikipedia(
       url === null
     ) {
       // The summary exists but lacks the fields we need to ground/cite on.
-      return { found: false, reason: "no-match" };
+      return cacheDecline(wikipediaCache, cacheKey, { found: false, reason: "no-match" });
     }
 
     const qid = summary.wikibase_item;
@@ -398,22 +424,35 @@ export async function lookupWikipedia(
   } catch (err) {
     if (err instanceof AbortedError) {
       // Both timeout and caller-abort surface to the user as a timed-out lookup.
+      // Transient — deliberately not cached, so the next attempt can still succeed.
       return { found: false, reason: "timeout" };
     }
-    return { found: false, reason: "network-error" };
+    const declined: WikipediaResult = { found: false, reason: "network-error" };
+    return err instanceof NetworkError && isDeterministicStatus(err.status)
+      ? cacheDecline(wikipediaCache, cacheKey, declined)
+      : declined;
   }
 }
 
+/** What `/search/*` resolved to, plus whether its payloads were readable at all. */
+type TitleResolution = {
+  /** The top hit's title, or `null` when search returned nothing usable. */
+  title: string | null;
+  /** `false` when a search body failed to parse — a transient miss, never cached. */
+  readable: boolean;
+};
+
 /**
  * Resolve a query to an article title via `/search/title`, falling back to
- * `/search/page` when title-search returns no pages. Returns `null` for no match.
- * Throws {@link AbortedError} on timeout/abort and rethrows real fetch rejections —
- * the caller maps both.
+ * `/search/page` when title-search returns no pages. Returns a `null` title for no
+ * match, alongside whether the payloads parsed (the caller only caches a miss that
+ * came from readable, genuinely empty results). Throws {@link AbortedError} on
+ * timeout/abort and rethrows real fetch rejections — the caller maps both.
  */
 async function resolveTitle(
   query: string,
   opts: GroundingRequestOptions | undefined
-): Promise<string | null> {
+): Promise<TitleResolution> {
   const encoded = encodeURIComponent(query);
 
   const titleResponse = await groundedFetch(
@@ -422,11 +461,12 @@ async function resolveTitle(
     true
   );
   if (!titleResponse.ok) {
-    throw new NetworkError();
+    throw new NetworkError(titleResponse.status);
   }
-  const titleHit = firstSearchTitle(await readJson(titleResponse));
+  const titlePayload = await readJson(titleResponse);
+  const titleHit = firstSearchTitle(titlePayload);
   if (titleHit !== null) {
-    return titleHit;
+    return { title: titleHit, readable: true };
   }
 
   // Fallback: full-text page search (same response shape).
@@ -436,15 +476,19 @@ async function resolveTitle(
     true
   );
   if (!pageResponse.ok) {
-    throw new NetworkError();
+    throw new NetworkError(pageResponse.status);
   }
-  return firstSearchTitle(await readJson(pageResponse));
+  const pagePayload = await readJson(pageResponse);
+  return {
+    title: firstSearchTitle(pagePayload),
+    readable: isRecord(titlePayload) && isRecord(pagePayload),
+  };
 }
 
 /** Sentinel for a non-ok HTTP response so the caller maps it to `network-error`. */
 class NetworkError extends Error {
-  constructor() {
-    super("grounding network error");
+  constructor(readonly status: number) {
+    super(`grounding network error: HTTP ${String(status)}`);
     this.name = "NetworkError";
   }
 }
@@ -464,9 +508,10 @@ class NetworkError extends Error {
  * lead-biased and a later reranker phase owns relevance/snippet selection.
  *
  * Same contract as {@link lookupWikipedia}: never throws, session-cached (successes
- * only — declines are cheap and may be transient), bounded, and abort/timeout-aware.
- * A non-ok HTTP / fetch rejection / parse failure declines `network-error`; a
- * timeout or caller abort declines `timeout`; zero hits decline `no-match`.
+ * plus deterministic misses; transient failures stay retryable), bounded, and
+ * abort/timeout-aware. A non-ok HTTP / fetch rejection / parse failure declines
+ * `network-error`; a timeout or caller abort declines `timeout`; zero hits decline
+ * `no-match`.
  * (No `disambiguation`: a raw page search never fetches a summary, so it can't
  * observe one — the caller detects that when it fetches the accepted title's summary.)
  */
@@ -491,7 +536,10 @@ export async function searchWikipediaFulltext(
       true
     );
     if (!response.ok) {
-      return { found: false, reason: "network-error" };
+      const declined: WikipediaFulltextResult = { found: false, reason: "network-error" };
+      return isDeterministicStatus(response.status)
+        ? cacheDecline(fulltextCache, cacheKey, declined)
+        : declined;
     }
 
     const payload = await readJson(response);
@@ -503,7 +551,7 @@ export async function searchWikipediaFulltext(
 
     const pages = searchPages(payload);
     if (pages.length === 0) {
-      return { found: false, reason: "no-match" };
+      return cacheDecline(fulltextCache, cacheKey, { found: false, reason: "no-match" });
     }
 
     const result: Extract<WikipediaFulltextResult, { found: true }> = {
@@ -553,9 +601,9 @@ export async function getWikidataStatement(
   }
 
   const cacheKey = `${qid}|${propertyId}`;
-  const cached = wikidataCache.get(cacheKey);
-  if (cached !== undefined) {
-    return cached;
+  // `.has`, not `.get` — a cached deterministic miss is stored as `null`.
+  if (wikidataCache.has(cacheKey)) {
+    return wikidataCache.get(cacheKey) ?? null;
   }
 
   try {
@@ -565,7 +613,9 @@ export async function getWikidataStatement(
       true
     );
     if (!response.ok) {
-      return null;
+      return isDeterministicStatus(response.status)
+        ? cacheDecline(wikidataCache, cacheKey, null)
+        : null;
     }
 
     const payload = await readJson(response);
@@ -575,17 +625,17 @@ export async function getWikidataStatement(
 
     const statements = payload[propertyId];
     if (!Array.isArray(statements) || statements.length === 0) {
-      return null;
+      return cacheDecline(wikidataCache, cacheKey, null);
     }
 
     const statement = pickStatement(statements);
     if (statement === null) {
-      return null;
+      return cacheDecline(wikidataCache, cacheKey, null);
     }
 
     const value = readAmount(statement);
     if (value === null) {
-      return null;
+      return cacheDecline(wikidataCache, cacheKey, null);
     }
 
     const asOf = readPointInTimeYear(statement);
@@ -597,7 +647,8 @@ export async function getWikidataStatement(
     setBounded(wikidataCache, cacheKey, result);
     return result;
   } catch {
-    // AbortedError, NetworkError, or anything else — all degrade to null here.
+    // AbortedError, NetworkError, or anything else — all degrade to null here, and
+    // none are cached: every throw path is transient, so a retry may still succeed.
     return null;
   }
 }
