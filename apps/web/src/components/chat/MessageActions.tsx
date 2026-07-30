@@ -6,13 +6,14 @@
 import { useState, useCallback, useEffect, useId, useLayoutEffect, useRef } from "react";
 
 import { copyTextWithFallback } from "../../lib/clipboard";
+import type { ReplyRegenerateControl } from "../../lib/reply-controls";
 
 type MessageActionsProps = {
   content: string;
   role: "user" | "assistant";
   onEdit?: () => void;
   onRegenerate?: () => void;
-  onAssistantAction?: (action: AssistantFollowUpAction) => void;
+  onAssistantAction?: (action: AssistantReplyControl) => void;
   isLatestAssistant?: boolean;
   /** Dev-gated (lib/dev-capture.ts): flag this reply into the eval capture set. */
   onFlagForEval?: () => void;
@@ -25,7 +26,15 @@ type MessageActionsProps = {
   plainText?: boolean;
 };
 
-export type AssistantFollowUpAction = "continue" | "shorter" | "expand" | "simplify";
+/**
+ * The per-reply controls offered on a finished assistant reply.
+ *
+ * They are REPLY controls, not follow-up turns: three of the four re-run the
+ * same question with a different treatment (see `lib/reply-controls`) and only
+ * `continue` sends a turn, because continuing needs the partial reply in the
+ * history.
+ */
+export type AssistantReplyControl = "continue" | ReplyRegenerateControl;
 
 export function MessageActions({
   content,

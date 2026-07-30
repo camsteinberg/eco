@@ -7,7 +7,7 @@ import { useRef, useEffect, useCallback, useState } from "react";
 import type { KeyboardEvent, TouchEvent, WheelEvent } from "react";
 import { MessageBubble } from "./MessageBubble";
 import type { LocalModelPrepareState } from "./ErrorMessage";
-import type { AssistantFollowUpAction } from "./MessageActions";
+import type { AssistantReplyControl } from "./MessageActions";
 import { ContextDivider } from "./ContextDivider";
 import { FlagFailureDialog } from "./FlagFailureDialog";
 import { isCaptureEnabled } from "../../lib/dev-capture";
@@ -36,7 +36,7 @@ type MessageListProps = {
   /** Called when user clicks regenerate on an assistant message. */
   onRegenerate?: (id: string) => void;
   /** Called when user chooses a premium follow-up action on an assistant message. */
-  onAssistantAction?: (messageId: string, action: AssistantFollowUpAction) => void;
+  onAssistantAction?: (messageId: string, action: AssistantReplyControl) => void;
   /** Called when user navigates between branch siblings. */
   onNavigateBranch?: (messageId: string, direction: "prev" | "next") => void;
   /** Index in messages where the context divider should appear, or -1 for none. */

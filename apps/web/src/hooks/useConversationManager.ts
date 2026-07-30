@@ -15,7 +15,15 @@ import {
   removeReactionFromMessage,
 } from "../lib/db";
 import type { DbMessage, MessageReaction } from "../lib/db";
-import type { AssistantFollowUpAction } from "../components/chat/MessageActions";
+import type { AssistantReplyControl } from "../components/chat/MessageActions";
+import type { RegenerateOverrides } from "./useChat";
+import {
+  canDeepen,
+  REPLY_CONTROL_TREATMENTS,
+  SHORTER_MIN_COMPLETION_TOKENS,
+} from "../lib/reply-controls";
+import { getSlot } from "../local-ai/lifecycle/slots";
+import { resolveSelectedModelId } from "../local-ai/util";
 import { requestOpenShareConversation } from "../lib/share-conversation-event";
 import { useScrollToMessage } from "./useScrollToMessage";
 
@@ -42,6 +50,34 @@ function getMessageSyncSignature(messages: ChatMessage[]): string {
     .join(SYNC_RECORD_SEPARATOR);
 }
 
+/**
+ * The one control that is still a TURN rather than a regenerate.
+ *
+ * Continuation needs the partial reply sitting in the history for the model to
+ * carry on from, and true assistant-prefix continuation does not exist in this
+ * codebase — the shim accepts a `continueFinalMessage` flag for caller-shape
+ * parity and does not consume it. So this stays a canned turn on purpose.
+ */
+const CONTINUE_TURN = "Continue your previous answer.";
+
+/**
+ * The model id a regenerate pressed right now would actually run on.
+ *
+ * Mirrors the resolution `useChat.resolveDispatch` performs, including the
+ * "auto" case (the store's pre-setup default, which dispatch resolves to the
+ * best ready slot, eco-smart first). Only used to ask a capability question —
+ * dispatch still resolves the model itself.
+ */
+function resolveActiveModelId(): string {
+  const resolved = resolveSelectedModelId(useChatStore.getState().selectedModel);
+  if (resolved !== "auto") return resolved;
+  for (const slotId of ["eco-smart", "eco-fast"] as const) {
+    const slot = getSlot(slotId);
+    if (slot.status === "ready" && slot.model) return slot.model.id;
+  }
+  return resolved;
+}
+
 type ConversationManagerParams = {
   /** Live messages from useChat. */
   messages: ChatMessage[];
@@ -50,7 +86,7 @@ type ConversationManagerParams = {
   activeConversationLeafId: string | null;
   sendMessage: (content: string) => void;
   editMessage: (id: string, content: string) => void;
-  regenerateMessage: (id: string) => void;
+  regenerateMessage: (id: string, overrides?: RegenerateOverrides) => void;
   clearComposerDraft: () => void;
 };
 
@@ -70,7 +106,7 @@ export type ConversationManager = {
   handleSaveEdit: (id: string, content: string) => void;
   handleCancelEdit: () => void;
   handleRegenerate: (id: string) => void;
-  handleAssistantAction: (messageId: string, action: AssistantFollowUpAction) => void;
+  handleAssistantAction: (messageId: string, action: AssistantReplyControl) => void;
 };
 
 /**
@@ -437,18 +473,59 @@ export function useConversationManager(
     [regenerateMessage]
   );
 
+  /**
+   * Run one per-reply control.
+   *
+   * `continue` sends a turn. The other three REGENERATE the target reply as a
+   * sibling with a forced intent and a model-facing directive, so the control
+   * changes what the model is asked for instead of asking the model a new
+   * question about its own last answer — which is what made "shorter",
+   * "expand" and "simplify" the same request.
+   */
   const handleAssistantAction = useCallback(
-    (_messageId: string, action: AssistantFollowUpAction) => {
-      const prompts = {
-        continue: "Continue your previous answer.",
-        shorter: "Make your previous answer shorter and keep only the essentials.",
-        expand: "Expand your previous answer with more useful detail and examples.",
-        simplify: "Explain your previous answer more simply.",
-      } satisfies Record<AssistantFollowUpAction, string>;
+    (messageId: string, action: AssistantReplyControl) => {
+      // Mid-stream every control is a no-op. `handleSendMessage` and
+      // `regenerateMessage` each refuse independently; stating it once here is
+      // what makes that visible at the layer the user is pressing.
+      if (isStreaming) return;
 
-      handleSendMessage(prompts[action]);
+      if (action === "continue") {
+        handleSendMessage(CONTINUE_TURN);
+        return;
+      }
+
+      // Read the live reply, not the persisted copy: `possiblyTruncated` and
+      // `localCompletionTokens` are written to the chat store on completion and
+      // are NOT carried by `toDbMessage`, so a reply restored from IndexedDB
+      // has neither. Both guards below therefore fail OPEN on absence.
+      const target = useChatStore.getState().messages.find((m) => m.id === messageId);
+
+      if (action === "expand") {
+        // A reply that stopped at its ceiling has more to say, not less depth.
+        // Continuing adds to what the user already read; regenerating would
+        // throw it away and very likely hit the same ceiling again.
+        if (target?.possiblyTruncated === true) {
+          handleSendMessage(CONTINUE_TURN);
+          return;
+        }
+        // On a model whose budget does not move between intents, asking for
+        // depth cannot buy any. Silent no-op until the control is presented
+        // conditionally in the UI.
+        if (!canDeepen(resolveActiveModelId())) return;
+      }
+
+      if (
+        action === "shorter"
+        && target?.localCompletionTokens !== undefined
+        && target.localCompletionTokens < SHORTER_MIN_COMPLETION_TOKENS
+      ) {
+        return;
+      }
+
+      const { intent, directive } = REPLY_CONTROL_TREATMENTS[action];
+      regenerateMessage(messageId, { intent, turnDirective: directive });
     },
-    [handleSendMessage],
+    [handleSendMessage, isStreaming, regenerateMessage],
   );
 
   const handleNavigateBranch = useCallback(
