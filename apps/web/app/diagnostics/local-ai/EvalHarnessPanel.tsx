@@ -347,8 +347,8 @@ export function EvalHarnessPanel() {
     const autoIdentityArm: EvalRunConfig['identityArm'] =
       rawArm === 'A' || rawArm === 'B' || rawArm === 'C' ? rawArm : undefined;
 
-    // `eco-eval-everyday-arm=control|no-add-context|ngram-off|no-add-context-ngram-off`:
-    // the everyday-use A/B cell (local, unshipped — local-ai/eval/everyday-arms.ts).
+    // `eco-eval-everyday-arm=<arm id>`: the everyday-use A/B cell (local,
+    // unshipped — local-ai/eval/everyday-arms.ts holds the id list).
     // Resolved against the real arm table inside the async block below rather
     // than re-listing the ids here; anything unknown is ignored, matching
     // `eco-eval-arm`. Absent = no arm, i.e. exactly what ships.
@@ -396,9 +396,12 @@ export function EvalHarnessPanel() {
       // stamped on a run.
       let everydayArm: EvalRunConfig['everydayArm'];
       if (rawEverydayArm !== null) {
-        const { EVERYDAY_ARMS, getEverydayArm } = await import(
-          '../../../src/local-ai/eval/everyday-arms'
-        );
+        const {
+          EVERYDAY_ARMS,
+          SYSTEM_PROMPT_DISCARDING_TOPOLOGY,
+          armRewritesSystemPrompt,
+          getEverydayArm,
+        } = await import('../../../src/local-ai/eval/everyday-arms');
         everydayArm = EVERYDAY_ARMS.find((a) => a.id === rawEverydayArm)?.id;
         // ★ Greedy decode collapses generation options to { temperature: 0,
         // maxTokens }, dropping noRepeatNgramSize for EVERY arm — so an n-gram
@@ -415,6 +418,23 @@ export function EvalHarnessPanel() {
         ) {
           setAutorunNote(
             `Autorun skipped: the ${everydayArm} arm drops noRepeatNgramSize, but greedy decode already drops it for every arm — the n-gram switch cannot be measured here. Re-run it sampled (omit eco-eval-sampling=greedy).`,
+          );
+          return;
+        }
+        // ★ The same refusal for the system-prompt arms. The gemma-native
+        // topology sends no system message at all, so an arm that works by
+        // rewriting the base prompt has that prompt built and discarded — the
+        // run would be byte-identical to its control. `compareEverydayArms`
+        // refuses the pairing after the fact; refusing to launch says it before
+        // a multi-GB, multi-minute on-device run is spent on it. Both sites read
+        // `armRewritesSystemPrompt` off the same arm table.
+        if (
+          everydayArm !== undefined &&
+          autoMessageTopology === SYSTEM_PROMPT_DISCARDING_TOPOLOGY &&
+          armRewritesSystemPrompt(getEverydayArm(everydayArm))
+        ) {
+          setAutorunNote(
+            `Autorun skipped: the ${everydayArm} arm rewrites the system prompt, but the ${SYSTEM_PROMPT_DISCARDING_TOPOLOGY} topology sends no system prompt at all — the switch cannot be measured here. Re-run it on the production topology (omit eco-eval-topology).`,
           );
           return;
         }

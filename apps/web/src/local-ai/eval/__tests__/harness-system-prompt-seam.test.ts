@@ -25,6 +25,8 @@ import type { EvalGenerationFn, EvalRunnerDeps } from '../harness';
 import {
   ADD_CONTEXT_CLAUSE_CONDITIONED,
   ADD_CONTEXT_CLAUSE_SHIPPED,
+  POSTURE_BASE_DIRECT,
+  POSTURE_BASE_SHIPPED,
 } from '../everyday-arms';
 import type { ChatMessage, TokenEvent } from '../../runtime/types';
 
@@ -96,6 +98,28 @@ describe('★ harness system-prompt seam', () => {
     const shipped = getOnDeviceSystemPrompt(REAL_MODEL_ID);
     const [head, tail] = shipped.split(ADD_CONTEXT_CLAUSE_SHIPPED);
     expect(system.content).toBe(`${head}${ADD_CONTEXT_CLAUSE_CONDITIONED}${tail}`);
+  });
+
+  it('★ the posture arm sends the replacement base, model directive intact', async () => {
+    const seen: ChatMessage[][] = [];
+    await runEval(
+      {
+        label: 'seam-posture',
+        modelIds: [REAL_MODEL_ID],
+        promptIds: ['fk1'],
+        everydayArm: 'posture-direct',
+      },
+      seamDeps(seen),
+    );
+
+    const system = seen[0]![0]!;
+    const shipped = getOnDeviceSystemPrompt(REAL_MODEL_ID);
+    // The base swapped whole; everything the catalog appended after it survives.
+    expect(system.content).toBe(
+      POSTURE_BASE_DIRECT + shipped.slice(POSTURE_BASE_SHIPPED.length),
+    );
+    expect(system.content).not.toContain(ADD_CONTEXT_CLAUSE_SHIPPED);
+    expect(system.content.startsWith(POSTURE_BASE_DIRECT)).toBe(true);
   });
 
   it('★ the gemma-native topology DISCARDS the base prompt — a prompt arm is inert there', async () => {
