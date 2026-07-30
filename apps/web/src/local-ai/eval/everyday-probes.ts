@@ -445,14 +445,64 @@ export function everydayProbeId(itemId: string): string {
 }
 
 /**
- * `preservesUserText` applies only where BOTH corpus layers agree it can: the
- * derived needs say the reply has to hand the user's own words back, AND the
- * words are actually in this turn. A follow-up whose antecedent lives in an
- * earlier turn ("shorter. and take out the sorry") has nothing in `prompt` to
- * preserve, and measuring it there would score noise.
+ * ★ Items whose JOB is to hand the user's own WORDING back — the reply IS their
+ * text, carrying only the fixes they asked for ("fix the spelling and grammar
+ * but dont change my voice" → "The corrected text and nothing else"). These are
+ * the only items where a longest-common-span measure means what its name says.
+ *
+ * `faithful-reproduction` on its own is too broad to gate it. That need covers
+ * two different jobs, and span overlap is a valid reading of exactly one:
+ *
+ *   - WORDING must survive (this list) — a long shared span IS the success, and
+ *     a rewrite out of their register is the failure the item names.
+ *   - FACTS must survive (the rejected list below) — figures, dates and names
+ *     have to come back intact while the wording is deliberately CHANGED: a
+ *     summary compresses, a tone rewrite softens, a hospital letter gets
+ *     translated out of jargon. There a longer shared span often means the model
+ *     failed. `health-hospital-letter` bounces on "Parrots the jargon back with
+ *     a definition list" — precisely the answer a high span score would reward.
+ *
+ * ⚠ THE HONEST SIZE OF THIS: one item. A dim reading out a single probe is a
+ * data point, not a comparison, and it cannot carry an A/B by itself. Widening
+ * it means adding proofread-class jobs to the corpus, not relaxing the criterion.
+ */
+export const EVERYDAY_WORDING_PRESERVATION_ITEM_IDS: readonly string[] = ['sw-15'];
+
+/**
+ * Candidates reviewed against the criterion above and REJECTED: their
+ * `faithful-reproduction` need is about facts, not wording, so span overlap
+ * would read their good answer and their bounce the wrong way round.
+ *
+ * Pinned as a list, with the reason, so the judgement is reviewable. Together
+ * with the list above it must cover EVERY corpus item carrying pasted content
+ * and `faithful-reproduction` — `everyday-probes.test.ts` asserts that, so a new
+ * corpus item fails until someone classifies it instead of silently joining the
+ * gate.
+ */
+export const EVERYDAY_FACT_REPRODUCTION_ITEM_IDS: readonly string[] = [
+  'work-email-tone-fix', // tone rewrite: "firm but neutral" — changing the wording is the task
+  'rewrite-03', // verdict first, then their sentence SOFTENED
+  'school-essay-not-ai', // "can you make this better" — handing it straight back is not an answer
+  'health-hospital-letter', // plain-English translation; bounces on parroting the jargon
+  'school-letter-esl-parent', // pull £45 and 8 August OUT of institutional English
+  'legal-rent-increase', // reads the notice back plainly, in their words not the landlord's
+  'summarise-01', // "tldr" — compression is the whole request
+  'sw-13', // reformat into a table: the figures survive, the prose does not
+];
+
+/**
+ * `preservesUserText` applies only where all three agree: the words are actually
+ * in this turn, the derived needs say they have to come back, and the item's job
+ * is to preserve the WORDING rather than the facts. A follow-up whose antecedent
+ * lives in an earlier turn ("shorter. and take out the sorry") has nothing in
+ * `prompt` to preserve, and measuring it there would score noise.
  */
 function expectsUserTextReuse(item: EverydayUseItem): boolean {
-  return item.hasPastedContent && needsFor(item.id).needs.includes('faithful-reproduction');
+  return (
+    item.hasPastedContent &&
+    needsFor(item.id).needs.includes('faithful-reproduction') &&
+    EVERYDAY_WORDING_PRESERVATION_ITEM_IDS.includes(item.id)
+  );
 }
 
 function buildNotes(item: EverydayUseItem, openness: AskOpenness): string {
