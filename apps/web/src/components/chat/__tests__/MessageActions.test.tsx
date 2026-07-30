@@ -135,7 +135,7 @@ describe("MessageActions", () => {
     expect(screen.getByRole("menuitem", { name: "Copy as Markdown" })).toHaveFocus();
   });
 
-  it("shows premium assistant follow-up actions for latest assistant messages", async () => {
+  it("keeps the follow-up actions that were not promoted in the menu", async () => {
     const user = userEvent.setup();
     render(
       <MessageActions
@@ -147,9 +147,13 @@ describe("MessageActions", () => {
     );
     await user.click(screen.getByRole("button", { name: /more actions/i }));
     expect(screen.getByText("Continue")).toBeInTheDocument();
-    expect(screen.getByText("Make shorter")).toBeInTheDocument();
-    expect(screen.getByText("Expand")).toBeInTheDocument();
     expect(screen.getByText("Explain simply")).toBeInTheDocument();
+    // "Make shorter" and "Expand" moved OUT of here and into the row as
+    // "Just the answer" / "More depth" — pinned by name in
+    // MessageRecoveryControls.test.tsx. Leaving them in both places would give
+    // the same action two labels.
+    expect(screen.queryByText("Make shorter")).not.toBeInTheDocument();
+    expect(screen.queryByText("Expand")).not.toBeInTheDocument();
   });
 
   it("calls assistant follow-up action and closes the menu", async () => {
@@ -164,9 +168,9 @@ describe("MessageActions", () => {
       />,
     );
     await user.click(screen.getByRole("button", { name: /more actions/i }));
-    await user.click(screen.getByText("Make shorter"));
-    expect(onAssistantAction).toHaveBeenCalledWith("shorter");
-    expect(screen.queryByText("Make shorter")).not.toBeInTheDocument();
+    await user.click(screen.getByText("Explain simply"));
+    expect(onAssistantAction).toHaveBeenCalledWith("simplify");
+    expect(screen.queryByText("Explain simply")).not.toBeInTheDocument();
   });
 
   it("Copy as Markdown shows Copied feedback", async () => {
