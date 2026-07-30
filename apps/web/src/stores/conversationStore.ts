@@ -10,6 +10,7 @@ import { markRestoredInterruptions } from '../lib/chat-recovery'
 import {
   ACTIVE_CONVERSATION_STORAGE_KEY,
   COMPOSER_DRAFT_STORAGE_KEY,
+  NEW_CHAT_STORAGE_KEY,
 } from '../lib/chat-workspace-storage'
 import { safeStorage } from '../lib/local-storage'
 import { logger } from '../lib/logger'
@@ -144,10 +145,20 @@ function persistActiveConversationId(id: string | null): void {
 
   if (id) {
     safeStorage.set(ACTIVE_CONVERSATION_STORAGE_KEY, id)
+    safeStorage.remove(NEW_CHAT_STORAGE_KEY)
     return
   }
 
   safeStorage.remove(ACTIVE_CONVERSATION_STORAGE_KEY)
+  safeStorage.set(NEW_CHAT_STORAGE_KEY, 'true')
+}
+
+function isInDeliberateNewChat(): boolean {
+  if (typeof window === 'undefined') {
+    return false
+  }
+
+  return safeStorage.get(NEW_CHAT_STORAGE_KEY) === 'true'
 }
 
 function hasPersistedComposerDraft(): boolean {
@@ -167,6 +178,14 @@ function resolveRestoredActiveConversationId(conversations: Conversation[]): str
     && conversations.some((conversation) => conversation.id === persistedActiveConversationId)
   ) {
     return persistedActiveConversationId
+  }
+
+  // Starting a new chat is a choice, and it has to outlive a reload. Without
+  // this marker it is indistinguishable from "nothing was ever saved", so the
+  // fallback below reopened the most recent conversation and put that thread's
+  // title on the blank chat the user had deliberately left open.
+  if (isInDeliberateNewChat()) {
+    return null
   }
 
   if (hasPersistedComposerDraft()) {
