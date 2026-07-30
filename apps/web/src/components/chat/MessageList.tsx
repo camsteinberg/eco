@@ -364,6 +364,7 @@ export function MessageList({
                 streamInterrupted={msg.streamInterrupted}
                 interruptedReason={msg.interruptedReason}
                 possiblyTruncated={msg.possiblyTruncated}
+                localCompletionTokens={msg.localCompletionTokens}
                 resolvedModel={msg.resolvedModel}
                 inferenceMethod={msg.inferenceMethod}
                 confidence={msg.confidence}
