@@ -311,6 +311,9 @@ export const useConversationStore = create<ConversationState & ConversationActio
           citations: m.citations,
           verification: m.verification,
           canonicalToolAnswer: m.canonicalToolAnswer,
+          possiblyTruncated: m.possiblyTruncated,
+          localCompletionTokens: m.localCompletionTokens,
+          localMaxTokens: m.localMaxTokens,
         }))
 
         // Catch replies a crash/reload left mid-stream: they persist with a

@@ -66,6 +66,16 @@ export type DbMessage = {
    * yield the exact value — see `ChatMessage.canonicalToolAnswer`.
    */
   canonicalToolAnswer?: boolean;
+  /**
+   * Local generation receipt: whether this reply ended near its token limit,
+   * and the counts behind that judgement. Persisted so a reloaded truncated
+   * reply keeps its notice and Continue action. Records written before these
+   * fields omit them — absence must restore as `undefined`, never `false`/`0`,
+   * which downstream guards would read as a claim the record never made.
+   */
+  possiblyTruncated?: boolean;
+  localCompletionTokens?: number;
+  localMaxTokens?: number;
 };
 
 export interface EcoDB extends DBSchema {
@@ -108,6 +118,9 @@ export function toDbMessage(m: ChatMessage, conversationId: string): DbMessage {
     ...(m.citations !== undefined && { citations: m.citations }),
     ...(m.verification !== undefined && { verification: m.verification }),
     ...(m.canonicalToolAnswer !== undefined && { canonicalToolAnswer: m.canonicalToolAnswer }),
+    ...(m.possiblyTruncated !== undefined && { possiblyTruncated: m.possiblyTruncated }),
+    ...(m.localCompletionTokens !== undefined && { localCompletionTokens: m.localCompletionTokens }),
+    ...(m.localMaxTokens !== undefined && { localMaxTokens: m.localMaxTokens }),
   };
 }
 

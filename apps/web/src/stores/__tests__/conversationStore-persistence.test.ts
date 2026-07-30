@@ -298,6 +298,173 @@ describe("conversation store persistence", () => {
     expect(unverified?.citations).toBeUndefined();
   });
 
+  it("restores the truncation notice and its Continue affordance on reload", async () => {
+    const { openEcoDB } = await import("../../lib/db");
+    const db = await openEcoDB();
+
+    await db.put("conversations", {
+      id: "conv-truncated",
+      title: "Truncated conversation",
+      createdAt: 1,
+      updatedAt: 2,
+      activeLeafId: "assistant-complete",
+      preview: "truncated preview",
+      pinnedAt: null,
+    });
+
+    await db.put("messages", {
+      id: "user-long",
+      conversationId: "conv-truncated",
+      parentId: null,
+      role: "user",
+      content: "Explain the whole history of the Roman Republic.",
+      createdAt: 1,
+    });
+
+    await db.put("messages", {
+      id: "assistant-truncated",
+      conversationId: "conv-truncated",
+      parentId: "user-long",
+      role: "assistant",
+      content: "The Republic began in 509 BC and",
+      createdAt: 2,
+      status: "complete",
+      inferenceMethod: "local",
+      possiblyTruncated: true,
+      localCompletionTokens: 256,
+      localMaxTokens: 256,
+    });
+
+    await db.put("messages", {
+      id: "user-short",
+      conversationId: "conv-truncated",
+      parentId: "assistant-truncated",
+      role: "user",
+      content: "Thanks.",
+      createdAt: 3,
+    });
+
+    await db.put("messages", {
+      id: "assistant-complete",
+      conversationId: "conv-truncated",
+      parentId: "user-short",
+      role: "assistant",
+      content: "You're welcome.",
+      createdAt: 4,
+      status: "complete",
+      inferenceMethod: "local",
+      possiblyTruncated: false,
+      localCompletionTokens: 40,
+      localMaxTokens: 256,
+    });
+
+    db.close();
+
+    vi.resetModules();
+    const { useConversationStore } = await import("../conversationStore");
+    await waitForHydration(useConversationStore);
+
+    useConversationStore.setState({
+      conversations: [
+        {
+          id: "conv-truncated",
+          title: "Truncated conversation",
+          createdAt: 1,
+          updatedAt: 2,
+          activeLeafId: "assistant-complete",
+          preview: "truncated preview",
+          pinnedAt: null,
+        },
+      ],
+      activeConversationId: "conv-truncated",
+    });
+
+    const branch = await useConversationStore
+      .getState()
+      .loadConversationMessages("conv-truncated");
+
+    const truncated = branch.find((m) => m.id === "assistant-truncated");
+    const complete = branch.find((m) => m.id === "assistant-complete");
+
+    // The reply that hit its limit keeps the flag the notice + Continue render off,
+    // along with the counts that justify it.
+    expect(truncated?.possiblyTruncated).toBe(true);
+    expect(truncated?.localCompletionTokens).toBe(256);
+    expect(truncated?.localMaxTokens).toBe(256);
+
+    // A reply that finished on its own restores explicitly unflagged.
+    expect(complete?.possiblyTruncated).toBe(false);
+    expect(complete?.localCompletionTokens).toBe(40);
+    expect(complete?.localMaxTokens).toBe(256);
+  });
+
+  it("leaves a reply saved before the truncation receipt existed unflagged, not falsely complete", async () => {
+    const { openEcoDB } = await import("../../lib/db");
+    const db = await openEcoDB();
+
+    await db.put("conversations", {
+      id: "conv-legacy",
+      title: "Legacy conversation",
+      createdAt: 1,
+      updatedAt: 2,
+      activeLeafId: "assistant-legacy",
+      preview: "legacy preview",
+      pinnedAt: null,
+    });
+
+    await db.put("messages", {
+      id: "user-legacy",
+      conversationId: "conv-legacy",
+      parentId: null,
+      role: "user",
+      content: "An older question.",
+      createdAt: 1,
+    });
+
+    await db.put("messages", {
+      id: "assistant-legacy",
+      conversationId: "conv-legacy",
+      parentId: "user-legacy",
+      role: "assistant",
+      content: "An older answer, saved before these fields were persisted.",
+      createdAt: 2,
+      status: "complete",
+    });
+
+    db.close();
+
+    vi.resetModules();
+    const { useConversationStore } = await import("../conversationStore");
+    await waitForHydration(useConversationStore);
+
+    useConversationStore.setState({
+      conversations: [
+        {
+          id: "conv-legacy",
+          title: "Legacy conversation",
+          createdAt: 1,
+          updatedAt: 2,
+          activeLeafId: "assistant-legacy",
+          preview: "legacy preview",
+          pinnedAt: null,
+        },
+      ],
+      activeConversationId: "conv-legacy",
+    });
+
+    const branch = await useConversationStore
+      .getState()
+      .loadConversationMessages("conv-legacy");
+
+    const legacy = branch.find((m) => m.id === "assistant-legacy");
+
+    // Absence must survive as absence: downstream guards fail open on undefined,
+    // so a restored `false`/`0` would be a claim the record never made.
+    expect(legacy?.possiblyTruncated).toBeUndefined();
+    expect(legacy?.localCompletionTokens).toBeUndefined();
+    expect(legacy?.localMaxTokens).toBeUndefined();
+  });
+
   it("marks a reply a crash left mid-stream as interrupted on reload", async () => {
     const { openEcoDB } = await import("../../lib/db");
     const db = await openEcoDB();
