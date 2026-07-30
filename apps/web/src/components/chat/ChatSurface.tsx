@@ -9,7 +9,7 @@ import { motion, useReducedMotion } from "motion/react";
 import { springPresets } from "@eco/ui";
 import { timeGreeting } from "./greeting";
 import { MessageList } from "./MessageList";
-import type { AssistantFollowUpAction } from "./MessageActions";
+import type { AssistantReplyControl } from "./MessageActions";
 import type { LocalModelPrepareState } from "./ErrorMessage";
 import { ChatInput } from "./ChatInput";
 import { ImpactFooter } from "./ImpactFooter";
@@ -127,7 +127,7 @@ export type ChatSurfaceProps = {
   onSaveEdit: (id: string, content: string) => void;
   onCancelEdit: () => void;
   onRegenerate: (id: string) => void;
-  onAssistantAction: (messageId: string, action: AssistantFollowUpAction) => void;
+  onAssistantAction: (messageId: string, action: AssistantReplyControl) => void;
   onNavigateBranch: (messageId: string, direction: "prev" | "next") => void;
   onReact: (messageId: string, emoji: string) => void;
   onRemoveReaction: (messageId: string, emoji: string) => void;

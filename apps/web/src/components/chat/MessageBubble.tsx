@@ -10,7 +10,7 @@ import { MarkdownRenderer } from "./MarkdownRenderer";
 import { StreamingCursor } from "./StreamingCursor";
 import { TokenRate } from "./TokenRate";
 import { MessageActions } from "./MessageActions";
-import type { AssistantFollowUpAction } from "./MessageActions";
+import type { AssistantReplyControl } from "./MessageActions";
 // MessageReactions removed — emoji reactions were cluttering the UI
 import { ErrorMessage } from "./ErrorMessage";
 import type { LocalModelPrepareState } from "./ErrorMessage";
@@ -60,7 +60,7 @@ type MessageBubbleProps = {
   // Edit/regenerate
   onEdit?: () => void;
   onRegenerate?: () => void;
-  onAssistantAction?: (action: AssistantFollowUpAction) => void;
+  onAssistantAction?: (action: AssistantReplyControl) => void;
   isLatestAssistant?: boolean;
   /**
    * True only for the FIRST grounded (sourced-citation) assistant message in the
