@@ -6,8 +6,9 @@
  *
  * Two jobs:
  *
- *   1. COVERAGE. Forty corpus items, forty probes, asserted by name. A corpus
- *      addition must fail loudly here rather than sit silently unmeasured.
+ *   1. COVERAGE. One probe per corpus item, asserted by name against the live
+ *      corpus length. A corpus addition must fail loudly here rather than sit
+ *      silently unmeasured.
  *   2. PINNING. Every derived value is pinned as a LIST, never as a count. A
  *      count survives a derivation quietly degenerating into something else;
  *      a list does not. These lists were read item by item against each item's
@@ -37,7 +38,7 @@ import {
   wantsBrevity,
   wantsSubstance,
 } from '../everyday-probes';
-import { scorePreservesUserText } from '../rubric';
+import { analyzePreservesUserText, pastedBlockOf, scorePreservesUserText } from '../rubric';
 
 // ─── the pinned derivation ─────────────────────────────────────────────────
 
@@ -83,16 +84,48 @@ const EXPECTED_BANDS: Readonly<Record<string, { maxWords?: number; minWords?: nu
   'ft-13': {},
   'sw-12': {},
   'ft-15': { maxWords: 38 },
+  // ── WAVE 2 — the proofread-class jobs ─────────────────────────────────────
+  // Every one takes its ceiling from R2 (the reply is bounded by the text they
+  // pasted), and none takes a floor: their bounces name substitution, not
+  // thinness, and more words is not the remedy for a rewrite in the wrong voice.
+  'proofread-teacher-note-esl': { maxWords: 165 },
+  'proofread-birthday-caption': { maxWords: 189 },
+  'proofread-memorial-tribute': { maxWords: 183 },
+  'proofread-grandfather-letter': { maxWords: 187 },
+  'proofread-vet-application': { maxWords: 193 },
+  'proofread-crew-email': { maxWords: 183 },
+  'proofread-marketplace-ad': { maxWords: 188 },
+  'proofread-review-reply': { maxWords: 220 },
+  'proofread-school-post': { maxWords: 229 },
 };
 
 /**
  * ★ The open/closed split — the evidence this instrument exists to produce.
  *
- * The headline is `two-sided`: 22 of 40 items bounce in BOTH directions. More
- * than half this corpus can be damaged by a change that is only checked for
- * length in one direction, which is the whole argument for the richness floor
- * riding alongside the ceiling rather than instead of it.
+ * The headline is `two-sided`: 22 of the blind-authored 40 bounce in BOTH
+ * directions. More than half of that corpus can be damaged by a change that is
+ * only checked for length in one direction, which is the whole argument for the
+ * richness floor riding alongside the ceiling rather than instead of it.
+ *
+ * ★ WAVE 2 DID NOT ADD TO THAT EVIDENCE — IT DILUTED IT, and the assertion below
+ * was rewritten to say so rather than to keep reading green. All nine proofread
+ * items are `closed`, so corpus-wide the two-sided share fell from 22/40 (55%) to
+ * 22/49 (45%) without a single item changing its classification. The majority
+ * claim is therefore made about the population it was measured on, and the skew
+ * wave 2 introduced is pinned next to it. A count over a corpus that grows in one
+ * direction is a statement about the additions, not about people.
  */
+const WAVE_2_ITEM_IDS = [
+  'proofread-teacher-note-esl',
+  'proofread-birthday-caption',
+  'proofread-memorial-tribute',
+  'proofread-grandfather-letter',
+  'proofread-vet-application',
+  'proofread-crew-email',
+  'proofread-marketplace-ad',
+  'proofread-review-reply',
+  'proofread-school-post',
+];
 const CLOSED_ITEMS = [
   'work-email-tone-fix',
   'work-followup-shorter',
@@ -106,6 +139,19 @@ const CLOSED_ITEMS = [
   'ft-13',
   'sw-12',
   'ft-15',
+  // ── WAVE 2 — the proofread-class jobs, all nine closed and for one reason ──
+  // Each states its bound in its own good answer ("the corrected text and
+  // nothing else"), and none of their bounces names thinness: what they name is
+  // the reply coming back in somebody else's voice, which no word floor fixes.
+  'proofread-teacher-note-esl',
+  'proofread-birthday-caption',
+  'proofread-memorial-tribute',
+  'proofread-grandfather-letter',
+  'proofread-vet-application',
+  'proofread-crew-email',
+  'proofread-marketplace-ad',
+  'proofread-review-reply',
+  'proofread-school-post',
 ];
 
 const OPEN_ITEMS = [
@@ -144,9 +190,22 @@ const TWO_SIDED_ITEMS = [
 
 /**
  * Items whose reply has to hand the user's own WORDING back, in this turn — the
- * only place a longest-common-span measure reads the right way round.
+ * only place a longest-common-span measure reads the right way round. Was one;
+ * wave 2 took it to ten, which is what makes the n-gram A/B a comparison rather
+ * than a single reading.
  */
-const REUSE_PROBE_IDS = ['everyday-sw-15'];
+const REUSE_PROBE_IDS = [
+  'everyday-sw-15',
+  'everyday-proofread-teacher-note-esl',
+  'everyday-proofread-birthday-caption',
+  'everyday-proofread-memorial-tribute',
+  'everyday-proofread-grandfather-letter',
+  'everyday-proofread-vet-application',
+  'everyday-proofread-crew-email',
+  'everyday-proofread-marketplace-ad',
+  'everyday-proofread-review-reply',
+  'everyday-proofread-school-post',
+];
 
 /**
  * The candidates that reaching for `faithful-reproduction` alone would have
@@ -204,7 +263,7 @@ const UNMEASURED_CEILING_ITEMS = [
 // ─── coverage ──────────────────────────────────────────────────────────────
 
 describe('everyday probe coverage', () => {
-  it('★ derives exactly one probe per corpus item, 40/40', () => {
+  it('★ derives exactly one probe per corpus item, all 49', () => {
     expect(EVERYDAY_USE_PROBES).toHaveLength(EVERYDAY_USE_CORPUS.length);
     expect(EVERYDAY_USE_PROBES.map((p) => p.id)).toEqual(
       EVERYDAY_USE_CORPUS.map((item) => everydayProbeId(item.id)),
@@ -249,7 +308,7 @@ describe('everyday probe coverage', () => {
 // ─── the two-sided derivation ──────────────────────────────────────────────
 
 describe('depth expectations are derived, and two-sided', () => {
-  it('★ pins the ceiling and floor for all 40 items', () => {
+  it('★ pins the ceiling and floor for all 49 items', () => {
     const actual = Object.fromEntries(
       EVERYDAY_USE_CORPUS.map((item) => {
         const probe = EVERYDAY_USE_PROBES.find((p) => p.id === everydayProbeId(item.id))!;
@@ -310,9 +369,23 @@ describe('★ open vs closed — the axis under the length question', () => {
     expect(itemIdsWithOpenness('open')).toEqual(OPEN_ITEMS);
   });
 
-  it('★ pins the two-sided items — the majority, and the reason one-sided tuning is unsafe', () => {
+  it('★ pins the two-sided items — the majority of the blind forty, and the reason one-sided tuning is unsafe', () => {
     expect(itemIdsWithOpenness('two-sided')).toEqual(TWO_SIDED_ITEMS);
-    expect(TWO_SIDED_ITEMS.length).toBeGreaterThan(EVERYDAY_USE_CORPUS.length / 2);
+    // The claim, against the population it was measured on. Wave 2 was authored
+    // to one job and classifies uniformly; counting it in would let an authoring
+    // choice look like a finding about people.
+    const blindAuthored = EVERYDAY_USE_CORPUS.filter((i) => !WAVE_2_ITEM_IDS.includes(i.id));
+    const twoSidedBlind = blindAuthored.filter((i) => classifyAskOpenness(i) === 'two-sided');
+    expect(blindAuthored).toHaveLength(40);
+    expect(twoSidedBlind.length).toBeGreaterThan(blindAuthored.length / 2);
+    // And the dilution, said out loud: every wave-2 item is closed, so the
+    // corpus-wide two-sided share is now below half with nothing reclassified.
+    for (const id of WAVE_2_ITEM_IDS) {
+      expect(EVERYDAY_ASK_OPENNESS[id], `${id} is no longer closed — re-read the claim above`).toBe(
+        'closed',
+      );
+    }
+    expect(TWO_SIDED_ITEMS.length).toBeLessThan(EVERYDAY_USE_CORPUS.length / 2);
   });
 
   it('classifies every item exactly once', () => {
@@ -326,6 +399,42 @@ describe('★ open vs closed — the axis under the length question', () => {
 
   it('★ pins the unmeasured-ceiling gap rather than papering over it', () => {
     expect([...EVERYDAY_UNMEASURED_CEILING_ITEM_IDS]).toEqual(UNMEASURED_CEILING_ITEMS);
+  });
+
+  /**
+   * ★ A SECOND STATED GAP, found by adding wave 2 and NOT patched.
+   *
+   * `proofread-school-post` bounces on "a numbered audit instead of a fixed post
+   * … eleven items with rule explanations and no corrected text". That is a
+   * withheld deliverable — the reply substitutes commentary for the artifact —
+   * and three separate mechanisms all miss it:
+   *
+   *   - `WITHHELD_BOUNCE_PATTERNS` is keyed to the reply ASKING ("clarifying
+   *     questions", "before writing", "it depends"). This reply asks nothing.
+   *   - `deliversFirst` is keyed to the same thing, so it scores an audit 1.0.
+   *   - `BLOAT_BOUNCE_PATTERNS` catches the identical failure on `sw-15`, whose
+   *     bounce happens to phrase it as "a list of every correction made instead
+   *     of the clean text" and matches /\ba list of\b/. The only difference
+   *     between the two items is the word "list" versus the word "audit".
+   *
+   * That last line is the finding, and it generalises: these pattern sets are
+   * quotations generalised only as far as one item's wording required, so a
+   * synonym walks past them. NOT fixed here on purpose — widening the patterns
+   * re-classifies items in the pinned forty, which is a deliberate change with
+   * its own evidence, not a side effect of adding a corpus item. Pinned so the
+   * shortfall stays visible and so widening them later has to come past it.
+   */
+  it('★ pins a bounce the pattern sets cannot see, rather than widening them', () => {
+    const item = EVERYDAY_USE_CORPUS.find((i) => i.id === 'proofread-school-post')!;
+    expect(item.bounceCondition).toContain('no corrected text');
+    // Not bloat, not thin, not withheld — the audit failure is invisible to all three.
+    expect(classifyAskOpenness(item)).toBe('closed');
+    const probe = EVERYDAY_USE_PROBES.find((p) => p.id === 'everyday-proofread-school-post')!;
+    expect(probe.minWords).toBeUndefined();
+    // And the same failure IS caught on sw-15, purely because it says "a list of".
+    const sw15 = EVERYDAY_USE_CORPUS.find((i) => i.id === 'sw-15')!;
+    expect(sw15.bounceCondition).toContain('a list of every correction made');
+    expect(classifyAskOpenness(sw15)).toBe('closed');
   });
 });
 
@@ -398,7 +507,60 @@ describe('preservesUserText applies only where preserving the wording IS the job
     expect(needsFor('work-followup-shorter').needs).toContain('faithful-reproduction');
   });
 
-  it('★ MIRROR: the one gated probe still scores its own bounce LOW', () => {
+  /**
+   * ★ THE PROPERTY THE WIDENED GATE RESTS ON, measured rather than assumed.
+   *
+   * `analyzePreservesUserText` scores 0 when one copied span covers 70% or more
+   * of the reply, on the reasoning that echoing the input and appending a
+   * sentence is the cheapest way to satisfy a reuse metric without doing the
+   * task. A proofread reply is roughly 95% the user's own text, so that guard
+   * looked like it might score every correct answer in wave 2 as a zero — which
+   * would be a check that fails a good answer, whatever its justification.
+   *
+   * It does not, and the reason is worth stating because it is not the one the
+   * guard's own comment gives. That comment says the shapes this dim applies to
+   * "shatter long spans" because an edit or a summary interleaves new tokens.
+   * For proofreading the shatter points are THE ERRORS THEMSELVES: real writing
+   * carries its mistakes distributed through it — four to twelve of them here —
+   * so no gap-free stretch gets anywhere near the reply. Measured across all
+   * nine wave-2 items, single-span coverage runs 0.17 to 0.43 against a 0.70
+   * threshold, and every correct reply scores 1.0.
+   *
+   * Pinned on the tightest of the nine. If someone raises the error density
+   * assumption or lowers ECHO_COVERAGE, this is where it shows up.
+   */
+  it('★ a CORRECT proofread reply is not mistaken for an echo', () => {
+    const probe = EVERYDAY_USE_PROBES.find((p) => p.id === 'everyday-proofread-crew-email')!;
+    const item = EVERYDAY_USE_CORPUS.find((i) => i.id === 'proofread-crew-email')!;
+    const corrected = pastedBlockOf(item.userInput)
+      .replace('were switching', "we're switching")
+      .replace('dont hide one', "don't hide one")
+      .replace('it doesnt remember', "it doesn't remember")
+      .replace('dont just chuck', "don't just chuck")
+      .replace('Your going to be', "You're going to be")
+      .replace('getting wrote up', 'getting written up')
+      .replace('If it effects', 'If it affects')
+      .replace('well move it', "we'll move it")
+      .replace('Id rather', "I'd rather");
+
+    const analysis = analyzePreservesUserText(probe.prompt, corrected);
+    expect(analysis.echo).toBe(false);
+    expect(analysis.longestSpan / analysis.outputTokens).toBeLessThan(0.7);
+    expect(scorePreservesUserText(probe, corrected)).toBe(1);
+  });
+
+  it('★ MIRROR: a wave-2 probe scores its own bounce LOW', () => {
+    // Her bounce condition, quoted from the corpus: the same announcement as an
+    // HR memo. Nothing of hers survives, which is the failure, and the dim has
+    // to see that as far below a clean-up that keeps her wording.
+    const probe = EVERYDAY_USE_PROBES.find((p) => p.id === 'everyday-proofread-crew-email')!;
+    const bounce =
+      'Please be advised that effective Monday, the pick line will transition to updated scanning hardware. Employees are required to authenticate with their badge at the start of each shift. A temporary reduction in throughput is anticipated during the adjustment period.';
+
+    expect(scorePreservesUserText(probe, bounce)!).toBeLessThan(0.5);
+  });
+
+  it('★ MIRROR: the original gated probe still scores its own bounce LOW', () => {
     // A gate that only ever scores well is not measuring anything. sw-15 says
     // "dont change my voice"; its bounce is the same account in neutral business
     // prose. That must stay far below a clean-up that keeps their register.

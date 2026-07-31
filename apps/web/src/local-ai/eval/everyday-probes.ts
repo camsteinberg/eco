@@ -8,13 +8,14 @@
  * WHY THIS EXISTS. Three sessions of chat-quality work ranked and prioritised
  * changes without ever generating a token: every claim was about the strings we
  * hand the model, none about the answers it produces. This module is the other
- * half — it turns "what forty real people asked for" into something the eval
- * harness can actually run a model against.
+ * half — it turns "what real people asked for" into something the eval harness
+ * can actually run a model against.
  *
  * ★ DERIVED, NEVER COPIED. Every probe is computed from `EVERYDAY_USE_CORPUS`
  * at module load. A copy drifts the moment someone edits one side; a derivation
- * cannot. `everyday-probes.test.ts` asserts 40/40 coverage, so a corpus addition
- * fails loudly rather than sitting silently unmeasured.
+ * cannot. `everyday-probes.test.ts` asserts one probe per corpus item against
+ * the live length, so a corpus addition fails loudly rather than sitting
+ * silently unmeasured.
  *
  * ── THE INSTRUMENT IS TWO-SIDED, AND THAT IS ITS MOST IMPORTANT PROPERTY ─────
  *
@@ -57,6 +58,14 @@
  * corpus's own header warns against. So they run as opening turns and their
  * generations should be read as such. `EVERYDAY_ANAPHORIC_PROBE_IDS` names them
  * so a run can exclude them; their `notes` say so too.
+ *
+ * The general form of that limitation — everything here is one turn — is
+ * addressed by a sibling set rather than by relaxing anything here:
+ * `everyday-conversation-probes.ts` derives from a corpus that DOES hold the
+ * exchange, and replays it as `history`. It imports this module's openness,
+ * ceiling and floor rules rather than restating them, so the two sets stay one
+ * instrument. It deliberately does not fold into this one: a probe carrying
+ * eight turns of history is not comparable with one carrying none.
  *
  * NOT in the harness's default prompt pool. These are fed through
  * `EvalRunConfig.extraPrompts`, so they never dilute the standing scorecard and
@@ -462,11 +471,30 @@ export function everydayProbeId(itemId: string): string {
  *     failed. `health-hospital-letter` bounces on "Parrots the jargon back with
  *     a definition list" — precisely the answer a high span score would reward.
  *
- * ⚠ THE HONEST SIZE OF THIS: one item. A dim reading out a single probe is a
- * data point, not a comparison, and it cannot carry an A/B by itself. Widening
- * it means adding proofread-class jobs to the corpus, not relaxing the criterion.
+ * ⚠ THE HONEST SIZE OF THIS WAS ONE ITEM, and the note here said so: "a dim
+ * reading out a single probe is a data point, not a comparison, and it cannot
+ * carry an A/B by itself. Widening it means adding proofread-class jobs to the
+ * corpus, not relaxing the criterion." That is what happened — the corpus's WAVE
+ * 2 added nine proofread-class jobs, and all nine meet the criterion unchanged.
+ * Ten items now, across ten different registers, which is what makes the n-gram
+ * A/B readable: the dim can show a difference rather than a value.
+ *
+ * ⚠ WHAT TEN STILL DOES NOT BUY. Nine of the ten are the same JOB. If a change
+ * helps proofreading and hurts every other kind of quoting-back, this dim reads
+ * green — it is now a comparison, but it is a comparison about one job.
  */
-export const EVERYDAY_WORDING_PRESERVATION_ITEM_IDS: readonly string[] = ['sw-15'];
+export const EVERYDAY_WORDING_PRESERVATION_ITEM_IDS: readonly string[] = [
+  'sw-15',
+  'proofread-teacher-note-esl',
+  'proofread-birthday-caption',
+  'proofread-memorial-tribute',
+  'proofread-grandfather-letter',
+  'proofread-vet-application',
+  'proofread-crew-email',
+  'proofread-marketplace-ad',
+  'proofread-review-reply',
+  'proofread-school-post',
+];
 
 /**
  * Candidates reviewed against the criterion above and REJECTED: their

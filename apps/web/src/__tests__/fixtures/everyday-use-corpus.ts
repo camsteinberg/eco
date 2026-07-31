@@ -19,6 +19,10 @@
  * and weighted toward what people actually type most. Each carries a
  * `bounceCondition`: the response that makes that specific person close the tab.
  *
+ * A second pass added nine more — the proofread-class jobs, marked WAVE 2 at the
+ * end of the array, with their own provenance note there. Read the count off
+ * `EVERYDAY_USE_CORPUS.length`, never off this comment.
+ *
  * ★ THE BOUNCE CONDITION IS THE ACCEPTANCE CRITERION. It is what turns "is this
  * any good?" into something a test can decide.
  *
@@ -37,6 +41,14 @@
  * ADDING TO IT. Add real jobs people bring, not adversarial strings. If you are
  * crafting an input to defeat a specific regex, that belongs in that heuristic's
  * own test file — this corpus stays a record of how people genuinely write.
+ *
+ * ★ WHAT THIS FILE STILL CANNOT SEE: everything here is ONE TURN. Five items are
+ * anaphoric ("no i meant the second one") and the exchange they answer is not in
+ * the file, so even those are measured as opening turns. Memory across turns,
+ * corrections that land two turns later, a document referred back to long after
+ * it was pasted — none of it is reachable from this shape, and no amount of
+ * adding single turns gets there. Its sibling `everyday-conversation-corpus.ts`
+ * holds the multi-turn record, in the same two layers and under the same rules.
  */
 
 /** The cognitive job the person is trying to get done. */
@@ -536,6 +548,133 @@ export const EVERYDAY_USE_CORPUS: readonly EverydayUseItem[] = [
     goodAnswerLooksLike: "One short line: no problem, ignored, send the right one. Nothing more.",
     bounceCondition: "Summarizes or comments on the wrong paste anyway ('I understand — the document about your divorce settlement has been disregarded'), which is mortifying if it contained something private. Or a paragraph of reassurance about the mistake.",
   },
+  /**
+   * ── WAVE 2 — the proofread-class jobs, appended 2026-07-31 ─────────────────
+   *
+   * Nine items from a second authoring pass, added because the first forty left
+   * one job class almost unrepresented and one measurement stranded on it. The
+   * probe module's `EVERYDAY_WORDING_PRESERVATION_ITEM_IDS` — the only place
+   * `preservesUserText` reads the right way round — held exactly ONE item, and
+   * said so: "Widening it means adding proofread-class jobs to the corpus, not
+   * relaxing the criterion." This is that widening.
+   *
+   * ★ THEY ARE ALL THE SAME JOB AND DELIBERATELY DIFFERENT PEOPLE. Every one is
+   * "fix my mistakes but do not make it stop sounding like me" — the variation is
+   * WHOSE voice is at risk: an adult learning English, a sixteen-year-old, a
+   * tradesman, a widower, an anxious applicant, a shift supervisor, a marketplace
+   * seller, a shop owner, a dyslexic parent. A voice-preservation gate that only
+   * ever sees one register is not measuring register.
+   *
+   * ★ WHAT IS THE INTEGRATOR'S AND NOT THE AUTHORS'. `userInput` and
+   * `bounceCondition` are the authoring pass's, verbatim — the record. The
+   * authoring pass was not asked for `whatTheyActuallyWant`, `goodAnswerLooksLike`
+   * or `roughlyHowCommon`, so those three are read off the persona and the bounce
+   * by whoever integrated them, and are the weakest thing here. Argue with them
+   * from the item's own text, the same as any Layer 2 entry. Nothing in the
+   * codebase derives from `roughlyHowCommon`.
+   *
+   * ONE EDIT was made to the record: two empty junk keys the authoring pass left
+   * on the school-post item ("bounke_condition", "turns_note") were dropped. No
+   * bounce text was changed.
+   *
+   * A tenth item — a school-bus driver's cover letter — was authored, reviewed and
+   * DROPPED at integration rather than included. Its job and its bounce duplicated
+   * the vet-clinic application below, whose bounce names the sharper failure (the
+   * reply correcting the person rather than the text), and its letter mixed a
+   * British spelling into otherwise North American details, which would leave a
+   * legitimate spelling correction looking like a voice violation. A corpus is a
+   * record of jobs people bring; two copies of one job is still one job.
+   */
+  {
+    id: "proofread-teacher-note-esl",
+    category: "rewrite-my-text",
+    roughlyHowCommon: "common",
+    hasPastedContent: true,
+    userInput: "hi can you check this for mistakes please. is for my son teacher, i wrote it my self, english is not my first language so probably is many errors. but dont change the way i say things ok, only correct what is wrong:\n\nDear Ms. Halbrook,\n\nI am the mother of Mateo of your class of 4 grade. I want to say sorry because he not finish the reading log since two weeks. In this moment we are living in the house of my sister because we lose our apartment, and in the nights is very difficult, there is many people in one room and he cannot concentrate for read. He is not a lazy boy. He like very much your class, specially the part of the volcanos, he explain to me all the thing about the lava in the dinner. If is possible to give him more days for the project of the poster i promise you he will do it good.\n\nSorry for the inconvenient, and sorry for my english.\n\nWith respect,\nYaneth",
+    whatTheyActuallyWant: "The mistakes gone so the teacher reads her as a competent adult — but it is still her note, including the apology at the end, which she meant to write.",
+    goodAnswerLooksLike: "The corrected note and nothing else: 'he not finish' becomes 'he has not finished', 'since two weeks' becomes 'for two weeks', 'is many people' becomes 'there are many people'. The lava-at-dinner line, the closing apology and the order of her own sentences all survive.",
+    bounceCondition: "The reply comes back as smooth institutional English that is no longer hers — \"Dear Ms. Halbrook, I hope this message finds you well. I am writing regarding my son Mateo's incomplete reading log. Due to a temporary change in our housing situation, he has had limited opportunity to study at home. Mateo is highly engaged in your class, particularly the volcano unit.\" — with \"Sorry for the inconvenient, and sorry for my english\" deleted, the dinner/lava detail cut as unnecessary, and a closing note like \"I also smoothed out a few non-native constructions so it reads more naturally to an American teacher.\" She sees her own voice replaced by a stranger's and never pastes anything personal into it again.",
+  },
+  {
+    id: "proofread-birthday-caption",
+    category: "rewrite-my-text",
+    roughlyHowCommon: "common",
+    hasPastedContent: true,
+    userInput: "can u fix the spelling and stuff in this, i typed it too fast. its a bday post for my best friend. dont make it sound like somebodys mom wrote it tho i still need it to sound like me\n\nhappy 17th to the loudest human ive ever met 😭😭 idk what i did to deserve u fr\n\nu sat with me on the floor of the 2nd floor bathroom for like an entire hour freshman year when i was crying abt something so so stupid and u have never once brought it up again, not even as a joke, and i think abt that alot more then u know. ur the only person who answers me at 2am and the only person whos alowed to call me annoying bc u earned it\n\nthank u for driving me to work when my car died in janurary and for eating half my fries every time even tho u \"wernt hungry\" (ur not slick)\n\ni hope u get that stupid ugly car ur obsessed with. i hope this year is so good to u. love u alot idc. dont get weird abt this",
+    whatTheyActuallyWant: "The actual misspellings fixed so the post does not look careless, with the shorthand, the emoji and the line breaks untouched — the whole point is that it reads like she typed it.",
+    goodAnswerLooksLike: "The corrected caption and nothing else: 'alot', 'then u know', 'whos alowed', 'janurary' and 'wernt' fixed, and nothing else touched — u stays u, ur stays ur, abt stays abt, the emoji stay, the line breaks stay where she put them.",
+    bounceCondition: "It hands back a tidy paragraph in Standard English — \"Happy 17th birthday to the loudest human I have ever met! I don't know what I did to deserve you.\" — with every u expanded to you, ur to your, abt to about, the emoji stripped, the line breaks collapsed into one block, and \"don't get weird about this\" given a period and a capital D. She reads two lines, thinks it sounds like a birthday card from an aunt, and closes it.",
+  },
+  {
+    id: "proofread-memorial-tribute",
+    category: "rewrite-my-text",
+    roughlyHowCommon: "occasional",
+    hasPastedContent: true,
+    userInput: "need a hand with this one. im a sparky not a writer. its going in the memorial book for my old boss who passed last week. just knock the spelling errors out of it please, dont go turning my words into something posh, the family will know it isnt me\n\nI started with Ray in 1998 when i was 19 and didnt know a screwdriver from my elbow. He seen straight away i was greener than grass and he never once made me feel small about it. He'd tell you when you stuffed up, loud, in front of the whole crew, and then he'd buy you a pie at smoko like nothing had happend. That was Ray, all of it out in the open, nothing saved up for later.\n\nHe worked in the rain and he worked in the heat and he done jobs for pensioners for nothing and told them the parts was free, which they wernt. Alot of blokes in this trade wouldnt have a licence today if he hadnt given them a start when nobody else would.\n\nI owe him my trade and my house and probly my marraige to. Rest easy boss.",
+    whatTheyActuallyWant: "The spelling errors gone before it goes in a book his old boss's family will read, without the piece stopping sounding like him.",
+    goodAnswerLooksLike: "The corrected text and nothing else: 'happend', 'wernt', 'Alot', 'probly', 'marraige' and 'to' for 'too' fixed, while smoko, blokes, greener than grass, 'he done jobs for pensioners' and 'Rest easy boss' all stay exactly as written.",
+    bounceCondition: "It returns a smoothed eulogy in funeral-program English — \"Ray immediately recognised my inexperience, yet never made me feel inadequate. He offered candid feedback, then extended a gesture of goodwill during the break\" — with smoko, stuffed up, blokes, greener than grass and \"Rest easy boss\" all gone, and \"I owe him my trade and my house and probly my marraige to\" turned into \"I am indebted to him both professionally and personally.\" He can hear that it isn't him, decides the thing can't be trusted with anything that matters, and shuts it.",
+  },
+  {
+    id: "proofread-grandfather-letter",
+    category: "rewrite-my-text",
+    roughlyHowCommon: "occasional",
+    hasPastedContent: true,
+    userInput: "Hello.  I am not very good on the computer.  Could you please fix my spelling in this letter to my granddaughter.  Please leave it in my own words, I do not want it sounding like one of those form letters.\n\nMy Dear Sunny,\n\nWell.  Here we are.  I still see you at four years old in the pool with the orange floaties on your arms, and now your driving 600 miles away to a college I have to look up on a map.\n\nYour Grandmother would of been so proud of you.  She would of told the entire grocery store, twice, and then told the pharmacy.\n\nI put a little something in the envelope.  Dont argue with me about it and dont spend it all on coffee.  If your roomate turns out to be a slob just remember you was not always a angel yourself, ask your mother.\n\nCall on Sundays if you can.  If you forget I wont be sore about it, you have a life now and thats how it should be.\n\nI am very proud of you honey.  You did this your self.\n\nLove always,\nPapa",
+    whatTheyActuallyWant: "His spelling fixed and nothing else moved, so the letter that goes in the envelope is still the one he wrote.",
+    goodAnswerLooksLike: "The corrected letter and nothing else: 'would of' becomes 'would have', 'your driving' becomes 'you're driving', 'roomate' becomes 'roommate', 'you was' becomes 'you were', 'a angel' becomes 'an angel', 'your self' becomes 'yourself'. 'Well.  Here we are.' stays punctuated exactly as he punctuated it, the double spaces stay, the grocery store and pharmacy joke stays.",
+    bounceCondition: "It comes back reflowed and warmed over into a greeting-card voice — \"My dearest Sunny, As you embark on this exciting new chapter of your life...\" — the double spaces normalised, the \"Well.  Here we are.\" opening merged into a longer sentence, the grocery store/pharmacy joke trimmed for concision, and \"You did this your self\" polished to \"You should be proud of everything you have accomplished.\" He recognises none of it, doesn't know how to get his own version back, and gives up on the whole thing.",
+  },
+  {
+    id: "proofread-vet-application",
+    category: "rewrite-my-text",
+    roughlyHowCommon: "common",
+    hasPastedContent: true,
+    userInput: "theres a box on this job application that says tell us about yourself and i wrote this at like 1am. can you fix the typos and grammar. please dont make me sound like some confident sales guy, im not that person, i just dont want to look sloppy\n\nHi, my name is Devi and im applying for the vet assistant position. I dont have the certificate you listed and im going to be honest about that up front. What i do have is 3 years volunteering at the shelter on Marsh Rd, most saturdays and alot of weeknights, and in that time ive restrained plenty of scared dogs, cleaned the kennels nobody else wanted to clean, and sat with animals that were being put down so they wernt by themself.\n\nI am relaible. I have never called out except the week my mom was in the hospital and i made that shift up.\n\nI know i probably look under qualified on paper and i understand if thats a problem for you. I just wanted the chance to say that i work hard and i learn fast if somebody shows me once.\n\nThank you for reading all this, i know your busy.\nDevi",
+    whatTheyActuallyWant: "The typos gone so she does not look sloppy, with the two admissions she decided to make — no certificate, under-qualified on paper — still in it.",
+    goodAnswerLooksLike: "The corrected text and nothing else: 'im' becomes 'I'm', 'wernt' becomes 'weren't', 'themself' becomes 'themselves', 'relaible' becomes 'reliable', 'alot' becomes 'a lot', 'your busy' becomes 'you're busy'. The certificate admission, the under-qualified line and the thank-you at the end all stay.",
+    bounceCondition: "It returns a confident applicant-tracking-system version she would never say out loud — \"I am a highly motivated and reliable animal care professional with 3+ years of hands-on experience in a high-volume shelter environment, eager to bring my compassion and work ethic to your team\" — with the certificate admission and \"I know i probably look under qualified\" deleted, plus a line at the end like \"Note: I removed the apologetic language, as it undermines your candidacy.\" She feels corrected as a person rather than proofread, and closes the tab.",
+  },
+  {
+    id: "proofread-crew-email",
+    category: "rewrite-my-text",
+    roughlyHowCommon: "very-common",
+    hasPastedContent: true,
+    userInput: "can someone proofread this before i send it to my crew, just typos and grammar. dont turn it into HR speak, they can smell that from the parking lot\n\nHey all,\n\nStarting monday were switching over to the new scanners on the pick line. I know. I know. The old ones get collected wednesday so dont hide one in your locker like last time, you know who you are.\n\nCouple of things. You have to badge in every shift now, it doesnt remember you anymore. Two beeps means a bad scan, scan it again, dont just chuck it in the tote and hope for the best. Your going to be slower for about a week and thats completely fine, nobody is getting wrote up over numbers while we adjust. If it effects your break timing come tell me and well move it.\n\nMarisol has cheat sheets printed if you want one at the desk.\n\nAsk me if anything is weird. Id rather answer 40 questions on monday than fix 40 mistakes on tuesday.\n\nThanks,\nDez",
+    whatTheyActuallyWant: "A fast typo pass so she can hit send — the crew has to read it and hear her, not management.",
+    goodAnswerLooksLike: "The corrected email and nothing else: 'were switching' becomes 'we're switching', 'Your going to be' becomes 'You're going to be', 'getting wrote up' becomes 'getting written up', 'If it effects' becomes 'If it affects'. 'I know. I know.', 'you know who you are' and the forty-questions line stay untouched.",
+    bounceCondition: "It sends back a policy memo — \"Please be advised that effective Monday, the pick line will transition to updated scanning hardware. Employees are required to authenticate with their badge at the start of each shift. A temporary reduction in throughput is anticipated during the adjustment period.\" — with \"you know who you are\", the two-beeps warning in her own words, and the 40 questions line all removed. She'd have to retype the whole thing from memory to sound like herself again, so she stops using it for anything she actually sends.",
+  },
+  {
+    id: "proofread-marketplace-ad",
+    category: "rewrite-my-text",
+    roughlyHowCommon: "common",
+    hasPastedContent: true,
+    userInput: "reposting my marketplace ad, can you just clean up the spelling in it. keep it short and keep the tone the way it is, i dont want it reading like a car dealership wrote it\n\nSolid oak dining table + 4 chairs. $180 obo.\n\nCame from my grandparents. Its heavy as anything, takes two people, dont show up alone and expect me to help you carry it down the steps. Theres a water ring on one side and a few scratchs. Its not perfect, its 40 years old, but its real wood not that particle board junk that sags in two years.\n\nCusions on the chairs are seperate and come off to wash. Smoke free pet free home. One chair has a wobble, its the back left one, i tightened it and it holds but im telling you anyway.\n\nPick up only, north end, i dont deliver and i dont ship, please dont ask. First come first serve, if your not here by the time you told me im moving on to the next person. Cash or etransfer.\n\nNo lowballers. I know what i have.",
+    whatTheyActuallyWant: "The half-dozen spelling mistakes fixed before he reposts, with the blunt lines that filter out time-wasters left exactly where they are.",
+    goodAnswerLooksLike: "The corrected ad and nothing else: 'scratchs' becomes 'scratches', 'Cusions' becomes 'Cushions', 'seperate' becomes 'separate', 'your not here' becomes 'you're not here'. Same short lines, same order, and 'No lowballers. I know what i have.' still the last line.",
+    bounceCondition: "It hands back sales copy — \"Beautiful vintage solid oak dining set — a timeless heirloom piece! Gently worn with charming character marks that tell a story. Comfortable removable cushions for easy cleaning. Priced to sell!\" — restructured into bullet points with emoji, the wobbly-chair disclosure buried or dropped, and \"No lowballers. I know what i have.\" removed as \"unwelcoming to buyers.\" He wanted six typos fixed and got an ad that would attract exactly the people he's trying to filter out.",
+  },
+  {
+    id: "proofread-review-reply",
+    category: "rewrite-my-text",
+    roughlyHowCommon: "occasional",
+    hasPastedContent: true,
+    userInput: "someone left this review on my shop and i wrote a reply. can you check my spelling and grammer before i post it but leave it how i said it, im not going to grovel\n\nthe review:\n★★☆☆☆  3 days ago\n\"Ordered a cake for my daughters birthday, it was supposed to be lavender and it came out more grey. Staff was nice enough. Wont be back.\"\n\nmy reply:\nHi Trina, thank you for taking the time. Your right that the colour came out greyer then the swatch and im sorry, that one is on us.\n\nWhat happened is we use a natural colouring instead of the gel kind, because a few of our regular familys have dye sensitivitys and we made the call years ago to go without. The natural violet turns dull when it hits the fat in the buttercream. I should of told you that when you ordered so you could of picked a different colour, and i didnt. Thats my miss, not yours.\n\nIf youd called us that week i would of remade it or refunded the colouring. That offer still stands whenever you want it, no expiry, just ask for me by name.\n\nEither way i hope your daughter had a good birthday.\n— Bekah, owner",
+    whatTheyActuallyWant: "Her spelling checked before it goes public under her own name — the reply she wrote, including the reason she gave, is the thing she wants posted.",
+    goodAnswerLooksLike: "Her corrected reply and nothing else: 'Your right' becomes 'You're right', 'greyer then' becomes 'greyer than', 'familys' becomes 'families', 'sensitivitys' becomes 'sensitivities', and 'should of', 'would of' and 'could of' all become 'have'. The dye-sensitivity explanation and 'Thats my miss, not yours' stay in.",
+    bounceCondition: "It replaces her reply with the generic template every chain uses — \"Dear Trina, We sincerely apologise that your recent experience did not meet expectations. Your feedback is important to us and we have shared it with our team. We hope to have the opportunity to serve you again.\" — the dye-sensitivity explanation cut as \"defensive\", \"Thats my miss, not yours\" gone, and maybe a note advising her not to explain herself publicly. The one thing she actually wanted to say is the thing it deleted, so she posts her unproofread original and never comes back.",
+  },
+  {
+    id: "proofread-school-post",
+    category: "rewrite-my-text",
+    roughlyHowCommon: "common",
+    hasPastedContent: true,
+    userInput: "posting this on the school parents page tonight, can you fix my typos, im dyslexic and i miss stuff. dont rewrite the whole thing though, last time somebody helped me they turned it into a newsletter and literally 2 people read it\n\nHI EVERYONE 👋 quick one about the crossing at Delmar & 5th.\n\n3 near misses this month that i know of. one of them was my kid, on the 14th, driver didnt even slow down. The city says they will look at it in the fall budget review which is not good enough for me and i dont think it should be good enough for you either.\n\nSo we are just doing it ourselfs. Walking group. Meet at the corner by the laundromat at 7:40am, i will be there in a orange vest looking absolutley ridiculous, and we take the kids across together untill they put a proper light in.\n\nI need 2 more adults for fridays. Thats the whole ask. You dont have to come every day, one day is fine, its ten minutes of you life and you were walking anyway.\n\nAlso if you seen a near miss there please email the councillor, theres a form, ill drop the link in the comments. It counts alot more when its 30 of us and not just me being the annoying lady again.",
+    whatTheyActuallyWant: "The typos she cannot catch herself caught, and the post handed back ready to paste — she is dyslexic, so a list of corrections to apply is precisely the task she came here to avoid.",
+    goodAnswerLooksLike: "The corrected post and nothing else: 'ourselfs' becomes 'ourselves', 'a orange' becomes 'an orange', 'absolutley' becomes 'absolutely', 'untill' becomes 'until', 'if you seen' becomes 'if you saw', 'you life' becomes 'your life', 'alot' becomes 'a lot'. The emoji, the orange vest, 'the annoying lady again' and her line breaks all stay.",
+    bounceCondition: "It gives her a numbered audit instead of a fixed post — \"1. 'ourselfs' → 'ourselves' (irregular plural). 2. 'a orange' → 'an orange' (the article 'an' precedes vowel sounds). 3. 'untill' → 'until'...\" — eleven items with rule explanations and no corrected text, so the dyslexic person now has to hand-apply eleven edits at 11pm and re-check her own work, which is precisely the task she couldn't do. Equally fatal: returning it as \"Dear Parents and Guardians, We wish to bring to your attention a pedestrian safety concern at the intersection of Delmar and 5th\" with the emoji, the orange vest and \"the annoying lady again\" removed.",
+  },
 ];
 
 /**
@@ -709,6 +848,48 @@ export const ROUTING_NEEDS: Readonly<Record<string, RoutingNeedEntry>> = {
     priorTurns: true,
     needs: ["no-elaboration-hint", "direct-budget"],
     why: "Good answer: \"One short line: no problem, ignored, send the right one. Nothing more.\" Bounce: \"a paragraph of reassurance about the mistake.\"",
+  },
+  // ── WAVE 2 — the proofread-class jobs ─────────────────────────────────────
+  // All nine carry the same three needs, and for the same reason each time: the
+  // deliverable IS the user's own text with the fixes in it, so a hint to develop
+  // writes the bounce, a budget above the direct band invites the rewrite they
+  // said not to do, and a prompt-inclusive n-gram ban makes the job impossible.
+  // None carries `needs-guidance`: every one of them names a bound.
+  "proofread-teacher-note-esl": {
+    needs: ["no-elaboration-hint", "faithful-reproduction", "direct-budget"],
+    why: "Bounce: \"the dinner/lava detail cut as unnecessary\", and a closing note explaining that a few non-native constructions were smoothed out. The deliverable is her own note with the errors taken out of it, and nothing else moved.",
+  },
+  "proofread-birthday-caption": {
+    needs: ["no-elaboration-hint", "faithful-reproduction", "direct-budget"],
+    why: "Bounce: \"with every u expanded to you, ur to your, abt to about, the emoji stripped, the line breaks collapsed into one block\". Her exact characters are the deliverable; the fixes are five words inside them.",
+  },
+  "proofread-memorial-tribute": {
+    needs: ["no-elaboration-hint", "faithful-reproduction", "direct-budget"],
+    why: "Bounce: \"with smoko, stuffed up, blokes, greener than grass and 'Rest easy boss' all gone\". He typed \"dont go turning my words into something posh, the family will know it isnt me\" — his words coming back is the whole job.",
+  },
+  "proofread-grandfather-letter": {
+    needs: ["no-elaboration-hint", "faithful-reproduction", "direct-budget"],
+    why: "Bounce: \"the 'Well.  Here we are.' opening merged into a longer sentence, the grocery store/pharmacy joke trimmed for concision, and 'You did this your self' polished\". He asked for spelling only: \"Please leave it in my own words\".",
+  },
+  "proofread-vet-application": {
+    needs: ["no-elaboration-hint", "faithful-reproduction", "direct-budget"],
+    why: "Bounce: \"with the certificate admission and 'I know i probably look under qualified' deleted, plus a line at the end like 'Note: I removed the apologetic language, as it undermines your candidacy.'\" She typed \"please dont make me sound like some confident sales guy\".",
+  },
+  "proofread-crew-email": {
+    needs: ["no-elaboration-hint", "faithful-reproduction", "direct-budget"],
+    why: "Bounce: \"the two-beeps warning in her own words, and the 40 questions line all removed. She'd have to retype the whole thing from memory to sound like herself again\". The deliverable is her email with four homophones fixed.",
+  },
+  "proofread-marketplace-ad": {
+    needs: ["no-elaboration-hint", "faithful-reproduction", "direct-budget"],
+    why: "The user typed \"keep it short and keep the tone the way it is\". Bounce: \"restructured into bullet points with emoji, the wobbly-chair disclosure buried or dropped, and 'No lowballers. I know what i have.' removed as 'unwelcoming to buyers.'\"",
+  },
+  "proofread-review-reply": {
+    needs: ["no-elaboration-hint", "faithful-reproduction", "direct-budget"],
+    why: "Bounce: \"the dye-sensitivity explanation cut as 'defensive', 'Thats my miss, not yours' gone\" — and \"The one thing she actually wanted to say is the thing it deleted\". She typed \"leave it how i said it, im not going to grovel\".",
+  },
+  "proofread-school-post": {
+    needs: ["no-elaboration-hint", "faithful-reproduction", "direct-budget"],
+    why: "Bounce: \"eleven items with rule explanations and no corrected text, so the dyslexic person now has to hand-apply eleven edits at 11pm\" — and the alternative failure strips \"the emoji, the orange vest and 'the annoying lady again'\". Only her own post, corrected, is an answer.",
   },
 };
 
