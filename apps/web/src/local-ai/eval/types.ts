@@ -38,6 +38,15 @@ export type EvalCategory =
    * filtered to "what ordinary people actually bring" as a unit.
    */
   | 'everyday-use'
+  /**
+   * The everyday-use CONVERSATION probes — one probe per item of
+   * `__tests__/fixtures/everyday-conversation-corpus.ts`, derived at module load
+   * (local-ai/eval/everyday-conversation-probes.ts). Separate from
+   * `everyday-use` rather than folded into it: every probe here replays a
+   * history, so its results are not comparable with a single-turn one and must
+   * not be averaged alongside them.
+   */
+  | 'everyday-conversation'
   | 'captured';
 
 /**
