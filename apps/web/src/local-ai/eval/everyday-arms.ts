@@ -75,9 +75,10 @@ export const POSTURE_BASE_SHIPPED =
   'You are Eco, a private AI — a compact open model running entirely on this device; conversations stay with the user. Reply in a natural, conversational voice. Be genuinely helpful: address what was asked, then add the context, reasons, or practical details that make the reply useful on its own. Match depth to the question — a simple ask gets a brief reply; an open or substantial one deserves a thorough, well-developed reply. When the user gives explicit format or length instructions, follow them exactly. Use markdown lists or code blocks when they genuinely help.';
 
 /**
- * ⚠ A/B TREATMENT TEXT — DRAFTED, PENDING HUMAN REVIEW. It is unshipped and
- * unshippable by construction (nothing on the dispatch path reads this module),
- * and no A/B result may be reported from it until the wording is signed off.
+ * ★ A/B TREATMENT TEXT — REVIEWED AND APPROVED BY CAM (2026-07-31), with one
+ * tweak (see the REVIEW NOTE below). It is unshipped and unshippable by
+ * construction (nothing on the dispatch path reads this module) — only a
+ * winning value ships, as a deliberate one-line change made afterwards.
  *
  * ★ THE AXIS IS OPEN vs CLOSED, NOT SHORT vs LONG. "What is France like" is an
  * open ask — day-to-day life, the food, the culture all belong in a good reply.
@@ -103,11 +104,11 @@ export const POSTURE_BASE_SHIPPED =
  *         into replies opening with an H1 "Answer".
  *   SWAP  "Match depth to the question — a simple ask gets a brief reply; an
  *         open or substantial one deserves a thorough, well-developed reply."
- *      →  "Then let the question decide what follows — an open question, about
- *         how something is or works or feels, is an invitation to say more, so
- *         give the detail, reasons, and practical specifics that make the reply
- *         worth having; a closed question has one definite reply, and giving it
- *         is the whole job."
+ *      →  "Then let the question decide what follows — an open question —
+ *         about how something is or works or feels, or what someone should
+ *         do — is an invitation to say more, so give the detail, reasons, and
+ *         practical specifics that make the reply worth having; a closed
+ *         question has one definite reply, and giving it is the whole job."
  *         The shipped sentence sorts asks by SIZE ("a simple ask") and carries
  *         the second piece of elaboration language ("deserves a thorough,
  *         well-developed reply"). The replacement sorts them by OPENNESS and
@@ -116,13 +117,16 @@ export const POSTURE_BASE_SHIPPED =
  *         invites, so this arm cannot be read as the terse arm; the closed side
  *         is stated positively ("giving it is the whole job") rather than as a
  *         prohibition, because lib/system-prompt.ts's design principles record
- *         that negative instructions backfire on sub-2B models.
+ *         that negative instructions backfire on sub-2B models. ★ REVIEW NOTE
+ *         (Cam, approved with this tweak): the open side originally read only
+ *         "about how something is or works or feels", which misses advice asks
+ *         ("what should I do about X") that are just as open. Added.
  *   KEPT  "When the user gives explicit format or length instructions, follow
  *         them exactly." The user's own instruction still outranks the posture.
  *   KEPT  "Use markdown lists or code blocks when they genuinely help."
  */
 export const POSTURE_BASE_DIRECT =
-  'You are Eco, a private AI — a compact open model running entirely on this device; conversations stay with the user. Reply in a natural, conversational voice. Be genuinely helpful: give what was asked for first. Then let the question decide what follows — an open question, about how something is or works or feels, is an invitation to say more, so give the detail, reasons, and practical specifics that make the reply worth having; a closed question has one definite reply, and giving it is the whole job. When the user gives explicit format or length instructions, follow them exactly. Use markdown lists or code blocks when they genuinely help.';
+  'You are Eco, a private AI — a compact open model running entirely on this device; conversations stay with the user. Reply in a natural, conversational voice. Be genuinely helpful: give what was asked for first. Then let the question decide what follows — an open question — about how something is or works or feels, or what someone should do — is an invitation to say more, so give the detail, reasons, and practical specifics that make the reply worth having; a closed question has one definite reply, and giving it is the whole job. When the user gives explicit format or length instructions, follow them exactly. Use markdown lists or code blocks when they genuinely help.';
 
 // ─── The arm table ──────────────────────────────────────────────────────────
 
