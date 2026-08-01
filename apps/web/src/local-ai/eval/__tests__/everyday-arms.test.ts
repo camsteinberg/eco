@@ -86,11 +86,23 @@ describe('the add-context clause arm', () => {
 // ─── arm 2: the prompt-inclusive n-gram ban ────────────────────────────────
 
 describe('the n-gram ban arm', () => {
-  it('★ the 350M starter really does carry a base ban — the thing under test exists', () => {
+  // ★ THIS ARM IS SPENT, and that is the thing worth asserting now. It existed to
+  // settle one question — whether the starter's prompt-inclusive n-gram ban should
+  // come off — and a real-model A/B (n=10, 490 generations per arm) answered yes:
+  // `preservesUserText` cleared the pre-registered bar and the feared runaway
+  // repetition never appeared. The removal shipped, base and `writing` override
+  // both.
+  //
+  // So `ngram-off` and `control` now hand this model IDENTICAL options. Re-running
+  // that pair would measure nothing and report an honest-looking zero. Asserted
+  // rather than deleted so the next person reads "the question is answered" instead
+  // of discovering a null result the hard way — the same vacuous-counterweight trap
+  // documented in everyday-use-routing-sweep.test.ts.
+  it('★ the starter no longer carries the ban, so this arm has nothing left to toggle', () => {
     const profile = getGenerationProfile('quick', true, STARTER_350M, {
       allowValidationModel: true,
     });
-    expect(profile.noRepeatNgramSize).toBeGreaterThan(0);
+    expect(profile.noRepeatNgramSize).toBeUndefined();
   });
 
   it('drops the ban on the off arm and keeps every other knob', () => {
