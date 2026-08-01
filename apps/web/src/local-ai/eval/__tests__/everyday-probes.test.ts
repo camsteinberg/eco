@@ -27,6 +27,7 @@ import {
   EVERYDAY_ANAPHORIC_PROBE_IDS,
   EVERYDAY_ASK_OPENNESS,
   EVERYDAY_FACT_REPRODUCTION_ITEM_IDS,
+  EVERYDAY_FAITHFUL_WITHOUT_PASTED_TEXT_ITEM_IDS,
   EVERYDAY_PROBE_IDS,
   EVERYDAY_UNMEASURED_CEILING_ITEM_IDS,
   EVERYDAY_USE_PROBES,
@@ -37,7 +38,12 @@ import {
   wantsBrevity,
   wantsSubstance,
 } from '../everyday-probes';
-import { scorePreservesUserText } from '../rubric';
+import {
+  extractFacts,
+  pastedBlockOf,
+  scoreFactPreservation,
+  scorePreservesUserText,
+} from '../rubric';
 
 // ─── the pinned derivation ─────────────────────────────────────────────────
 
@@ -149,10 +155,10 @@ const TWO_SIDED_ITEMS = [
 const REUSE_PROBE_IDS = ['everyday-sw-15'];
 
 /**
- * The candidates that reaching for `faithful-reproduction` alone would have
- * gated: pasted content present, the need derived. Every one of them needs the
- * user's FACTS back while deliberately changing the wording, so span overlap
- * would score their good answer and their bounce the wrong way round.
+ * The other side of the split: pasted content present, the need derived, and the
+ * job is the user's FACTS back while the wording deliberately CHANGES. Span
+ * overlap would score their good answer and their bounce the wrong way round, so
+ * these are gated to `preservesFacts` instead.
  */
 const FACT_REPRODUCTION_ITEMS = [
   'work-email-tone-fix',
@@ -368,6 +374,47 @@ describe('preservesUserText applies only where preserving the wording IS the job
     }
   });
 
+  it('★ THE PARTITION: every faithful-reproduction item lands in exactly one bucket', () => {
+    // The stronger form of the guard above, now that both dims exist. Three
+    // buckets, and a corpus item carrying `faithful-reproduction` has to be in
+    // exactly one of them:
+    //
+    //   wording  → preservesUserText (a long shared span IS the success)
+    //   facts    → preservesFacts    (the figures survive, the prose does not)
+    //   no text  → neither, because the text to preserve is in an EARLIER turn
+    //
+    // The third bucket is pinned rather than derived from `hasPastedContent`,
+    // so an item cannot leave the classification by having that flag flipped.
+    const faithful = EVERYDAY_USE_CORPUS.filter((item) =>
+      needsFor(item.id).needs.includes('faithful-reproduction'),
+    ).map((item) => item.id);
+
+    const buckets = [
+      ...EVERYDAY_WORDING_PRESERVATION_ITEM_IDS,
+      ...EVERYDAY_FACT_REPRODUCTION_ITEM_IDS,
+      ...EVERYDAY_FAITHFUL_WITHOUT_PASTED_TEXT_ITEM_IDS,
+    ];
+
+    // Covers every one of them...
+    expect([...buckets].sort()).toEqual([...faithful].sort());
+    // ...exactly once (no id in two buckets)...
+    expect(new Set(buckets).size).toBe(buckets.length);
+    // ...and nothing outside the corpus's own need list is being classified.
+    for (const id of buckets) {
+      expect(needsFor(id).needs).toContain('faithful-reproduction');
+    }
+    // The no-text bucket is exactly the items whose words are not in this turn.
+    expect([...EVERYDAY_FAITHFUL_WITHOUT_PASTED_TEXT_ITEM_IDS]).toEqual(
+      faithful.filter((id) => EVERYDAY_USE_CORPUS.find((i) => i.id === id)?.hasPastedContent === false),
+    );
+  });
+
+  it('★ no probe is scored by BOTH dims — a reply cannot keep the wording and change it', () => {
+    for (const probe of EVERYDAY_USE_PROBES) {
+      expect(probe.expectUserTextReuse === true && probe.expectFactPreservation === true).toBe(false);
+    }
+  });
+
   it('★ a faithful SUMMARY is not scored by this dim at all', () => {
     // "tldr" over a group-chat thread. This output keeps every fact and entity
     // the corpus's bounce names — Tom, the £25, Friday, 7 not 8 — and reformats
@@ -412,6 +459,137 @@ describe('preservesUserText applies only where preserving the wording IS the job
     const goodScore = scorePreservesUserText(probe, inTheirVoice)!;
     expect(bounceScore).toBeLessThan(0.5);
     expect(goodScore).toBe(1);
+  });
+});
+
+describe('preservesFacts applies where the WORDING is meant to change', () => {
+  it('pins the probes expecting fact preservation', () => {
+    expect(EVERYDAY_USE_PROBES.filter((p) => p.expectFactPreservation).map((p) => p.id)).toEqual(
+      FACT_REPRODUCTION_ITEMS.map(everydayProbeId),
+    );
+  });
+
+  it('requires all three: the words in this turn, the need, and a facts job', () => {
+    for (const item of EVERYDAY_USE_CORPUS) {
+      const probe = EVERYDAY_USE_PROBES.find((p) => p.id === everydayProbeId(item.id))!;
+      const expected =
+        item.hasPastedContent &&
+        needsFor(item.id).needs.includes('faithful-reproduction') &&
+        EVERYDAY_FACT_REPRODUCTION_ITEM_IDS.includes(item.id);
+      expect(probe.expectFactPreservation === true).toBe(expected);
+    }
+  });
+
+  /**
+   * ★ THE DENOMINATOR, WRITTEN DOWN. Fact extraction is mechanical, but what it
+   * pulls out of a real paste is a claim about that paste — so it is pinned per
+   * item and can be argued with, the same way the depth bands are.
+   *
+   * Read it and you can see both edges of the instrument honestly:
+   *
+   *   - it OVER-extracts institutional Titlecase nouns ("Parent", "Guardian",
+   *     "Key", "Stage", "Year", "Appendix" in the school letter), which are not
+   *     things a good reply has to repeat;
+   *   - it UNDER-extracts names the writer never capitalized ("steve", "nadias"
+   *     in the group chat).
+   *
+   * Neither is hidden and neither is fatal, because the denominator is identical
+   * in every arm of an A/B: over-extraction lowers both arms by the same amount
+   * and cancels in the delta. It IS why the absolute level is not a grade —
+   * `everyday-school-letter-esl-parent` scores about 0.2 on the corpus's own good
+   * answer, and the test below pins that so nobody reads it as a failure.
+   */
+  const EXPECTED_FACTS: Readonly<Record<string, readonly string[]>> = {
+    'work-email-tone-fix': ['monday', 'wednesday', 'friday', 'dave'],
+    'rewrite-03': ['friday'],
+    'school-essay-not-ai': ['macbeth', 'duncan', 'banquo', 'macduffs'],
+    'health-hospital-letter': ['68', '14/7', '6', '3'],
+    'school-letter-esl-parent': [
+      '2', '5', '12', '45', '8',
+      'october', 'friday', 'august',
+      'parent', 'guardian', 'key', 'stage', 'year', 'appendix',
+    ],
+    'legal-rent-increase': [
+      '1', '3', '1450', '1725', '31', '10',
+      'september', 'august',
+      'tenant', 'unit',
+    ],
+    'summarise-01': [
+      '40', '25', '8', '200', '180', '7',
+      'friday', 'thursday',
+      'priya', 'tom', 'mark', 'ellie',
+    ],
+    'sw-13': [
+      '342.19', '1208', '887.45', '412.3', '265', '3400', '118.72',
+      '210', '1540.88', '305.15', '2800', '94.4',
+      'october', 'november',
+    ],
+  };
+
+  it('★ pins the facts extracted from every gated item', () => {
+    const actual = Object.fromEntries(
+      EVERYDAY_FACT_REPRODUCTION_ITEM_IDS.map((id) => {
+        const probe = EVERYDAY_USE_PROBES.find((p) => p.id === everydayProbeId(id))!;
+        return [id, extractFacts(pastedBlockOf(probe.prompt)).map((f) => f.key)];
+      }),
+    );
+    expect(actual).toEqual(EXPECTED_FACTS);
+  });
+
+  it('★ MIRROR: an answer that keeps the figures beats one that quietly changes them', () => {
+    // health-hospital-letter bounces on "invents a detail the letter doesn't
+    // contain". A dim that only ever scores well measures nothing, so the
+    // invented version has to come out clearly below the faithful one.
+    const probe = EVERYDAY_USE_PROBES.find((p) => p.id === 'everyday-health-hospital-letter')!;
+    const faithful =
+      'In plain words: your mum, 68, was seen at the chest clinic on 14/7. The scan found a small 6mm spot on the right lung and nothing in the lymph nodes. Her breathing tests were normal. The plan is another, lower-dose scan in 3 months to check it has not changed.';
+    const invented =
+      'The scan found a 6cm mass on the lung and the doctors want to rescan her in 6 weeks. They have started treatment already.';
+
+    const faithfulScore = scoreFactPreservation(probe, faithful)!;
+    const inventedScore = scoreFactPreservation(probe, invented)!;
+    expect(faithfulScore).toBe(1);
+    expect(inventedScore).toBeLessThan(0.5);
+  });
+
+  it('★ a plain-English translation is NOT punished for dropping the jargon', () => {
+    // The failure the previous gate had: `health-hospital-letter`'s bounce is
+    // "Parrots the jargon back with a definition list", and a span measure
+    // REWARDED it. This dim extracts no jargon at all there — "CT", "thorax",
+    // "lymphadenopathy" and "spirometry" are absent from the pinned list — so
+    // translating them away costs nothing.
+    const probe = EVERYDAY_USE_PROBES.find((p) => p.id === 'everyday-health-hospital-letter')!;
+    for (const jargon of ['ct', 'thorax', 'lymphadenopathy', 'spirometry', 'subsolid']) {
+      expect(EXPECTED_FACTS['health-hospital-letter']).not.toContain(jargon);
+    }
+    const noJargon =
+      'She is 68, was seen on 14/7, and the scan showed a small 6mm spot with clear glands. They will look again in 3 months.';
+    expect(scoreFactPreservation(probe, noJargon)).toBe(1);
+  });
+
+  it('★ THE HONEST LIMIT: a good, heavily compressing answer scores LOW in absolute terms', () => {
+    // The school letter's own good answer is "Three simple lines" that keep the
+    // £45 and the 8 August and drop everything else — including six Titlecase
+    // nouns this extractor counts. It therefore scores around 0.2, and that is
+    // NOT a verdict on the answer. Pinned here so the number is read as what it
+    // is: a comparative readout with an inflated denominator, never a grade.
+    const probe = EVERYDAY_USE_PROBES.find((p) => p.id === 'everyday-school-letter-esl-parent')!;
+    const goodAnswer =
+      'Sign the form and send it back. Pay 45 online by 8 August — that money is not refundable. The rest you pay later, in two parts. If money is hard, the school office will help quietly.';
+    const bounce = 'You should contact the school for clarification.';
+
+    const goodScore = scoreFactPreservation(probe, goodAnswer)!;
+    expect(goodScore).toBeGreaterThan(scoreFactPreservation(probe, bounce)!);
+    expect(goodScore).toBeLessThan(0.4);
+    // The direction is right and that is what the dim is for. Whether the reply
+    // caught the two things that mattered is the judge's call (taskFit), against
+    // the bounce condition carried in the probe's notes.
+  });
+
+  it('never sets it on a turn whose text lives in an earlier message', () => {
+    const followUp = EVERYDAY_USE_PROBES.find((p) => p.id === 'everyday-work-followup-shorter')!;
+    expect(followUp.expectFactPreservation).toBeUndefined();
+    expect(followUp.expectUserTextReuse).toBeUndefined();
   });
 });
 

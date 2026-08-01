@@ -124,6 +124,15 @@ export type EvalPromptSpec = {
    */
   expectUserTextReuse?: true;
   /**
+   * `preservesFacts`: the reply has to carry the user's own FIGURES, DATES and
+   * NAMES back out intact while the wording is deliberately changed (a summary
+   * compresses, a tone rewrite softens, a hospital letter is translated out of
+   * jargon). The sibling of `expectUserTextReuse`, and deliberately EXCLUSIVE of
+   * it: span overlap reads a wording job correctly and a facts job backwards.
+   * Set only where the prompt actually carries the facts.
+   */
+  expectFactPreservation?: true;
+  /**
    * Richness: a genuinely helpful reply should reach at least this many words
    * (graduated floor, NOT a length target — catches the terse failure mode).
    */
@@ -216,6 +225,23 @@ export type RubricScores = {
    * absolute level.
    */
   preservesUserText: number | null;
+  /**
+   * Fraction of the concrete facts in the user's pasted block — figures,
+   * monetary amounts, dates, proper names — that came back UNCORRUPTED. null
+   * unless `expectFactPreservation`.
+   *
+   * Deliberately NOT a span measure. Span overlap rewards parroting and punishes
+   * the rephrasing these items are asking for; this dim asks only whether "£25",
+   * "£180", "7 not 8" and the names survived, however they were re-worded. A
+   * corrupted near-form ("332,062" for "332,026", "Nobel Award" for "Nobel
+   * Prize") is a MISS, not a match.
+   *
+   * ★ ONE-SIDED, BY DESIGN. It scores fact survival and nothing else, so a
+   * verbatim parrot of the paste scores 1.0 — see `scoreFactPreservation`.
+   * COMPARATIVE by design, like `preservesUserText`: read the delta between
+   * arms, not the absolute level.
+   */
+  preservesFacts: number | null;
   // ── judge ──
   coherence: number | null;
   taskFit: number | null;
