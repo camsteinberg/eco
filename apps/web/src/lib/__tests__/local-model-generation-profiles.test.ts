@@ -69,9 +69,20 @@ describe("Bonsai 1.7B q4 generation profile", () => {
 describe("LFM2.5 350M generation profile", () => {
   const lfm = modelSlice("candidate/lfm2.5-350m-onnx", "lfm2");
 
-  it("has noRepeatNgramSize guard at base level", () => {
-    const defaults = getLocalModelGenerationDefaults(lfm);
-    expect(defaults.noRepeatNgramSize).toBeGreaterThanOrEqual(3);
+  // ★ ASSERTED AT EVERY INTENT, NOT JUST BASE. This ban lived on two layers — a
+  // base n=3 and a `writing` n=4 — and `writing` is the intent that fires when
+  // someone pastes their own words and asks for them back changed. Pinning base
+  // alone would let the harmful half be reintroduced against a green suite.
+  // Removal is measured, not preference: a real-model A/B (n=10) moved
+  // `preservesUserText` past the pre-registered bar without the feared looping.
+  it("applies no prompt-inclusive n-gram ban at base or at any intent", () => {
+    expect(getLocalModelGenerationDefaults(lfm).noRepeatNgramSize).toBeUndefined();
+    for (const intent of INTENTS) {
+      expect(
+        getLocalModelGenerationDefaults(lfm, intent).noRepeatNgramSize,
+        `${intent} re-arms the n-gram ban that blocks giving the user their own words back`,
+      ).toBeUndefined();
+    }
   });
 
   it("has repetitionPenalty >= 1.08 at base level", () => {

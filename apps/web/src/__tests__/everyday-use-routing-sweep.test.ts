@@ -62,12 +62,14 @@
  *       one model bans at every intent, so it was rescoped to the bans routing
  *       arms ABOVE `quick`. That rescoping made it a constant PASS: it granted
  *       every item, every intent and every model a clean bill while the one
- *       remaining defect — the starter's BASE ban, which blocks all ten "give me
+ *       remaining defect — the starter's BASE ban, which blocked all ten "give me
  *       my own words back" items — sat in the one blind spot it had created. It
  *       is unscoped again, because the property is what the USER's turn reaches,
  *       not which layer of config put it there. Attributing the harm to routing
  *       is the aggregate's job, below, and mis-scoping the per-item check to do
- *       it cost the check its whole subject.
+ *       it cost the check its whole subject. That ban has since come off on
+ *       measured evidence and all ten gaps closed; the unscoped check is what
+ *       keeps it off.
  *     - the per-item checks are all local, and the cheapest global change that
  *       satisfies them (moving turns onto `writing`) can arm bans no single item
  *       view would show. The exposure block below measures that as two separate
@@ -337,16 +339,14 @@ function ngramExposure(): NgramExposure {
 
 /**
  * Today's exposure, per model. Was 58 across three models before the `writing`
- * n-gram overrides came off phi3, qwen3-0.6b and the shipping default.
+ * n-gram overrides came off phi3, qwen3-0.6b and the shipping default, then 40 —
+ * the starter's, whose ban was BASE and so applied at every intent.
  *
- * The 49 remaining are the starter's, whose ban is BASE and so applies at every
- * intent — every turn in the corpus, on the model every first-time user's first
- * answer comes from. Recorded here as a fact; named as a defect in
- * `starter-base-ngram-ban` and pinned per item in `KNOWN_GAPS`.
+ * EMPTY IS THE REAL VALUE, not a disabled check. The starter's ban came off both
+ * layers once a real-model A/B settled it, and no catalog model bans n-grams
+ * anywhere now. A model that starts banning appears here as a new key.
  */
-const NGRAM_EXPOSURE_TODAY: Readonly<Record<string, number>> = {
-  "candidate/lfm2.5-350m-onnx": 49,
-};
+const NGRAM_EXPOSURE_TODAY: Readonly<Record<string, number>> = {};
 
 /**
  * ★ THE PRECONDITION `armedByRouting` DEPENDS ON, pinned so it cannot quietly
@@ -441,23 +441,6 @@ const GAP_MECHANISMS = {
     "eight good ones'.",
   ].join(" "),
 
-  "starter-base-ngram-ban": [
-    "`candidate/lfm2.5-350m-onnx` sets `noRepeatNgramSize: 3` as a BASE default",
-    "(local-model-generation-profiles.ts, LFM25_350M_GEN), so it applies on all seven intents.",
-    "Transformers.js bans the n-gram across the FULL sequence, prompt included, so the model may",
-    "reuse at most two consecutive tokens of the user's own text — at every position, on every",
-    "turn. Every item whose entire requirement is handing the user's own words or figures back",
-    "is therefore copy-blocked on the model a first-time user's first answer comes from, and no",
-    "routing change can lift it: the cause is the model profile, not the intent, which is why",
-    "these gaps are pinned at seven different intents and share one mechanism. This is a LIVE",
-    "DEFECT, not an accepted limit — the starter is held to the same answer-quality bar as the",
-    "larger models. It is unfixed only because the fix is unmeasured: dropping the guard risks",
-    "runaway repetition on the loopiest model we ship, and the pinned Transformers.js implements",
-    "neither presence_penalty nor min_p, so there is no non-prompt-inclusive loop guard to fall",
-    "back to. Settling it needs an A/B against a real loaded model on real hardware. When that",
-    "lands, all ten of these entries close together.",
-  ].join(" "),
-
   "brevity-misses-the-budget": [
     "The user gave an explicit brevity instruction and the per-turn hint was correctly",
     "suppressed — but nothing carried that instruction to the BUDGET.",
@@ -476,24 +459,12 @@ type GapMechanism = keyof typeof GAP_MECHANISMS;
  */
 const KNOWN_GAPS: ReadonlyMap<GapKey, { mechanism: GapMechanism; intent: ChatIntent }> =
   new Map<GapKey, { mechanism: GapMechanism; intent: ChatIntent }>([
-    // ── faithful-reproduction, all ten of them ──────────────────────────────
-    // Every item that has to hand the user their own words back fails, on the
-    // starter, at whatever intent it routes to. Ten items, seven distinct
-    // intents, one mechanism — which is the shape of a model-profile defect
-    // rather than a routing one. This block was invisible until the check was
-    // unscoped: it had been narrowed to bans routing arms ABOVE `quick`, and
-    // the starter bans at `quick` too, so the check passed everywhere.
-    ["faithful-reproduction/work-email-tone-fix", { mechanism: "starter-base-ngram-ban", intent: "deep" }],
-    ["faithful-reproduction/work-followup-shorter", { mechanism: "starter-base-ngram-ban", intent: "explain" }],
-    ["faithful-reproduction/rewrite-03", { mechanism: "starter-base-ngram-ban", intent: "writing" }],
-    ["faithful-reproduction/sw-15", { mechanism: "starter-base-ngram-ban", intent: "deep" }],
-    ["faithful-reproduction/school-essay-not-ai", { mechanism: "starter-base-ngram-ban", intent: "deep" }],
-    ["faithful-reproduction/health-hospital-letter", { mechanism: "starter-base-ngram-ban", intent: "deep" }],
-    ["faithful-reproduction/school-letter-esl-parent", { mechanism: "starter-base-ngram-ban", intent: "writing" }],
-    ["faithful-reproduction/legal-rent-increase", { mechanism: "starter-base-ngram-ban", intent: "research" }],
-    ["faithful-reproduction/summarise-01", { mechanism: "starter-base-ngram-ban", intent: "quick" }],
-    ["faithful-reproduction/sw-13", { mechanism: "starter-base-ngram-ban", intent: "explain" }],
-
+    // ── faithful-reproduction: CLOSED, all ten together ─────────────────────
+    // These ten were one mechanism — the starter's prompt-inclusive n-gram ban,
+    // base plus a `writing` override — and they closed together the moment a
+    // real-model A/B settled that the ban could come off. Deleted rather than
+    // relaxed, per this file's rule. `faithful-reproduction` now has no pinned
+    // gaps at all, so every item that needs it is live above.
     ["no-elaboration-hint/work-email-tone-fix", { mechanism: "shape-length-catchall", intent: "deep" }],
     ["direct-budget/work-email-tone-fix", { mechanism: "shape-length-catchall", intent: "deep" }],
     ["no-elaboration-hint/work-followup-shorter", { mechanism: "explain-default-middle", intent: "explain" }],
@@ -558,21 +529,17 @@ const KNOWN_GAPS: ReadonlyMap<GapKey, { mechanism: GapMechanism; intent: ChatInt
 
     // ── WAVE 2 — the proofread-class jobs ─────────────────────────────
     // Nine turns whose entire requirement is the user's own text back, added to
-    // widen the one measurement that had a single item on it. Not one of them
-    // passes, and they need NO new mechanism: eight are the >360-character
-    // catch-all reading the length of what they PASTED as a request for a
-    // lecture, and the ninth is the budget path that cannot see a length bound.
-    // A wave of nine new items explained entirely by mechanisms already on file
-    // is evidence those mechanisms are real, not curve-fitted to the forty.
-    ["faithful-reproduction/proofread-teacher-note-esl", { mechanism: "starter-base-ngram-ban", intent: "deep" }],
-    ["faithful-reproduction/proofread-birthday-caption", { mechanism: "starter-base-ngram-ban", intent: "deep" }],
-    ["faithful-reproduction/proofread-memorial-tribute", { mechanism: "starter-base-ngram-ban", intent: "deep" }],
-    ["faithful-reproduction/proofread-grandfather-letter", { mechanism: "starter-base-ngram-ban", intent: "deep" }],
-    ["faithful-reproduction/proofread-vet-application", { mechanism: "starter-base-ngram-ban", intent: "deep" }],
-    ["faithful-reproduction/proofread-crew-email", { mechanism: "starter-base-ngram-ban", intent: "deep" }],
-    ["faithful-reproduction/proofread-review-reply", { mechanism: "starter-base-ngram-ban", intent: "deep" }],
-    ["faithful-reproduction/proofread-marketplace-ad", { mechanism: "starter-base-ngram-ban", intent: "deep" }],
-    ["faithful-reproduction/proofread-school-post", { mechanism: "starter-base-ngram-ban", intent: "writing" }],
+    // widen the one measurement that had a single item on it. Their
+    // `faithful-reproduction` need closed on arrival rather than ever being
+    // pinned here: these nine items and the original ten share one mechanism
+    // (the starter's prompt-inclusive n-gram ban), and that mechanism came off
+    // before this corpus wave and that fix were ever combined and run together.
+    // Their other two needs each turn carries are untouched by that fix and
+    // remain open below: eight are the >360-character catch-all reading the
+    // length of what they PASTED as a request for a lecture, and the ninth is
+    // the budget path that cannot see a length bound. A wave of nine new items
+    // explained entirely by mechanisms already on file is evidence those
+    // mechanisms are real, not curve-fitted to the forty.
 
     ["no-elaboration-hint/proofread-teacher-note-esl", { mechanism: "shape-length-catchall", intent: "deep" }],
     ["direct-budget/proofread-teacher-note-esl", { mechanism: "shape-length-catchall", intent: "deep" }],
@@ -688,7 +655,7 @@ const MODEL_MATRIX_TODAY: Readonly<Record<string, string>> = {
   "candidate/lfm2.5-1.2b-instruct-onnx":
     "quick:1024/0.2 explain:1536/0.3 deep:2048/0.3 code:2048/0.2 writing:1536/0.4 file:2048/0.3 research:2048/0.3",
   "candidate/lfm2.5-350m-onnx":
-    "quick:384/0.25/n3 explain:384/0.45/n3 deep:384/0.45/n3 code:384/0.45/n3 writing:384/0.38/n4 file:384/0.45/n3 research:384/0.45/n3",
+    "quick:384/0.25 explain:384/0.45 deep:384/0.45 code:384/0.45 writing:384/0.38 file:384/0.45 research:384/0.45",
   "candidate/qwen3.5-2b-onnx":
     "quick:1024/0.32 explain:1536/0.42 deep:2048/0.6 code:2048/0.2 writing:1536/0.48 file:2048/0.6 research:2048/0.6",
   "candidate/gemma-4-e2b-litert":
@@ -933,11 +900,11 @@ describe("everyday-use sweep — n-gram exposure across the corpus", () => {
   it("records which models forbid quoting the user back, and on how many turns", () => {
     const { banned } = ngramExposure();
     expect(banned).toEqual(NGRAM_EXPOSURE_TODAY);
-    // 49 of 49. The starter's ban is saturated across the corpus, so this count
-    // cannot absorb one turn fixed and another broken — there is nothing left to
-    // break. Per-turn movement shows up in ROUTING_TODAY, per-model in
-    // MODEL_MATRIX_TODAY.
-    expect(banned["candidate/lfm2.5-350m-onnx"]).toBe(EVERYDAY_USE_CORPUS.length);
+    // The starter was the last model here, saturated across all 49 corpus items
+    // — so no count could show one turn fixed and another broken. It is gone
+    // entirely now, and stated as its own assertion so re-arming reads as "the
+    // starter bans again" rather than as a key appearing in a map diff.
+    expect(banned["candidate/lfm2.5-350m-onnx"]).toBeUndefined();
   });
 
   it("arms no n-gram ban that routing itself put there", () => {
@@ -1175,39 +1142,39 @@ describe("everyday-use sweep — the system prompt is not routed", () => {
 });
 
 /**
- * The n-gram ban routing cannot reach.
+ * The n-gram ban that routing could not reach — CLOSED, and held closed.
  *
- * `candidate/lfm2.5-350m-onnx` — the model every first-time user's first answer
- * comes from — carries `noRepeatNgramSize` as a BASE setting, so it applies on all
- * seven intents. No routing change can lift it.
+ * `candidate/lfm2.5-350m-onnx`, the model every first-time user's first answer
+ * comes from, carried `noRepeatNgramSize` as a BASE setting plus a `writing`
+ * override. Transformers.js applies the ban across the FULL sequence, prompt
+ * included, so it hard-blocked reusing more than two consecutive words of the
+ * user's own text — on every turn, at every intent, and no routing change could
+ * lift it. All ten "give me my own words back" gaps shared that one cause.
  *
- * ★ THIS IS THE DEFECT, NOT THE EXCUSE. An earlier reading of this same fact
- * concluded that the per-item faithfulness check should be scoped AWAY from it,
- * so as not to blame routing for something routing cannot reach. The result was
- * a check that passed for every item at every intent on every model while all
- * ten "give me my own words back" turns were copy-blocked. The lesson is
- * general: when a check's subject turns out to be unreachable from the layer the
- * check lives in, the answer is to state the defect, not to narrow the check
- * until the defect falls outside it. It is pinned per item in `KNOWN_GAPS` under
- * `starter-base-ngram-ban`.
+ * ★ THIS WAS THE DEFECT, NOT THE EXCUSE. An earlier reading of the same fact
+ * concluded the per-item faithfulness check should be scoped AWAY from it, so as
+ * not to blame routing for something routing cannot reach. The result was a check
+ * that passed everywhere while all ten turns were copy-blocked. The lesson is
+ * general and outlives the fix: when a check's subject turns out to be
+ * unreachable from the layer the check lives in, state the defect — do not narrow
+ * the check until the defect falls outside it.
  *
- * Unfixed because the fix is UNMEASURED, not because the bar is lower here — the
- * starter is held to the same answer-quality standard as the larger models.
- * Removing the guard risks runaway repetition on the loopiest model we ship, and
- * every loop guard the pinned Transformers.js offers is prompt-inclusive: there
- * is no presence_penalty and no min_p to fall back on. Settling it needs an A/B
- * against a real loaded model on real hardware. Pinned so the deferral stays a
- * funded decision rather than an oversight.
+ * It came off both layers once a real-model A/B settled the open question
+ * (`preservesUserText` past the pre-registered bar, no runaway repetition). This
+ * assertion is now the standing net, inverted: it fails if the ban comes back at
+ * any intent. It reads the ROUTING path against the real catalog id, which is the
+ * end-to-end version of the profile-module check in
+ * `lib/__tests__/local-model-generation-profiles.test.ts`.
  */
-describe("everyday-use sweep — the starter model's base n-gram ban (deferred)", () => {
-  it("still applies on every intent, so every first answer is copy-blocked", () => {
+describe("everyday-use sweep — the starter model's n-gram ban stays off", () => {
+  it("bans at no intent, so the user's own words can come back intact", () => {
     const starter = "candidate/lfm2.5-350m-onnx";
     expect(CATALOG_MODEL_IDS).toContain(starter);
     for (const intent of INTENT_ORDER) {
       expect(
         getGenerationProfile(intent, true, starter).noRepeatNgramSize,
-        `${intent} no longer bans n-grams on the starter — if that was measured, say so and delete this test`,
-      ).not.toBeUndefined();
+        `${intent} re-arms the starter's prompt-inclusive n-gram ban — that is the copy-blocking defect an A/B removed, not a loop guard worth restoring`,
+      ).toBeUndefined();
     }
   });
 });

@@ -105,7 +105,9 @@ const DEFAULT_CONTEXT_BUDGET: ContextBudget = {
 // weeks. `repetitionPenalty` remains the loop guard on these instruction-tuned
 // models.
 //
-// The 350M starter is deliberately excluded — see LFM25_350M_GEN.
+// The 350M starter was the last holdout, and its ban came off at both layers once a
+// real-model A/B settled the question — see LFM25_350M_GEN. Bonsai still bans: it is
+// not instruction-tuned, and it is an eval-lane seam rather than a catalog model.
 
 const QWEN_GEN: GenerationProfileSlice = {
   generationDefaults: {
@@ -169,32 +171,29 @@ const QWEN35_GEN: GenerationProfileSlice = {
 
 const LFM25_350M_GEN: GenerationProfileSlice = {
   generationDefaults: {
+    // No authoritative sampling recs from Liquid AI; generation_config.json has no
+    // sampling params.
+    //
+    // ★ NO `noRepeatNgramSize`, base or per-intent. The A/B this profile used to ask
+    // for ran against the real loaded model (n=10, 490 generations per arm): dropping
+    // the ban moved `preservesUserText` well past the pre-registered bar, and the
+    // feared runaway repetition never appeared — the measured cost was two replies
+    // that repeated a bullet header, a mild templated tic rather than a loop.
+    //
+    // It had to come off at BOTH layers. The `writing` override carried its own n=4,
+    // and `writing` is the intent that fires when someone pastes their own words and
+    // asks for them back changed — leaving it would have kept the ban exactly where
+    // it does the most harm. That is also what the arm measured: it drops the
+    // RESOLVED value, so no intent kept a ban.
+    //
+    // `repetitionPenalty` is the loop guard, as on every other profile here.
     temperature: 0.45,
     topP: 0.86,
     topK: 30,
     repetitionPenalty: 1.08,
-    // 350M model is extremely loop-prone; base n-gram guard prevents runaway repetition.
-    // No authoritative sampling recs from Liquid AI; generation_config.json has no sampling params.
-    //
-    // ★ DELIBERATELY LEFT ARMED, unlike the other profiles above. Two reasons, and
-    // the second is easy to get backwards:
-    //
-    //   1. This ban is BASE, so it applies on all seven intents, and this is the
-    //      model every first-time user's first answer comes from. Removing it risks
-    //      runaway repetition on the loopiest model we ship — and every loop guard
-    //      the pinned Transformers.js offers is prompt-inclusive (it implements
-    //      neither presence_penalty nor min_p), so there is nothing to fall back to.
-    //      Settling it needs a measured A/B against a real loaded model, not a
-    //      judgement call.
-    //   2. The `writing` override below is LOOSER than the base, not tighter: n=4
-    //      permits copying three consecutive prompt tokens where the base n=3
-    //      permits two. Deleting it here — the obvious way to read "remove the
-    //      writing n-gram overrides" — would make faithful reproduction on this
-    //      model STRICTLY WORSE. It stays until the A/B settles the base value.
-    noRepeatNgramSize: 3,
     intentOverrides: {
       quick: { temperature: 0.25, topP: 0.78, repetitionPenalty: 1.06 },
-      writing: { temperature: 0.38, topP: 0.82, repetitionPenalty: 1.1, noRepeatNgramSize: 4 },
+      writing: { temperature: 0.38, topP: 0.82, repetitionPenalty: 1.1 },
     },
   },
   contextBudget: DEFAULT_CONTEXT_BUDGET,

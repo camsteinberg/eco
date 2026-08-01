@@ -66,9 +66,13 @@
  * `depthBand.maxWords` — a ceiling — and `everyday-probes.test.ts` asserts
  * `depthBand.minWords` is undefined everywhere on purpose, so the two directions
  * stay on separate dims. A thin reply therefore scores `depthMatch` 1.0 (it is
- * comfortably under every ceiling) or `null`. On this corpus `answerDepth` is
- * the ONLY dim that can see under-delivery, which is exactly why removing or
- * weakening it has to be a test failure rather than a judgement call.
+ * comfortably under every ceiling) or `null`. `answerDepth` is the dim that can
+ * see under-delivery on EVERY covered item, which is why removing or weakening
+ * it has to be a test failure rather than a judgement call. `preservesFacts` is
+ * a second dim that sees it too, but only on the 7 covered items whose need
+ * gates fact preservation — a generic non-answer never states the facts it
+ * would have to reproduce. Pinned as its own positive check below, not folded
+ * into this one, because it is a narrower and later finding than the first.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -76,6 +80,7 @@ import { describe, expect, it } from 'vitest';
 import { EVERYDAY_USE_CORPUS, type EverydayUseItem } from '../../../__tests__/fixtures/everyday-use-corpus';
 import { AUTOMATED_DIMENSIONS } from '../aggregate';
 import {
+  EVERYDAY_FACT_REPRODUCTION_ITEM_IDS,
   EVERYDAY_USE_PROBES,
   classifyAskOpenness,
   everydayProbeId,
@@ -437,12 +442,16 @@ describe('★★ MIRROR: a thin reply to an open ask scores badly on answerDepth
     expect(scored.filter((s) => s.depth === worst).map((s) => s.id)).toEqual(WEAKEST_FLOOR_ITEMS);
   });
 
-  it('★ answerDepth is the ONLY automated dim that moves — nothing else sees this', () => {
+  it('★ answerDepth is the ONLY automated dim that moves on every covered item — nothing else sees this generally', () => {
     for (const item of COVERED_ITEMS) {
       const probe = probeFor(item);
       const scores = scoreResult(probe, ctxFor(thinAnswerFor(item)));
       for (const dim of AUTOMATED_DIMENSIONS) {
         if (dim === 'answerDepth') continue;
+        // `preservesFacts` is a second, NARROWER exception — see the dedicated
+        // test below, which turns this into a positive measurement rather than
+        // a silent skip. It only ever fires on the 7 items pinned there.
+        if (dim === 'preservesFacts') continue;
         const value = scores[dim];
         if (value === null) continue;
         expect(
@@ -450,6 +459,30 @@ describe('★★ MIRROR: a thin reply to an open ask scores badly on answerDepth
           `${item.id}: dim "${dim}" scored ${String(value)} on a generic non-answer — if another dim can see this, say so; until then answerDepth is load-bearing alone`,
         ).toBe(1);
       }
+    }
+  });
+
+  it('★ preservesFacts ALSO sees this, but only on the covered items whose need gates it — pinned as its own finding, not a silent skip', () => {
+    // A generic non-answer never states the facts it would have to reproduce,
+    // so this is a second, real way the thin-reply failure shows up — narrower
+    // than answerDepth (which fires on every covered item), not a competitor to
+    // it. The exemption in the test above is only honest if this list is exact.
+    const factCoveredItems = COVERED_ITEMS.filter((item) =>
+      EVERYDAY_FACT_REPRODUCTION_ITEM_IDS.includes(item.id),
+    );
+    expect(factCoveredItems.map((item) => item.id)).toEqual([
+      'rewrite-03',
+      'school-essay-not-ai',
+      'health-hospital-letter',
+      'school-letter-esl-parent',
+      'legal-rent-increase',
+      'summarise-01',
+      'sw-13',
+    ]);
+    for (const item of factCoveredItems) {
+      const probe = probeFor(item);
+      const scores = scoreResult(probe, ctxFor(thinAnswerFor(item)));
+      expect(scores.preservesFacts, item.id).toBe(0);
     }
   });
 
@@ -545,20 +578,30 @@ describe('★ the composite would have hidden all of this', () => {
       worstCompositeGap = Math.max(worstCompositeGap, compositeGap);
     }
 
-    // The whole failure shows up as a sub-0.1 wobble on the composite — which
+    // The whole failure shows up as a sub-0.2 wobble on the composite — which
     // reads as noise, gets called noise, and ships terseness.
     //
-    // ★ IF THIS FAILS UPWARD, THAT IS GOOD NEWS AND STILL NEEDS READING. A gap
-    // that GREW means a newly added dim also moves on a generic non-answer, so
-    // the composite is less blind than it was. Raise the bound and say which dim
-    // did it — and check the "only dim that moves" assertion above, which is the
-    // same finding stated the other way round.
+    // ★ RAISED FROM 0.15, AND HERE IS WHICH DIM DID IT. `preservesFacts` now
+    // also moves on the 7 covered items pinned in the test above — a real,
+    // narrower finding, not a regression in this guard. Measured worst gap is
+    // 0.175 (on those 7 items only; every other covered item is still under the
+    // old 0.15). 0.2 keeps real headroom without hiding a THIRD dim starting to
+    // move, which would still fail here and would need the same treatment: find
+    // it, pin it in its own positive test, only then raise this bound again.
+    //
+    // ★ IF THIS FAILS UPWARD AGAIN, THAT IS GOOD NEWS AND STILL NEEDS READING.
+    // Same instruction as above — say which dim, pin it positively, raise the
+    // bound last.
     expect(
       worstCompositeGap,
       'the composite/dim gap moved — if a new dim now sees this failure, record which one rather than re-pointing the guard at the composite',
-    ).toBeLessThan(0.15);
+    ).toBeLessThan(0.2);
     // Asserted as a RATIO so that adding another always-1.0 guard dim — which
     // makes the dilution worse, not better — cannot slip past unnoticed.
-    expect(Math.max(...ratios)).toBeLessThan(0.25);
+    // ★ RAISED FROM 0.25 for the same reason as the gap bound above: on the 7
+    // items where `preservesFacts` also moves, compositeGap is bigger relative
+    // to depthGap too. Measured worst ratio is ~0.269 (same 7 items); 0.3 keeps
+    // real headroom on the same "find it, pin it, then raise" terms.
+    expect(Math.max(...ratios)).toBeLessThan(0.3);
   });
 });
