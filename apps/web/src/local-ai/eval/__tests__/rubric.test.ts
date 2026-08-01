@@ -73,6 +73,46 @@ describe('scoreRepetition', () => {
     expect(scoreRepetition(text)).toBeLessThanOrEqual(0.3);
   });
 
+  it('★ does NOT cap the score when a Markdown divider line repeats (structure, not a loop)', () => {
+    // Found scoring the 350M starter-bar arc (2026-08-01): a reply that uses
+    // "---" between sections tripped the same hard cap as genuine degenerate
+    // repetition, even though every line of actual content here is unique.
+    const text = [
+      'Revised Version',
+      '---',
+      'Here is the corrected paragraph with the grammar fixed for you.',
+      '---',
+      'Practical Takeaways',
+      '---',
+      'Keep sentences short and read them aloud before sending.',
+    ].join('\n');
+    expect(scoreRepetition(text)).toBe(1);
+  });
+
+  it('still caps the score when real content repeats, dividers aside', () => {
+    const text = ['---', 'I love this.', 'I love this.', 'I love this.', 'I love this.', '---'].join(
+      '\n',
+    );
+    expect(scoreRepetition(text)).toBeLessThanOrEqual(0.3);
+  });
+
+  it('recognizes a spaced divider variant ("- - -") for the same line-repeat exemption', () => {
+    const text = [
+      'The kitchen was full of golden afternoon light.',
+      '- - -',
+      'A quiet river bends past the old stone bridge.',
+      '- - -',
+      'Mountains rose sharply beyond the distant green fields.',
+      '- - -',
+      'Somewhere a dog barked twice and then went silent.',
+    ].join('\n');
+    // Not a clean 1.0: "- - -" tokenizes into three separate "-" characters,
+    // so repeating it three times is a little genuine token-level repetition
+    // in its own right. What matters is that it stays nowhere near the 0.3
+    // hard-cap floor a mis-fired line-repeat exemption would have produced.
+    expect(scoreRepetition(text)).toBeGreaterThan(0.85);
+  });
+
   it('scores low on a degenerate repeated phrase loop', () => {
     const text = Array(12).fill('the answer is the answer is').join(' ');
     expect(scoreRepetition(text)).toBeLessThan(0.5);

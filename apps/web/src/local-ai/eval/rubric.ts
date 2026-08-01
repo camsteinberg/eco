@@ -66,6 +66,14 @@ function matchesWholeToken(haystack: string, token: string): boolean {
 // ─── repetition ──────────────────────────────────────────────────────────
 
 /**
+ * A line that's pure divider punctuation (---, ***, ___, or a spaced variant
+ * like "- - -") carries no content — using one to separate sections three
+ * times over a long reply is normal Markdown structure, not the degenerate
+ * loop the line-repeat cap exists to catch.
+ */
+const DIVIDER_LINE_RE = /^([-*_=~])(?:\s?\1)+$/;
+
+/**
  * Word-level repetition score. 1.0 = no repetition, →0.0 = severe loop.
  *
  * Method (deterministic):
@@ -73,6 +81,7 @@ function matchesWholeToken(haystack: string, token: string): boolean {
  *   - ratio = 1 - uniqueTrigrams/totalTrigrams; score = clamp(1 - 2*ratio, 0, 1).
  *   - Hard cap at 0.3 if any single non-empty line repeats >=3x, OR any word
  *     4-gram repeats >=4x (catches degenerate loops the trigram ratio softens).
+ *     Pure-punctuation divider lines are exempt from the line-repeat cap.
  */
 export function scoreRepetition(text: string): number {
   const tokens = words(text);
@@ -89,6 +98,7 @@ export function scoreRepetition(text: string): number {
   // Hard caps for degenerate loops.
   const lineCounts = new Map<string, number>();
   for (const line of nonEmptyLines(text)) {
+    if (DIVIDER_LINE_RE.test(line)) continue;
     lineCounts.set(line, (lineCounts.get(line) ?? 0) + 1);
   }
   const lineRepeats = [...lineCounts.values()].some((c) => c >= 3);
