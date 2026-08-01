@@ -19,12 +19,20 @@ import {
   ADD_CONTEXT_CLAUSE_SHIPPED,
   EVERYDAY_ARMS,
   EVERYDAY_CONTROL_ARM_ID,
+  POSTURE_BASE_DIRECT,
+  POSTURE_BASE_SHIPPED,
   applyEverydayArmOptions,
   applyEverydayArmSystemPrompt,
+  armRewritesSystemPrompt,
   compareEverydayArms,
   getEverydayArm,
 } from '../everyday-arms';
-import type { EvalEverydayArmId, EvalRun, RubricScores } from '../types';
+import type {
+  EvalEverydayArmId,
+  EvalMessageTopology,
+  EvalRun,
+  RubricScores,
+} from '../types';
 
 const STARTER_350M = 'candidate/lfm2.5-350m-onnx';
 
@@ -40,7 +48,19 @@ describe('the arm table', () => {
   it('covers the full 2x2 with distinct ids', () => {
     const cells = EVERYDAY_ARMS.map((a) => `${a.addContextClause}/${a.ngramBan}`);
     expect(new Set(cells).size).toBe(4);
-    expect(new Set(EVERYDAY_ARMS.map((a) => a.id)).size).toBe(4);
+    // ⚠ PIN CHANGED when the posture arm landed. This line was
+    // `expect(new Set(ids).size).toBe(4)` — a COUNT, which a third switch
+    // legitimately outgrows. Restated as the LIST it was standing in for, so it
+    // still asserts distinctness AND now also fails when an arm is added or
+    // removed without anyone saying so.
+    expect(EVERYDAY_ARMS.map((a) => a.id)).toEqual([
+      'control',
+      'no-add-context',
+      'ngram-off',
+      'no-add-context-ngram-off',
+      'posture-direct',
+    ]);
+    expect(new Set(EVERYDAY_ARMS.map((a) => a.id)).size).toBe(EVERYDAY_ARMS.length);
   });
 
   it('throws on an unknown arm rather than silently measuring the control', () => {
@@ -80,6 +100,100 @@ describe('the add-context clause arm', () => {
     const base = getOnDeviceSystemPrompt();
     expect(applyEverydayArmSystemPrompt(base, getEverydayArm('control'))).toBe(base);
     expect(applyEverydayArmSystemPrompt(base, getEverydayArm('ngram-off'))).toBe(base);
+  });
+});
+
+// ─── arm 3: the whole-base posture ─────────────────────────────────────────
+
+describe('the posture-removal arm', () => {
+  const posture = getEverydayArm('posture-direct');
+
+  it('★ drift guard: the shipped base is EXACTLY what production composes', () => {
+    // Exact equality, not `contains`: a whole-base swap has to reproduce the
+    // base byte for byte or `applyEverydayArmSystemPrompt` throws at run time.
+    // This is also what makes holding a copy of the prod constant safe.
+    expect(getOnDeviceSystemPrompt()).toBe(POSTURE_BASE_SHIPPED);
+  });
+
+  it('replaces the whole base and keeps the model directive appended after it', () => {
+    const withSuffix = `${POSTURE_BASE_SHIPPED}\nKeep replies plain.`;
+    expect(applyEverydayArmSystemPrompt(withSuffix, posture)).toBe(
+      `${POSTURE_BASE_DIRECT}\nKeep replies plain.`,
+    );
+  });
+
+  it('leaves anything appended after the base — custom instructions included — untouched', () => {
+    // Production appends user custom instructions after the base with a blank
+    // line (useChat.buildSystemPrompt). The arm must not disturb that block.
+    const composed = `${POSTURE_BASE_SHIPPED}\n\nAlways answer in British English.`;
+    expect(applyEverydayArmSystemPrompt(composed, posture)).toBe(
+      `${POSTURE_BASE_DIRECT}\n\nAlways answer in British English.`,
+    );
+  });
+
+  it('★ the treatment removes the elaboration push it is meant to remove', () => {
+    expect(POSTURE_BASE_DIRECT).not.toContain(ADD_CONTEXT_CLAUSE_SHIPPED);
+    expect(POSTURE_BASE_DIRECT).not.toContain('deserves a thorough, well-developed reply');
+  });
+
+  it('★ and does NOT command brevity — the axis is open vs closed, not short vs long', () => {
+    // The binding constraint on this arm. An instruction to be terse would
+    // measure a blunter thing and would optimise the product into terseness.
+    expect(POSTURE_BASE_DIRECT).not.toMatch(/\b(brief|briefly|short|shorter|concise|terse|succinct|minimal)\b/i);
+    // The open side has to survive in the text, or the arm IS the terse arm.
+    expect(POSTURE_BASE_DIRECT).toContain('an open question');
+    expect(POSTURE_BASE_DIRECT).toContain('invitation to say more');
+  });
+
+  it('★ does not reintroduce the phrasing the 1.2B literalized into an H1', () => {
+    // lib/system-prompt.ts records that "Lead with the answer" produced replies
+    // opening with a literal "Answer" heading on the 1.2B default.
+    expect(POSTURE_BASE_DIRECT).not.toMatch(/lead with the answer/i);
+  });
+
+  it('keeps the identity sentence and the user-instruction clause verbatim', () => {
+    // Identity is the eco-tangent A/B's variable; changing it here would
+    // confound two experiments.
+    expect(POSTURE_BASE_DIRECT).toContain(
+      'You are Eco, a private AI — a compact open model running entirely on this device; conversations stay with the user.',
+    );
+    expect(POSTURE_BASE_DIRECT).toContain(
+      'When the user gives explicit format or length instructions, follow them exactly.',
+    );
+  });
+
+  it('★ throws rather than silently no-op when the base is not the prefix', () => {
+    // The run-time case no drift guard can see: another local arm (the
+    // eco-tangent identity swap) already rewrote the base. A silent pass-through
+    // there would report a clean zero for a change never applied.
+    const tangentArmed = POSTURE_BASE_SHIPPED.replace(
+      'You are Eco, a private AI —',
+      'You are a private AI called Eco —',
+    );
+    expect(() => applyEverydayArmSystemPrompt(tangentArmed, posture)).toThrow(
+      /does not start with the shipped base/,
+    );
+  });
+
+  it('leaves generation options alone — this arm is prompt-only', () => {
+    const options = { temperature: 0.45, noRepeatNgramSize: 3 };
+    expect(applyEverydayArmOptions(options, posture)).toEqual(options);
+  });
+
+  it('★ table invariant: no arm rewrites the system prompt two different ways', () => {
+    // A cell setting both would make the clause swap search text the posture
+    // swap already deleted — a silent no-op wearing the name of a switch.
+    for (const arm of EVERYDAY_ARMS) {
+      if (arm.posture === 'as-shipped') continue;
+      expect(arm.addContextClause).toBe('as-shipped');
+    }
+  });
+
+  it('is recognised as a system-prompt arm, alongside the clause arms', () => {
+    expect(armRewritesSystemPrompt(posture)).toBe(true);
+    expect(armRewritesSystemPrompt(getEverydayArm('no-add-context'))).toBe(true);
+    expect(armRewritesSystemPrompt(getEverydayArm('control'))).toBe(false);
+    expect(armRewritesSystemPrompt(getEverydayArm('ngram-off'))).toBe(false);
   });
 });
 
@@ -140,6 +254,7 @@ function scores(): RubricScores {
     depthMatch: null,
     deliversFirst: 1,
     preservesUserText: null,
+    preservesFacts: null,
     coherence: null,
     taskFit: null,
   };
@@ -149,6 +264,7 @@ function runFor(
   armId: EvalEverydayArmId | undefined,
   runId: string,
   samplingMode: 'greedy' | 'sampled' = 'sampled',
+  messageTopology: EvalMessageTopology = 'production-user-turn-hints',
 ): EvalRun {
   return {
     schemaVersion: 1,
@@ -163,7 +279,7 @@ function runFor(
       deviceClass: 'desktop',
     },
     config: {
-      messageTopology: 'production-user-turn-hints',
+      messageTopology,
       samplingMode,
       samplesPerProbe: 1,
       maxTokensCap: 512,
@@ -261,4 +377,69 @@ describe('★ compareEverydayArms refuses to report without a control', () => {
     expect(comparison.problems).toEqual([]);
     expect(comparison.deltas).toHaveLength(1);
   });
+
+  it('pairs the posture arm against the control like any other treatment', () => {
+    const comparison = compareEverydayArms([
+      runFor('control', 'r-control'),
+      runFor('posture-direct', 'r-posture'),
+    ]);
+
+    expect(comparison.problems).toEqual([]);
+    expect(comparison.controlRunId).toBe('r-control');
+    expect(comparison.deltas.map((d) => d.armId)).toEqual(['posture-direct']);
+  });
+
+  it('allows the posture arm under greedy decode — a prompt swap is not a sampling knob', () => {
+    const comparison = compareEverydayArms([
+      runFor('control', 'r-control', 'greedy'),
+      runFor('posture-direct', 'r-posture', 'greedy'),
+    ]);
+
+    expect(comparison.problems).toEqual([]);
+    expect(comparison.deltas).toHaveLength(1);
+  });
+});
+
+// ─── the topology under which a system-prompt arm cannot act ────────────────
+
+describe('★ compareEverydayArms refuses a system-prompt arm with no system prompt', () => {
+  const GEMMA_NATIVE = 'gemma-native-user-contract';
+
+  // Read off the arm table, so a new cell lands on whichever side its own
+  // settings put it — the same split the panel's launch guard uses.
+  const promptArms = EVERYDAY_ARMS.filter(armRewritesSystemPrompt).map((a) => a.id);
+  const otherArms = EVERYDAY_ARMS.filter((a) => !armRewritesSystemPrompt(a)).map((a) => a.id);
+
+  it('the arm table still has both a system-prompt side and a non-system-prompt side', () => {
+    expect(promptArms.length).toBeGreaterThan(0);
+    expect(otherArms.length).toBeGreaterThan(0);
+  });
+
+  it.each(promptArms.map((id) => [id]))(
+    'refuses %s recorded under the gemma-native topology, and says why',
+    (armId) => {
+      const comparison = compareEverydayArms([
+        runFor('control', 'r-control', 'sampled', GEMMA_NATIVE),
+        runFor(armId, 'r-arm', 'sampled', GEMMA_NATIVE),
+      ]);
+
+      expect(comparison.deltas).toEqual([]);
+      expect(comparison.problems.join(' ')).toMatch(
+        /system-prompt switch cannot be measured here/,
+      );
+    },
+  );
+
+  it.each(otherArms.filter((id) => id !== 'control').map((id) => [id]))(
+    'still reports %s under the gemma-native topology — its switch is not the prompt',
+    (armId) => {
+      const comparison = compareEverydayArms([
+        runFor('control', 'r-control', 'sampled', GEMMA_NATIVE),
+        runFor(armId, 'r-arm', 'sampled', GEMMA_NATIVE),
+      ]);
+
+      expect(comparison.problems).toEqual([]);
+      expect(comparison.deltas).toHaveLength(1);
+    },
+  );
 });

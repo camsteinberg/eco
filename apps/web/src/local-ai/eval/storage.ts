@@ -39,6 +39,7 @@ const EVAL_CATEGORIES: ReadonlySet<EvalCategory> = new Set([
   'richness',
   'answer-shape',
   'everyday-use',
+  'everyday-conversation',
   'captured',
 ]);
 

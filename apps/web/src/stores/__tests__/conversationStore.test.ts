@@ -60,6 +60,17 @@ describe('useConversationStore', () => {
     expect(localStorage.getItem('eco-active-conversation')).toBe('conv-1')
   })
 
+  it('setActive(null) records the new chat as deliberate, and picking a conversation clears it', () => {
+    useConversationStore.getState().addConversation(makeConversation('conv-1'))
+
+    useConversationStore.getState().setActive(null)
+    expect(localStorage.getItem('eco-active-conversation')).toBeNull()
+    expect(localStorage.getItem('eco-new-chat')).toBe('true')
+
+    useConversationStore.getState().setActive('conv-1')
+    expect(localStorage.getItem('eco-new-chat')).toBeNull()
+  })
+
   it('restorePersistedActiveConversation reselects the saved conversation', () => {
     useConversationStore.getState().setConversations([
       makeConversation('conv-1'),

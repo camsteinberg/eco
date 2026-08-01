@@ -38,6 +38,15 @@ export type EvalCategory =
    * filtered to "what ordinary people actually bring" as a unit.
    */
   | 'everyday-use'
+  /**
+   * The everyday-use CONVERSATION probes — one probe per item of
+   * `__tests__/fixtures/everyday-conversation-corpus.ts`, derived at module load
+   * (local-ai/eval/everyday-conversation-probes.ts). Separate from
+   * `everyday-use` rather than folded into it: every probe here replays a
+   * history, so its results are not comparable with a single-turn one and must
+   * not be averaged alongside them.
+   */
+  | 'everyday-conversation'
   | 'captured';
 
 /**
@@ -123,6 +132,15 @@ export type EvalPromptSpec = {
    * `prompt` to preserve and must leave this unset.
    */
   expectUserTextReuse?: true;
+  /**
+   * `preservesFacts`: the reply has to carry the user's own FIGURES, DATES and
+   * NAMES back out intact while the wording is deliberately changed (a summary
+   * compresses, a tone rewrite softens, a hospital letter is translated out of
+   * jargon). The sibling of `expectUserTextReuse`, and deliberately EXCLUSIVE of
+   * it: span overlap reads a wording job correctly and a facts job backwards.
+   * Set only where the prompt actually carries the facts.
+   */
+  expectFactPreservation?: true;
   /**
    * Richness: a genuinely helpful reply should reach at least this many words
    * (graduated floor, NOT a length target — catches the terse failure mode).
@@ -216,6 +234,23 @@ export type RubricScores = {
    * absolute level.
    */
   preservesUserText: number | null;
+  /**
+   * Fraction of the concrete facts in the user's pasted block — figures,
+   * monetary amounts, dates, proper names — that came back UNCORRUPTED. null
+   * unless `expectFactPreservation`.
+   *
+   * Deliberately NOT a span measure. Span overlap rewards parroting and punishes
+   * the rephrasing these items are asking for; this dim asks only whether "£25",
+   * "£180", "7 not 8" and the names survived, however they were re-worded. A
+   * corrupted near-form ("332,062" for "332,026", "Nobel Award" for "Nobel
+   * Prize") is a MISS, not a match.
+   *
+   * ★ ONE-SIDED, BY DESIGN. It scores fact survival and nothing else, so a
+   * verbatim parrot of the paste scores 1.0 — see `scoreFactPreservation`.
+   * COMPARATIVE by design, like `preservesUserText`: read the delta between
+   * arms, not the absolute level.
+   */
+  preservesFacts: number | null;
   // ── judge ──
   coherence: number | null;
   taskFit: number | null;
@@ -257,7 +292,9 @@ export type EvalPromptContractId = 'none' | 'gemma-native-eco-contract-v1';
 /**
  * The everyday-use A/B cells (local-ai/eval/everyday-arms.ts). Two orthogonal
  * switches — the system prompt's add-context clause, and the prompt-inclusive
- * n-gram ban — plus the mandatory `control` cell where both are as shipped.
+ * n-gram ban — plus the mandatory `control` cell where every switch is as
+ * shipped, and `posture-direct`, which replaces the whole shipped prompt base
+ * with a direct-by-default posture rather than conditioning one clause of it.
  *
  * Declared HERE rather than beside the arm table so the run fingerprint can
  * record which cell produced a run without `types` importing the arm module
@@ -267,7 +304,8 @@ export type EvalEverydayArmId =
   | 'control'
   | 'no-add-context'
   | 'ngram-off'
-  | 'no-add-context-ngram-off';
+  | 'no-add-context-ngram-off'
+  | 'posture-direct';
 
 /** Privacy-safe description of the prompt topology used for one result. */
 export type EvalPromptTrace = {

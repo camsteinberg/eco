@@ -8,13 +8,14 @@
  * WHY THIS EXISTS. Three sessions of chat-quality work ranked and prioritised
  * changes without ever generating a token: every claim was about the strings we
  * hand the model, none about the answers it produces. This module is the other
- * half — it turns "what forty real people asked for" into something the eval
- * harness can actually run a model against.
+ * half — it turns "what real people asked for" into something the eval harness
+ * can actually run a model against.
  *
  * ★ DERIVED, NEVER COPIED. Every probe is computed from `EVERYDAY_USE_CORPUS`
  * at module load. A copy drifts the moment someone edits one side; a derivation
- * cannot. `everyday-probes.test.ts` asserts 40/40 coverage, so a corpus addition
- * fails loudly rather than sitting silently unmeasured.
+ * cannot. `everyday-probes.test.ts` asserts one probe per corpus item against
+ * the live length, so a corpus addition fails loudly rather than sitting
+ * silently unmeasured.
  *
  * ── THE INSTRUMENT IS TWO-SIDED, AND THAT IS ITS MOST IMPORTANT PROPERTY ─────
  *
@@ -46,8 +47,9 @@
  *              which is correct for an instrument that measures what ships.
  * `notes`    — carries the item's `bounceCondition` verbatim to the judge,
  *              because ★ the bounce condition is the acceptance criterion.
- * `depthBand`, `minWords`, `expectDeliverable`, `expectUserTextReuse` — see the
- *              rule blocks below, each of which quotes the corpus text it reads.
+ * `depthBand`, `minWords`, `expectDeliverable`, `expectUserTextReuse`,
+ * `expectFactPreservation` — see the rule blocks below, each of which quotes the
+ *              corpus text it reads.
  *
  * ── ONE HONEST LIMITATION ───────────────────────────────────────────────────
  *
@@ -57,6 +59,14 @@
  * corpus's own header warns against. So they run as opening turns and their
  * generations should be read as such. `EVERYDAY_ANAPHORIC_PROBE_IDS` names them
  * so a run can exclude them; their `notes` say so too.
+ *
+ * The general form of that limitation — everything here is one turn — is
+ * addressed by a sibling set rather than by relaxing anything here:
+ * `everyday-conversation-probes.ts` derives from a corpus that DOES hold the
+ * exchange, and replays it as `history`. It imports this module's openness,
+ * ceiling and floor rules rather than restating them, so the two sets stay one
+ * instrument. It deliberately does not fold into this one: a probe carrying
+ * eight turns of history is not comparable with one carrying none.
  *
  * NOT in the harness's default prompt pool. These are fed through
  * `EvalRunConfig.extraPrompts`, so they never dilute the standing scorecard and
@@ -455,29 +465,52 @@ export function everydayProbeId(itemId: string): string {
  *
  *   - WORDING must survive (this list) — a long shared span IS the success, and
  *     a rewrite out of their register is the failure the item names.
- *   - FACTS must survive (the rejected list below) — figures, dates and names
- *     have to come back intact while the wording is deliberately CHANGED: a
- *     summary compresses, a tone rewrite softens, a hospital letter gets
- *     translated out of jargon. There a longer shared span often means the model
- *     failed. `health-hospital-letter` bounces on "Parrots the jargon back with
- *     a definition list" — precisely the answer a high span score would reward.
+ *   - FACTS must survive (the list below) — figures, dates and names have to
+ *     come back intact while the wording is deliberately CHANGED: a summary
+ *     compresses, a tone rewrite softens, a hospital letter gets translated out
+ *     of jargon. There a longer shared span often means the model failed.
+ *     `health-hospital-letter` bounces on "Parrots the jargon back with a
+ *     definition list" — precisely the answer a high span score would reward.
+ *     Those items are scored by `preservesFacts` instead, which counts entity
+ *     and figure survival and is blind to how the reply was worded.
  *
- * ⚠ THE HONEST SIZE OF THIS: one item. A dim reading out a single probe is a
- * data point, not a comparison, and it cannot carry an A/B by itself. Widening
- * it means adding proofread-class jobs to the corpus, not relaxing the criterion.
+ * ⚠ THE HONEST SIZE OF THIS WAS ONE ITEM, and the note here said so: "a dim
+ * reading out a single probe is a data point, not a comparison, and it cannot
+ * carry an A/B by itself. Widening it means adding proofread-class jobs to the
+ * corpus, not relaxing the criterion." That is what happened — the corpus's WAVE
+ * 2 added nine proofread-class jobs, and all nine meet the criterion unchanged.
+ * Ten items now, across ten different registers, which is what makes the n-gram
+ * A/B readable: the dim can show a difference rather than a value.
+ *
+ * ⚠ WHAT TEN STILL DOES NOT BUY. Nine of the ten are the same JOB. If a change
+ * helps proofreading and hurts every other kind of quoting-back, this dim reads
+ * green — it is now a comparison, but it is a comparison about one job.
  */
-export const EVERYDAY_WORDING_PRESERVATION_ITEM_IDS: readonly string[] = ['sw-15'];
+export const EVERYDAY_WORDING_PRESERVATION_ITEM_IDS: readonly string[] = [
+  'sw-15',
+  'proofread-teacher-note-esl',
+  'proofread-birthday-caption',
+  'proofread-memorial-tribute',
+  'proofread-grandfather-letter',
+  'proofread-vet-application',
+  'proofread-crew-email',
+  'proofread-marketplace-ad',
+  'proofread-review-reply',
+  'proofread-school-post',
+];
 
 /**
- * Candidates reviewed against the criterion above and REJECTED: their
- * `faithful-reproduction` need is about facts, not wording, so span overlap
- * would read their good answer and their bounce the wrong way round.
+ * The other side of that split: items whose `faithful-reproduction` need is
+ * about FACTS, not wording. Span overlap would read their good answer and their
+ * bounce the wrong way round, so they are gated to `preservesFacts` — did the
+ * figures, dates and names come back uncorrupted, however the reply re-worded
+ * them.
  *
  * Pinned as a list, with the reason, so the judgement is reviewable. Together
- * with the list above it must cover EVERY corpus item carrying pasted content
- * and `faithful-reproduction` — `everyday-probes.test.ts` asserts that, so a new
- * corpus item fails until someone classifies it instead of silently joining the
- * gate.
+ * with the list above (and the no-pasted-text list below) it must cover EVERY
+ * corpus item carrying `faithful-reproduction` — `everyday-probes.test.ts`
+ * asserts that, so a new corpus item fails until someone classifies it instead
+ * of silently joining a gate.
  */
 export const EVERYDAY_FACT_REPRODUCTION_ITEM_IDS: readonly string[] = [
   'work-email-tone-fix', // tone rewrite: "firm but neutral" — changing the wording is the task
@@ -488,6 +521,20 @@ export const EVERYDAY_FACT_REPRODUCTION_ITEM_IDS: readonly string[] = [
   'legal-rent-increase', // reads the notice back plainly, in their words not the landlord's
   'summarise-01', // "tldr" — compression is the whole request
   'sw-13', // reformat into a table: the figures survive, the prose does not
+];
+
+/**
+ * ★ THE THIRD BUCKET, pinned so nothing falls through in silence. These items
+ * carry `faithful-reproduction` but the text to be reproduced is NOT in this
+ * turn — "shorter. and take out the sorry" refers to a message the corpus does
+ * not contain. Neither dim can be pointed at them: there is nothing in `prompt`
+ * to preserve, and measuring against it would score noise.
+ *
+ * Without this list the partition test would be gated on `hasPastedContent`, and
+ * an item could quietly leave the classification by having that flag flipped.
+ */
+export const EVERYDAY_FAITHFUL_WITHOUT_PASTED_TEXT_ITEM_IDS: readonly string[] = [
+  'work-followup-shorter', // the antecedent lives in an earlier turn
 ];
 
 /**
@@ -502,6 +549,20 @@ function expectsUserTextReuse(item: EverydayUseItem): boolean {
     item.hasPastedContent &&
     needsFor(item.id).needs.includes('faithful-reproduction') &&
     EVERYDAY_WORDING_PRESERVATION_ITEM_IDS.includes(item.id)
+  );
+}
+
+/**
+ * `preservesFacts` applies under the same three conditions, on the other side of
+ * the wording/facts split. Exclusive with `expectsUserTextReuse` by construction:
+ * the two id lists are disjoint and the test asserts it, so no probe is ever
+ * scored by both — a reply cannot be asked to keep the wording and to change it.
+ */
+function expectsFactPreservation(item: EverydayUseItem): boolean {
+  return (
+    item.hasPastedContent &&
+    needsFor(item.id).needs.includes('faithful-reproduction') &&
+    EVERYDAY_FACT_REPRODUCTION_ITEM_IDS.includes(item.id)
   );
 }
 
@@ -532,6 +593,7 @@ function toProbe(item: EverydayUseItem): EvalPromptSpec {
     prompt: item.userInput,
     expectDeliverable: true,
     ...(expectsUserTextReuse(item) ? { expectUserTextReuse: true as const } : {}),
+    ...(expectsFactPreservation(item) ? { expectFactPreservation: true as const } : {}),
     ...(ceiling !== null ? { depthBand: { maxWords: ceiling } } : {}),
     ...(floor !== null ? { minWords: floor } : {}),
     judge: ['taskFit', 'coherence'],

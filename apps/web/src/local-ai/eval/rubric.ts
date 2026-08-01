@@ -66,6 +66,14 @@ function matchesWholeToken(haystack: string, token: string): boolean {
 // ─── repetition ──────────────────────────────────────────────────────────
 
 /**
+ * A line that's pure divider punctuation (---, ***, ___, or a spaced variant
+ * like "- - -") carries no content — using one to separate sections three
+ * times over a long reply is normal Markdown structure, not the degenerate
+ * loop the line-repeat cap exists to catch.
+ */
+const DIVIDER_LINE_RE = /^([-*_=~])(?:\s?\1)+$/;
+
+/**
  * Word-level repetition score. 1.0 = no repetition, →0.0 = severe loop.
  *
  * Method (deterministic):
@@ -73,6 +81,7 @@ function matchesWholeToken(haystack: string, token: string): boolean {
  *   - ratio = 1 - uniqueTrigrams/totalTrigrams; score = clamp(1 - 2*ratio, 0, 1).
  *   - Hard cap at 0.3 if any single non-empty line repeats >=3x, OR any word
  *     4-gram repeats >=4x (catches degenerate loops the trigram ratio softens).
+ *     Pure-punctuation divider lines are exempt from the line-repeat cap.
  */
 export function scoreRepetition(text: string): number {
   const tokens = words(text);
@@ -89,6 +98,7 @@ export function scoreRepetition(text: string): number {
   // Hard caps for degenerate loops.
   const lineCounts = new Map<string, number>();
   for (const line of nonEmptyLines(text)) {
+    if (DIVIDER_LINE_RE.test(line)) continue;
     lineCounts.set(line, (lineCounts.get(line) ?? 0) + 1);
   }
   const lineRepeats = [...lineCounts.values()].some((c) => c >= 3);
@@ -766,6 +776,224 @@ export function scorePreservesUserText(spec: EvalPromptSpec, text: string): numb
   return analyzePreservesUserText(spec.prompt, text).score;
 }
 
+// ─── preserves facts (the OTHER half of faithful reproduction) ─────────────
+
+/**
+ * ★ WHY THIS IS NOT A SPAN MEASURE.
+ *
+ * `preservesUserText` above reads a longest-common-span, which means what its
+ * name says on exactly one kind of job: the ones where handing the user's own
+ * WORDING back IS the deliverable. On the other kind — a summary, a tone
+ * rewrite, a hospital letter translated out of jargon — the wording is supposed
+ * to CHANGE and only the facts have to survive. There a long shared span often
+ * means the model failed: `health-hospital-letter` bounces on "Parrots the
+ * jargon back with a definition list", which is precisely the answer a span
+ * score rewards.
+ *
+ * So this dim measures ENTITY AND FIGURE SURVIVAL instead: pull the concrete
+ * facts out of the block the user pasted, then ask how many of them are still
+ * in the answer. A good summary that keeps "£25", "£180", "7 not 8" and the
+ * names but reformats the whole thing into bullets scores 1.0.
+ *
+ * ★★ IT IS ONE-SIDED AND STAYS ONE-SIDED. It scores fact survival only. A
+ * verbatim parrot of the paste therefore scores 1.0 BY DESIGN — parroting is a
+ * failure of a different kind, and the dims that own it are `depthMatch` (a
+ * summary as long as the thread breaches the ceiling), `preservesUserText`'s
+ * echo guard on the wording items, and the judge. Teaching this dim to also
+ * score "and explained it well" would be a second spec bug wearing a better
+ * name; the previous one cost a whole gate.
+ */
+
+/** What kind of fact was lifted out of the user's pasted block. */
+export type PreservedFactKind = 'number' | 'date' | 'name';
+
+export type PreservedFact = {
+  kind: PreservedFactKind;
+  /** As it appears in the paste. For reporting and pinning — never for matching. */
+  text: string;
+  /** What presence is tested against: a normalized value, or a lowercased word. */
+  key: string;
+};
+
+/**
+ * Month and weekday names, matched case-insensitively because real pastes write
+ * them both ways ("Friday 8 August" in a school letter, "that was october" in a
+ * column of expenses).
+ *
+ * ⚠ `may` is deliberately ABSENT. It is a modal verb far more often than it is a
+ * month, and a false fact costs more than a missed one here: a fact nobody
+ * extracted is simply not scored, whereas a fact that was never a fact penalizes
+ * every answer that sensibly left it out. Every guard in this dim fails toward
+ * extracting LESS.
+ */
+const DATE_WORDS: readonly string[] = [
+  'january', 'february', 'march', 'april', 'june', 'july',
+  'august', 'september', 'october', 'november', 'december',
+  'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday',
+];
+
+/**
+ * ⚠ Assembled with `+` rather than a template literal: an interpolated regex
+ * const is folded wrong by Turbopack and only `next build` catches it.
+ */
+const DATE_WORD_PATTERN =
+  '(?<![\\p{L}\\p{N}])(?:' + DATE_WORDS.join('|') + ')(?![\\p{L}\\p{N}])';
+
+/**
+ * A digit run, kept whole: `1,450.00`, `342.19`, `07:00`, `14/7`, `3/4`, and the
+ * `6` of `6mm`. Anchored on digits at both ends so ordinary trailing punctuation
+ * ("…£45.") never joins the token.
+ */
+const NUMERIC_TOKEN_PATTERN = '\\d[\\d,.:/]*\\d|\\d';
+
+/**
+ * A Titlecase word, whole-token. `\p{Ll}{2,}` (so, three characters minimum)
+ * excludes "I" and — deliberately — ALL-CAPS acronyms: "CT", "TSH" and "NOTICE
+ * OF RENT INCREASE" are exactly the jargon a plain-English translation is
+ * supposed to drop, so requiring them would penalize the good answer. The
+ * lookarounds also drop internal-caps compounds like "ParentPay".
+ */
+const NAME_CANDIDATE_PATTERN = '(?<![\\p{L}\\p{N}])\\p{Lu}\\p{Ll}{2,}(?![\\p{L}\\p{N}])';
+
+/**
+ * The value a digit run is compared on. Thousands separators are stripped and
+ * the rest is read as a NUMBER, so "£1,450.00" and "1450" are the same fact —
+ * dropping a comma is a reformat, not a corruption. Anything holding a `/` or a
+ * `:` (a date, a time, a fraction) has no single value, so it is compared as the
+ * literal string.
+ *
+ * ★ This is what makes a corrupted figure a MISS: "332,062" normalizes to
+ * 332062, which is not 332026, so the fact is simply absent.
+ */
+function numericFactKey(raw: string): string | null {
+  if (raw.includes('/') || raw.includes(':')) return raw;
+  const ungrouped = raw.replace(/,/g, '');
+  // Two or more dots is a version/reference string, not a quantity.
+  if ((ungrouped.match(/\./g) ?? []).length > 1) return raw;
+  const value = Number(ungrouped);
+  return Number.isFinite(value) ? String(value) : null;
+}
+
+/** Skipped when looking back for the end of the previous sentence. */
+const OPENING_PUNCTUATION = '("\'“‘[';
+
+/**
+ * Whether the word starting at `index` opens a sentence or a line. Used to drop
+ * capitalized function words ("The witches…", "In conclusion…", "Please be
+ * advised…") without a stopword list, which would have to be maintained and
+ * argued about. A word that ALSO appears mid-sentence is kept — that occurrence
+ * is the evidence it is a name.
+ */
+function opensSentence(block: string, index: number): boolean {
+  for (let i = index - 1; i >= 0; i--) {
+    const ch = block[i]!;
+    if (ch === '\n') return true;
+    if (/\s/.test(ch)) continue;
+    if (OPENING_PUNCTUATION.includes(ch)) continue;
+    return ch === '.' || ch === '!' || ch === '?';
+  }
+  return true;
+}
+
+/**
+ * A chat transcript's speaker label ("Tom: yes ill sort it"). These are line
+ * initial and never appear mid-sentence, so the rule above would drop every name
+ * in a pasted group chat — which is the one paste in this corpus made almost
+ * entirely OF names.
+ */
+function isSpeakerLabel(block: string, index: number, length: number): boolean {
+  return block[index + length] === ':' && opensSentence(block, index);
+}
+
+/**
+ * The concrete facts in a pasted block, in appearance order: figures first, then
+ * dates, then names. Deduplicated by key, so a figure quoted twice is one fact.
+ *
+ * ⚠ HONEST ABOUT ITS PRECISION. It over-extracts institutional Titlecase nouns
+ * ("Key Stage 2", "Appendix B") and under-extracts names the writer never
+ * capitalized ("has anyone told steve"). Both are visible rather than hidden:
+ * `everyday-probes.test.ts` pins the extracted list for every gated item, so the
+ * denominator can be read and argued with. Over-extraction inflates the
+ * denominator identically in every arm, which is why this dim is read as a delta
+ * and why its absolute level is not a grade.
+ */
+export function extractFacts(pasted: string): readonly PreservedFact[] {
+  const facts: PreservedFact[] = [];
+  const seen = new Set<string>();
+  const push = (kind: PreservedFactKind, text: string, key: string): void => {
+    if (seen.has(key)) return;
+    seen.add(key);
+    facts.push({ kind, text, key });
+  };
+
+  for (const match of pasted.matchAll(new RegExp(NUMERIC_TOKEN_PATTERN, 'g'))) {
+    const key = numericFactKey(match[0]);
+    if (key !== null) push('number', match[0], key);
+  }
+
+  for (const match of pasted.matchAll(new RegExp(DATE_WORD_PATTERN, 'giu'))) {
+    push('date', match[0], match[0].toLowerCase());
+  }
+
+  for (const match of pasted.matchAll(new RegExp(NAME_CANDIDATE_PATTERN, 'gu'))) {
+    const index = match.index;
+    if (opensSentence(pasted, index) && !isSpeakerLabel(pasted, index, match[0].length)) continue;
+    push('name', match[0], match[0].toLowerCase());
+  }
+
+  return facts;
+}
+
+/** Every figure the OUTPUT contains, normalized the same way the facts were. */
+function outputNumericKeys(output: string): Set<string> {
+  const keys = new Set<string>();
+  for (const match of output.matchAll(new RegExp(NUMERIC_TOKEN_PATTERN, 'g'))) {
+    const key = numericFactKey(match[0]);
+    if (key !== null) keys.add(key);
+  }
+  return keys;
+}
+
+/** What `scoreFactPreservation` saw. */
+export type FactPreservationAnalysis = {
+  facts: readonly PreservedFact[];
+  /** The facts that did not survive — dropped outright, or corrupted. */
+  missing: readonly PreservedFact[];
+  /** null when the paste carried no facts at all: no signal, not a perfect score. */
+  score: number | null;
+};
+
+export function analyzeFactPreservation(
+  userText: string,
+  output: string,
+): FactPreservationAnalysis {
+  const facts = extractFacts(pastedBlockOf(userText));
+  if (facts.length === 0) return { facts, missing: [], score: null };
+
+  const numericKeys = outputNumericKeys(output);
+  const haystack = normalize(output);
+  const missing = facts.filter((fact) =>
+    fact.kind === 'number'
+      ? !numericKeys.has(fact.key)
+      : !matchesWholeToken(haystack, fact.key),
+  );
+
+  return { facts, missing, score: (facts.length - missing.length) / facts.length };
+}
+
+/**
+ * Did the user's own figures, dates and names survive the answer? null unless
+ * the spec sets `expectFactPreservation`.
+ *
+ * A verbatim parrot of the paste scores 1.0 — deliberately. See the block
+ * comment at the top of this section: this dim is one-sided on purpose, and the
+ * parrot is other dims' failure to catch.
+ */
+export function scoreFactPreservation(spec: EvalPromptSpec, text: string): number | null {
+  if (!spec.expectFactPreservation) return null;
+  return analyzeFactPreservation(spec.prompt, text).score;
+}
+
 // ─── correct stop ──────────────────────────────────────────────────────────
 
 /**
@@ -811,6 +1039,7 @@ export function scoreResult(spec: EvalPromptSpec, ctx: RubricContext): RubricSco
     depthMatch: scoreDepthMatch(spec, ctx.output),
     deliversFirst: scoreDeliversFirst(spec, ctx.output),
     preservesUserText: scorePreservesUserText(spec, ctx.output),
+    preservesFacts: scoreFactPreservation(spec, ctx.output),
     coherence: null,
     taskFit: null,
   };

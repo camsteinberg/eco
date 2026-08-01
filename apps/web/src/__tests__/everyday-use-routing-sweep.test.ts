@@ -526,6 +526,43 @@ const KNOWN_GAPS: ReadonlyMap<GapKey, { mechanism: GapMechanism; intent: ChatInt
     ["direct-budget/ft-04", { mechanism: "explain-default-middle", intent: "explain" }],
     ["no-elaboration-hint/ft-13", { mechanism: "explain-default-middle", intent: "explain" }],
     ["direct-budget/ft-13", { mechanism: "explain-default-middle", intent: "explain" }],
+
+    // ── WAVE 2 — the proofread-class jobs ─────────────────────────────
+    // Nine turns whose entire requirement is the user's own text back, added to
+    // widen the one measurement that had a single item on it. Their
+    // `faithful-reproduction` need closed on arrival rather than ever being
+    // pinned here: these nine items and the original ten share one mechanism
+    // (the starter's prompt-inclusive n-gram ban), and that mechanism came off
+    // before this corpus wave and that fix were ever combined and run together.
+    // Their other two needs each turn carries are untouched by that fix and
+    // remain open below: eight are the >360-character catch-all reading the
+    // length of what they PASTED as a request for a lecture, and the ninth is
+    // the budget path that cannot see a length bound. A wave of nine new items
+    // explained entirely by mechanisms already on file is evidence those
+    // mechanisms are real, not curve-fitted to the forty.
+
+    ["no-elaboration-hint/proofread-teacher-note-esl", { mechanism: "shape-length-catchall", intent: "deep" }],
+    ["direct-budget/proofread-teacher-note-esl", { mechanism: "shape-length-catchall", intent: "deep" }],
+    ["no-elaboration-hint/proofread-birthday-caption", { mechanism: "shape-length-catchall", intent: "deep" }],
+    ["direct-budget/proofread-birthday-caption", { mechanism: "shape-length-catchall", intent: "deep" }],
+    ["no-elaboration-hint/proofread-memorial-tribute", { mechanism: "shape-length-catchall", intent: "deep" }],
+    ["direct-budget/proofread-memorial-tribute", { mechanism: "shape-length-catchall", intent: "deep" }],
+    ["no-elaboration-hint/proofread-grandfather-letter", { mechanism: "shape-length-catchall", intent: "deep" }],
+    ["direct-budget/proofread-grandfather-letter", { mechanism: "shape-length-catchall", intent: "deep" }],
+    ["no-elaboration-hint/proofread-vet-application", { mechanism: "shape-length-catchall", intent: "deep" }],
+    ["direct-budget/proofread-vet-application", { mechanism: "shape-length-catchall", intent: "deep" }],
+    ["no-elaboration-hint/proofread-crew-email", { mechanism: "shape-length-catchall", intent: "deep" }],
+    ["direct-budget/proofread-crew-email", { mechanism: "shape-length-catchall", intent: "deep" }],
+    ["no-elaboration-hint/proofread-review-reply", { mechanism: "shape-length-catchall", intent: "deep" }],
+    ["direct-budget/proofread-review-reply", { mechanism: "shape-length-catchall", intent: "deep" }],
+
+    // The one that routes `deep` with NO hint at all: she typed "keep it short",
+    // hint suppression saw it, and the 2048-token budget did not. Suppression and
+    // routing are two systems that do not talk, which is the whole mechanism.
+    ["direct-budget/proofread-marketplace-ad", { mechanism: "brevity-misses-the-budget", intent: "deep" }],
+    // The one that routes `writing`: "posting this on the school parents page" hits
+    // the writing branch, whose budget is the 1536 middle whatever the artifact is.
+    ["direct-budget/proofread-school-post", { mechanism: "writing-budget-is-middle", intent: "writing" }],
   ]);
 
 // ---------------------------------------------------------------------------
@@ -575,6 +612,23 @@ const ROUTING_TODAY: Readonly<
   "ft-13": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
   "sw-12": { intent: "quick", maxTokens: 1024, temperature: 0.32, hint: "" },
   "ft-15": { intent: "quick", maxTokens: 1024, temperature: 0.32, hint: "" },
+  // ── WAVE 2 — the proofread-class jobs ─────────────────────────────────────
+  // Eight of nine land on `deep` at 2048 tokens because of how long the thing
+  // they PASTED is, on turns whose whole instruction was "fix my mistakes and
+  // change nothing else". The ninth reaches `writing` through the word
+  // "posting". One of the eight carries no hint at all — she typed "keep it
+  // short" — and still gets the 2048 ceiling, which is the clearest single
+  // illustration in this file that hint suppression and the budget path are two
+  // systems that do not talk to each other.
+  "proofread-teacher-note-esl": { intent: "deep", maxTokens: 2048, temperature: 0.6, hint: "Use clear sections; include concrete recommendations and tradeoffs." },
+  "proofread-birthday-caption": { intent: "deep", maxTokens: 2048, temperature: 0.6, hint: "Use clear sections; include concrete recommendations and tradeoffs." },
+  "proofread-memorial-tribute": { intent: "deep", maxTokens: 2048, temperature: 0.6, hint: "Use clear sections; include concrete recommendations and tradeoffs." },
+  "proofread-grandfather-letter": { intent: "deep", maxTokens: 2048, temperature: 0.6, hint: "Use clear sections; include concrete recommendations and tradeoffs." },
+  "proofread-vet-application": { intent: "deep", maxTokens: 2048, temperature: 0.6, hint: "Use clear sections; include concrete recommendations and tradeoffs." },
+  "proofread-crew-email": { intent: "deep", maxTokens: 2048, temperature: 0.6, hint: "Use clear sections; include concrete recommendations and tradeoffs." },
+  "proofread-marketplace-ad": { intent: "deep", maxTokens: 2048, temperature: 0.6, hint: "" },
+  "proofread-review-reply": { intent: "deep", maxTokens: 2048, temperature: 0.6, hint: "Use clear sections; include concrete recommendations and tradeoffs." },
+  "proofread-school-post": { intent: "writing", maxTokens: 1536, temperature: 0.48, hint: "Match the requested format and tone; avoid filler." },
 };
 
 /**
@@ -687,8 +741,8 @@ const HINT_CLASSIFICATION: Readonly<Record<string, HintClassification>> = {
 };
 
 describe("everyday-use sweep — the instrument", () => {
-  it("covers forty jobs across every category the authors identified", () => {
-    expect(EVERYDAY_USE_CORPUS.length).toBe(40);
+  it("covers forty-nine jobs across every category the authors identified", () => {
+    expect(EVERYDAY_USE_CORPUS.length).toBe(49);
     expect(new Set(EVERYDAY_USE_CORPUS.map((i) => i.category)).size).toBeGreaterThanOrEqual(9);
   });
 
@@ -741,7 +795,11 @@ describe("everyday-use sweep — the instrument", () => {
     const spokenByUsers = EVERYDAY_USE_CORPUS.filter((item) =>
       CURTAILMENT_MARKERS.some((m) => item.userInput.toLowerCase().includes(m)),
     ).map((item) => item.id);
-    expect(spokenByUsers.sort()).toEqual(["work-followup-shorter", "work-sick-text"]);
+    expect(spokenByUsers.sort()).toEqual([
+      "proofread-marketplace-ad",
+      "work-followup-shorter",
+      "work-sick-text",
+    ]);
   });
 
   it("derives a routing need, quoting the item, for every item", () => {
@@ -777,7 +835,7 @@ describe("everyday-use sweep — the instrument", () => {
 
   it("pins how many need-labels exist, so removing one is a deliberate edit", () => {
     const total = EVERYDAY_USE_CORPUS.reduce((n, i) => n + needsFor(i.id).needs.length, 0);
-    expect(total).toBe(86);
+    expect(total).toBe(113);
   });
 
   it("carries a counterweight, so the corpus is not satisfiable by saying less", () => {
@@ -842,10 +900,10 @@ describe("everyday-use sweep — n-gram exposure across the corpus", () => {
   it("records which models forbid quoting the user back, and on how many turns", () => {
     const { banned } = ngramExposure();
     expect(banned).toEqual(NGRAM_EXPOSURE_TODAY);
-    // The starter was the last model here, at 40 of 40 — saturated, so no count
-    // could show one turn fixed and another broken. It is gone entirely now, and
-    // stated as its own assertion so re-arming reads as "the starter bans again"
-    // rather than as a key appearing in a map diff.
+    // The starter was the last model here, saturated across all 49 corpus items
+    // — so no count could show one turn fixed and another broken. It is gone
+    // entirely now, and stated as its own assertion so re-arming reads as "the
+    // starter bans again" rather than as a key appearing in a map diff.
     expect(banned["candidate/lfm2.5-350m-onnx"]).toBeUndefined();
   });
 
@@ -1045,6 +1103,11 @@ describe("everyday-use sweep — the intent cascade reads pasted content", () =>
       // the highest-precedence branch in the cascade — routes the turn to the
       // research treatment on a model with no web access.
       "legal-rent-increase:research:current",
+      // ★ A FOURTH CASE, and it arrived exactly the way this block predicted one
+      // would: not by anyone adding a rule, but by adding an ordinary item. Her
+      // own ask says "fix my typos"; the post she pasted says "please email the
+      // councillor", and that `email` is what reaches the writing branch.
+      "proofread-school-post:writing:email",
       // "Per my last email" in the pasted draft.
       "rewrite-03:writing:email",
       // The school letter's own "we write to advise".
@@ -1052,7 +1115,7 @@ describe("everyday-use sweep — the intent cascade reads pasted content", () =>
       // `summarise-01` ("ill message him" inside a pasted group chat, overriding
       // a correct `brief` shape) LEFT this list on 2026-07-27: WRITING_RE no
       // longer matches a bare `message`, so the paste can no longer route the
-      // turn. Three remain — the defect class is narrowed, not closed.
+      // turn. Four remain — the defect class is narrowed, not closed.
     ]);
   });
 });
