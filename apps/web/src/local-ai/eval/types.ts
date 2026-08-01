@@ -283,7 +283,9 @@ export type EvalPromptContractId = 'none' | 'gemma-native-eco-contract-v1';
 /**
  * The everyday-use A/B cells (local-ai/eval/everyday-arms.ts). Two orthogonal
  * switches — the system prompt's add-context clause, and the prompt-inclusive
- * n-gram ban — plus the mandatory `control` cell where both are as shipped.
+ * n-gram ban — plus the mandatory `control` cell where every switch is as
+ * shipped, and `posture-direct`, which replaces the whole shipped prompt base
+ * with a direct-by-default posture rather than conditioning one clause of it.
  *
  * Declared HERE rather than beside the arm table so the run fingerprint can
  * record which cell produced a run without `types` importing the arm module
@@ -293,7 +295,8 @@ export type EvalEverydayArmId =
   | 'control'
   | 'no-add-context'
   | 'ngram-off'
-  | 'no-add-context-ngram-off';
+  | 'no-add-context-ngram-off'
+  | 'posture-direct';
 
 /** Privacy-safe description of the prompt topology used for one result. */
 export type EvalPromptTrace = {
