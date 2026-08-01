@@ -21,6 +21,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   EVERYDAY_ARMS,
+  armRewritesSystemPrompt,
   getEverydayArm,
 } from '../../../../src/local-ai/eval/everyday-arms';
 import { EVERYDAY_USE_PROBES } from '../../../../src/local-ai/eval/everyday-probes';
@@ -272,6 +273,66 @@ describe('★ EvalHarnessPanel — greedy decode cannot be paired with an n-gram
 
   it.each(ngramArms.map((id) => [id]))(
     'launches %s when sampled, which is where the switch is measurable',
+    async (armId) => {
+      currentParams = url(`eco-eval-everyday-arm=${armId}`);
+      render(<EvalHarnessPanel />);
+
+      expect((await lastConfig()).everydayArm).toBe(armId);
+    },
+  );
+});
+
+describe('★ EvalHarnessPanel — a system-prompt arm cannot be launched with no system prompt', () => {
+  beforeEach(() => {
+    currentParams = new URLSearchParams();
+    savedRuns = [];
+    runEvalMock.mockClear();
+  });
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  // The gemma-native topology sends no system message at all, so an arm that
+  // works by rewriting the base prompt has that prompt built and discarded.
+  // The split is read off the arm table, exactly as the comparison layer reads it.
+  const promptArms = EVERYDAY_ARMS.filter(armRewritesSystemPrompt).map((a) => a.id);
+  const otherArms = EVERYDAY_ARMS.filter((a) => !armRewritesSystemPrompt(a)).map((a) => a.id);
+
+  it('the arm table still has both a system-prompt side and a non-system-prompt side', () => {
+    expect(promptArms.length).toBeGreaterThan(0);
+    expect(otherArms.length).toBeGreaterThan(0);
+  });
+
+  it.each(promptArms.map((id) => [id]))(
+    'refuses to launch %s under the gemma-native topology, and says why',
+    async (armId) => {
+      currentParams = url(`eco-eval-everyday-arm=${armId}&eco-eval-topology=gemma-native`);
+      render(<EvalHarnessPanel />);
+
+      expect(
+        await screen.findByText(/rewrites the system prompt.*sends no system prompt at all/i),
+      ).toBeInTheDocument();
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(runEvalMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(otherArms.map((id) => [id]))(
+    'still launches %s under the gemma-native topology — its switch is not the prompt',
+    async (armId) => {
+      currentParams = url(`eco-eval-everyday-arm=${armId}&eco-eval-topology=gemma-native`);
+      render(<EvalHarnessPanel />);
+
+      const config = await lastConfig();
+      expect(config.everydayArm).toBe(armId);
+      expect(config.messageTopology).toBe('gemma-native-user-contract');
+    },
+  );
+
+  it.each(promptArms.map((id) => [id]))(
+    'launches %s on the production topology, which is where the swap acts',
     async (armId) => {
       currentParams = url(`eco-eval-everyday-arm=${armId}`);
       render(<EvalHarnessPanel />);
