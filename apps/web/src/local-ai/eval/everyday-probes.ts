@@ -47,8 +47,9 @@
  *              which is correct for an instrument that measures what ships.
  * `notes`    — carries the item's `bounceCondition` verbatim to the judge,
  *              because ★ the bounce condition is the acceptance criterion.
- * `depthBand`, `minWords`, `expectDeliverable`, `expectUserTextReuse` — see the
- *              rule blocks below, each of which quotes the corpus text it reads.
+ * `depthBand`, `minWords`, `expectDeliverable`, `expectUserTextReuse`,
+ * `expectFactPreservation` — see the rule blocks below, each of which quotes the
+ *              corpus text it reads.
  *
  * ── ONE HONEST LIMITATION ───────────────────────────────────────────────────
  *
@@ -464,12 +465,14 @@ export function everydayProbeId(itemId: string): string {
  *
  *   - WORDING must survive (this list) — a long shared span IS the success, and
  *     a rewrite out of their register is the failure the item names.
- *   - FACTS must survive (the rejected list below) — figures, dates and names
- *     have to come back intact while the wording is deliberately CHANGED: a
- *     summary compresses, a tone rewrite softens, a hospital letter gets
- *     translated out of jargon. There a longer shared span often means the model
- *     failed. `health-hospital-letter` bounces on "Parrots the jargon back with
- *     a definition list" — precisely the answer a high span score would reward.
+ *   - FACTS must survive (the list below) — figures, dates and names have to
+ *     come back intact while the wording is deliberately CHANGED: a summary
+ *     compresses, a tone rewrite softens, a hospital letter gets translated out
+ *     of jargon. There a longer shared span often means the model failed.
+ *     `health-hospital-letter` bounces on "Parrots the jargon back with a
+ *     definition list" — precisely the answer a high span score would reward.
+ *     Those items are scored by `preservesFacts` instead, which counts entity
+ *     and figure survival and is blind to how the reply was worded.
  *
  * ⚠ THE HONEST SIZE OF THIS WAS ONE ITEM, and the note here said so: "a dim
  * reading out a single probe is a data point, not a comparison, and it cannot
@@ -497,15 +500,17 @@ export const EVERYDAY_WORDING_PRESERVATION_ITEM_IDS: readonly string[] = [
 ];
 
 /**
- * Candidates reviewed against the criterion above and REJECTED: their
- * `faithful-reproduction` need is about facts, not wording, so span overlap
- * would read their good answer and their bounce the wrong way round.
+ * The other side of that split: items whose `faithful-reproduction` need is
+ * about FACTS, not wording. Span overlap would read their good answer and their
+ * bounce the wrong way round, so they are gated to `preservesFacts` — did the
+ * figures, dates and names come back uncorrupted, however the reply re-worded
+ * them.
  *
  * Pinned as a list, with the reason, so the judgement is reviewable. Together
- * with the list above it must cover EVERY corpus item carrying pasted content
- * and `faithful-reproduction` — `everyday-probes.test.ts` asserts that, so a new
- * corpus item fails until someone classifies it instead of silently joining the
- * gate.
+ * with the list above (and the no-pasted-text list below) it must cover EVERY
+ * corpus item carrying `faithful-reproduction` — `everyday-probes.test.ts`
+ * asserts that, so a new corpus item fails until someone classifies it instead
+ * of silently joining a gate.
  */
 export const EVERYDAY_FACT_REPRODUCTION_ITEM_IDS: readonly string[] = [
   'work-email-tone-fix', // tone rewrite: "firm but neutral" — changing the wording is the task
@@ -516,6 +521,20 @@ export const EVERYDAY_FACT_REPRODUCTION_ITEM_IDS: readonly string[] = [
   'legal-rent-increase', // reads the notice back plainly, in their words not the landlord's
   'summarise-01', // "tldr" — compression is the whole request
   'sw-13', // reformat into a table: the figures survive, the prose does not
+];
+
+/**
+ * ★ THE THIRD BUCKET, pinned so nothing falls through in silence. These items
+ * carry `faithful-reproduction` but the text to be reproduced is NOT in this
+ * turn — "shorter. and take out the sorry" refers to a message the corpus does
+ * not contain. Neither dim can be pointed at them: there is nothing in `prompt`
+ * to preserve, and measuring against it would score noise.
+ *
+ * Without this list the partition test would be gated on `hasPastedContent`, and
+ * an item could quietly leave the classification by having that flag flipped.
+ */
+export const EVERYDAY_FAITHFUL_WITHOUT_PASTED_TEXT_ITEM_IDS: readonly string[] = [
+  'work-followup-shorter', // the antecedent lives in an earlier turn
 ];
 
 /**
@@ -530,6 +549,20 @@ function expectsUserTextReuse(item: EverydayUseItem): boolean {
     item.hasPastedContent &&
     needsFor(item.id).needs.includes('faithful-reproduction') &&
     EVERYDAY_WORDING_PRESERVATION_ITEM_IDS.includes(item.id)
+  );
+}
+
+/**
+ * `preservesFacts` applies under the same three conditions, on the other side of
+ * the wording/facts split. Exclusive with `expectsUserTextReuse` by construction:
+ * the two id lists are disjoint and the test asserts it, so no probe is ever
+ * scored by both — a reply cannot be asked to keep the wording and to change it.
+ */
+function expectsFactPreservation(item: EverydayUseItem): boolean {
+  return (
+    item.hasPastedContent &&
+    needsFor(item.id).needs.includes('faithful-reproduction') &&
+    EVERYDAY_FACT_REPRODUCTION_ITEM_IDS.includes(item.id)
   );
 }
 
@@ -560,6 +593,7 @@ function toProbe(item: EverydayUseItem): EvalPromptSpec {
     prompt: item.userInput,
     expectDeliverable: true,
     ...(expectsUserTextReuse(item) ? { expectUserTextReuse: true as const } : {}),
+    ...(expectsFactPreservation(item) ? { expectFactPreservation: true as const } : {}),
     ...(ceiling !== null ? { depthBand: { maxWords: ceiling } } : {}),
     ...(floor !== null ? { minWords: floor } : {}),
     judge: ['taskFit', 'coherence'],

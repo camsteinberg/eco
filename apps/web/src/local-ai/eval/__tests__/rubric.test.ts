@@ -12,8 +12,11 @@ import { describe, expect, it } from 'vitest';
 import {
   CANNED_LEAKAGE_PATTERNS,
   analyzeDeliversFirst,
+  analyzeFactPreservation,
   analyzePreservesUserText,
+  extractFacts,
   longestCommonTokenSpan,
+  scoreFactPreservation,
   pastedBlockOf,
   scoreDeliversFirst,
   scorePreservesUserText,
@@ -779,6 +782,170 @@ describe('scorePreservesUserText', () => {
     expect(longestCommonTokenSpan(['a', 'b', 'c', 'd'], ['x', 'b', 'c', 'y'])).toBe(2);
     expect(longestCommonTokenSpan(['a', 'b'], ['c', 'd'])).toBe(0);
     expect(longestCommonTokenSpan([], ['a'])).toBe(0);
+  });
+});
+
+describe('scoreFactPreservation', () => {
+  /**
+   * A pasted group chat with the ask tacked on the end — the shape the everyday
+   * corpus's summarise-class items take. Kept self-contained so this block tests
+   * the SCORER; the gate that points it at real corpus items, and the facts it
+   * pulls from each of them, are pinned in `everyday-probes.test.ts`.
+   */
+  const PASTED_TURN = [
+    'tldr',
+    '',
+    'Tom: the spa half day is 180, i can put the rest towards flowers',
+    'Priya: nadias sister says the surprise bit is 7 not 8',
+    'Tom: send me 25 by friday, revolut same number as always',
+    'Mark: our last invoice came to 332,026 so keep the receipts',
+  ].join('\n');
+
+  const facts = (overrides: Partial<EvalPromptSpec> = {}): EvalPromptSpec =>
+    spec({ expectFactPreservation: true, prompt: PASTED_TURN, ...overrides });
+
+  it('is null unless the spec expects fact preservation', () => {
+    expect(scoreFactPreservation(spec({ prompt: PASTED_TURN }), 'anything')).toBeNull();
+  });
+
+  it('★ pins what it pulls out of the paste — figures, a date, and the speakers', () => {
+    // The denominator, written down. Read as a LIST: if a rule changes and an
+    // entry moves, go and look at the paste rather than re-copying the output.
+    expect(extractFacts(pastedBlockOf(PASTED_TURN)).map((f) => `${f.kind}:${f.key}`)).toEqual([
+      'number:180',
+      'number:7',
+      'number:8',
+      'number:25',
+      'number:332026',
+      'date:friday',
+      'name:tom',
+      'name:priya',
+      'name:mark',
+    ]);
+  });
+
+  it('★ (a) every fact survives a COMPLETE rewrite → 1.0', () => {
+    // Not one clause of this is the user's phrasing. A span measure would score
+    // it near zero; the facts are all here, which is the only thing being asked.
+    const rephrased = [
+      'Short version: the spa half day came to 180 and Tom paid for it on his card,',
+      'so everyone owes Tom 25 by Friday. Priya passed on that the head count is 7, not 8.',
+      'Mark wants the receipts kept because the last invoice came to 332,026.',
+    ].join(' ');
+    expect(scoreFactPreservation(facts(), rephrased)).toBe(1);
+  });
+
+  it('★ (b) ONE corrupted figure is a miss, not a match', () => {
+    // The documented n-gram-ban corruption class: the number comes back mangled.
+    // Scoring a near-miss as a hit is the one thing this dim must never do.
+    const corrupted = [
+      'Short version: the spa half day came to 180 and Tom paid for it on his card,',
+      'so everyone owes Tom 25 by Friday. Priya passed on that the head count is 7, not 8.',
+      'Mark wants the receipts kept because the last invoice came to 332,062.',
+    ].join(' ');
+    const analysis = analyzeFactPreservation(PASTED_TURN, corrupted);
+    expect(analysis.missing.map((f) => f.key)).toEqual(['332026']);
+    expect(scoreFactPreservation(facts(), corrupted)!).toBeLessThan(1);
+    expect(scoreFactPreservation(facts(), corrupted)).toBeCloseTo(8 / 9, 10);
+  });
+
+  it('★ (c) a dropped entity is penalized', () => {
+    const dropsPriya = [
+      'Short version: the spa half day came to 180 and Tom paid for it on his card,',
+      'so everyone owes Tom 25 by Friday. The head count is 7, not 8.',
+      'Mark wants the receipts kept because the last invoice came to 332,026.',
+    ].join(' ');
+    expect(analyzeFactPreservation(PASTED_TURN, dropsPriya).missing.map((f) => f.key)).toEqual([
+      'priya',
+    ]);
+    expect(scoreFactPreservation(facts(), dropsPriya)).toBeCloseTo(8 / 9, 10);
+  });
+
+  it('★ (d) a VERBATIM PARROT of the paste scores 1.0 — deliberately', () => {
+    // This dim is one-sided on purpose. It answers "did their figures and names
+    // survive", and in a parrot they trivially did. Parroting is a real failure,
+    // and it is other dims' job: depthMatch (a summary as long as the thread
+    // breaches the ceiling), preservesUserText's echo guard on the wording
+    // items, and the judge. Teaching this dim to also score "and it explained
+    // things well" would rebuild the spec bug that made span overlap useless
+    // here — a dim that measures two things well measures neither.
+    expect(scoreFactPreservation(facts(), pastedBlockOf(PASTED_TURN))).toBe(1);
+  });
+
+  it('scores an answer that carried nothing back at 0', () => {
+    expect(scoreFactPreservation(facts(), 'Understood — I have summarised the thread.')).toBe(0);
+  });
+
+  it('★ MIRROR: the faithful rewrite beats the fluent one that quietly changed the numbers', () => {
+    const faithful = 'Tom paid 180 for the spa day. Send Tom 25 by Friday. Priya says 7, not 8. Mark has the 332,026 invoice.';
+    const fluent = 'Tom paid about 200 for the spa day. Send him 30 by the weekend. The count is 6. The invoice was roughly 330,000.';
+    expect(scoreFactPreservation(facts(), faithful)!).toBeGreaterThan(
+      scoreFactPreservation(facts(), fluent)!,
+    );
+    expect(scoreFactPreservation(facts(), fluent)!).toBeLessThan(0.5);
+  });
+
+  it('a reformatted figure is NOT a corruption — dropping a comma is not losing the number', () => {
+    const turn = 'what does this say\n\nThe monthly rent will increase from $1,450.00 to $1,725.00.';
+    const plain = 'The rent is going from 1450 a month to 1725 a month.';
+    expect(scoreFactPreservation(facts({ prompt: turn }), plain)).toBe(1);
+  });
+
+  it('★ a ROUNDED figure IS a corruption — "One wrong number in their own data destroys trust"', () => {
+    const turn =
+      'put this into a table\n\noffice supplies 342.19, software subscriptions 1,208.00, travel 1,540.88, lunches 305.15, phone and internet 265.00';
+    const rounded =
+      'Office supplies 342.19, software 1,208.00, travel 1,540, lunches 305.15, phone 265.00.';
+    expect(analyzeFactPreservation(turn, rounded).missing.map((f) => f.key)).toEqual(['1540.88']);
+    expect(scoreFactPreservation(facts({ prompt: turn }), rounded)).toBeCloseTo(4 / 5, 10);
+  });
+
+  it('never reads a figure as present because it sits INSIDE a longer one', () => {
+    const turn = 'what does this say\n\nThe deposit is 45 pounds.';
+    expect(scoreFactPreservation(facts({ prompt: turn }), 'The deposit is 1450 pounds.')).toBe(0);
+  });
+
+  it('★ a mangled proper name is a miss: "Nobel Award" does not preserve "Nobel Prize"', () => {
+    const turn = 'summarise this\n\nThe committee confirmed that Ada Lovelace received the Nobel Prize.';
+    // Facts: the names. "Nobel Award" keeps three of the four and mangles one.
+    expect(extractFacts(pastedBlockOf(turn)).map((f) => f.key)).toEqual([
+      'ada',
+      'lovelace',
+      'nobel',
+      'prize',
+    ]);
+    const mangled = 'Ada Lovelace was given the Nobel Award, the committee said.';
+    expect(analyzeFactPreservation(turn, mangled).missing.map((f) => f.key)).toEqual(['prize']);
+  });
+
+  it('★ a lost space is a miss: "capital ofFrance" does not preserve "France"', () => {
+    const turn = 'what does this say\n\nThe delegation met in France last spring.';
+    expect(extractFacts(pastedBlockOf(turn)).map((f) => f.key)).toEqual(['france']);
+    expect(scoreFactPreservation(facts({ prompt: turn }), 'They met in the capital ofFrance.')).toBe(0);
+    expect(scoreFactPreservation(facts({ prompt: turn }), 'They met in France.')).toBe(1);
+  });
+
+  it('ignores ALL-CAPS jargon — a plain-English translation is supposed to drop it', () => {
+    // "Her CT thorax demonstrated a 6mm subsolid nodule": requiring "CT" back
+    // would penalize exactly the answer health-hospital-letter asks for.
+    const turn = 'what does this say\n\nHer CT thorax demonstrated a 6mm nodule and TSH was normal.';
+    expect(extractFacts(pastedBlockOf(turn)).map((f) => f.key)).toEqual(['6']);
+  });
+
+  it('drops capitalized sentence openers, and keeps a name that also appears mid-sentence', () => {
+    const turn = 'what does this say\n\nThe review is done. Following that, Dave will sign it.';
+    expect(extractFacts(pastedBlockOf(turn)).map((f) => f.key)).toEqual(['dave']);
+  });
+
+  it('is null when the paste carries no facts at all — no signal, not a perfect score', () => {
+    const turn = 'does this sound rude\n\nplease send the files over when you get a chance';
+    expect(scoreFactPreservation(facts({ prompt: turn }), 'a bit, yes')).toBeNull();
+  });
+
+  it('flows through scoreResult only when the spec opts in', () => {
+    const output = 'Tom paid 180. Send 25 by Friday. Priya says 7, not 8. Mark has the 332,026 invoice.';
+    expect(scoreResult(facts(), ctx({ output })).preservesFacts).toBe(1);
+    expect(scoreResult(spec({ prompt: PASTED_TURN }), ctx({ output })).preservesFacts).toBeNull();
   });
 });
 

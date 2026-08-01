@@ -124,6 +124,39 @@ describe("conversation store persistence", () => {
     expect(localStorage.getItem(ACTIVE_CONVERSATION_STORAGE_KEY)).toBeNull();
   });
 
+  it("keeps a deliberately started new chat empty across a reload", async () => {
+    await seedConversations();
+
+    const { ACTIVE_CONVERSATION_STORAGE_KEY } = await import(
+      "../../lib/chat-workspace-storage"
+    );
+    localStorage.setItem(ACTIVE_CONVERSATION_STORAGE_KEY, "conv-newer");
+
+    vi.resetModules();
+    const first = await import("../conversationStore");
+    await waitForHydration(first.useConversationStore);
+    expect(first.useConversationStore.getState().activeConversationId).toBe("conv-newer");
+
+    // "New chat" — the user leaves the previous thread on purpose, and has not
+    // typed anything yet.
+    first.useConversationStore.getState().setActive(null);
+
+    // Reload the tab.
+    vi.resetModules();
+    const reloaded = await import("../conversationStore");
+    await waitForHydration(reloaded.useConversationStore);
+
+    const state = reloaded.useConversationStore.getState();
+    // The header reads the active conversation's title, so re-adopting the
+    // previous thread here is what surfaces its title on the new chat.
+    const activeTitle = state.conversations.find(
+      (conversation) => conversation.id === state.activeConversationId,
+    )?.title;
+
+    expect(state.activeConversationId).toBeNull();
+    expect(activeTitle).toBeUndefined();
+  });
+
   it("prefers the in-memory active leaf when reloading a branch right after navigation", async () => {
     const { openEcoDB } = await import("../../lib/db");
     const db = await openEcoDB();
