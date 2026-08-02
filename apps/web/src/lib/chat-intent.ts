@@ -559,6 +559,32 @@ export function buildTurnQualityInstruction(
     explain: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications.",
     deep: "Use clear sections; include concrete recommendations and tradeoffs.",
     code: "Lead with the working code or fix; keep the explanation short.",
+    // ⚠ TWO ADDITIONS WERE TRIED HERE AND BOTH MEASURED WORSE. Left as-is on
+    // evidence, not inertia.
+    //
+    // The failure they were aimed at is real: asked to hand back an email it had
+    // drafted five turns earlier, the shipping 2B answers "I can't resend the
+    // email. I can't send attachments or messages" — while quoting the two dates
+    // from that draft in the same sentence, so the context was never the problem.
+    //
+    // Measured on `candidate/qwen3.5-2b-onnx`, greedy, over the four multi-turn
+    // conversation probes that gate the history-recall dims:
+    //
+    //   "… Put the finished text itself in this reply."
+    //     teacher-email preservesHistoryFacts 0.67 → 0 (told to produce an
+    //     artifact it thought it had no source for, it demanded the source:
+    //     "I don't have the original message. Please send me the exact dates").
+    //   "… Use what the conversation already gives you instead of asking for it
+    //   again."
+    //     teacher-email 0.67 → 0 AND it began inventing ("I already sent it with
+    //     the days spelled out"); budget-list 0.78 → 0.11, the printed list
+    //     replaced by a looping arithmetic fragment.
+    //
+    // Read together: this refusal is a model-level reflex on the word "resend",
+    // not a gap in what the turn is told, and pushing on it from the end of the
+    // user turn — where recency makes a hint strongest — moves the reply further
+    // from the ask rather than closer. Anything tried next needs a different
+    // lever and its own before/after run.
     writing: "Match the requested format and tone; avoid filler.",
     file: "Lead with the conclusion; cite specifics from the file.",
     research: "Distinguish supported claims from uncertain ones; cite sources only when you can back the claim.",
