@@ -35,6 +35,7 @@ import {
   inferTurnIntent,
   type ChatIntent,
 } from "../lib/chat-intent";
+import { appendFigureRecaps, buildBranchFigureRecaps } from "../lib/figure-recap";
 import { inferAnswerShape, type AnswerShape } from "../lib/answer-shape";
 import { buildLocalHardConstraintRepair } from "../lib/local-generation-constraints";
 import { LocalInferenceStreamError } from "../local-ai/runtime/errors";
@@ -793,7 +794,12 @@ export function useChat() {
     /** Shape of the latest turn (receipt observability; ⊥ task class). */
     turnShape: AnswerShape;
     systemPrompt: string;
-    /** apiMessages with per-turn hints applied to every user turn. */
+    /**
+     * apiMessages as the model will actually see them: per-turn hints applied to
+     * every user turn, then each user turn's figure recap appended after that.
+     * Every rebuild path reads THIS, never raw apiMessages, so a re-render can
+     * never drift from what was sent.
+     */
     hintedMessages: Array<{ role: "user" | "assistant" | "system"; content: string }>;
     messagesWithSystem: Array<{ role: "user" | "assistant" | "system"; content: string }>;
     localGenerationOptions: ReturnType<typeof buildLocalGenerationOptions>;
@@ -802,6 +808,13 @@ export function useChat() {
   function buildPrompt(
     model: string,
     apiMessages: Array<{ role: "user" | "assistant" | "system"; content: string }>,
+    /**
+     * Each user turn's figure recap, by user-turn ordinal, derived by the caller
+     * from the FULL branch. Required rather than optional on purpose: an
+     * optional one silently no-ops, which is exactly how derived context has
+     * gone unwired here before.
+     */
+    branchRecaps: readonly string[],
     overrides?: StreamResponseOverrides,
   ): LocalDispatchPlan {
     // Compose the directive onto the final user turn FIRST, so everything below
@@ -830,12 +843,17 @@ export function useChat() {
     // Hints ride the user turns (every turn, deterministically re-derived —
     // see the KV contract at lib/chat-intent.applyTurnHints).
     const hintedMessages = applyTurnHints(composedMessages, isLocalAiModel(model), model);
+    // Figure recaps go on LAST, after every decision the turn's own text makes.
+    // Measured: classifying recapped text flips this corpus's budget turn from
+    // `explain` to `deep`, which would resolve different sampling options —
+    // so nothing above this line may ever see the recap.
+    const recappedMessages = appendFigureRecaps(hintedMessages, branchRecaps);
     return {
       turnIntent,
       turnShape,
       systemPrompt,
-      hintedMessages,
-      messagesWithSystem: [{ role: 'system' as const, content: systemPrompt }, ...hintedMessages],
+      hintedMessages: recappedMessages,
+      messagesWithSystem: [{ role: 'system' as const, content: systemPrompt }, ...recappedMessages],
       localGenerationOptions: buildLocalGenerationOptions(turnIntent, model),
     };
   }
@@ -856,6 +874,12 @@ export function useChat() {
     assistantId: string,
     apiMessages: Array<{ role: "user" | "assistant" | "system"; content: string }>,
     /**
+     * Figure recaps for the FULL branch, by user-turn ordinal — `apiMessages` is
+     * already windowed, and deriving recaps from a window would let an eviction
+     * rewrite an earlier turn's recap and break the KV prefix.
+     */
+    branchRecaps: readonly string[],
+    /**
      * `model` / `systemPrompt` are still unused by all callers. If a caller ever
      * sets `model`, `resolveInitialStreamPhase` at the call site must be passed
      * the same resolved choice, or the loading indicator will desync from the
@@ -872,7 +896,7 @@ export function useChat() {
     const { model } = dispatch;
 
     // ── Build prompt + generation options ──────────────────────────────────
-    const plan = buildPrompt(model, apiMessages, overrides);
+    const plan = buildPrompt(model, apiMessages, branchRecaps, overrides);
     const { turnIntent, localGenerationOptions } = plan;
 
     // ── Create the per-generation object (BEFORE the tool step) ─────────────
@@ -1456,11 +1480,16 @@ export function useChat() {
     const localSystemPrompt = buildQualitySystemPrompt(localModelId);
     const partialAssistantContent =
       useChatStore.getState().messages.find((message) => message.id === assistantId)?.content ?? "";
-    // Same per-turn hint placement as the primary dispatch path (KV contract:
-    // history must re-render byte-identically to how it was sent).
+    // Same per-turn hint placement AND figure recaps as the primary dispatch
+    // path, in the same order (KV contract: history must re-render byte-
+    // identically to how it was sent). `apiMessages` is the whole branch here,
+    // unwindowed, so the recaps derive from it directly.
     const localFallbackMessages = buildLocalFallbackMessages({
       systemPrompt: localSystemPrompt,
-      messages: applyTurnHints(apiMessages, isLocalAiModel(localModelId), localModelId),
+      messages: appendFigureRecaps(
+        applyTurnHints(apiMessages, isLocalAiModel(localModelId), localModelId),
+        buildBranchFigureRecaps(apiMessages),
+      ),
       partialAssistantContent,
     });
     const continueFinalMessage = partialAssistantContent.trim().length > 0;
@@ -1611,7 +1640,8 @@ export function useChat() {
       );
       const apiMessages = windowedMsgs.map((m) => ({ role: m.role, content: m.content }));
 
-      await streamResponse(assistantId, apiMessages);
+      // Derived from the FULL branch, never the window — see `streamResponse`.
+      await streamResponse(assistantId, apiMessages, buildBranchFigureRecaps(msgsForApi));
     } catch (err) {
       // Don't treat a user-stop abort as an error.
       if (!isActiveGenerationAborted()) {
@@ -1717,7 +1747,7 @@ export function useChat() {
     useChatStore.getState().setMessages(newBranch);
 
     try {
-      await streamResponse(newAssistantId, branchForApi);
+      await streamResponse(newAssistantId, branchForApi, buildBranchFigureRecaps(fullBranch));
     } catch (err) {
       if (!isActiveGenerationAborted()) {
         handleStreamError(err, newAssistantId);
@@ -1801,7 +1831,12 @@ export function useChat() {
       );
 
     try {
-      await streamResponse(newAssistantId, apiMessages, overrides);
+      await streamResponse(
+        newAssistantId,
+        apiMessages,
+        buildBranchFigureRecaps(ancestors),
+        overrides,
+      );
     } catch (err) {
       if (!isActiveGenerationAborted()) {
         handleStreamError(err, newAssistantId);
