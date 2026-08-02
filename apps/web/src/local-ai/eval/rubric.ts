@@ -963,6 +963,24 @@ export type FactPreservationAnalysis = {
   score: number | null;
 };
 
+/**
+ * The facts that did not survive: figures compared on their normalized VALUE,
+ * dates and names on a whole token. Shared by the single-turn dim and its
+ * conversation sibling below so the two can never drift on what "survived" means.
+ */
+function factsMissingFrom(
+  facts: readonly PreservedFact[],
+  output: string,
+): readonly PreservedFact[] {
+  const numericKeys = outputNumericKeys(output);
+  const haystack = normalize(output);
+  return facts.filter((fact) =>
+    fact.kind === 'number'
+      ? !numericKeys.has(fact.key)
+      : !matchesWholeToken(haystack, fact.key),
+  );
+}
+
 export function analyzeFactPreservation(
   userText: string,
   output: string,
@@ -970,14 +988,7 @@ export function analyzeFactPreservation(
   const facts = extractFacts(pastedBlockOf(userText));
   if (facts.length === 0) return { facts, missing: [], score: null };
 
-  const numericKeys = outputNumericKeys(output);
-  const haystack = normalize(output);
-  const missing = facts.filter((fact) =>
-    fact.kind === 'number'
-      ? !numericKeys.has(fact.key)
-      : !matchesWholeToken(haystack, fact.key),
-  );
-
+  const missing = factsMissingFrom(facts, output);
   return { facts, missing, score: (facts.length - missing.length) / facts.length };
 }
 
@@ -992,6 +1003,157 @@ export function analyzeFactPreservation(
 export function scoreFactPreservation(spec: EvalPromptSpec, text: string): number | null {
   if (!spec.expectFactPreservation) return null;
   return analyzeFactPreservation(spec.prompt, text).score;
+}
+
+// ─── preserves HISTORY facts (the conversation half) ───────────────────────
+
+/**
+ * ★ WHY A SECOND FACT DIM, AND WHY IT CANNOT DERIVE ITS OWN WINDOW.
+ *
+ * `preservesFacts` above reads `spec.prompt`, and in a conversation the words
+ * that have to survive are almost never in the probed turn — they are in a paste
+ * eight turns up, a bill list two turns up, or a draft the assistant wrote four
+ * turns up. `everyday-conversation-probes.ts` says exactly this about itself and
+ * calls it a gap in the instrument. This dim closes the FACT half of it. (The
+ * span half — `preservesUserText` over the history — is still open, and still
+ * stated there.)
+ *
+ * ★★ THE WINDOW IS QUOTED, NOT DERIVED, AND THAT IS THE WHOLE DESIGN PROBLEM.
+ * Pointing `extractFacts` at the entire history was tried on paper and is
+ * fatally wrong: the teacher-email conversation carries a hotdog argument and a
+ * punch recipe (4 1/4 cups, 64 oz, 25 servings) in the turns around the draft,
+ * and a PERFECT resend of that email — the answer the corpus asks for — would
+ * reproduce none of them. Scored that way the right answer measures near zero.
+ * The budget conversation is worse: its history holds £745, the rent figure the
+ * probed turn explicitly SUPERSEDES ("use the 790 rent not the old one"), so a
+ * whole-history denominator would penalise the answer for obeying the user.
+ *
+ * So the scope is authored and the facts are derived. The caller hands over
+ * verbatim spans of the history (`spec.historyFactSources`); `extractFacts` —
+ * the same rule, unchanged — decides what counts as a fact inside them. The
+ * author picks WHICH WORDS OF THE RECORD, never which facts, and
+ * `everyday-conversation-probes.test.ts` asserts every span is present verbatim
+ * in that probe's own history and pins the derived fact list per item, so the
+ * denominator can be read and argued with rather than taken on trust.
+ *
+ * ★ ONE-SIDED, exactly like its sibling. It scores fact survival and nothing
+ * else, so a reply that recites "Thursday and Friday" without handing back the
+ * email scores 1.0 here. That is not this dim's failure to catch — `answerDepth`,
+ * `deliversFirst` and the judge own it. Teaching a fact dim to also grade the
+ * shape of the answer is how the previous spec bug happened.
+ *
+ * COMPARATIVE, like its sibling: read the delta between arms. The absolute level
+ * carries the known imprecision of `extractFacts` (it cannot see a name the user
+ * never capitalised — "bridgford road" — and it reads a rounded "£13" for
+ * "12.99" as a miss, which it arguably is).
+ */
+export type HistoryFactPreservationAnalysis = {
+  facts: readonly PreservedFact[];
+  /** The facts that did not survive — dropped outright, or corrupted. */
+  missing: readonly PreservedFact[];
+  /** null when the quoted spans carried no facts at all: no signal, not a pass. */
+  score: number | null;
+};
+
+export function analyzeHistoryFactPreservation(
+  sources: readonly string[],
+  output: string,
+): HistoryFactPreservationAnalysis {
+  // Joined with a single newline, never a blank one: `extractFacts` reads line
+  // starts as sentence starts (that is what drops "The witches…" from the name
+  // list), so each span gets the same treatment it would get on its own line.
+  const facts = extractFacts(sources.join('\n'));
+  if (facts.length === 0) return { facts, missing: [], score: null };
+
+  const missing = factsMissingFrom(facts, output);
+  return { facts, missing, score: (facts.length - missing.length) / facts.length };
+}
+
+/**
+ * Did the facts this conversation already established come back? null unless the
+ * spec names the spans that carry them.
+ */
+export function scoreHistoryFactPreservation(
+  spec: EvalPromptSpec,
+  text: string,
+): number | null {
+  const sources = spec.historyFactSources;
+  if (!sources || sources.length === 0) return null;
+  return analyzeHistoryFactPreservation(sources, text).score;
+}
+
+// ─── honors ruled out (the other shape: a thing that must NOT come back) ───
+
+/**
+ * ★ STRUCTURALLY DIFFERENT FROM FACT SURVIVAL, WHICH IS WHY IT IS ITS OWN DIM.
+ * "The figure has to reappear" and "the thing they ruled out must not reappear"
+ * are opposite tests, and averaging them into one number would let a reply earn
+ * back a violated instruction by quoting an extra date.
+ *
+ * Two shapes of ruled-out thing occur in the corpus, and both reduce to the same
+ * check — a token the user's own words rejected must be absent from the reply:
+ *
+ *   - a SUPERSEDED value. "£745" after "use the 790 rent not the old one";
+ *     "saturday" after the party moved to Sunday for Kieran's shifts. The bounce
+ *     conditions name both, in those words.
+ *   - a REFUSED thing. "i dont have a thermometer. thats the whole problem." —
+ *     the item's own good answer is defined as having "No thermometer anywhere
+ *     in the answer", so token absence is not our reading of it, it is the
+ *     corpus's.
+ *
+ * ★★ WHY NOT DETECT THE REFUSAL AUTOMATICALLY. A negation parser was the obvious
+ * design and it is the wrong one: the same corpus contains "im not giving up the
+ * gym before you say it", where the ruled-out reading is exactly BACKWARDS — the
+ * gym is a bill that must stay in the list. A pattern set that fires on "not X"
+ * would mark the correct answer as a violation. So the term is authored, and the
+ * guard against an author inventing one is machine-checked instead:
+ * `everyday-conversation-probes.test.ts` requires every ruled-out term to appear
+ * in the user sentence quoted as its evidence, by THIS function, and requires
+ * that sentence to be verbatim in the probe's own history.
+ *
+ * ★ WHAT IS DELIBERATELY NOT GATED. The mailable-gift item rules out candles and
+ * spa vouchers, and its bounce is a reply that "quietly re-includes" them — but
+ * there the failure is RECOMMENDING them, not naming them, and a good reply that
+ * opens "skipping the candles you said she throws away" would be flagged. Mention
+ * is not violation on that item, so it is left uncovered rather than covered
+ * wrongly.
+ */
+
+/**
+ * Whole-token match tolerating a simple plural: `candle` matches "candles",
+ * `surprise` matches "surprises". Deliberately NOT a prefix match — that would
+ * make `spa` fire on "Spain" and "spare", and a false violation costs more than
+ * a missed one (it penalises the answer that obeyed).
+ */
+export function mentionsRuledOutTerm(text: string, term: string): boolean {
+  const escaped = term.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?<!\\w)${escaped}(?:e?s)?(?!\\w)`, 'i').test(text);
+}
+
+/** What `scoreHonorsRuledOut` saw. */
+export type RuledOutAnalysis = {
+  terms: readonly string[];
+  /** The ruled-out terms the reply used anyway. */
+  resurfaced: readonly string[];
+  /** null when the spec names no ruled-out terms. */
+  score: number | null;
+};
+
+export function analyzeRuledOut(
+  terms: readonly string[],
+  output: string,
+): RuledOutAnalysis {
+  if (terms.length === 0) return { terms, resurfaced: [], score: null };
+  const haystack = normalize(output);
+  const resurfaced = terms.filter((term) => mentionsRuledOutTerm(haystack, term));
+  return { terms, resurfaced, score: (terms.length - resurfaced.length) / terms.length };
+}
+
+/** null unless the spec names ruled-out terms. */
+export function scoreHonorsRuledOut(spec: EvalPromptSpec, text: string): number | null {
+  const terms = spec.historyRuledOut;
+  if (!terms || terms.length === 0) return null;
+  return analyzeRuledOut(terms, text).score;
 }
 
 // ─── correct stop ──────────────────────────────────────────────────────────
@@ -1040,6 +1202,8 @@ export function scoreResult(spec: EvalPromptSpec, ctx: RubricContext): RubricSco
     deliversFirst: scoreDeliversFirst(spec, ctx.output),
     preservesUserText: scorePreservesUserText(spec, ctx.output),
     preservesFacts: scoreFactPreservation(spec, ctx.output),
+    preservesHistoryFacts: scoreHistoryFactPreservation(spec, ctx.output),
+    honorsRuledOut: scoreHonorsRuledOut(spec, ctx.output),
     coherence: null,
     taskFit: null,
   };

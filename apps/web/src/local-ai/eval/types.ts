@@ -142,6 +142,29 @@ export type EvalPromptSpec = {
    */
   expectFactPreservation?: true;
   /**
+   * `preservesHistoryFacts`: verbatim spans of EARLIER turns (`history`) whose
+   * figures, dates and names have to come back in the reply to THIS turn — the
+   * drafted email, the list of bills, the date the party moved to.
+   *
+   * Carries the spans rather than a boolean because the window cannot be
+   * derived: a conversation's history also holds an abandoned topic and the
+   * figures the current ask supersedes, and extracting facts from all of it
+   * would score the CORRECT answer as a failure. Presence is the gate, as it is
+   * for `expectedAnswers` and `depthBand`. See `rubric.analyzeHistoryFactPreservation`
+   * for why the scope is authored and the facts are not.
+   */
+  historyFactSources?: readonly string[];
+  /**
+   * `honorsRuledOut`: terms an EARLIER turn ruled out — a value the conversation
+   * superseded ("£745" after "use the 790 rent"), or a thing the person refused
+   * ("i dont have a thermometer"). Each must be ABSENT from the reply.
+   *
+   * The inverse test to `historyFactSources`, and kept separate from it on
+   * purpose: averaged together, a reply could earn back a broken instruction by
+   * quoting an extra date. Presence is the gate.
+   */
+  historyRuledOut?: readonly string[];
+  /**
    * Richness: a genuinely helpful reply should reach at least this many words
    * (graduated floor, NOT a length target — catches the terse failure mode).
    */
@@ -251,6 +274,33 @@ export type RubricScores = {
    * arms, not the absolute level.
    */
   preservesFacts: number | null;
+  /**
+   * Fraction of the facts an EARLIER turn established — the drafted email's
+   * dates, the list of bills, the date the party moved to — that came back in
+   * the reply to a LATER turn. null unless `historyFactSources` names the spans
+   * that carry them.
+   *
+   * The conversation sibling of `preservesFacts`, and the dim that closes the
+   * fact half of the gap `everyday-conversation-probes.ts` states about itself:
+   * five of those conversations need faithful reproduction and none of them
+   * could have it measured, because the instrument read one turn and the
+   * requirement spanned many.
+   *
+   * ★ ONE-SIDED, like its sibling. It scores fact survival and nothing else: a
+   * reply that names the facts without doing the job scores 1.0 here, and
+   * `answerDepth` / `deliversFirst` / the judge are what catch that.
+   */
+  preservesHistoryFacts: number | null;
+  /**
+   * Fraction of the things an earlier turn ruled out that the reply managed NOT
+   * to bring back. null unless `historyRuledOut` names them.
+   *
+   * 1.0 = none resurfaced. The failures it exists for are the ones the bounce
+   * conditions name in those words: the old rent figure back in the printed
+   * list, Saturday back in the invitation after the party moved off it, the
+   * thermometer he already said he does not own.
+   */
+  honorsRuledOut: number | null;
   // ── judge ──
   coherence: number | null;
   taskFit: number | null;
