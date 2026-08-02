@@ -30,6 +30,17 @@
  *
  * ── ONE FINDING, STATED RATHER THAN ROUNDED OFF ─────────────────────────────
  *
+ * ⚠ EACH `BEFORE_*` IS ONE DRAW, NOT A BASE RATE. These fixtures pin what the
+ * dims see on a reply that really happened; they say nothing about how often it
+ * happens. Measured since, over 18 generations of `convo-four-day-budget-list`
+ * (17 sampled on the production profile + 1 greedy): the car-tax row is present
+ * in 5/18, and `BEFORE_BUDGET_LIST` below is one of the draws that KEPT it
+ * ("Car Tax: £21") while losing £245. Two same-config runs of n=3 split 0/3 and
+ * 2/3. So do not read a single fixture — or a 3-sample run — as "the model
+ * always does this"; the only loss here that reproduced every time was the
+ * income £2,180 (0/18), which this fixture also drops. See the third block in
+ * `chat-intent.ts`'s `writing:` note for the full numbers.
+ *
  * `preservesHistoryFacts` is NOT the sharpest dim on every one of these. On the
  * teacher-email refusal it reads 0.67, because the reply names Thursday and
  * Friday while refusing to produce the email — a fact dim cannot see a withheld
