@@ -133,6 +133,51 @@ export type MultiTurnEverydayItem = {
   readonly bounceCondition: string;
 };
 
+/**
+ * A span of an EARLIER turn whose facts the reply to the probed turn has to
+ * carry — the drafted email, the list of bills, the date the party moved to.
+ *
+ * ★ WHY A QUOTE AND NOT A TURN INDEX, AND NOT NOTHING AT ALL. The facts a reply
+ * must reproduce cannot be derived from the history: the same history holds an
+ * abandoned topic (a hotdog argument, a punch recipe) and the figures the probed
+ * turn explicitly supersedes (£745, "use the 790 rent not the old one"), and a
+ * whole-history denominator scores the CORRECT answer as a failure. Turn
+ * granularity is not enough either — turn 2 of the budget conversation opens
+ * "rent 745" and continues into thirteen figures that must all survive.
+ *
+ * So this layer picks the WORDS, and `rubric.extractFacts` — unchanged, shared
+ * with the single-turn instrument — picks the facts inside them. The quote is
+ * verbatim and `everyday-conversation-probes.test.ts` asserts it is present in
+ * the probe's own history, so a span cannot drift from the record or smuggle in
+ * a fact the record never contained.
+ */
+export type CarriedForwardSpan = {
+  /** Verbatim substring of a turn ABOVE the probed one. A test asserts it. */
+  readonly quote: string;
+  /** Why this span and not the rest of that turn. Argue with it from the record. */
+  readonly why: string;
+};
+
+/**
+ * A thing an earlier turn ruled out, which must not come back in the reply.
+ * Two shapes occur: a value the conversation SUPERSEDED (£745, Saturday) and a
+ * thing the person REFUSED (a thermometer he does not own).
+ *
+ * ⚠ NOT auto-detected from negation, deliberately. The same corpus contains "im
+ * not giving up the gym before you say it", where the naive reading is exactly
+ * backwards — the gym is a bill that must STAY in the list. The guard against an
+ * author inventing a ban instead is machine-checked: the term must appear inside
+ * `quote`, and `quote` must be verbatim in the probe's history.
+ */
+export type RuledOutTerm = {
+  /** The token that must be absent from the reply. Matched whole, plural-tolerant. */
+  readonly term: string;
+  /** The user's own sentence that rules it out. Verbatim; a test asserts both. */
+  readonly quote: string;
+  /** The bounce-condition text that makes this fatal. Quote it. */
+  readonly why: string;
+};
+
 /** The derived layer for one conversation. */
 export type ConversationRoutingNeedEntry = {
   /**
@@ -145,6 +190,14 @@ export type ConversationRoutingNeedEntry = {
   readonly needs: readonly RoutingNeed[];
   /** The corpus text this derivation rests on. Quote it; do not paraphrase it. */
   readonly why: string;
+  /**
+   * Spans of the history whose facts the reply has to carry. Absent where the
+   * ask is not a reproduction job — a verdict on a piece of chicken reproduces
+   * nothing.
+   */
+  readonly carriesForward?: readonly CarriedForwardSpan[];
+  /** Things ruled out earlier that must not resurface. Absent where none applies. */
+  readonly ruledOut?: readonly RuledOutTerm[];
 };
 
 /**
@@ -596,6 +649,13 @@ export const CONVERSATION_ROUTING_NEEDS: Readonly<
     probedTurnIndex: 6,
     needs: ["no-elaboration-hint"],
     why: "Bounce: \"a non-answer that repeats the one thing he already ruled out means the thing is useless to him\". He asked \"is that the bad kind of pink or is that the thing everybody says is fine\" — the verdict IS the deliverable.",
+    ruledOut: [
+      {
+        term: "thermometer",
+        quote: "i dont have a thermometer. thats the whole problem.",
+        why: "goodAnswerLooksLike states token absence outright — \"No thermometer anywhere in the answer.\" — so this is the corpus's reading, not ours. Bounce: \"a non-answer that repeats the one thing he already ruled out\".",
+      },
+    ],
   },
   "convo-milestone-gift-mailable": {
     probedTurnIndex: 6,
@@ -606,6 +666,13 @@ export const CONVERSATION_ROUTING_NEEDS: Readonly<
     probedTurnIndex: 8,
     needs: ["no-elaboration-hint", "direct-budget", "faithful-reproduction"],
     why: "Bounce: \"she … just needs the same message with Thursday and Friday in it; being asked to re-explain her own conversation, or handed made-up names and dates she'd have to catch herself, is the moment she decides it can't hold a thought\".",
+    carriesForward: [
+      {
+        quote:
+          "Hi [Teacher] — copying the front office per the attendance policy. [Son] will be out Thursday and Friday for a family trip. Could you let me know if there's anything he should take with him or make up when he's back? Thanks so much.",
+        why: "The draft itself, five turns up, and nothing around it. goodAnswerLooksLike: \"The email again, recognisably the one she approved … with Thursday and Friday where the vague phrase was\". The turns either side of it hold a hotdog argument and a punch recipe (4 1/4 cups, 64 oz, 25 servings) that a perfect resend reproduces none of.",
+      },
+    ],
   },
   "convo-grape-climbdown": {
     probedTurnIndex: 8,
@@ -621,11 +688,67 @@ export const CONVERSATION_ROUTING_NEEDS: Readonly<
     probedTurnIndex: 6,
     needs: ["no-elaboration-hint", "direct-budget", "faithful-reproduction"],
     why: "Bounce: \"hands back a blank template … after she has already given it the restaurant, the road, Sunday 8th, 1pm and the £25. Equally fatal: writing 'It's a surprise, so don't tell her!'\" One pasteable message, built from her own specifics.",
+    carriesForward: [
+      {
+        quote: "my mums 60th in march",
+        why: "goodAnswerLooksLike: \"One message with the real details already in it\". Whose birthday and which one is the first of them; the bounce's blank template writes \"[Name]'s 60th Birthday Celebration\" instead.",
+      },
+      {
+        quote: "nobody can do more than about 25 quid a head",
+        why: "Bounce names \"the £25\" among the specifics she has already given it. Her figure, not a suggested one.",
+      },
+      {
+        quote: "sunday 8th march then",
+        why: "Bounce names \"Sunday 8th, 1pm\". Taken from HER turn fixing it, not the earlier turn where the date was still the 7th. ⚠ STOPS BEFORE \"1pm\" on purpose: `extractFacts` reads it as the bare number 1, which both matches any stray \"1\" in a reply and MISSES a correctly reformatted \"1:00 PM\" (whose key is \"1:00\"). A fact that can be scored wrong in both directions is worse than one left unscored — same rule as the month name `may`.",
+      },
+    ],
+    ruledOut: [
+      {
+        term: "saturday",
+        quote: "her birthdays the 7th but thats a saturday",
+        why: "Bounce: \"putting Saturday the 7th back in after they moved it for Kieran's shifts\". The date is superseded by \"sunday 8th march then, 1pm\" two turns later.",
+      },
+    ],
   },
   "convo-four-day-budget-list": {
     probedTurnIndex: 8,
     needs: ["no-elaboration-hint", "faithful-reproduction", "needs-guidance"],
     why: "Bounce: \"The final list coming back with £745 rent in it — the old figure — after he explicitly said use the 790\", or with the savings demoted to what is left over after everything else. Sixteen of his own figures have to come back out intact, and the list is multi-part with no length bound.",
+    carriesForward: [
+      {
+        quote: "now its 2180",
+        why: "goodAnswerLooksLike: \"The whole budget written out line by line\". What is coming in is the top line of it; the earlier 2690 in the same sentence is the wage he no longer earns.",
+      },
+      {
+        quote:
+          "council tax 142. leccy and gas about 95 in summer more in winter. water 31. phone 18. broadband 27. car insurance 61 a month. petrol id say 120ish depends. food shop about 320 for me and the lad. gym 34. netflix 12.99 and spotify 11. dogs insurance 29",
+        why: "Every monthly bill he dictated, quoted from \"council tax\" rather than the start of the turn: the turn opens \"rent 745\", the one figure the probed turn supersedes. It stops before \"shes 11 now\" (the dog's age, not a bill).",
+      },
+      {
+        quote: "car tax is 245 for the year i pay it in one go",
+        why: "goodAnswerLooksLike: \"every number his own, none invented, none quietly dropped\". The corpus's own worked answer carries it as \"Car tax (£245/yr set aside) — £21\".",
+      },
+      {
+        quote:
+          "dentist ive got one of them plans 14.50 a month. contact lenses 24 a month direct debit",
+        why: "Two direct debits he only remembered at turn 4. Quoted without the \"mots about 60\" that precedes them — an MOT is an irregular cost the leftover covers, not a line on a monthly list.",
+      },
+      {
+        quote: "rents going up to 790",
+        why: "The probed turn is explicit: \"use the 790 rent not the old one\". Quoted without \"in october\", which dates the rise rather than belonging on the fridge list.",
+      },
+      {
+        quote: "i want to be putting 150 a month away",
+        why: "The probed turn: \"put the savings in as a bill not as whats left over, cos otherwise it wont happen\".",
+      },
+    ],
+    ruledOut: [
+      {
+        term: "745",
+        quote: "rent 745",
+        why: "Bounce, first clause: \"The final list coming back with £745 rent in it — the old figure — after he explicitly said use the 790\".",
+      },
+    ],
   },
   "convo-insurance-recall": {
     probedTurnIndex: 10,

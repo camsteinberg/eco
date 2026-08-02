@@ -50,6 +50,7 @@ import {
   conversationProbeIdsWithJob,
 } from '../everyday-conversation-probes';
 import { ceilingWordsFor, classifyAskOpenness, richnessFloorFor } from '../everyday-probes';
+import { analyzeHistoryFactPreservation, mentionsRuledOutTerm } from '../rubric';
 
 // ─── the pinned derivation ─────────────────────────────────────────────────
 
@@ -456,5 +457,164 @@ describe('preservesUserText is off for the whole set, and that is a stated gap',
     ).map((item) => item.id);
     expect([...EVERYDAY_CONVERSATION_REUSE_CANDIDATE_ITEM_IDS]).toEqual(mechanical);
     expect(EVERYDAY_CONVERSATION_REUSE_CANDIDATE_ITEM_IDS).toEqual([]);
+  });
+});
+
+// ─── ★ the history-recall gates: authored scope, machine-checked ───────────
+
+/**
+ * ★ WHAT THESE GUARD, AND WHY THEY ARE STRICTER THAN THE OTHER PINS.
+ *
+ * `historyFactSources` and `historyRuledOut` are the only probe fields in this
+ * file that are AUTHORED rather than computed — the window a conversation's
+ * facts live in cannot be derived (see the corpus's `CarriedForwardSpan` block).
+ * Authored means an author could quietly widen a window until a bad answer
+ * passes, or ban a word the record never contained. So every authored value is
+ * held to three machine checks: the quote is verbatim in that probe's own
+ * history, the derived facts are pinned as a LIST, and a ruled-out term must be
+ * present in the very sentence offered as its evidence.
+ */
+describe('★ history recall: the authored scope cannot drift from the record', () => {
+  it('every carried-forward span is verbatim in that probe’s OWN history', () => {
+    for (const item of EVERYDAY_CONVERSATION_CORPUS) {
+      const probe = EVERYDAY_CONVERSATION_PROBES.find((p) => p.id === conversationProbeId(item.id))!;
+      const spans = conversationNeedsFor(item.id).carriesForward ?? [];
+      expect(probe.historyFactSources ?? []).toEqual(spans.map((s) => s.quote));
+      const replayed = (probe.history ?? []).map((h) => h.content).join('\n\n');
+      for (const span of spans) {
+        expect(
+          replayed,
+          `${item.id}: carried-forward span is not verbatim in the history`,
+        ).toContain(span.quote);
+        expect(span.why.length, `${item.id}: a span with no reason is not reviewable`)
+          .toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it('★ a carried-forward span may NOT be answerable from the prompt alone', () => {
+    // The whole point of the dim. If the words are also in the probed turn, the
+    // single-turn `preservesFacts` would already see them and this measures
+    // nothing new.
+    for (const item of EVERYDAY_CONVERSATION_CORPUS) {
+      const probe = EVERYDAY_CONVERSATION_PROBES.find((p) => p.id === conversationProbeId(item.id))!;
+      for (const span of probe.historyFactSources ?? []) {
+        expect(probe.prompt, `${item.id}: "${span.slice(0, 30)}…" is in the prompt`).not.toContain(
+          span,
+        );
+      }
+    }
+  });
+
+  it('★ every ruled-out term is grounded in the user’s own words, by the scorer’s own rule', () => {
+    for (const item of EVERYDAY_CONVERSATION_CORPUS) {
+      const probe = EVERYDAY_CONVERSATION_PROBES.find((p) => p.id === conversationProbeId(item.id))!;
+      const entries = conversationNeedsFor(item.id).ruledOut ?? [];
+      expect(probe.historyRuledOut ?? []).toEqual(entries.map((e) => e.term));
+      const replayed = (probe.history ?? []).map((h) => h.content).join('\n\n');
+      for (const entry of entries) {
+        expect(replayed, `${item.id}: the evidence sentence is not in the history`).toContain(
+          entry.quote,
+        );
+        // Checked by the SAME function that scores the output, so an author
+        // cannot ban a word the record does not contain, and cannot ban one in a
+        // form the scorer would not recognise.
+        expect(
+          mentionsRuledOutTerm(entry.quote, entry.term),
+          `${item.id}: "${entry.term}" is not in its own evidence quote`,
+        ).toBe(true);
+        expect(entry.why.length).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it('★ nothing is required to survive AND to be absent', () => {
+    // A term banned by `historyRuledOut` that also appears among the facts
+    // `historyFactSources` requires would make the two dims contradict each
+    // other, and the probe unpassable.
+    for (const probe of EVERYDAY_CONVERSATION_PROBES) {
+      const sources = probe.historyFactSources;
+      const banned = probe.historyRuledOut;
+      if (!sources || !banned) continue;
+      const facts = analyzeHistoryFactPreservation(sources, '').facts;
+      for (const term of banned) {
+        for (const fact of facts) {
+          expect(
+            mentionsRuledOutTerm(fact.text, term),
+            `${probe.id}: "${term}" is both required and banned`,
+          ).toBe(false);
+        }
+      }
+    }
+  });
+
+  it('★ pins WHICH conversations are gated — a list, so a new one has to be classified', () => {
+    expect(
+      EVERYDAY_CONVERSATION_PROBES.filter((p) => p.historyFactSources).map(
+        (p) => EVERYDAY_CONVERSATION_PROBE_SOURCE_ITEM[p.id],
+      ),
+    ).toEqual([
+      'convo-teacher-email-resend',
+      'convo-birthday-lunch-message',
+      'convo-four-day-budget-list',
+    ]);
+    expect(
+      EVERYDAY_CONVERSATION_PROBES.filter((p) => p.historyRuledOut).map(
+        (p) => EVERYDAY_CONVERSATION_PROBE_SOURCE_ITEM[p.id],
+      ),
+    ).toEqual([
+      'convo-air-fryer-doneness',
+      'convo-birthday-lunch-message',
+      'convo-four-day-budget-list',
+    ]);
+  });
+
+  it('★ pins the DERIVED facts themselves — the denominator, readable and arguable', () => {
+    // A count would survive the derivation degenerating into something else.
+    // These are the exact facts a reply has to bring back, in extraction order.
+    const derived = Object.fromEntries(
+      EVERYDAY_CONVERSATION_PROBES.filter((p) => p.historyFactSources).map((p) => [
+        EVERYDAY_CONVERSATION_PROBE_SOURCE_ITEM[p.id],
+        analyzeHistoryFactPreservation(p.historyFactSources!, '').facts.map((f) => f.text),
+      ]),
+    );
+    expect(derived).toEqual({
+      // Only three, and that is the honest size of it: the draft's other
+      // load-bearing content ("the front office", "the attendance policy") is
+      // lowercase prose that `extractFacts` cannot see. The two dates are the
+      // ones the turn actually asks for — "i need the actual days in there".
+      'convo-teacher-email-resend': ['Thursday', 'Friday', 'Teacher'],
+      'convo-birthday-lunch-message': ['60', '25', '8', 'march', 'sunday'],
+      'convo-four-day-budget-list': [
+        '2180', '142', '95', '31', '18', '27', '61', '120', '320',
+        '34', '12.99', '11', '29', '245', '14.50', '24', '790', '150',
+      ],
+    });
+  });
+
+  it('★ pins the four conversations left UNGATED, and why', () => {
+    // Stated rather than rounded off, the same way the unmeasured ceilings are.
+    //   gift      — its ruled-out items (candles, spa) are fatal when RECOMMENDED,
+    //               not when named; a token check would flag the good reply that
+    //               opens "skipping the candles you said she throws away".
+    //   grape     — two straight answers about a dog; reproduces nothing.
+    //   monstera  — the failure is a hedge that will not USE the nine dry days.
+    //               "Did the reply reason from fact X" is a different measurement
+    //               from "does fact X appear", and this dim cannot make it.
+    //   insurance — the recall IS measurable here, but its figures (150, 8) also
+    //               sit in the probed turn ("was it 150 each or 150 the once …
+    //               i thought it said 8 weeks somewhere"), so a span quoted from
+    //               the history would be answerable without the history and the
+    //               guard above would rightly refuse it.
+    expect(
+      EVERYDAY_CONVERSATION_PROBES.filter((p) => !p.historyFactSources && !p.historyRuledOut).map(
+        (p) => EVERYDAY_CONVERSATION_PROBE_SOURCE_ITEM[p.id],
+      ),
+    ).toEqual([
+      'convo-milestone-gift-mailable',
+      'convo-grape-climbdown',
+      'convo-monstera-contradiction',
+      'convo-insurance-recall',
+    ]);
   });
 });
