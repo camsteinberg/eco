@@ -39,6 +39,11 @@
  *               being recalled was pasted rather than typed.
  * `depthBand`, `minWords` — `ceilingWordsFor` / `richnessFloorFor`, unchanged.
  * `expectDeliverable` — true, as in the single-turn set.
+ * `expectsArtifact` — hand-authored for the two conversations whose PROBED TURN
+ *               asks for a sendable message, by the same rule and the same type
+ *               as the single-turn map. Read the probed turn, never the
+ *               conversation's subject: the insurance conversation ends in a
+ *               formal letter and its probed turn is a recall question.
  * `expectUserTextReuse` — never set. See the block below; this is a rule, not an
  *               accident, and it has a drift guard.
  *
@@ -69,10 +74,13 @@ import {
 } from '../../__tests__/fixtures/everyday-conversation-corpus';
 import { inferChatIntent } from '../../lib/chat-intent';
 import {
+  artifactNote,
+  artifactOf,
   ceilingWordsFor,
   classifyAskOpenness,
   richnessFloorFor,
   wantsBrevity,
+  type ArtifactAskEntry,
   type AskOpenness,
 } from './everyday-probes';
 import type { EvalHistoryTurn, EvalPromptSpec } from './types';
@@ -115,6 +123,38 @@ export const EVERYDAY_CONVERSATION_REUSE_CANDIDATE_ITEM_IDS: readonly string[] =
     );
   }).map((item) => item.id);
 
+// ─── the artifact asks, on the conversation side ──────────────────────────
+
+/**
+ * ★ THE TWO CONVERSATIONS WHOSE PROBED TURN ASKS FOR A SENDABLE MESSAGE, and the
+ * ones this dim was measured on. Hand-authored by the same rule as the
+ * single-turn map in `everyday-probes.ts`: the ask names a message, email or
+ * letter the person will send, and the reply's deliverable IS that
+ * correspondence.
+ *
+ * ★ THE PROBED TURN IS WHAT COUNTS, NOT THE CONVERSATION. `convo-insurance-recall`
+ * ends in a formal complaint letter and is deliberately absent: its probed turn
+ * (index 10) is "remind me what the excess was", a recall question four turns
+ * before the letter. Reading the conversation's SUBJECT instead of its probed ask
+ * would gate the wrong turn and score a recall answer as a failed letter.
+ *
+ * Likewise absent: `convo-four-day-budget-list`, whose probed turn asks for a
+ * printable list for the fridge — an artifact with no addressee, which this dim
+ * cannot read (see the two stated limits in `rubric.ts`).
+ */
+export const EVERYDAY_CONVERSATION_ARTIFACT_ASKS: Readonly<Record<string, ArtifactAskEntry>> = {
+  'convo-birthday-lunch-message': {
+    kind: 'message',
+    audience: 'the family group chat — fourteen relatives, several of them older',
+    why: '"can you write the message i send to the family group chat". What they want: "The actual WhatsApp message, ready to paste into the family chat, carrying every decision they reached across the conversation."',
+  },
+  'convo-teacher-email-resend': {
+    kind: 'email',
+    audience: "her son's class teacher, with the front office copied per the policy",
+    why: '"can u resend it … i need the actual days in there". Good answer: "The email again, recognisably the one she approved and about the same length, with Thursday and Friday where the vague phrase was."',
+  },
+};
+
 function toHistory(item: MultiTurnEverydayItem): EvalHistoryTurn[] {
   return turnsBeforeProbe(item).map((turn) => ({ role: turn.role, content: turn.text }));
 }
@@ -128,6 +168,10 @@ function buildNotes(item: MultiTurnEverydayItem, openness: AskOpenness): string 
     `GOOD ANSWER: ${item.goodAnswerLooksLike}`,
     `★ BOUNCE (the acceptance criterion — this response makes them give up): ${item.bounceCondition}`,
   ];
+  const artifact = EVERYDAY_CONVERSATION_ARTIFACT_ASKS[item.id];
+  if (artifact !== undefined) {
+    lines.push(artifactNote(artifact));
+  }
   if (historyCarriesPastedContent(item)) {
     lines.push(
       'NOTE: the facts this turn asks for were PASTED in an earlier turn, not typed in this one. Re-asking for them is the failure the bounce condition names.',
@@ -152,6 +196,9 @@ function toProbe(item: MultiTurnEverydayItem): EvalPromptSpec {
     prompt: view.userInput,
     history: toHistory(item),
     expectDeliverable: true,
+    ...(EVERYDAY_CONVERSATION_ARTIFACT_ASKS[item.id] !== undefined
+      ? { expectsArtifact: artifactOf(EVERYDAY_CONVERSATION_ARTIFACT_ASKS[item.id]!) }
+      : {}),
     ...(ceiling !== null ? { depthBand: { maxWords: ceiling } } : {}),
     ...(floor !== null ? { minWords: floor } : {}),
     judge: ['taskFit', 'coherence'],
