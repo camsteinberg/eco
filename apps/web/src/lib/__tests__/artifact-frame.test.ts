@@ -101,6 +101,39 @@ describe("buildArtifactFrame — the gate's own rules", () => {
       ),
     ).toBe("The letter:");
   });
+
+  it('does not read a channel-naming fragment as an object — "Email, because…"', () => {
+    // "write it" governs no artifact noun, and the bare fragment names the
+    // channel, not an ask with an object: punctuation right after the "verb"
+    // must end the reading, or the subordinate clause becomes the recipient.
+    expect(
+      buildArtifactFrame(
+        "can you write it for me then. Email, since ive got her address from before",
+        true,
+      ),
+    ).toBe("");
+  });
+
+  it("frames the reply — correspondence has a second half", () => {
+    expect(buildArtifactFrame("ok can you write the slack reply. keep it short", true)).toBe(
+      "The reply:",
+    );
+  });
+
+  it("names the reply's audience when the ask gives one", () => {
+    expect(buildArtifactFrame("can u draft a reply to jess", true)).toBe(
+      "The reply to send to jess:",
+    );
+  });
+
+  it("stays silent on a verbless ask — a stated limit, not a target", () => {
+    // "i need the words" is a real correspondence ask with no author verb and
+    // no artifact noun the gate knows; a shape gate cannot see it without
+    // guessing, and silence is the fail-safe direction.
+    expect(buildArtifactFrame("i need the words. its only a small card so nothing gushing", true)).toBe(
+      "",
+    );
+  });
 });
 
 /**

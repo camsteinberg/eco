@@ -42,6 +42,7 @@ const ARTIFACT_NOUNS = new Set([
   "invite",
   "invitation",
   "text",
+  "reply",
 ]);
 
 /**
@@ -280,11 +281,15 @@ export function buildArtifactFrame(turnText: string, hasPriorTurns: boolean): st
     }
 
     // "email my sons teacher" — the verb names the artifact; the object is the
-    // audience. No object, no ask.
+    // audience. No object, no ask — and the object must follow the verb
+    // DIRECTLY: "Email, because ive got her address" is a fragment naming a
+    // channel, and punctuation after the "verb" means the words beyond it are
+    // not its object. Reading on from there frames a subordinate clause as the
+    // recipient.
     const verbNoun = VERB_AS_NOUN[verb];
     if (verbNoun !== undefined) {
-      const head = nextWord(tokens, i);
-      if (head === -1) continue;
+      const head = i + 1;
+      if (tokens[head]?.kind !== "word") continue;
       const audience = nounPhraseFrom(tokens, head);
       if (audience.length === 0) continue;
       return frameLine(verbNoun, audience, false);
