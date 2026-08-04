@@ -1049,19 +1049,37 @@ export function scoreFactPreservation(spec: EvalPromptSpec, text: string): numbe
  *   - The corpus's own scripted reply uses "[Your Name]", so a placeholder is not
  *     a defect here. Whether the user's real facts survived is `preservesFacts`.
  *
- * ── TWO LIMITS, STATED RATHER THAN ROUNDED OFF ──────────────────────────────
+ * ── THE LIMITS, STATED RATHER THAN ROUNDED OFF ──────────────────────────────
+ *
+ * Each has an executing case in `artifact-delivery.test.ts`, asserting current
+ * behaviour and marked as a limit. A limit that is only described decays.
  *
  * 1. THE ADDRESS ANCHOR CAN BE ACQUIRED CHEAPLY. A reply that opens "Hi
  *    everyone," and then hands over the same organiser notes, unheaded, scores 1.
  *    Nothing in the measured set does that — every notes-shaped sample in thirty
- *    real generations omitted the salutation entirely — so no rule here is
- *    founded on it. If it starts happening the remedy is more measurement, not a
- *    constant invented now.
+ *    real generations omitted the salutation entirely, and every sample scoring 0
+ *    is now asserted to address nobody — so no rule here is founded on it. A
+ *    reply BUILT to do it scores 1: salutation, fifteen words, then "**Next
+ *    steps:** Send the confirmation to Mum" with the headers left standing. The
+ *    headers need no stripping, because the artifact simply ends at the first one.
  * 2. IT CANNOT READ A TWO-LINE TEXT. "Not going to make it in today, food
  *    poisoning" is a perfectly good text to a boss and carries neither end of the
  *    correspondence shape, so this dim would fail it. That is why the annotation
  *    is hand-authored per item and why `work-sick-text` is pinned as an
  *    UNMEASURED artifact ask rather than gated (see `everyday-probes.ts`).
+ * 3. IT CANNOT SEE THE AUDIENCE. "Hi Trina," followed by a briefing written to
+ *    the person who ASKED — "you will want to chase the two who have not
+ *    replied" — is well-formed correspondence to the wrong reader, and scores 1.
+ *    Audience matching was rejected in the design and stays rejected: the
+ *    annotation's audience is prose, and matching a reply against it would score
+ *    the wording of the annotation. The judge owns that axis.
+ * 4. A STANDALONE BOLD LABEL INSIDE A MESSAGE TRUNCATES IT. "**Details:**" on
+ *    its own line reads as a section boundary, so the message under it falls
+ *    outside the artifact and scores 0 on a body of zero words. It is the same
+ *    shape as "**Next steps:**", which really is a notes header on the captured
+ *    generations, and nothing mechanical separates the two without matching the
+ *    words. Left as it is, deliberately: a rule invented to tell those apart
+ *    would be founded on nothing.
  *
  * ── ONE WIDENING, RECORDED SO IT IS NOT MISTAKEN FOR TUNING ─────────────────
  *
@@ -1073,6 +1091,22 @@ export function scoreFactPreservation(spec: EvalPromptSpec, text: string): numbe
  * the word lists, and only in the direction of recognising MORE correspondence,
  * which can raise a score and can never lower one. The labelled set scores
  * identically before and after, which is asserted rather than asserted-to.
+ *
+ * ── AND ONE ADVERSARIAL PASS, RECORDED THE SAME WAY ─────────────────────────
+ *
+ * A later pass attacked the dim with replies built to break it, and found two
+ * kinds of good answer being failed. Both are fixed above; both are recognition
+ * changes, so the thirty hand labels still reproduce exactly.
+ *
+ *   - THE ADDRESSEE VOCABULARY WAS A BUSINESS LETTER'S. One of the two gated
+ *     conversations is a family group chat, and "Hi both," "Hi guys," "Hi mum,"
+ *     "Hiya lovely," "Hey you two," "Afternoon everyone," "Evening all," "To the
+ *     family," and "Alright everyone," each scored 0 carrying a real 63-word
+ *     message, because an addressee had to be Titlecase or one of six
+ *     collectives. Widened, with the closed-list guard asserted.
+ *   - THE FIRST POLITE LINE WAS BEING READ AS THE SIGNATURE. "Hi Dave," /
+ *     "Thanks." / then the whole email scored 0 on a body of zero words. A
+ *     sign-off now has to actually END the artifact — see `closesTheArtifact`.
  */
 
 /** Whether the reply carried the artifact, and the two ends that decided it. */
@@ -1100,6 +1134,12 @@ export type ArtifactDeliveryAnalysis = {
  * Salutations that open a piece of correspondence. `my dear` precedes `dear` and
  * the multi-word forms precede the short ones so the alternation prefers the
  * longest match.
+ *
+ * The un-prefixed time-of-day forms are here for the same reason `morning`
+ * always was: "Afternoon everyone," and "Evening all," are how people open a
+ * message, and requiring the "good" would have failed them. `alright` is the
+ * same opener in another register, and `to` is the addressed-envelope form
+ * ("To the family,").
  */
 const SALUTATION_WORDS: readonly string[] = [
   'good morning',
@@ -1111,7 +1151,11 @@ const SALUTATION_WORDS: readonly string[] = [
   'hiya',
   'hey',
   'morning',
+  'afternoon',
+  'evening',
+  'alright',
   'hi',
+  'to',
 ];
 
 /**
@@ -1120,14 +1164,50 @@ const SALUTATION_WORDS: readonly string[] = [
  * listed so that a correct answer saying "Hi folks," is not failed by an accident
  * of capitalisation. A Titlecase name ("Dave", "Trina", "Ms."), an ALL-CAPS one
  * ("HI EVERYONE"), and a bracketed placeholder ("[Teacher]") cover the rest.
+ * Multi-word entries lead, so the alternation prefers the longest match.
+ *
+ * ★ THE LOWERCASE COMMON-NOUN ADDRESSEES ARE THE REGISTER OF THE ASKS THIS DIM
+ * IS POINTED AT. One of the two gated conversations is a family group chat, and
+ * "Hi both," "Hi guys," "Hi mum," "Hiya lovely," "Hey you two," are how that
+ * message opens. Measured before this list grew: a real 52-word message under
+ * any one of those openings scored 0, because the addressee had to be Titlecase
+ * or one of six collectives — the dim was failing good answers on the vocabulary
+ * of ordinary family, not on the shape of correspondence.
+ *
+ * ⚠ IT IS A CLOSED LIST, AND THAT IS THE GUARD. The reason `anyCase` exists is
+ * that an `i` flag over `\p{Lu}` would read ANY lowercase word after "Hi" as a
+ * name — "Hi again," "Hi sorry," would all be salutations. Naming these words
+ * one at a time keeps that guard: an arbitrary lowercase word after a salutation
+ * is still not an addressee, and `artifact-delivery.test.ts` asserts it.
+ *
+ * ⚠⚠ `there` IS DELIBERATELY ABSENT, AND IT WAS TRIED. "Hi there," is a real way
+ * to open a message and adding it would raise a real answer from 0 to 1 — but it
+ * also turns "Hi there! Happy to help with this." into a delivered artifact, and
+ * that preamble followed by advice is precisely the failure this dim exists to
+ * catch. `rubric.test.ts` pins that reply at 0, and the ONE mechanical thing
+ * separating the two — whether the writer carried on talking on the salutation
+ * line — cannot be used, because a whole email can arrive as a single line that
+ * begins "Hi [Teacher] — …". So the false fire on "Hi there," stays, stated as a
+ * limit with its executing case, rather than being traded for blindness to an
+ * assistant preamble.
  */
 const COLLECTIVE_ADDRESSEES: readonly string[] = [
+  'you two',
+  'you both',
+  'you lot',
   'everyone',
-  'all',
-  'folks',
   'friends',
-  'team',
+  'lovely',
+  'folks',
   'family',
+  'guys',
+  'both',
+  'team',
+  'gang',
+  'all',
+  'mum',
+  'mam',
+  'dad',
 ];
 
 /**
@@ -1187,8 +1267,17 @@ const COLLECTIVE_PATTERN = '(?:' + COLLECTIVE_ADDRESSEES.map(anyCase).join('|') 
 const ADDRESSEE_TOKEN_PATTERN =
   '(?:\\[[^\\]\\n]{1,40}\\]|' + COLLECTIVE_PATTERN + '|\\p{Lu}[\\p{L}\\u2019\'./-]{0,30})';
 
-/** "Sunny", "Ms. Halbrook", "Sir or Madam", "family & friends", "[Teacher]". */
+/**
+ * "Sunny", "Ms. Halbrook", "Sir or Madam", "family & friends", "[Teacher]", and
+ * — with the leading article — "the family" in "To the family,". The article is
+ * optional and leading only: the addressee itself still has to be a placeholder,
+ * a named collective or a capitalised name, so "To the office manager" is not a
+ * salutation.
+ */
 const ADDRESSEE_PHRASE_PATTERN =
+  '(?:' +
+  anyCase('the') +
+  '\\s+)?' +
   ADDRESSEE_TOKEN_PATTERN +
   '(?:\\s*(?:&\\s*|or\\s+|and\\s+|the\\s+)?' +
   ADDRESSEE_TOKEN_PATTERN +
@@ -1299,6 +1388,23 @@ function countWords(lines: readonly string[]): number {
 }
 
 /**
+ * Whether a sign-off-shaped line at `index` really ENDS the artifact, or is a
+ * courtesy line with the message still to come.
+ *
+ * ★ WHY THIS IS NEEDED, MEASURED. "Hi Dave," / "Thanks." / then the whole email
+ * is an ordinary way to write one, and the first sign-off-shaped line wins:
+ * "Thanks." was read as the signature, everything under it fell outside the
+ * artifact, and a complete email scored 0 on a body of 0 words. A closer with a
+ * body still under it closed nothing.
+ *
+ * The threshold is the body floor, not a new constant — the same amount of text
+ * that makes an artifact real is the amount that proves it had not ended.
+ */
+function closesTheArtifact(lines: readonly string[], index: number, end: number): boolean {
+  return countWords(lines.slice(index + 1, end)) < ARTIFACT_BODY_MIN_WORDS;
+}
+
+/**
  * Did the reply carry the artifact the ask named? See the block comment above for
  * the mechanism and its two stated limits.
  */
@@ -1327,11 +1433,12 @@ export function analyzeArtifactDelivery(text: string): ArtifactDeliveryAnalysis 
     }
     let signOff: string | null = null;
     for (let i = greetingIndex + 1; i < end; i++) {
-      if (isSignOffLine(lines[i]!)) {
-        signOff = lines[i]!.trim();
-        end = i;
-        break;
-      }
+      if (!isSignOffLine(lines[i]!)) continue;
+      // "Thanks." above the email is a courtesy line, not the end of it.
+      if (!closesTheArtifact(lines, i, end)) continue;
+      signOff = lines[i]!.trim();
+      end = i;
+      break;
     }
 
     // Only the salutation is dropped, not the line it sits on: a whole email can
@@ -1355,6 +1462,12 @@ export function analyzeArtifactDelivery(text: string): ArtifactDeliveryAnalysis 
   for (let i = lines.length - 1; i >= 0 && tail.length < SIGN_OFF_TAIL_LINES; i--) {
     if (lines[i]!.trim().length > 0) tail.push(i);
   }
+  // ⚠ `closesTheArtifact` is deliberately NOT applied here. This branch already
+  // looks only at the last few lines, and requiring nothing substantial to
+  // follow the signature demoted a captured flyer — signed, with two lines under
+  // it — from the borderline rung to 0. A change that lowers a hand-labelled
+  // sample is a regression whatever its reasoning, so the rule stays where the
+  // failure it was written for actually happens.
   const signOffIndex = tail.reverse().find((i) => isSignOffLine(lines[i]!));
   if (signOffIndex === undefined) {
     return {

@@ -109,6 +109,21 @@ describe('the scorer against the reader', () => {
       expect(analysis.signOff).not.toBeNull();
     }
   });
+
+  it('★ every reply that scores 0 addressed nobody — the anchor is what decides', () => {
+    // The dim's first stated limit says the address anchor separates the classes
+    // on its own across all thirty samples. That is a claim about the zeros as
+    // much as about the ones, and it was only asserted for the ones. Every
+    // failing sample omitting the salutation ENTIRELY is what makes the anchor
+    // load-bearing rather than incidental.
+    for (const id of idsScoring(0)) {
+      expect(
+        analyzeArtifactDelivery(replyById(id).text).addressOpening,
+        id + ' scores 0 while addressing somebody',
+      ).toBeNull();
+    }
+    expect(idsScoring(0).length).toBeGreaterThan(0);
+  });
 });
 
 function replyById(id: string): CapturedArtifactReply {
@@ -171,6 +186,191 @@ describe('★ the mirrors — both directions, from the captures themselves', ()
     expect(Math.min(...SCORED_DELIVERED.map(bodyOf))).toBeLessThan(
       Math.max(...idsScoring(0).map(bodyOf)),
     );
+  });
+});
+
+// ─── ★ the register the asks are actually written in ───────────────────────
+
+/**
+ * ★ WHY THIS BLOCK EXISTS. One of the two gated conversations is a message to a
+ * family group chat, and the dim was reading the salutation vocabulary of a
+ * business letter. Every opening below carried the same real 63-word message and
+ * scored 0 before this pass — the addressee had to be Titlecase or one of six
+ * collectives, so "Hi both," and "Hi mum," were not correspondence at all.
+ *
+ * These are recognition widenings: they can raise a score and can never lower
+ * one, which is why the thirty hand labels above still reproduce exactly.
+ */
+const REAL_MESSAGE_BODY = [
+  'Mum’s 60th is Sunday 8th March at 1pm, at the Italian on Bridgford Road — the one she',
+  'went to with her friends, not the fish place. We have the back room to ourselves.',
+  'It’s £25 each, which covers food and a drink, and the deposit is already paid. Let me',
+  'know if you are coming, and shout if anyone needs gluten free.',
+].join('\n');
+
+describe('★ the openings an ordinary family message actually uses', () => {
+  const OPENINGS: readonly string[] = [
+    'Hi both,',
+    'Hi guys,',
+    'Hi mum,',
+    'Hiya lovely,',
+    'Hey you two,',
+    'Afternoon everyone,',
+    'Evening all,',
+    'To the family,',
+    'Alright everyone,',
+  ];
+
+  it('★ scores a real message 1 under every one of them', () => {
+    for (const opening of OPENINGS) {
+      const analysis = analyzeArtifactDelivery(opening + '\n\n' + REAL_MESSAGE_BODY);
+      expect(analysis.addressOpening, opening + ' is not read as an address').toBe(opening);
+      expect(analysis.score, opening + ' fails a delivered message').toBe(1);
+    }
+  });
+
+  it('★ the list stays CLOSED — an arbitrary lowercase word is still not an addressee', () => {
+    // The guard `anyCase` was written for. If this ever passes, the name pattern
+    // has been loosened into a case-insensitive match and every chatty opener in
+    // the corpus counts as correspondence.
+    for (const opening of ['Hi again,', 'Hi sorry,', 'Hi jeff,', 'hi steve,']) {
+      expect(
+        analyzeArtifactDelivery(opening + '\n\n' + REAL_MESSAGE_BODY).addressOpening,
+        opening + ' is being read as an address',
+      ).toBeNull();
+    }
+  });
+
+  it('⚠ stated limit: "Hi there," is a real opening and still scores 0', () => {
+    // Not an oversight, and not fixable by vocabulary. `there` addresses nobody
+    // in particular, which makes it equally the assistant's own preamble — and
+    // that preamble followed by advice is the failure this dim exists to catch.
+    expect(analyzeArtifactDelivery('Hi there,\n\n' + REAL_MESSAGE_BODY).score).toBe(0);
+    // The reply that keeps it out. Pinned here as well as in `rubric.test.ts`,
+    // so the cost of the limit and the reason for it sit together.
+    const assistantPreamble = [
+      'Hi there! Happy to help with this.',
+      '',
+      'The main thing to decide is whether you want the deposit mentioned at all, since',
+      'most of them will assume it is covered, and whether the date needs repeating.',
+    ].join('\n');
+    expect(analyzeArtifactDelivery(assistantPreamble).score).toBe(0);
+  });
+});
+
+// ─── ★ the sign-off is the END of the artifact, not the first polite line ──
+
+describe('★ a courtesy line above the message is not its signature', () => {
+  const EMAIL_WITH_THANKS_ON_TOP = [
+    'Hi Dave,',
+    'Thanks.',
+    '',
+    'Following up on the client deck we discussed on Monday — I still have not had it, and',
+    'my own deadlines have moved twice to accommodate it. Could you let me know today when',
+    'it will land, so I can plan the rest of the week around it? Happy to take a partial',
+    'version if that is quicker.',
+    '',
+    'Sarah',
+  ].join('\n');
+
+  it('★ scores the whole email, not the two words above it', () => {
+    // Before: "Thanks." was taken as the signature, the email underneath fell
+    // outside the artifact, and a complete send-ready email scored 0 on a body of
+    // 0 words. A closer with a body still under it closed nothing.
+    const analysis = analyzeArtifactDelivery(EMAIL_WITH_THANKS_ON_TOP);
+    expect(analysis.signOff).toBeNull();
+    expect(analysis.bodyWords).toBeGreaterThan(50);
+    expect(analysis.score).toBe(1);
+  });
+
+  it('a real closer at the foot is still the closer', () => {
+    // The rule must not have made sign-offs unfindable: the same email signed
+    // properly still ends where it says it ends.
+    const signed = [
+      'Hi Dave,',
+      '',
+      'Following up on the client deck we discussed on Monday — I still have not had it, and',
+      'my own deadlines have moved twice to accommodate it. Could you let me know today when',
+      'it will land?',
+      '',
+      'Many thanks',
+      'Sarah',
+    ].join('\n');
+    expect(analyzeArtifactDelivery(signed).signOff).toBe('Many thanks');
+    expect(analyzeArtifactDelivery(signed).score).toBe(1);
+  });
+});
+
+// ─── ⚠ three stated limits, each with the case that shows it ───────────────
+
+/**
+ * ⚠ WHAT THIS DIM CANNOT DO, PINNED AS EXECUTING CASES RATHER THAN DESCRIBED.
+ *
+ * Each of these was found by attacking the scorer with a reply built to beat it.
+ * None is fixed here, and each says why: the rule that would fix it would have to
+ * read prose or read audience, and this dim measures the SHAPE of correspondence.
+ * A test that asserts current behaviour and calls it a limit is worth more than a
+ * rule founded on one example — but it has to execute, or it decays into a claim.
+ */
+describe('⚠ stated limits: replies that beat the dim, and are pinned doing it', () => {
+  it('a standalone bold label inside a message truncates it', () => {
+    // "**Details:**" and "**Next steps:**" are the same shape — a bold line
+    // ending in a colon — and the second really is a notes header on the
+    // captured generations. Nothing mechanical separates them without matching
+    // the words, so the boundary rule stays and this case is the cost of it.
+    const withLabel = ['Hi everyone,', '', '**Details:**', '', REAL_MESSAGE_BODY].join('\n');
+    const analysis = analyzeArtifactDelivery(withLabel);
+    expect(analysis.organizerHeadings).toEqual(['**Details:**']);
+    expect(analysis.bodyWords).toBe(0);
+    expect(analysis.score).toBe(0);
+    // The same message without the label is fine, which is what makes this a
+    // limit of the boundary rule rather than of the message.
+    expect(analyzeArtifactDelivery('Hi everyone,\n\n' + REAL_MESSAGE_BODY).score).toBe(1);
+  });
+
+  it('organiser headings survive a salutation: the headers need no stripping', () => {
+    // The artifact runs from the salutation to the first header, so a reply can
+    // deliver fifteen words of message and then hand over the notes anyway —
+    // including a line written to the person who asked. It scores 1.
+    const salutationThenNotes = [
+      'Hi everyone,',
+      '',
+      'Sunday 8th March, 1pm, at the Italian on Bridgford Road. Back room is ours, £25 a head,',
+      'deposit already paid. Shout if anyone needs gluten free.',
+      '',
+      '**Next steps:**',
+      '',
+      '- Send the confirmation to Mum',
+      '- Your 14 guests total',
+    ].join('\n');
+    const analysis = analyzeArtifactDelivery(salutationThenNotes);
+    expect(analysis.score).toBe(1);
+    expect(analysis.organizerHeadings).toEqual(['**Next steps:**']);
+    // And the requester-directed markers fire, on a reply the score calls
+    // delivered — which is exactly why they are reported and never scored.
+    expect(analysis.requesterDirected.length).toBeGreaterThan(0);
+  });
+
+  it('★ the anchor cannot see audience: a briefing written TO the requester scores 1', () => {
+    // Audience matching was rejected in the design and stays rejected: the
+    // annotation's audience is prose, and scoring a reply against it would score
+    // the wording of the annotation. So a well-formed letter to the wrong person
+    // passes, and the judge owns that. Pinned so the blindness is known, not
+    // discovered later.
+    const briefingToRequester = [
+      'Hi Trina,',
+      '',
+      'Here is where the lunch has got to. The booking is Sunday 8th March at 1pm at the',
+      'Italian on Bridgford Road, the back room is yours, and the deposit is paid. You will',
+      'want to chase the two who have not replied, and confirm the gluten free with the',
+      'kitchen when you ring them on Friday.',
+      '',
+      'Cheers',
+    ].join('\n');
+    const analysis = analyzeArtifactDelivery(briefingToRequester);
+    expect(analysis.addressOpening).toBe('Hi Trina,');
+    expect(analysis.signOff).toBe('Cheers');
+    expect(analysis.score).toBe(1);
   });
 });
 
