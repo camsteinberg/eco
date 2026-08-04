@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Bos Computing LLC
 
+import { appendArtifactFrames, buildBranchArtifactFrames } from "./artifact-frame";
 import { appendFigureRecaps, buildBranchFigureRecaps, statedText } from "./figure-recap";
 
 /**
@@ -547,19 +548,20 @@ export function applyDetailRecaps<T extends { role: string; content: string }>(
   return appendDetailRecaps(messages, buildBranchDetailRecaps(messages));
 }
 
-/** Both recap blocks for a branch, by user-turn ordinal. */
+/** The recap blocks and the artifact frame for a branch, by user-turn ordinal. */
 export type BranchRecaps = {
   readonly figures: readonly string[];
   readonly details: readonly string[];
+  readonly frames: readonly string[];
 };
 
 /**
- * Derive both recaps from the FULL branch in one call.
+ * Derive both recaps and the artifact frames from the FULL branch in one call.
  *
- * The dispatch path and the eval harness each need both, always from the same
- * unwindowed branch and always in the same order, so the pairing lives in one
- * place rather than being reassembled at five call sites — that is exactly how
- * derived context has twice gone unwired from the harness before.
+ * The dispatch path and the eval harness each need all of them, always from the
+ * same unwindowed branch and always in the same order, so the grouping lives in
+ * one place rather than being reassembled at five call sites — that is exactly
+ * how derived context has twice gone unwired from the harness before.
  */
 export function buildBranchRecaps(
   messages: readonly { role: string; content: string }[],
@@ -567,17 +569,23 @@ export function buildBranchRecaps(
   return {
     figures: buildBranchFigureRecaps(messages),
     details: buildBranchDetailRecaps(messages),
+    frames: buildBranchArtifactFrames(messages),
   };
 }
 
 /**
- * Attach both blocks to a (possibly windowed) list: figures first, then
- * details. The order is fixed here and nowhere else, because it is part of what
- * the KV prefix contract promises — a turn must render identically every time.
+ * Attach the blocks to a (possibly windowed) list: figures first, then
+ * details, then the artifact frame — the frame is the last line the model
+ * reads (`artifact-frame.ts` explains why). The order is fixed here and
+ * nowhere else, because it is part of what the KV prefix contract promises —
+ * a turn must render identically every time.
  */
 export function appendBranchRecaps<T extends { role: string; content: string }>(
   messages: readonly T[],
   recaps: BranchRecaps,
 ): T[] {
-  return appendDetailRecaps(appendFigureRecaps(messages, recaps.figures), recaps.details);
+  return appendArtifactFrames(
+    appendDetailRecaps(appendFigureRecaps(messages, recaps.figures), recaps.details),
+    recaps.frames,
+  );
 }
