@@ -994,6 +994,404 @@ export function scoreFactPreservation(spec: EvalPromptSpec, text: string): numbe
   return analyzeFactPreservation(spec.prompt, text).score;
 }
 
+// ─── delivers the asked-for artifact ───────────────────────────────────────
+
+/**
+ * ★ WHY THIS IS NOT `deliversFirst`, AND WHY BOTH HAVE TO EXIST.
+ *
+ * `deliversFirst` asks whether a deliverable survived the reply's questions, and
+ * its `containsDeliverable` helper counts ANY bullet list, table, blockquote or
+ * six words of non-filler prose as one. That is the right instrument for the
+ * bounce it was built from — "asks four clarifying questions before writing
+ * anything" — and it is blind to the failure this dim measures.
+ *
+ * Asked mid-conversation to "write the message I send to the family group chat",
+ * the shipping default model frequently returns ORGANISER NOTES instead: emoji
+ * section headers, a "Next steps" list, "Your 14 guests", a briefing written to
+ * the person who asked rather than a message they can paste. All of that is
+ * bullets, so `deliversFirst` scores it 1. Measured across thirty real
+ * generations on two corpus conversations, `deliversFirst` scored 1 on
+ * twenty-nine of them and 0.5 on one, while the asked-for artifact actually
+ * arrived in ten.
+ *
+ * So: `deliversFirst` measures "delivered SOMETHING rather than interrogating".
+ * This measures "delivered THE ASKED-FOR THING". The two axes stay apart — the
+ * interrogation axis is deliberately NOT re-scored here, and this shape axis is
+ * deliberately not folded into there.
+ *
+ * ── WHAT IT LOOKS FOR, AND WHY THOSE TWO SIGNALS ────────────────────────────
+ *
+ * A piece of correspondence has two ends: it opens by addressing someone, and it
+ * closes by signing off. Notes have neither — they are written ABOUT the event,
+ * for the organiser. Over the thirty hand-labelled generations those two ends
+ * separate the classes completely, and they separate the BORDERLINE class too:
+ *
+ *   addressed, with a body    → 1.0   a message somebody could send
+ *   signed but never addressed → 0.5  an announcement or flyer: recipient-facing
+ *                                     register, but nobody is being written to
+ *   neither                    → 0    notes, advice, or a deflection
+ *
+ * The middle rung was not invented to make a number come out. It is where the two
+ * samples a reader independently called borderline landed on their own — an
+ * invitation flyer signed "[Your Name]", and an announcement signed
+ * "— Organiser" — and it is why the scale is graded rather than binary.
+ *
+ * ★ IT IS TWO-SIDED, and the mirror cases are pinned in `rubric.test.ts`:
+ *
+ *   - "Just hit send now." scores 0. A short reply MUST be able to fail, or the
+ *     cheapest way to satisfy the dim is to stop writing.
+ *   - A delivered draft inside assistant framing — "Here's the version to send:
+ *     'Hi [Teacher] — …'" — scores 1. The frame is not the failure; its absence
+ *     is not the success.
+ *   - Emoji do not fail a group-chat message. Nine of the ten delivered samples
+ *     carry markdown, bullets or emoji. The failure is structure and audience,
+ *     never tone.
+ *   - The corpus's own scripted reply uses "[Your Name]", so a placeholder is not
+ *     a defect here. Whether the user's real facts survived is `preservesFacts`.
+ *
+ * ── TWO LIMITS, STATED RATHER THAN ROUNDED OFF ──────────────────────────────
+ *
+ * 1. THE ADDRESS ANCHOR CAN BE ACQUIRED CHEAPLY. A reply that opens "Hi
+ *    everyone," and then hands over the same organiser notes, unheaded, scores 1.
+ *    Nothing in the measured set does that — every notes-shaped sample in thirty
+ *    real generations omitted the salutation entirely — so no rule here is
+ *    founded on it. If it starts happening the remedy is more measurement, not a
+ *    constant invented now.
+ * 2. IT CANNOT READ A TWO-LINE TEXT. "Not going to make it in today, food
+ *    poisoning" is a perfectly good text to a boss and carries neither end of the
+ *    correspondence shape, so this dim would fail it. That is why the annotation
+ *    is hand-authored per item and why `work-sick-text` is pinned as an
+ *    UNMEASURED artifact ask rather than gated (see `everyday-probes.ts`).
+ *
+ * ── ONE WIDENING, RECORDED SO IT IS NOT MISTAKEN FOR TUNING ─────────────────
+ *
+ * The salutation and sign-off VOCABULARIES were widened once, after the labelled
+ * set had already been reproduced, against a further thirty captured generations
+ * held out of the tree. Three real forms were being missed: a leading emoji
+ * ("👋 Hi everyone,"), an ampersand in the addressee ("Dear family & friends,")
+ * and "Warm wishes," as a closer. No threshold and no scoring rule moved — only
+ * the word lists, and only in the direction of recognising MORE correspondence,
+ * which can raise a score and can never lower one. The labelled set scores
+ * identically before and after, which is asserted rather than asserted-to.
+ */
+
+/** Whether the reply carried the artifact, and the two ends that decided it. */
+export type ArtifactDeliveryAnalysis = {
+  /** The salutation that opens the artifact, verbatim, or null. */
+  addressOpening: string | null;
+  /** The closing signature line, verbatim, or null. */
+  signOff: string | null;
+  /** Words of ordinary body between the two ends. */
+  bodyWords: number;
+  /** Notes-shaped section headings found in the reply, in order. */
+  organizerHeadings: readonly string[];
+  /**
+   * Phrases aimed at the person who ASKED rather than at the audience. REPORTED,
+   * NEVER SCORED: every sample carrying one already scores 0 through the address
+   * anchor, so letting them move the number would be a counterweight asserted
+   * from four strings rather than measured. They exist so a run can say WHY a
+   * sample failed.
+   */
+  requesterDirected: readonly string[];
+  score: number;
+};
+
+/**
+ * Salutations that open a piece of correspondence. `my dear` precedes `dear` and
+ * the multi-word forms precede the short ones so the alternation prefers the
+ * longest match.
+ */
+const SALUTATION_WORDS: readonly string[] = [
+  'good morning',
+  'good afternoon',
+  'good evening',
+  'my dear',
+  'dear',
+  'hello',
+  'hiya',
+  'hey',
+  'morning',
+  'hi',
+];
+
+/**
+ * Collective forms of address. `everyone`, `all` and `family & friends` are what
+ * the captured generations exercise; the rest are the same lexical class and are
+ * listed so that a correct answer saying "Hi folks," is not failed by an accident
+ * of capitalisation. A Titlecase name ("Dave", "Trina", "Ms."), an ALL-CAPS one
+ * ("HI EVERYONE"), and a bracketed placeholder ("[Teacher]") cover the rest.
+ */
+const COLLECTIVE_ADDRESSEES: readonly string[] = [
+  'everyone',
+  'all',
+  'folks',
+  'friends',
+  'team',
+  'family',
+];
+
+/**
+ * Sign-offs. Longest first, same reason as the salutations. Deliberately no bare
+ * "ta" or "x": both appear inside ordinary sentences far more often than they
+ * end a message, and a wrong sign-off promotes notes to an announcement.
+ */
+const CLOSER_PHRASES: readonly string[] = [
+  'yours faithfully',
+  'yours sincerely',
+  'all the best',
+  'best wishes',
+  'warm wishes',
+  'kind regards',
+  'warm regards',
+  'lots of love',
+  'love always',
+  'with love',
+  'many thanks',
+  'thanks so much',
+  'thank you',
+  'speak soon',
+  'see you soon',
+  'sincerely',
+  'regards',
+  'cheers',
+  'thanks',
+  'best',
+  'love',
+];
+
+/**
+ * A literal matched in any case, WITHOUT the `i` flag. The flag is unavailable
+ * here: these patterns also carry `\p{Lu}`, which under `i` matches lowercase
+ * too — and then "Hi there" reads as an address to somebody called "there".
+ */
+function anyCase(literal: string): string {
+  let out = '';
+  for (const ch of literal) {
+    const lower = ch.toLowerCase();
+    const upper = ch.toUpperCase();
+    out += lower === upper ? ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : '[' + lower + upper + ']';
+  }
+  return out;
+}
+
+/**
+ * ⚠ Every composite pattern below is assembled with `+` and `join`, never a
+ * template literal: an interpolated regex const is folded wrong by Turbopack and
+ * only `next build` catches it (see DATE_WORD_PATTERN above, same reason).
+ */
+const SALUTATION_PATTERN = '(?:' + SALUTATION_WORDS.map(anyCase).join('|') + ')';
+
+const COLLECTIVE_PATTERN = '(?:' + COLLECTIVE_ADDRESSEES.map(anyCase).join('|') + ')';
+
+/** A placeholder, a collective, or a capitalised name. */
+const ADDRESSEE_TOKEN_PATTERN =
+  '(?:\\[[^\\]\\n]{1,40}\\]|' + COLLECTIVE_PATTERN + '|\\p{Lu}[\\p{L}\\u2019\'./-]{0,30})';
+
+/** "Sunny", "Ms. Halbrook", "Sir or Madam", "family & friends", "[Teacher]". */
+const ADDRESSEE_PHRASE_PATTERN =
+  ADDRESSEE_TOKEN_PATTERN +
+  '(?:\\s*(?:&\\s*|or\\s+|and\\s+|the\\s+)?' +
+  ADDRESSEE_TOKEN_PATTERN +
+  '){0,2}';
+
+/**
+ * What may sit in front of the salutation on its own line: a short lead-in ending
+ * in a colon or a quote ("Sent again: \"Hi [Teacher] — …"), then quoting, markdown
+ * or emoji decoration ("👋 Hi everyone,", "**Hi everyone,**"). All three forms
+ * occur in captured output, and a rule that required the salutation to start the
+ * line would fail a delivered message for being introduced or decorated.
+ */
+const GREETING_LEAD_PATTERN =
+  '(?:[^\\n"\\u201C\\u2018\':]{0,40}[:"\\u201C\\u2018\'])?' +
+  // The variation selector and the pictographs stay OUT of the character class:
+  // an emoji plus U+FE0F inside one class is a misleading character class.
+  '(?:[\\s*_>`\\[(\\u201C\\u2018"\']|\\p{Extended_Pictographic}|\\uFE0F){0,6}';
+
+const GREETING_LINE_PATTERN =
+  '^' +
+  GREETING_LEAD_PATTERN +
+  SALUTATION_PATTERN +
+  '\\b[\\s,]*' +
+  ADDRESSEE_PHRASE_PATTERN +
+  '\\s*(?:[,!:;.\\u2014\\u2013-]|\\p{Extended_Pictographic}|$)';
+
+/**
+ * A notes-shaped section header: a Markdown heading, or a whole line of bold text
+ * that LABELS what follows — "### 📝 Quick notes for the group chat:",
+ * "**Next steps:**", "**⚠️ Important Notes:**".
+ *
+ * Two exclusions, both from captured output rather than from taste:
+ *
+ *   - a bullet whose label is bold ("- **Time:** 1pm") is not a header. Every one
+ *     of the delivered messages uses exactly that shape;
+ *   - a bold line WITHOUT a trailing colon is an emphasised fact, not a header.
+ *     "**Sunday, 8th March, 1pm.**" sits in the middle of a perfectly good
+ *     message, and reading it as a section boundary truncated that message to
+ *     eight words. The colon is what makes a bold line a label.
+ */
+const HEADING_LEAD_PATTERN = '(?:\\p{Extended_Pictographic}|\\uFE0F|[\\s\\u2022])*';
+
+const SECTION_HEADING_PATTERN =
+  '^\\s*(?:#{1,6}\\s+\\S' +
+  '|' +
+  HEADING_LEAD_PATTERN +
+  '\\*\\*[^*\\n]+:\\s*\\*\\*\\s*$' + // "**Next steps:**"
+  '|' +
+  HEADING_LEAD_PATTERN +
+  '\\*\\*[^*\\n]+\\*\\*\\s*:\\s*$' + // "**Next steps**:"
+  ')';
+
+const CLOSER_LINE_PATTERN =
+  '^\\s*[*_]{0,2}(?:' +
+  CLOSER_PHRASES.map(anyCase).join('|') +
+  ')[*_]{0,2}\\s*[,.!;:\\u2014\\u2013-]?\\s*(?:[Xx]{1,3})?\\s*[*_]{0,2}\\s*$';
+
+/** "— *Organiser*", "— Bekah, owner". An em or en dash only: `-` is a bullet. */
+const DASH_SIGNATURE_PATTERN = '^\\s*[\\u2014\\u2013]\\s*[*_]{0,2}[\\p{L}\\[]';
+
+const GREETING_LINE_RE = new RegExp(GREETING_LINE_PATTERN, 'u');
+const SECTION_HEADING_RE = new RegExp(SECTION_HEADING_PATTERN, 'u');
+const CLOSER_LINE_RE = new RegExp(CLOSER_LINE_PATTERN, 'u');
+const DASH_SIGNATURE_RE = new RegExp(DASH_SIGNATURE_PATTERN, 'u');
+
+/**
+ * Phrases that hand the reader a job as ORGANISER — quoted from the measured
+ * generations, one comment per source. Reported, never scored; see
+ * `ArtifactDeliveryAnalysis.requesterDirected` for why.
+ */
+export const REQUESTER_DIRECTED_PATTERNS: readonly RegExp[] = [
+  /\byour\s+(?:\d+\s+)?(?:guests?|invitees?|attendees?)\b/i, // "Your 14 guests total"
+  /\(\s*optional\s*:/i, // "(Optional: Add a small note to Kieran…)"
+  /\bhow (?:i|we) should proceed\b/i, // "Let me know how I should proceed next!"
+  /\bsend (?:the |a |an )?(?:confirmation|reminder)\b/i, // "Send the confirmation to Mum"
+];
+
+/**
+ * Body words a delivered artifact must carry, once the salutation and the
+ * signature are removed.
+ *
+ * ★ HONEST ABOUT ITS JOB: this floor is NOT what separates the classes on the
+ * measured set — the address anchor is, on its own, for all thirty samples. The
+ * floor is the guard ON that anchor: without it the cheapest way to pass is to
+ * write "Hi everyone," and stop.
+ *
+ * CALIBRATED, not chosen. The shortest DELIVERED artifact in the captured set
+ * carries 34 body words, so 15 leaves better than a two-to-one margin under every
+ * good answer — a check that fails a good answer is a defect however well-founded
+ * the constant behind it. `artifact-delivery.test.ts` recomputes that minimum
+ * against the fixtures rather than trusting this comment.
+ */
+const ARTIFACT_BODY_MIN_WORDS = 15;
+
+/** Non-empty lines at the end of a reply that may still hold its signature. */
+const SIGN_OFF_TAIL_LINES = 6;
+
+function isSectionHeading(line: string): boolean {
+  return SECTION_HEADING_RE.test(line);
+}
+
+function isSignOffLine(line: string): boolean {
+  return CLOSER_LINE_RE.test(line) || DASH_SIGNATURE_RE.test(line);
+}
+
+function countWords(lines: readonly string[]): number {
+  return words(lines.filter((line) => !isSectionHeading(line)).join(' ')).length;
+}
+
+/**
+ * Did the reply carry the artifact the ask named? See the block comment above for
+ * the mechanism and its two stated limits.
+ */
+export function analyzeArtifactDelivery(text: string): ArtifactDeliveryAnalysis {
+  const lines = text.split('\n');
+  const organizerHeadings = lines.filter((line) => isSectionHeading(line)).map((l) => l.trim());
+
+  const greetingIndex = lines.findIndex((line) => GREETING_LINE_RE.test(line));
+  const requesterDirected = REQUESTER_DIRECTED_PATTERNS.filter((p) => p.test(text)).map((p) => p.source);
+
+  if (greetingIndex !== -1) {
+    const greetingLine = lines[greetingIndex]!;
+    const match = GREETING_LINE_RE.exec(greetingLine);
+    const addressOpening = (match?.[0] ?? greetingLine).trim();
+
+    // The artifact runs from the salutation to the first notes-shaped header
+    // after it — a message does not contain "### Next Steps" — and stops at its
+    // own signature, so trailing assistant meta ("Let me know if you'd like any
+    // adjustments!") is neither counted as body nor read as the artifact.
+    let end = lines.length;
+    for (let i = greetingIndex + 1; i < lines.length; i++) {
+      if (isSectionHeading(lines[i]!)) {
+        end = i;
+        break;
+      }
+    }
+    let signOff: string | null = null;
+    for (let i = greetingIndex + 1; i < end; i++) {
+      if (isSignOffLine(lines[i]!)) {
+        signOff = lines[i]!.trim();
+        end = i;
+        break;
+      }
+    }
+
+    // Only the salutation is dropped, not the line it sits on: a whole email can
+    // arrive as one quoted line that begins "Hi [Teacher] — …".
+    const remainder = greetingLine.slice(match?.[0].length ?? 0);
+    const bodyWords = countWords([remainder, ...lines.slice(greetingIndex + 1, end)]);
+    return {
+      addressOpening,
+      signOff,
+      bodyWords,
+      organizerHeadings,
+      requesterDirected,
+      score: bodyWords >= ARTIFACT_BODY_MIN_WORDS ? 1 : 0,
+    };
+  }
+
+  // Nobody is addressed. A signature at the foot still puts the reply in the
+  // recipient-facing register — an announcement or a flyer — which is the
+  // borderline the hand labels record, so it reaches the middle rung and no more.
+  const tail: number[] = [];
+  for (let i = lines.length - 1; i >= 0 && tail.length < SIGN_OFF_TAIL_LINES; i--) {
+    if (lines[i]!.trim().length > 0) tail.push(i);
+  }
+  const signOffIndex = tail.reverse().find((i) => isSignOffLine(lines[i]!));
+  if (signOffIndex === undefined) {
+    return {
+      addressOpening: null,
+      signOff: null,
+      bodyWords: countWords(lines),
+      organizerHeadings,
+      requesterDirected,
+      score: 0,
+    };
+  }
+  const bodyWords = countWords(lines.slice(0, signOffIndex));
+  return {
+    addressOpening: null,
+    signOff: lines[signOffIndex]!.trim(),
+    bodyWords,
+    organizerHeadings,
+    requesterDirected,
+    score: bodyWords >= ARTIFACT_BODY_MIN_WORDS ? 0.5 : 0,
+  };
+}
+
+/**
+ * Did the reply hand back the message/email/letter the ask named? null unless the
+ * spec sets `expectsArtifact`.
+ *
+ * The annotation is hand-authored per corpus item and carries the audience in
+ * prose. The scorer reads `kind` only for gating: matching a hand-written
+ * audience string against the reply would score the wording of the annotation
+ * rather than the reply, so the audience is carried to the judge (through the
+ * probe's `notes`) and to the tests, and is never pattern-matched.
+ */
+export function scoreArtifactDelivery(spec: EvalPromptSpec, text: string): number | null {
+  if (spec.expectsArtifact === undefined) return null;
+  return analyzeArtifactDelivery(text).score;
+}
+
 // ─── correct stop ──────────────────────────────────────────────────────────
 
 /**
@@ -1038,6 +1436,7 @@ export function scoreResult(spec: EvalPromptSpec, ctx: RubricContext): RubricSco
     answerDepth: scoreAnswerDepth(spec, ctx.output),
     depthMatch: scoreDepthMatch(spec, ctx.output),
     deliversFirst: scoreDeliversFirst(spec, ctx.output),
+    deliversAskedArtifact: scoreArtifactDelivery(spec, ctx.output),
     preservesUserText: scorePreservesUserText(spec, ctx.output),
     preservesFacts: scoreFactPreservation(spec, ctx.output),
     coherence: null,

@@ -255,6 +255,7 @@ function scores(): RubricScores {
     deliversFirst: 1,
     preservesUserText: null,
     preservesFacts: null,
+    deliversAskedArtifact: null,
     coherence: null,
     taskFit: null,
   };
