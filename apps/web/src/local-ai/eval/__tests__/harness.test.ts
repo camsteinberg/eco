@@ -564,6 +564,41 @@ describe('runEval — captured probes', () => {
     expect(probedTurn.startsWith('write it out as a list')).toBe(true);
   });
 
+  it('carries the details an earlier turn settled into the probed turn', async () => {
+    // ★ THE SAME STANDING NET, for the second recap block. A before/after run
+    // of the detail recap measures nothing if the harness quietly composes its
+    // prompts without it.
+    const seen: ChatMessage[][] = [];
+    await runEval(
+      {
+        label: 'felt',
+        modelIds: ['m'],
+        promptIds: ['invite-t1'],
+        extraPrompts: [
+          {
+            id: 'invite-t1',
+            category: 'captured',
+            intent: 'writing',
+            prompt: 'can you write the message i send to the family group chat',
+            history: [
+              { role: 'user', content: 'her birthdays the 7th but thats a saturday' },
+              { role: 'assistant', content: 'Then honestly I would move it off Saturday.' },
+              { role: 'user', content: 'sunday 8th march then, 1pm' },
+              { role: 'assistant', content: 'Sunday 8th, 1pm. Good.' },
+            ],
+          } as const satisfies EvalPromptSpec,
+        ],
+      },
+      baseDeps({ generate: recordingGenerate(seen) }),
+    );
+
+    const probedTurn = seen[0]!.at(-1)!.content;
+    expect(probedTurn).toContain('sunday 8th march');
+    expect(probedTurn).toContain('1pm');
+    // The date the conversation moved off must not travel with it.
+    expect(probedTurn.toLowerCase()).not.toContain('saturday');
+  });
+
   it('includes extra prompts after the fixed pool in a default run', async () => {
     const seen: ChatMessage[][] = [];
     const { EVAL_PROMPTS } = await import('../prompts');
