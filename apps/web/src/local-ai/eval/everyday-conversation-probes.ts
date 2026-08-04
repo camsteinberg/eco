@@ -45,7 +45,10 @@
  *               `ruledOut` quotes, copied through unchanged. The ONLY fields
  *               here that are authored rather than computed, because the window
  *               they describe cannot be derived from the history — see the block
- *               below, and `rubric.analyzeHistoryFactPreservation`.
+ *               below, and `rubric.analyzeHistoryFactPreservation`. The corpus's
+ *               third list, `mentionNotViolation`, is deliberately NOT copied
+ *               through: those terms are on the record precisely because a token
+ *               check flags the correct reply as readily as the wrong one.
  *
  * ── WHAT THIS SET DOES NOT MEASURE ──────────────────────────────────────────
  *
@@ -170,7 +173,15 @@ function historyFactSourcesFor(item: MultiTurnEverydayItem): readonly string[] {
   return (conversationNeedsFor(item.id).carriesForward ?? []).map((span) => span.quote);
 }
 
-/** The terms layer 2 says an earlier turn ruled out. */
+/**
+ * The terms layer 2 says an earlier turn ruled out.
+ *
+ * ⚠ Reads `ruledOut` and NOT `mentionNotViolation`, which is the point of the
+ * two lists being separate. A superseded value can be named by a correct reply
+ * ("£790, up from £745 in October"), so gating it scores the right answer the
+ * same as the wrong one; those terms stay on the record with the replies they
+ * flagged, and never reach a probe.
+ */
 function historyRuledOutFor(item: MultiTurnEverydayItem): readonly string[] {
   return (conversationNeedsFor(item.id).ruledOut ?? []).map((entry) => entry.term);
 }

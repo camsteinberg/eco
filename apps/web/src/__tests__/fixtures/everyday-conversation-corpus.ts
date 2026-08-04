@@ -160,8 +160,13 @@ export type CarriedForwardSpan = {
 
 /**
  * A thing an earlier turn ruled out, which must not come back in the reply.
- * Two shapes occur: a value the conversation SUPERSEDED (£745, Saturday) and a
- * thing the person REFUSED (a thermometer he does not own).
+ *
+ * ★ ONLY ONE SHAPE BELONGS HERE: a thing the person REFUSED, where the item's
+ * own text makes ABSENCE the criterion — "i dont have a thermometer. thats the
+ * whole problem", whose good answer is defined as having "No thermometer
+ * anywhere in the answer". The other shape that was tried, a value the
+ * conversation SUPERSEDED (£745, Saturday), is in `mentionNotViolation` below
+ * with the measurements that moved it.
  *
  * ⚠ NOT auto-detected from negation, deliberately. The same corpus contains "im
  * not giving up the gym before you say it", where the naive reading is exactly
@@ -176,6 +181,44 @@ export type RuledOutTerm = {
   readonly quote: string;
   /** The bounce-condition text that makes this fatal. Quote it. */
   readonly why: string;
+};
+
+/**
+ * ★ A THING THE CONVERSATION SUPERSEDED, KEPT ON THE RECORD AND OFF THE SCORER.
+ *
+ * These read exactly like `ruledOut` entries and were authored as ones. They are
+ * not, and the difference is the whole point of this type: for a superseded
+ * value, MENTION IS NOT VIOLATION. The bounce is the old figure coming back as
+ * the ANSWER — "£745 rent in it … after he explicitly said use the 790" — and a
+ * reply that names the old figure while giving the new one is correct. Both were
+ * run against `rubric.analyzeRuledOut` and both correct replies scored 0:
+ *
+ *   "Rent — £790 (up from £745 in October)"                        → 0
+ *   "Sunday 8th March, not the Saturday, since you moved it …"      → 0
+ *
+ * A token check cannot tell those from the real violation ("Rent — £745", also
+ * 0), so gating them penalised the answer that obeyed. They live here instead:
+ * the record and the evidence stay, the wrong check goes, and
+ * `everyday-conversation-probes.test.ts` executes the false fire so this is a
+ * measurement rather than an opinion.
+ *
+ * ⚠ The failures themselves are NOT unmeasured. The birthday item's captured
+ * reply moved the party to Saturday the 14th, and `preservesHistoryFacts` still
+ * catches it — "sunday" and "8" are among the facts it lost. What is gone is a
+ * check that fired on the right answer as readily as the wrong one.
+ */
+export type MentionNotViolationTerm = {
+  /** The token that was gated, and no longer is. */
+  readonly term: string;
+  /** The user's own sentence that supersedes it. Verbatim; a test asserts it. */
+  readonly quote: string;
+  /** The bounce-condition text that makes the SUBSTANCE fatal. Quote it. */
+  readonly why: string;
+  /**
+   * A correct reply that the token check scored 0. Verbatim, executed by the
+   * test, so "mention is not violation" cannot decay into an assertion.
+   */
+  readonly correctReplyItFlagged: string;
 };
 
 /** The derived layer for one conversation. */
@@ -198,6 +241,11 @@ export type ConversationRoutingNeedEntry = {
   readonly carriesForward?: readonly CarriedForwardSpan[];
   /** Things ruled out earlier that must not resurface. Absent where none applies. */
   readonly ruledOut?: readonly RuledOutTerm[];
+  /**
+   * Things an earlier turn superseded that are NOT gated, because a token check
+   * flags the correct reply as readily as the wrong one. Descoped, not forgotten.
+   */
+  readonly mentionNotViolation?: readonly MentionNotViolationTerm[];
 };
 
 /**
@@ -702,11 +750,13 @@ export const CONVERSATION_ROUTING_NEEDS: Readonly<
         why: "Bounce names \"Sunday 8th, 1pm\". Taken from HER turn fixing it, not the earlier turn where the date was still the 7th. ⚠ STOPS BEFORE \"1pm\" on purpose: `extractFacts` reads it as the bare number 1, which both matches any stray \"1\" in a reply and MISSES a correctly reformatted \"1:00 PM\" (whose key is \"1:00\"). A fact that can be scored wrong in both directions is worse than one left unscored — same rule as the month name `may`.",
       },
     ],
-    ruledOut: [
+    mentionNotViolation: [
       {
         term: "saturday",
         quote: "her birthdays the 7th but thats a saturday",
         why: "Bounce: \"putting Saturday the 7th back in after they moved it for Kieran's shifts\". The date is superseded by \"sunday 8th march then, 1pm\" two turns later.",
+        correctReplyItFlagged:
+          "Sunday 8th March, not the Saturday, since you moved it for Kieran’s shifts.",
       },
     ],
   },
@@ -742,11 +792,12 @@ export const CONVERSATION_ROUTING_NEEDS: Readonly<
         why: "The probed turn: \"put the savings in as a bill not as whats left over, cos otherwise it wont happen\".",
       },
     ],
-    ruledOut: [
+    mentionNotViolation: [
       {
         term: "745",
         quote: "rent 745",
         why: "Bounce, first clause: \"The final list coming back with £745 rent in it — the old figure — after he explicitly said use the 790\".",
+        correctReplyItFlagged: "Rent — £790 (up from £745 in October)",
       },
     ],
   },
@@ -754,6 +805,12 @@ export const CONVERSATION_ROUTING_NEEDS: Readonly<
     probedTurnIndex: 10,
     needs: ["no-elaboration-hint", "direct-budget", "faithful-reproduction"],
     why: "Bounce: being asked to paste the policy again, when \"He pasted seven hundred words of policy at the very start specifically so he wouldn't have to keep doing that\" — and the letter that follows getting the excess wrong. Two figures, read back off his own documents, are the whole deliverable.",
+    carriesForward: [
+      {
+        quote: "two of you, one section, so **£300**",
+        why: "goodAnswerLooksLike: \"£150 each, so £300 across the two of them\". ★ THE ONLY MEASURABLE FACT ON THIS ITEM, and deliberately not the obvious one: he half-remembers the figures out loud in the probed turn itself — \"was it 150 each or 150 the once\", \"i thought it said 8 weeks somewhere\" — so 150 and 8 are answerable without the history and quoting them would measure nothing. £300 is the CONSEQUENCE of the answer he is asking for, appears nowhere in his turn, and a reply that reads it as £150 the once cannot produce it. So the denominator here is one fact and the score is binary; that is the honest size of what a fact dim can see on a two-figure recall, and it is stated rather than padded out with spans that would score themselves.",
+      },
+    ],
   },
 };
 

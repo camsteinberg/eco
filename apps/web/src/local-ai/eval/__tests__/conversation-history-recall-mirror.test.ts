@@ -31,13 +31,19 @@
  * ── ONE FINDING, STATED RATHER THAN ROUNDED OFF ─────────────────────────────
  *
  * `preservesHistoryFacts` is NOT the sharpest dim on every one of these. On the
- * teacher-email refusal it reads 0.67, because the reply names Thursday and
- * Friday while refusing to produce the email — a fact dim cannot see a withheld
- * deliverable, and this one is documented as one-sided for exactly that reason.
- * `answerDepth` is what catches that reply (0.62 against a 60-word floor). The
- * assertions below are therefore about what each dim can actually see, and the
- * budget/birthday cases — where facts really do vanish — are where the fact dim
- * carries the finding on its own.
+ * teacher-email refusal it read 0.67 when this file was written, because the
+ * reply names Thursday and Friday while refusing to produce the email — a fact
+ * dim cannot see a withheld deliverable, and this one is documented as one-sided
+ * for exactly that reason. `answerDepth` is what catches that reply (0.62
+ * against a 60-word floor).
+ *
+ * ⚠ That 0.67 has since become 1.00, and the finding is now sharper rather than
+ * softer. The missing third was `Teacher` — the template slot in the drafted
+ * email, counted as a fact. Slots are excluded from extraction now (they are the
+ * thing a good answer FILLS, and counting them ranked a placeholder parrot above
+ * the filled-in email), so on this reply the fact dim sees nothing at all. Each
+ * case below therefore names which dim carries its finding, and a case where the
+ * fact dim is blind has to show its named catcher separating the pair.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -46,6 +52,7 @@ import { EVERYDAY_CONVERSATION_PROBES } from '../everyday-conversation-probes';
 import {
   analyzeHistoryFactPreservation,
   analyzeRuledOut,
+  extractFacts,
   scoreAnswerDepth,
   scoreDeliversFirst,
   scoreResult,
@@ -213,6 +220,12 @@ type Case = {
   readonly missingBefore: readonly string[];
   /** Ruled-out terms the captured reply brought back. */
   readonly resurfacedBefore: readonly string[];
+  /**
+   * ★ Whether `preservesHistoryFacts` is the dim that CATCHES this reply. False
+   * is not a hole in the mirror — it is the honest reading of a one-sided dim,
+   * and a false case has to name a catcher that does separate the pair below.
+   */
+  readonly factDimSeparates: boolean;
 };
 
 const CASES: readonly Case[] = [
@@ -220,11 +233,14 @@ const CASES: readonly Case[] = [
     id: 'convo-teacher-email-resend',
     before: BEFORE_TEACHER_EMAIL,
     good: GOOD_TEACHER_EMAIL,
-    // It kept the two days and lost the addressee — the reply is about an email
-    // rather than being one. See the finding in this file's header: on THIS
-    // reply the fact dim is the weaker signal and `answerDepth` is the strong one.
-    missingBefore: ['Teacher'],
+    // It kept the two days, and the two days are now the whole denominator: the
+    // draft's other facts are the template slots a good answer fills, and those
+    // are no longer extracted. So a reply that refuses to send the email while
+    // proving it still has it scores a clean 1.0 here. A fact dim cannot see a
+    // withheld deliverable; `answerDepth` can, and is asserted to below.
+    missingBefore: [],
     resurfacedBefore: [],
+    factDimSeparates: false,
   },
   {
     id: 'convo-four-day-budget-list',
@@ -235,13 +251,21 @@ const CASES: readonly Case[] = [
     // Four of his own figures, named — which is the point of reporting a list.
     missingBefore: ['2180', '31', '12.99', '245'],
     resurfacedBefore: [],
+    factDimSeparates: true,
   },
   {
     id: 'convo-birthday-lunch-message',
     before: BEFORE_BIRTHDAY_MESSAGE,
     good: GOOD_BIRTHDAY_MESSAGE,
+    // ⚠ `saturday` used to be gated here and is not any more: the captured reply
+    // really did move the party to Saturday the 14th, but so does the sentence
+    // "Sunday 8th March, not the Saturday, since you moved it", which is a
+    // correct reply and scored 0 too. The corpus keeps the term and the evidence
+    // in `mentionNotViolation`. The failure itself is still caught — the lost
+    // "sunday" and "8" below are the same reply moving the same date.
     missingBefore: ['8', 'sunday'],
-    resurfacedBefore: ['saturday'],
+    resurfacedBefore: [],
+    factDimSeparates: true,
   },
 ];
 
@@ -253,7 +277,7 @@ describe('★ the mirror: a reply that loses the conversation must score badly',
         const analysis = analyzeHistoryFactPreservation(spec.historyFactSources!, c.before);
         // A LIST, not a count: a count survives the derivation degenerating.
         expect(analysis.missing.map((f) => f.text)).toEqual(c.missingBefore);
-        expect(analysis.score).toBeLessThan(1);
+        expect(analysis.score! < 1).toBe(c.factDimSeparates);
       });
 
       it('★ the good reply keeps everything, and the bad one does not — the dim separates them', () => {
@@ -262,8 +286,16 @@ describe('★ the mirror: a reply that loses the conversation must score badly',
         const good = analyzeHistoryFactPreservation(spec.historyFactSources!, c.good);
         expect(good.missing.map((f) => f.text)).toEqual([]);
         expect(good.score).toBe(1);
-        // The whole claim of the dim, in one line.
-        expect(good.score! - bad.score!).toBeGreaterThan(0);
+        // The whole claim of the dim, in one line — where it can make it.
+        if (c.factDimSeparates) {
+          expect(good.score! - bad.score!).toBeGreaterThan(0);
+          return;
+        }
+        // ★ And where it cannot, the claim is made by the dim that owns the
+        // failure instead. Asserted, not asserted-about: a case may only be
+        // marked blind if something else is shown to see.
+        expect(good.score! - bad.score!).toBe(0);
+        expect(scoreAnswerDepth(spec, c.before)!).toBeLessThan(scoreAnswerDepth(spec, c.good)!);
       });
 
       it('the good reply is good by the OTHER dims too, so it cannot be a stub', () => {
@@ -299,7 +331,7 @@ describe('★ the mirror: a reply that loses the conversation must score badly',
       const spec = probe(c.id);
       const scores = scoreResult(spec, ctx(c.before));
       expect(scores.preservesHistoryFacts, `${c.id} before`).not.toBeNull();
-      expect(scores.preservesHistoryFacts!, `${c.id} before`).toBeLessThan(1);
+      expect(scores.preservesHistoryFacts! < 1, `${c.id} before`).toBe(c.factDimSeparates);
       expect(scoreResult(spec, ctx(c.good)).preservesHistoryFacts, `${c.id} good`).toBe(1);
     }
   });
@@ -355,5 +387,109 @@ describe('★ honorsRuledOut on the item whose corpus text demands token absence
     expect(
       scoreResult(spec, ctx('Thermometric probes are a different thing entirely.')).honorsRuledOut,
     ).toBe(1);
+  });
+});
+
+// ─── ★ the placeholder inversion: the ranking, both ways round ─────────────
+
+/**
+ * ★ THE FAILURE THIS PINS. The drafted email in `convo-teacher-email-resend`
+ * reads "Hi [Teacher] — … [Son] will be out Thursday and Friday". Counted as a
+ * fact, `Teacher` put the dim in the position of preferring the reply that did
+ * LESS: a verbatim parrot with the brackets still in it scored 1.000, while the
+ * same email with the real names filled in scored 0.667. The bounce condition
+ * calls filling them the whole job — "she … just needs the same message with
+ * Thursday and Friday in it" — so the instrument was ranking the corpus's good
+ * answer below its bad one.
+ *
+ * Both directions are asserted, because only pinning the filled-in answer at 1.0
+ * would go green again if slots came back as facts AND the parrot rose with it.
+ */
+describe('★ a filled-in template must never rank below the parrot that left the slots in', () => {
+  const spec = probe('convo-teacher-email-resend');
+
+  /** The draft handed back untouched — brackets and all. Does less, not more. */
+  const PARROT_WITH_SLOTS =
+    'Hi [Teacher] — copying the front office per the attendance policy. [Son] will be out ' +
+    'Thursday and Friday for a family trip. Could you let me know if there’s anything he ' +
+    'should take with him or make up when he’s back? Thanks so much.';
+
+  /** The same email, with the names a real send would have in it. */
+  const FILLED_IN_FOR_REAL =
+    'Hi Ms. Patel — copying the front office per the attendance policy. Ben will be out ' +
+    'Thursday and Friday for a family trip. Could you let me know if there’s anything he ' +
+    'should take with him or make up when he’s back? Thanks so much.';
+
+  it('★ ranks the real answer at or above the parrot — never below', () => {
+    const parrot = analyzeHistoryFactPreservation(spec.historyFactSources!, PARROT_WITH_SLOTS);
+    const filled = analyzeHistoryFactPreservation(spec.historyFactSources!, FILLED_IN_FOR_REAL);
+    expect(filled.score!).toBeGreaterThanOrEqual(parrot.score!);
+    expect(filled.score).toBe(1);
+    expect(filled.missing).toEqual([]);
+  });
+
+  it('keeps the slots out of the denominator, and real names in', () => {
+    // The denominator is the two days the turn actually asks for, and nothing
+    // else. Pinned here as well as in the probe test because this is the file
+    // that says WHY the list is that short.
+    expect(
+      analyzeHistoryFactPreservation(spec.historyFactSources!, '').facts.map((f) => f.text),
+    ).toEqual(['Thursday', 'Friday']);
+    // And the exclusion is about brackets, not about names: an ordinary name in
+    // the same sentence still counts, so this cannot quietly become "no names".
+    expect(
+      extractFacts('Ask [Teacher] whether Patel signed the form on Thursday.').map((f) => f.text),
+    ).toEqual(['Thursday', 'Patel']);
+  });
+});
+
+// ─── ⚠ a stated limit: reciting the record scores perfectly ────────────────
+
+/**
+ * ⚠ A STATED LIMIT, PINNED AS AN EXECUTING CASE RATHER THAN FIXED.
+ *
+ * `preservesHistoryFacts` is one-sided by design, and its docblock names
+ * `answerDepth`, `deliversFirst` and the judge as the dims that own the other
+ * side. On a recital they do not: paste the budget conversation's six
+ * carried-forward spans back verbatim and every automated dim reads 1.0.
+ *
+ * That is not an answer — he asked for the whole budget written out as a proper
+ * list with the new rent, and got his own words back — but nothing automated
+ * catches it today, and this test says so out loud. A recital detector inside a
+ * fact dim would be the same spec bug the dim's docblock exists to prevent, so
+ * the honest move is to make the hole visible and leave it unowned rather than
+ * to cover it wrongly.
+ */
+describe('⚠ stated limit: a verbatim recital of the history scores 1.0 on every automated dim', () => {
+  const spec = probe('convo-four-day-budget-list');
+  const recital = spec.historyFactSources!.join('\n');
+
+  it('is not an answer, and is scored as if it were', () => {
+    const scores = scoreResult(spec, ctx(recital));
+    const automated = Object.entries(scores).filter(
+      (entry): entry is [string, number] => typeof entry[1] === 'number',
+    );
+    // Every dim that produced a number, and the mean of them. Both pinned, so a
+    // dim that later DOES catch this shows up as a failure here and gets read.
+    expect(automated.map(([dim]) => dim)).toEqual([
+      'correctStop',
+      'noRepetition',
+      'noCannedLeakage',
+      'noThinkLeakage',
+      'noCjkLeak',
+      'answerDepth',
+      'deliversFirst',
+      'preservesHistoryFacts',
+    ]);
+    expect(automated.map(([, value]) => value)).toEqual(automated.map(() => 1));
+  });
+
+  it('names the catchers the docblock claims, and shows them not catching', () => {
+    // The two dims the fact dim's docblock hands the parrot to. The recital
+    // clears the richness floor on length alone and opens with content, so
+    // neither sees anything wrong.
+    expect(scoreAnswerDepth(spec, recital)).toBe(1);
+    expect(scoreDeliversFirst(spec, recital)).toBe(1);
+    expect(analyzeHistoryFactPreservation(spec.historyFactSources!, recital).score).toBe(1);
   });
 });
