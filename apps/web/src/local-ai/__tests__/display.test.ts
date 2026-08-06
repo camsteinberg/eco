@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Bos Computing LLC
 
 import { describe, expect, it } from 'vitest';
-import { getDisplayInfo } from '../display';
+import { getDisplayInfo, resolveRunningModel } from '../display';
 import { getCatalog } from '../catalog/catalog';
 
 describe('getDisplayInfo', () => {
@@ -95,5 +95,56 @@ describe('getDisplayInfo', () => {
     expect(info.friendlyName).toBe('Unknown Model');
     expect(info.qualityPhrase).toBe('');
     expect(info.provenance).toBe('Test Vendor · 1.5 GB');
+  });
+});
+
+// "Currently running" must name the model the chat's current selection
+// actually resolves to — not blindly prefer eco-fast. A stale eco-fast
+// binding out-named the genuinely serving eco-smart model live on
+// 2026-08-05 ("Eco Mobile (Qwen)" on a desktop running the 2B).
+describe('resolveRunningModel', () => {
+  const [modelA, modelB] = getCatalog();
+  if (!modelA || !modelB) throw new Error('catalog too small');
+
+  const slots = (
+    fast: { model: typeof modelA | null; status: string },
+    smart: { model: typeof modelA | null; status: string },
+  ) => ({ 'eco-fast': fast, 'eco-smart': smart }) as Parameters<typeof resolveRunningModel>[1];
+
+  it('follows the selected slot even when eco-fast holds a different model', () => {
+    const view = slots(
+      { model: modelB, status: 'ready' },
+      { model: modelA, status: 'ready' },
+    );
+    const running = resolveRunningModel('eco-smart', view);
+    expect(running.model?.id).toBe(modelA.id);
+    expect(running.status).toBe('ready');
+  });
+
+  it('resolves a concrete model id to the slot that owns it', () => {
+    const view = slots(
+      { model: modelB, status: 'ready' },
+      { model: modelA, status: 'preparing' },
+    );
+    const running = resolveRunningModel(modelA.id, view);
+    expect(running.model?.id).toBe(modelA.id);
+    expect(running.status).toBe('preparing');
+  });
+
+  it('falls back fast-then-smart when the selection resolves to an empty slot', () => {
+    const view = slots(
+      { model: null, status: 'empty' },
+      { model: modelA, status: 'ready' },
+    );
+    const running = resolveRunningModel('eco-fast', view);
+    expect(running.model?.id).toBe(modelA.id);
+    expect(running.status).toBe('ready');
+  });
+
+  it('returns null when no slot holds a model', () => {
+    const view = slots({ model: null, status: 'empty' }, { model: null, status: 'empty' });
+    const running = resolveRunningModel('eco-fast', view);
+    expect(running.model).toBeNull();
+    expect(running.status).toBeNull();
   });
 });

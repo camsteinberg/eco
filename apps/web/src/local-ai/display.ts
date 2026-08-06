@@ -13,6 +13,10 @@
  * The mapping lives at the display boundary — no catalog data is mutated.
  */
 
+import type { ModelConfig, Slot } from './types';
+import { SLOTS, type SlotStatus } from './lifecycle/slots';
+import { isLocalAiSlot } from './util';
+
 export type DisplayInfo = {
   /** Branded friendly name: "Eco Balanced (Bonsai)" */
   friendlyName: string;
@@ -82,4 +86,29 @@ export function getDisplayInfo(
     qualityPhrase: '',
     provenance: `${fallback.vendor} · ${fallback.sizeGB.toFixed(1)} GB`,
   };
+}
+
+/**
+ * The model to present as "currently running": the one the chat's current
+ * selection resolves to, matching how dispatch resolves a selection into a
+ * slot. Only when the selection resolves to an empty slot does it fall back
+ * fast-then-smart. A pure view over the slot snapshot — no storage reads —
+ * so Settings can never out-vote the slot the chat actually uses (a stale
+ * eco-fast binding out-named the serving eco-smart model live, 2026-08-05).
+ */
+export function resolveRunningModel(
+  selectedModel: string,
+  slots: Record<Slot, { model: ModelConfig | null; status: SlotStatus }>,
+): { model: ModelConfig | null; status: SlotStatus | null } {
+  const selectedSlot = isLocalAiSlot(selectedModel)
+    ? selectedModel
+    : SLOTS.find((slot) => slots[slot].model?.id === selectedModel) ?? null;
+  if (selectedSlot && slots[selectedSlot].model) {
+    return { model: slots[selectedSlot].model, status: slots[selectedSlot].status };
+  }
+  const fallback = SLOTS.find((slot) => slots[slot].model !== null) ?? null;
+  if (fallback) {
+    return { model: slots[fallback].model, status: slots[fallback].status };
+  }
+  return { model: null, status: null };
 }

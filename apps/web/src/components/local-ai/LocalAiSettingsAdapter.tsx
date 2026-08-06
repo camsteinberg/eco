@@ -13,7 +13,8 @@ import { CacheApiStorage } from '../../local-ai/download/storage';
 import { clearEvidence } from '../../local-ai/evidence/ledger';
 import { generate as generateThroughLifecycle } from '../../local-ai/runtime/lifecycle';
 import { prepareModelForSlot } from '../../local-ai/lifecycle/switch-model';
-import { setSlot, setSlotStatus, type SlotStatus } from '../../local-ai/lifecycle/slots';
+import { setSlot, setSlotStatus } from '../../local-ai/lifecycle/slots';
+import { resolveRunningModel } from '../../local-ai/display';
 import { isLocalAiSlot } from '../../local-ai/util';
 import { isDiagnosticsEnabled } from '../../lib/dev-diagnostics';
 import { useChatStore } from '../../stores/chatStore';
@@ -36,11 +37,18 @@ import type { SwitchAIResult } from '../../hooks/local-ai/useSwitchAI';
 export function LocalAiSettingsAdapter() {
   const state = useEcoState();
   const slot = 'eco-fast' as const;
+  // The switch flow's reference point (it targets eco-fast): which model a
+  // switch replaces / rolls back to.
   const currentModel = state.fastModel ?? state.smartModel;
-  // Status of whichever slot supplied currentModel, so the readouts can tell a
-  // ready model apart from one still setting up (an interrupted download leaves
-  // the slot 'preparing').
-  const currentModelStatus: SlotStatus | null = state.fastModel
+  // What "Currently running" DISPLAYS is a different question: the model the
+  // chat's current selection resolves to, with its own slot's status — so
+  // Settings and chat tell one story (a stale eco-fast binding out-named the
+  // serving eco-smart model live, 2026-08-05).
+  const selectedModel = useChatStore((s) => s.selectedModel);
+  const running = resolveRunningModel(selectedModel, state.slots);
+  // Status of the switch flow's reference model (above), for the dialog's
+  // ready flag.
+  const switchReferenceStatus = state.fastModel
     ? state.slots['eco-fast'].status
     : state.smartModel
       ? state.slots['eco-smart'].status
@@ -181,8 +189,8 @@ export function LocalAiSettingsAdapter() {
   return (
     <>
       <SettingsEcoTab
-        currentModel={currentModel}
-        currentModelStatus={currentModelStatus ?? undefined}
+        currentModel={running.model}
+        currentModelStatus={running.status ?? undefined}
         storageBytes={storageBytes}
         storageBreakdown={breakdown.data}
         storageStatus={breakdown.status}
@@ -194,7 +202,7 @@ export function LocalAiSettingsAdapter() {
         open={dialogOpen}
         onClose={() => setDialogOpen(false)}
         currentModel={currentModel}
-        currentModelReady={currentModelStatus === 'ready'}
+        currentModelReady={switchReferenceStatus === 'ready'}
         state={switchState}
         loadProgress={loadProgress}
         loadPhase={loadPhase}
