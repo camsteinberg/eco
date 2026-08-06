@@ -18,6 +18,7 @@ import type { CacheStorageLike, Storage, StorageKey, CachedEntry } from '../../d
 import { AdapterError } from '../types';
 import {
   bridgeDownloadWebLLMModel,
+  measureWebllmModelCacheBytes,
   webllmModelCachePresence,
   webllmModelInCache,
 } from '../webllm-cache-bridge';
@@ -343,5 +344,50 @@ describe('webllmModelCachePresence', () => {
     await expect(
       webllmModelCachePresence(noArtifact),
     ).rejects.toThrow(AdapterError);
+  });
+});
+
+// ─── measureWebllmModelCacheBytes (storage accounting for the webllm lane) ───
+
+describe('measureWebllmModelCacheBytes', () => {
+  it('measures the real bytes sitting in WebLLM namespaces after a bridge download', async () => {
+    const { storage } = makeEcoStorage();
+    await bridgeDownloadWebLLMModel(MODEL, {
+      storage,
+      download: vi.fn().mockResolvedValue(undefined),
+    });
+
+    const expected = [...(await memCaches.open('webllm/model')).store.values()]
+      .concat([...(await memCaches.open('webllm/config')).store.values()])
+      .reduce((sum, buf) => sum + buf.byteLength, 0);
+    expect(expected).toBeGreaterThan(0);
+
+    expect(await measureWebllmModelCacheBytes(MODEL)).toBe(expected);
+  });
+
+  it('counts what is present after a partial wipe instead of reporting zero', async () => {
+    const { storage } = makeEcoStorage();
+    await bridgeDownloadWebLLMModel(MODEL, {
+      storage,
+      download: vi.fn().mockResolvedValue(undefined),
+    });
+    const modelCache = await memCaches.open('webllm/model');
+    const evicted = [...modelCache.store.keys()].find((k) => k.endsWith('params_shard_0.bin'));
+    expect(evicted).toBeDefined();
+    const evictedBytes = modelCache.store.get(evicted!)!.byteLength;
+    const fullTotal = await measureWebllmModelCacheBytes(MODEL);
+    modelCache.store.delete(evicted!);
+
+    expect(await measureWebllmModelCacheBytes(MODEL)).toBe(fullTotal! - evictedBytes);
+  });
+
+  it('returns null (not zero) when the Cache API itself cannot be asked', async () => {
+    const brokenCaches = {
+      open: async () => {
+        throw new Error('cache storage unavailable');
+      },
+    } as unknown as CacheStorageLike;
+
+    expect(await measureWebllmModelCacheBytes(MODEL, { caches: brokenCaches })).toBeNull();
   });
 });

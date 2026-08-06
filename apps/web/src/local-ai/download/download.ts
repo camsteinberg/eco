@@ -39,6 +39,7 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import type { ModelConfig } from '../types';
 import {
+  ECO_PART_MARKER,
   partsStream,
   pickStorage,
   type Storage,
@@ -827,9 +828,10 @@ type FetchedFile =
 /**
  * PATH suffix (not a query string) marking a chunk-part entry. OPFS's
  * safeFileName strips queries, so a query-based scheme would collide across
- * offsets; a path suffix survives it.
+ * offsets; a path suffix survives it. The literal lives in storage.ts with the
+ * rest of the cache format contract.
  */
-const PART_MARKER = '.ecopart.';
+const PART_MARKER = ECO_PART_MARKER;
 
 /**
  * Stamp binding a part to the exact bytes it belongs to: the reviewed LFS
