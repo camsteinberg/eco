@@ -33,8 +33,10 @@ const ERROR_MESSAGES = [
     body: "Something hit a snag on this device. Give it a moment and try once more.",
   },
   {
+    // No-excuse-UI: everything runs on the user's own device — never promise
+    // that somebody unseen is fixing it ("We are on it" was a false promise).
     title: "A branch broke",
-    body: "That did not work. We are on it; try again shortly.",
+    body: "That did not work on this device. Give it another try.",
   },
 ];
 
