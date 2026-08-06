@@ -62,7 +62,7 @@ import {
 import { selectRuntime } from './runtime/runtime-router';
 import { getDeviceProfile } from './device/profile';
 import { setSmokeGenerationFn, hasSmokeGenerationFn } from './lifecycle/smoke';
-import { reconcileReadySlots, runSelfHeal } from './lifecycle/self-heal';
+import { reconcilePreparingSlots, reconcileReadySlots, runSelfHeal } from './lifecycle/self-heal';
 import { pickStorage } from './download/storage';
 import { logger } from '../lib/logger';
 
@@ -297,6 +297,19 @@ export async function bootstrapLocalAi(options?: BootstrapOptions): Promise<void
       );
     } catch {
       // Slot reconciliation must never crash app boot.
+    }
+
+    // The promote direction: a slot stuck 'preparing' whose model's bytes
+    // verify complete AND which has recent proof of running on this device
+    // flips to 'ready'. This is the boot-time repair for the ready-state
+    // wedge (permanently swallowed sends over a fully-downloaded model,
+    // verified live 2026-08-05). Runs AFTER the demote pass so a slot the
+    // demote just flipped is re-checked against the same manifest — and after
+    // runSelfHeal, which has already cleared stale download markers.
+    try {
+      await reconcilePreparingSlots(resolveReconcileFilePlan);
+    } catch {
+      // Slot promotion must never crash app boot.
     }
   }
 }

@@ -129,3 +129,35 @@ export function buildLocalReadinessFailureV2({
     slotId: slot.slot,
   };
 }
+
+/**
+ * Decide whether a slot flipping to 'ready' should invisibly retry the
+ * conversation's last turn.
+ *
+ * A send blocked by readiness leaves the user's message answered only by an
+ * error card. When the blocking slot later becomes ready — boot promotion,
+ * the recovery card's driver, a Settings run — the person should get their
+ * answer without being told to resend (no-excuse-UI). This picks the retry
+ * target: the LAST message, only when it is a readiness-failure card for the
+ * slot that just became ready. Anything after it (a newer turn, a streaming
+ * reply) means the conversation moved on — never retry into that.
+ *
+ * Pure; structural message shape so callers can pass store messages directly.
+ */
+export function findAutoRetryTarget(
+  messages: ReadonlyArray<{
+    id: string;
+    role: string;
+    status?: string;
+    localReadiness?: { slotId?: string } | null;
+  }>,
+  readySlot: "eco-fast" | "eco-smart",
+): string | null {
+  const last = messages[messages.length - 1];
+  if (!last || last.role !== "assistant") return null;
+  if (last.status !== "error" || !last.localReadiness) return null;
+  if (last.localReadiness.slotId && last.localReadiness.slotId !== readySlot) {
+    return null;
+  }
+  return last.id;
+}

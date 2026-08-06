@@ -3,7 +3,7 @@
 
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useChatStore } from "../stores/chatStore";
 import type { ChatMessage, ChatRouteRecommendationSnapshot, FileAttachment } from "../stores/chatStore";
 import { useConversationStore } from "../stores/conversationStore";
@@ -39,11 +39,11 @@ import { inferAnswerShape, type AnswerShape } from "../lib/answer-shape";
 import { buildLocalHardConstraintRepair } from "../lib/local-generation-constraints";
 import { LocalInferenceStreamError } from "../local-ai/runtime/errors";
 import { buildLocalFallbackMessages, getLocalRuntimeCrashRecovery } from "../lib/chat-recovery";
-import { buildLocalReadinessFailureV2 } from "../lib/chat-turns";
+import { buildLocalReadinessFailureV2, findAutoRetryTarget } from "../lib/chat-turns";
 import { isValidationHarnessEnabled } from "../lib/validation-harness";
-import { getSlot as getLocalAiSlot } from "../local-ai/lifecycle/slots";
+import { getSlot as getLocalAiSlot, subscribe as subscribeLocalAiSlots } from "../local-ai/lifecycle/slots";
 import { isUpgradeInFlight } from "../local-ai/lifecycle/upgrade";
-import { MODEL_PREPARING_BUSY_MESSAGE } from "../lib/local-heavy-work-owner";
+import { MODEL_PREPARING_BUSY_MESSAGE, getActiveLocalHeavyWorkLease } from "../lib/local-heavy-work-owner";
 import { getActiveModel } from "../local-ai/runtime/lifecycle";
 import { createLocalAiLegacyInference } from "../local-ai/adapters/useChatLegacyShim";
 import { getLastUsage as getLocalAiLastUsage, getLastTemplateName as getLocalAiLastTemplateName } from "../local-ai/runtime/usage-store";
@@ -1862,6 +1862,47 @@ export function useChat() {
     // Resend
     await sendMessage(userMsg.content);
   }
+
+  // ── Invisible readiness retry ──────────────────────────────────────────
+  // A send blocked by slot readiness leaves the user's message answered only
+  // by an error card. When the blocking slot becomes ready (boot promotion,
+  // the recovery card's driver, a Settings setup run), retry that turn
+  // automatically — the person never has to resend (no-excuse-UI). Guarded
+  // per message id so a retry that fails for a NEW reason is never looped.
+  const autoRetriedMessageIdsRef = useRef<Set<string>>(new Set());
+
+  function maybeAutoRetryReadinessFailure(slot: LocalAiSlot): void {
+    const target = findAutoRetryTarget(useChatStore.getState().messages, slot);
+    if (!target || autoRetriedMessageIdsRef.current.has(target)) return;
+    autoRetriedMessageIdsRef.current.add(target);
+    void (async () => {
+      // The 'ready' flip usually lands while the repairing pipeline still
+      // holds the heavy-work lease (released just after). Wait briefly for
+      // the runtime to free rather than bouncing off the busy guard.
+      for (let attempt = 0; attempt < 40; attempt++) {
+        if (getActiveLocalHeavyWorkLease() === null) break;
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+      await retryMessage(target);
+    })();
+  }
+
+  useEffect(() => {
+    const unsubscribe = subscribeLocalAiSlots((slot, state) => {
+      if (state.status !== "ready") return;
+      maybeAutoRetryReadinessFailure(slot);
+    });
+    // Boot-time promotion (reconcilePreparingSlots) can flip the slot before
+    // this subscription exists — check once on mount so a stranded readiness
+    // card from the previous visit finally gets its answer.
+    for (const slot of ["eco-fast", "eco-smart"] as const) {
+      if (getLocalAiSlot(slot).status === "ready") {
+        maybeAutoRetryReadinessFailure(slot);
+      }
+    }
+    return unsubscribe;
+    // Mount-only: the subscription callback reads live store state itself.
+  }, []);
 
   async function continueLatestTurnLocally(localModelId?: string) {
     const currentSlotModelId =

@@ -117,6 +117,7 @@ vi.mock("../../local-ai/adapters/useChatLegacyShim", () => ({
 }));
 
 vi.mock("../../local-ai/lifecycle/slots", () => ({
+  subscribe: () => () => {},
   SLOTS: ["eco-fast", "eco-smart"] as ReadonlyArray<Slot>,
   getSlot: (slot: Slot): SlotState => {
     shared.fastSlotState ??= shared.makeReadyFastSlot();

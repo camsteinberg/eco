@@ -33,6 +33,13 @@ vi.mock("../../local-ai/lifecycle/smoke", () => ({
 vi.mock("../../lib/local-heavy-work-owner", () => ({
   acquireLocalHeavyWork: (...args: unknown[]) => mockAcquireLocalHeavyWork(...args),
   describeLocalHeavyWorkBusy: () => "busy",
+  getActiveLocalHeavyWorkLease: () => null,
+}));
+
+// The prepare driver (separate test file) pulls in the setup runner; keep it
+// inert here so the warmup tests stay about the warmup gate.
+vi.mock("../../local-ai/lifecycle/setup-runner", () => ({
+  executeSetup: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../../local-ai/runtime/lifecycle", () => ({

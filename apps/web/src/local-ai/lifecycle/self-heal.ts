@@ -39,7 +39,7 @@ import {
   FORMER_EVERYDAY_DEFAULT_IDS,
   recommend,
 } from '../selection/recommend';
-import { clearEvidence } from '../evidence/ledger';
+import { clearEvidence, hasRecentSuccess } from '../evidence/ledger';
 import { getModel } from '../catalog/catalog';
 import { getDeviceProfile } from '../device/profile';
 import { isWebKitMobile, WEBKIT_MOBILE_VALIDATED_MODEL_IDS } from '../device/compatibility';
@@ -879,6 +879,163 @@ export async function reconcileReadySlots(
       } catch (err) {
         report.errors.push(`set-status(${slot}): ${describe(err)}`);
       }
+    }
+  }
+
+  return report;
+}
+
+// ─── Boot-time slot promotion (the reverse of reconcileReadySlots) ─────────
+
+export type PromoteReport = {
+  /** Slots whose status was flipped from 'preparing' to 'ready' because their
+   *  model's bytes verified complete AND the model has recent proof of running
+   *  on this device. */
+  slotsPromotedToReady: Slot[];
+  /** Non-fatal errors during promotion. */
+  errors: string[];
+};
+
+export type PromoteOptions = {
+  cacheStorage?: Storage;
+  /** Slot/marker storage — defaults to localStorage (same seam as runSelfHeal). */
+  storage?: SlotStorage;
+  /** Test seam — defaults to slots.setSlotStatus. */
+  setStatus?: (slot: Slot, status: 'ready') => void;
+  /** Test seam — defaults to the catalog's getModel. */
+  resolveModel?: (modelId: string) => ModelConfig | null;
+  /** Test seam — webllm presence probe (must THROW when undeterminable). */
+  webllmInCache?: (model: ModelConfig) => Promise<boolean>;
+  /** Test seam — "has this model recently run on this device?" Defaults to the
+   *  evidence ledger's hasRecentSuccess against the live device profile. */
+  hasDeviceProof?: (modelId: string) => boolean;
+  /** Harness-only seam — same escape hatch as reconcileReadySlots. */
+  isCacheVerificationForced?: () => boolean;
+};
+
+/**
+ * Reconcile every slot stuck 'preparing' against the actual cache state — the
+ * PROMOTE direction. Closes the ready-state wedge verified live 2026-08-05:
+ * a slot can be left 'preparing' with its model fully downloaded (a demote
+ * flip whose re-download completed but never re-ran setup, an interrupted
+ * switch after the bytes landed, a reload at the wrong moment), and nothing
+ * ever re-checked it — so every send died on a setup card whose button was
+ * permanently disabled.
+ *
+ * A slot is promoted ONLY when all three hold:
+ *   1. No live download-in-progress marker for its model (an actual in-flight
+ *      download owns the slot; stale markers are cleared by runSelfHeal, which
+ *      the boot path runs first).
+ *   2. Its bytes verify COMPLETE — every manifest-plan file present at the
+ *      declared size (or, for a `webllm` model, the engine's own cache reports
+ *      presence). Manifest unreachable ⇒ skip; verification never guesses.
+ *   3. The evidence ledger holds a recent smoke/generate PASS for the model on
+ *      this device profile — 'ready' means "proven to run here", and this pass
+ *      keeps that meaning. Bytes-present-but-never-proven stays 'preparing';
+ *      the recovery surface owns driving a real setup run for it.
+ *
+ * Never demotes, never deletes, never throws. Idempotent.
+ */
+export async function reconcilePreparingSlots(
+  planResolver: SlotPlanResolver,
+  options?: PromoteOptions,
+): Promise<PromoteReport> {
+  const report: PromoteReport = { slotsPromotedToReady: [], errors: [] };
+
+  const cacheVerificationForced = options?.isCacheVerificationForced ?? isCacheVerificationForced;
+  if (cacheVerificationForced()) return report;
+
+  const cacheStorage = options?.cacheStorage ?? new CacheApiStorage();
+  const markerStorage = options?.storage ?? defaultSlotStorage();
+  const setStatus = options?.setStatus ?? setSlotStatus;
+  const resolveModel = options?.resolveModel ?? getModel;
+  const hasDeviceProof =
+    options?.hasDeviceProof
+    ?? ((modelId: string): boolean => {
+      try {
+        return hasRecentSuccess(modelId, getDeviceProfile());
+      } catch {
+        return false;
+      }
+    });
+
+  const slotState = getAllSlots();
+  for (const slot of SLOTS) {
+    const state = slotState[slot];
+    if (state.status !== 'preparing' || !state.modelId) continue;
+
+    // A live in-flight download owns this slot — the pipeline that started it
+    // will drive the status. (runSelfHeal already cleared stale markers.)
+    if (markerStorage) {
+      const hasLiveMarker =
+        markerStorage.getItem(DOWNLOAD_IN_PROGRESS_PREFIX_NEW + state.modelId) !== null
+        || markerStorage.getItem(DOWNLOAD_IN_PROGRESS_PREFIX_LEGACY + state.modelId) !== null;
+      if (hasLiveMarker) continue;
+    }
+    // Same reason, in-memory: an active heavy-work lease means a download or
+    // smoke is running right now.
+    if (getActiveLocalHeavyWorkLease() !== null) continue;
+
+    if (!hasDeviceProof(state.modelId)) continue;
+
+    const model = resolveModel(state.modelId);
+
+    // `webllm` models live in the engine's own cache — same authoritative
+    // probe (and the same throw-means-unknown contract) as the demote pass.
+    if (model?.runtime === 'webllm') {
+      if (!model.artifact?.hfId) continue;
+      let present = false;
+      try {
+        present = await (options?.webllmInCache ?? defaultWebllmInCache)(model);
+      } catch (err) {
+        report.errors.push(`webllm-probe(${state.modelId}): ${describe(err)}`);
+        continue;
+      }
+      if (!present) continue;
+      try {
+        setStatus(slot, 'ready');
+        report.slotsPromotedToReady.push(slot);
+      } catch (err) {
+        report.errors.push(`set-status(${slot}): ${describe(err)}`);
+      }
+      continue;
+    }
+
+    let files: ReadonlyArray<{ url: string; sizeBytes: number }> | null = null;
+    try {
+      files = await planResolver(state.modelId);
+    } catch (err) {
+      report.errors.push(`plan-resolver(${state.modelId}): ${describe(err)}`);
+      continue;
+    }
+    if (!files || files.length === 0) continue;
+
+    // Read-only completeness check: every plan file present at its declared
+    // size. Any miss (or any storage error) means "not proven complete" —
+    // skip, delete nothing.
+    let complete = true;
+    for (const file of files) {
+      try {
+        const verified = await cacheStorage.verify(
+          { modelId: state.modelId, url: file.url },
+          file.sizeBytes,
+        );
+        if (!verified) {
+          complete = false;
+          break;
+        }
+      } catch {
+        complete = false;
+        break;
+      }
+    }
+    if (!complete) continue;
+
+    try {
+      setStatus(slot, 'ready');
+      report.slotsPromotedToReady.push(slot);
+    } catch (err) {
+      report.errors.push(`set-status(${slot}): ${describe(err)}`);
     }
   }
 

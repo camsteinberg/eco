@@ -13,7 +13,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { buildLocalReadinessFailureV2 } from '../chat-turns';
+import { buildLocalReadinessFailureV2, findAutoRetryTarget } from '../chat-turns';
 import type { SlotState } from '../../local-ai/lifecycle/slots';
 import type { ModelConfig } from '../../local-ai/types';
 
@@ -85,5 +85,59 @@ describe('buildLocalReadinessFailureV2', () => {
       slot: slot({ slot: 'eco-smart', status: 'preparing' }),
     });
     expect(result.slotId).toBe('eco-smart');
+  });
+});
+
+describe("findAutoRetryTarget", () => {
+  const readinessCard = (id: string, slotId?: "eco-fast" | "eco-smart") => ({
+    id,
+    role: "assistant",
+    status: "error",
+    localReadiness: slotId ? { slotId } : {},
+  });
+
+  it("targets the last message when it is a readiness card for the ready slot", () => {
+    const messages = [
+      { id: "u1", role: "user" },
+      readinessCard("a1", "eco-smart"),
+    ];
+    expect(findAutoRetryTarget(messages, "eco-smart")).toBe("a1");
+  });
+
+  it("matches any slot when the card recorded none", () => {
+    const messages = [{ id: "u1", role: "user" }, readinessCard("a1")];
+    expect(findAutoRetryTarget(messages, "eco-fast")).toBe("a1");
+  });
+
+  it("returns null when a different slot became ready", () => {
+    const messages = [{ id: "u1", role: "user" }, readinessCard("a1", "eco-smart")];
+    expect(findAutoRetryTarget(messages, "eco-fast")).toBeNull();
+  });
+
+  it("returns null when the conversation has moved past the card", () => {
+    const messages = [
+      { id: "u1", role: "user" },
+      readinessCard("a1", "eco-smart"),
+      { id: "u2", role: "user" },
+    ];
+    expect(findAutoRetryTarget(messages, "eco-smart")).toBeNull();
+  });
+
+  it("returns null for an ordinary (non-readiness) error card", () => {
+    const messages = [
+      { id: "u1", role: "user" },
+      { id: "a1", role: "assistant", status: "error" },
+    ];
+    expect(findAutoRetryTarget(messages, "eco-smart")).toBeNull();
+  });
+
+  it("returns null for a healthy last reply and for an empty thread", () => {
+    expect(
+      findAutoRetryTarget(
+        [{ id: "a1", role: "assistant", status: "complete" }],
+        "eco-fast",
+      ),
+    ).toBeNull();
+    expect(findAutoRetryTarget([], "eco-fast")).toBeNull();
   });
 });

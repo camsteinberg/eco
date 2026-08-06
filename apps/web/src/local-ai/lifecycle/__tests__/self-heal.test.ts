@@ -11,6 +11,7 @@ import {
 } from '../../runtime/lifecycle';
 import { CURRENT_LEDGER_VERSION } from '../../evidence/ledger';
 import {
+  reconcilePreparingSlots,
   reconcileReadySlots,
   repairModelCache,
   runSelfHeal,
@@ -1305,5 +1306,203 @@ describe('reconcileReadySlots — webllm models verify against the engine cache'
     expect(getSlot('eco-fast').status).toBe('ready');
     expect(getSlot('eco-smart').status).toBe('preparing');
     expect(report.slotsFlippedToPreparing).toEqual(['eco-smart']);
+  });
+});
+
+// ─── reconcilePreparingSlots (the promote direction) ───────────────────────
+//
+// The ready-state wedge (verified live 2026-08-05): a slot stuck 'preparing'
+// while its model's bytes sit fully cached makes every send fail with a setup
+// card whose button is disabled — a permanent dead end no user can escape.
+// This pass is the boot-time repair: 'preparing' + bytes verified complete +
+// recent proof the model ran on this device ⇒ 'ready'. It never demotes,
+// never deletes, and skips anything it cannot verify.
+
+describe('reconcilePreparingSlots', () => {
+  const MODEL_ID = 'local/phi3-mini-4k-q4f16';
+  const PLAN = [
+    { url: 'https://hf/config.json', sizeBytes: 100 },
+    { url: 'https://hf/weights.bin', sizeBytes: 1_000 },
+  ];
+
+  async function populateCache(cacheStorage: CacheApiStorage, modelId = MODEL_ID) {
+    for (const file of PLAN) {
+      await cacheStorage.put(
+        { modelId, url: file.url },
+        new Response(new Uint8Array(file.sizeBytes)),
+      );
+    }
+  }
+
+  it('promotes a preparing slot to ready when bytes verify complete and device proof exists', async () => {
+    setSlot('eco-smart', MODEL_ID);
+    setSlotStatus('eco-smart', 'preparing');
+    const cacheStorage = new CacheApiStorage(new MemoryCacheStorage());
+    await populateCache(cacheStorage);
+
+    const report = await reconcilePreparingSlots(async () => PLAN, {
+      cacheStorage,
+      hasDeviceProof: () => true,
+    });
+
+    expect(report.slotsPromotedToReady).toEqual(['eco-smart']);
+    expect(getSlot('eco-smart').status).toBe('ready');
+  });
+
+  it('leaves the slot preparing when a plan file is wholly missing, and deletes nothing', async () => {
+    setSlot('eco-smart', MODEL_ID);
+    setSlotStatus('eco-smart', 'preparing');
+    const cacheStorage = new CacheApiStorage(new MemoryCacheStorage());
+    // Only the first file present.
+    await cacheStorage.put(
+      { modelId: MODEL_ID, url: PLAN[0]!.url },
+      new Response(new Uint8Array(PLAN[0]!.sizeBytes)),
+    );
+    const removeSpy = vi.spyOn(cacheStorage, 'remove');
+
+    const report = await reconcilePreparingSlots(async () => PLAN, {
+      cacheStorage,
+      hasDeviceProof: () => true,
+    });
+
+    expect(report.slotsPromotedToReady).toEqual([]);
+    expect(getSlot('eco-smart').status).toBe('preparing');
+    expect(removeSpy).not.toHaveBeenCalled();
+  });
+
+  it('leaves the slot preparing on a size mismatch (interrupted partial file), and deletes nothing', async () => {
+    setSlot('eco-smart', MODEL_ID);
+    setSlotStatus('eco-smart', 'preparing');
+    const cacheStorage = new CacheApiStorage(new MemoryCacheStorage());
+    await cacheStorage.put(
+      { modelId: MODEL_ID, url: PLAN[0]!.url },
+      new Response(new Uint8Array(PLAN[0]!.sizeBytes)),
+    );
+    await cacheStorage.put(
+      { modelId: MODEL_ID, url: PLAN[1]!.url },
+      new Response(new Uint8Array(7)), // truncated
+    );
+    const removeSpy = vi.spyOn(cacheStorage, 'remove');
+
+    const report = await reconcilePreparingSlots(async () => PLAN, {
+      cacheStorage,
+      hasDeviceProof: () => true,
+    });
+
+    expect(report.slotsPromotedToReady).toEqual([]);
+    expect(getSlot('eco-smart').status).toBe('preparing');
+    expect(removeSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not promote without device proof, even with a complete cache', async () => {
+    setSlot('eco-smart', MODEL_ID);
+    setSlotStatus('eco-smart', 'preparing');
+    const cacheStorage = new CacheApiStorage(new MemoryCacheStorage());
+    await populateCache(cacheStorage);
+
+    const report = await reconcilePreparingSlots(async () => PLAN, {
+      cacheStorage,
+      hasDeviceProof: () => false,
+    });
+
+    expect(report.slotsPromotedToReady).toEqual([]);
+    expect(getSlot('eco-smart').status).toBe('preparing');
+  });
+
+  it('does not promote when the manifest plan is unavailable (null resolver)', async () => {
+    setSlot('eco-smart', MODEL_ID);
+    setSlotStatus('eco-smart', 'preparing');
+    const cacheStorage = new CacheApiStorage(new MemoryCacheStorage());
+    await populateCache(cacheStorage);
+
+    const report = await reconcilePreparingSlots(async () => null, {
+      cacheStorage,
+      hasDeviceProof: () => true,
+    });
+
+    expect(report.slotsPromotedToReady).toEqual([]);
+    expect(getSlot('eco-smart').status).toBe('preparing');
+  });
+
+  it('never touches ready, error, or empty slots', async () => {
+    setSlot('eco-fast', MODEL_ID);
+    setSlotStatus('eco-fast', 'ready');
+    setSlot('eco-smart', MODEL_ID);
+    setSlotStatus('eco-smart', 'error');
+    const cacheStorage = new CacheApiStorage(new MemoryCacheStorage());
+    await populateCache(cacheStorage);
+
+    const report = await reconcilePreparingSlots(async () => PLAN, {
+      cacheStorage,
+      hasDeviceProof: () => true,
+    });
+
+    expect(report.slotsPromotedToReady).toEqual([]);
+    expect(getSlot('eco-fast').status).toBe('ready');
+    expect(getSlot('eco-smart').status).toBe('error');
+  });
+
+  it('skips a slot whose model has a live download-in-progress marker', async () => {
+    setSlot('eco-smart', MODEL_ID);
+    setSlotStatus('eco-smart', 'preparing');
+    storage.setItem(`eco-local-ai-download-in-progress-${MODEL_ID}`, String(nowMs));
+    const cacheStorage = new CacheApiStorage(new MemoryCacheStorage());
+    await populateCache(cacheStorage);
+
+    const report = await reconcilePreparingSlots(async () => PLAN, {
+      cacheStorage,
+      storage,
+      hasDeviceProof: () => true,
+    });
+
+    expect(report.slotsPromotedToReady).toEqual([]);
+    expect(getSlot('eco-smart').status).toBe('preparing');
+  });
+
+  it('is a no-op when the validation harness forces cache verification (e2e fixtures)', async () => {
+    setSlot('eco-smart', MODEL_ID);
+    setSlotStatus('eco-smart', 'preparing');
+    const cacheStorage = new CacheApiStorage(new MemoryCacheStorage());
+    await populateCache(cacheStorage);
+
+    const report = await reconcilePreparingSlots(async () => PLAN, {
+      cacheStorage,
+      hasDeviceProof: () => true,
+      isCacheVerificationForced: () => true,
+    });
+
+    expect(report.slotsPromotedToReady).toEqual([]);
+    expect(getSlot('eco-smart').status).toBe('preparing');
+  });
+
+  it('promotes a webllm model via the engine-cache presence probe', async () => {
+    const WEBLLM_ID = 'candidate/qwen2.5-0.5b-mlc';
+    setSlot('eco-fast', WEBLLM_ID);
+    setSlotStatus('eco-fast', 'preparing');
+
+    const report = await reconcilePreparingSlots(async () => PLAN, {
+      cacheStorage: new CacheApiStorage(new MemoryCacheStorage()),
+      hasDeviceProof: () => true,
+      webllmInCache: async () => true,
+    });
+
+    expect(report.slotsPromotedToReady).toEqual(['eco-fast']);
+    expect(getSlot('eco-fast').status).toBe('ready');
+  });
+
+  it('leaves a webllm slot alone when the presence probe throws (absence unproven)', async () => {
+    const WEBLLM_ID = 'candidate/qwen2.5-0.5b-mlc';
+    setSlot('eco-fast', WEBLLM_ID);
+    setSlotStatus('eco-fast', 'preparing');
+
+    const report = await reconcilePreparingSlots(async () => PLAN, {
+      cacheStorage: new CacheApiStorage(new MemoryCacheStorage()),
+      hasDeviceProof: () => true,
+      webllmInCache: async () => { throw new Error('cache API unavailable'); },
+    });
+
+    expect(report.slotsPromotedToReady).toEqual([]);
+    expect(getSlot('eco-fast').status).toBe('preparing');
+    expect(report.errors.length).toBeGreaterThan(0);
   });
 });

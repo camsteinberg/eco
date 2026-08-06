@@ -276,10 +276,17 @@ export function ErrorMessage({
       }
     : isLocalSetupError
     ? {
-        title: LOCAL_SETUP_MESSAGE_TITLE,
+        // Once the model IS ready the card must stop claiming setup is needed
+        // — the old copy said both in one breath (verified live 2026-08-05).
+        // The retry itself is automatic (useChat's invisible readiness retry),
+        // so the body reports that, not an instruction to resend.
+        title:
+          localPrepareState?.status === "ready"
+            ? `${localReadiness?.slotLabel ?? "Eco"} is ready`
+            : LOCAL_SETUP_MESSAGE_TITLE,
         body:
           localPrepareState?.status === "ready"
-            ? `${localReadiness?.slotLabel ?? "Eco"} is ready. Send your message again when you are ready.`
+            ? "Finishing up — your message will send itself in a moment."
             : localPrepareState?.status === "error" && localPrepareState.error
               ? localPrepareState.error
               : message,

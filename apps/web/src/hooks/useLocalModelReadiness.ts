@@ -28,7 +28,9 @@ import {
 import {
   acquireLocalHeavyWork,
   describeLocalHeavyWorkBusy,
+  getActiveLocalHeavyWorkLease,
 } from "../lib/local-heavy-work-owner";
+import { executeSetup } from "../local-ai/lifecycle/setup-runner";
 import {
   clearValidationConversationHistoryFixture,
   installValidationConversationHistoryFixture,
@@ -81,10 +83,19 @@ export function useLocalModelReadiness(): LocalModelReadiness {
   const ecoFastSlot = getSlot("eco-fast");
   void slotVersion; // force re-derive on slot changes
 
-  const [warmingModelId, setWarmingModelId] = useState<string | null>(null);
+  const [prepareRunState, setPrepareRunState] = useState<
+    { modelId: string; phase: "downloading" | "warming"; progress: number | null } | null
+  >(null);
   const [prepareError, setPrepareError] = useState<{ modelId: string; message: string } | null>(null);
   const [downloadedRecoveryModelId, setDownloadedRecoveryModelId] = useState<string | null>(null);
 
+  // The recovery card's REAL driver. Previously this ran a bare smoke (which
+  // never flips slot status — dispatch stayed blocked even after a pass) and
+  // dead-ended on a 'preparing' slot with an early return, so a slot stuck
+  // 'preparing' rendered a permanently disabled "Checking..." button — the
+  // ready-state wedge, verified live 2026-08-05. Now every not-ready slot runs
+  // the same setup pipeline first-run uses: resume the bound pick (downloading
+  // only what's missing), smoke it, and drive the slot to 'ready'/'error'.
   const handlePrepareLocalModel = useCallback(
     (modelId: string) => {
       setPrepareError(null);
@@ -96,50 +107,66 @@ export function useLocalModelReadiness(): LocalModelReadiness {
         });
         return;
       }
-      const slotState = getSlot(slot);
-      if (slotState.status === "ready") {
+      if (getSlot(slot).status === "ready") {
         // Already ready — nothing to prepare
         return;
       }
-      if (slotState.status === "preparing") {
-        // Already in progress
+      if (prepareRunState) {
+        // A prepare driven from this surface is already running.
         return;
       }
-      // For error/empty slots, attempt smoke if model exists
-      if (slotState.model) {
-        const lease = acquireLocalHeavyWork("readiness");
-        if (!lease.ok) {
+      const lease = acquireLocalHeavyWork("readiness");
+      if (!lease.ok) {
+        setPrepareError({
+          modelId,
+          message: describeLocalHeavyWorkBusy(lease.active),
+        });
+        return;
+      }
+      setPrepareRunState({ modelId, phase: "downloading", progress: null });
+      void (async () => {
+        try {
+          await executeSetup(
+            {
+              onProgressEvent: (event) => {
+                if (event.kind === "progress" && event.phase === "downloading") {
+                  setPrepareRunState({ modelId, phase: "downloading", progress: event.percent });
+                } else if (event.kind === "progress" && event.phase === "smoke") {
+                  setPrepareRunState({ modelId, phase: "warming", progress: null });
+                }
+              },
+              setBelowFloor: () => {
+                setPrepareError({
+                  modelId,
+                  message: "Eco can't run on this device yet.",
+                });
+              },
+              // The slot flip to 'ready' notifies the slot subscription above,
+              // which re-derives every consumer — nothing else to do here.
+              setReady: () => {},
+              setError: (reason) => {
+                setPrepareError({ modelId, message: reason });
+              },
+              markPriorAttemptFailed: () => {},
+              markFindingFit: () => {},
+              markResuming: () => {},
+            },
+            { slot },
+          );
+        } catch (err) {
           setPrepareError({
             modelId,
-            message: describeLocalHeavyWorkBusy(lease.active),
+            message: err instanceof Error
+              ? err.message
+              : "Eco could not finish setup. Try again from Models.",
           });
-          return;
+        } finally {
+          setPrepareRunState(null);
+          lease.release();
         }
-        setWarmingModelId(modelId);
-        void (async () => {
-          try {
-            const result = await runSmoke(slot, slotState.model!, { timeoutMs: 20_000 });
-            if (!result.passed) {
-              setPrepareError({
-                modelId,
-                message: result.reason,
-              });
-            }
-          } catch (err) {
-            setPrepareError({
-              modelId,
-              message: err instanceof Error
-                ? err.message
-                : "Eco could not warm up this local model. Try again from Models.",
-            });
-          } finally {
-            setWarmingModelId(null);
-            lease.release();
-          }
-        })();
-      }
+      })();
     },
-    [],
+    [prepareRunState],
   );
 
   // ── Mount-time warmup ──────────────────────────────────────────────────
@@ -239,11 +266,33 @@ export function useLocalModelReadiness(): LocalModelReadiness {
         };
       }
 
+      // A prepare run driven from this surface reports its live phase —
+      // download progress, then warm-up — regardless of slot status.
+      if (prepareRunState?.modelId === modelId) {
+        return prepareRunState.phase === "downloading"
+          ? {
+              status: "downloading" as const,
+              ...(prepareRunState.progress !== null
+                ? { progress: prepareRunState.progress }
+                : {}),
+            }
+          : { status: "warming" as const };
+      }
+
       const slot = getSlotForModel(modelId);
       if (slot) {
         const state = getSlot(slot);
         if (state.status === "ready") return { status: "ready" as const };
-        if (state.status === "preparing") return { status: "checking" as const };
+        if (state.status === "preparing") {
+          // 'preparing' only means "work is happening" when work IS happening.
+          // With no active heavy-work lease, nothing is driving this slot —
+          // report idle so the card's button stays actionable ("Resume Eco")
+          // instead of a permanently disabled "Checking..." (the ready-state
+          // wedge's visible face, verified live 2026-08-05).
+          return getActiveLocalHeavyWorkLease() !== null
+            ? { status: "checking" as const }
+            : { status: "idle" as const };
+        }
         if (state.status === "error") {
           return {
             status: "error" as const,
@@ -252,13 +301,9 @@ export function useLocalModelReadiness(): LocalModelReadiness {
         }
       }
 
-      if (warmingModelId === modelId) {
-        return { status: "warming" as const };
-      }
-
       return { status: "idle" as const };
     },
-    [prepareError, slotVersion, warmingModelId],
+    [prepareError, slotVersion, prepareRunState],
   );
 
   useEffect(() => {
