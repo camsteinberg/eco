@@ -42,7 +42,7 @@ import {
 import { clearEvidence, hasRecentSuccess } from '../evidence/ledger';
 import { getModel } from '../catalog/catalog';
 import { getDeviceProfile } from '../device/profile';
-import { isWebKitMobile, WEBKIT_MOBILE_VALIDATED_MODEL_IDS } from '../device/compatibility';
+import { isWebKitMobile, requiresWebKitMobile, WEBKIT_MOBILE_VALIDATED_MODEL_IDS } from '../device/compatibility';
 import type { DeviceProfile, ModelConfig } from '../types';
 import { getActiveLocalHeavyWorkLease } from '../../lib/local-heavy-work-owner';
 import { isCacheVerificationForced } from '../../lib/validation-harness';
@@ -186,6 +186,11 @@ export type SelfHealReport = {
    *  setup run re-enters recommend → below-floor instead of resuming a load
    *  that crash-loops the tab. */
   webkitMobileSlotsRegated: Slot[];
+  /** Slots cleared this boot because the bound model is scoped to a device
+   *  class this device is not (today: an iOS-only model bound on desktop).
+   *  Selection would never pick it here, but nothing else re-checks a binding
+   *  that already exists — and every state surface reads the binding as truth. */
+  incompatibleSlotsRegated: Slot[];
   errors: string[];
 };
 
@@ -419,6 +424,7 @@ export async function runSelfHeal(options?: SelfHealOptions): Promise<SelfHealRe
     artifactMigrationsRun: [],
     retiredModelMigrationsRun: [],
     webkitMobileSlotsRegated: [],
+    incompatibleSlotsRegated: [],
     errors: [],
   };
 
@@ -460,6 +466,31 @@ export async function runSelfHeal(options?: SelfHealOptions): Promise<SelfHealRe
     }
   } catch (err) {
     report.errors.push(`webkit-mobile-regate: ${describe(err)}`);
+  }
+
+  // -2b. The desktop mirror of the re-gate above. An iOS-only binding can
+  //     survive in localStorage on a desktop profile (seen live 2026-08-05:
+  //     Settings announced "Eco Mobile (Qwen)" — "Made for iPhone" — on a
+  //     Chromium desktop). Selection never picks it here, but nothing
+  //     re-checked a binding that already existed, and every state surface
+  //     reads the binding as truth. Clear it, and drop its resume markers.
+  //     Form-factor facts only (no capability probes), so a transient probe
+  //     misread can never wipe a healthy slot.
+  try {
+    const profile = (options?.resolveDeviceProfile ?? getDeviceProfile)();
+    if (!isWebKitMobile(profile)) {
+      const slotState = getAllSlots();
+      for (const slot of SLOTS) {
+        const boundId = slotState[slot].modelId;
+        if (!boundId || !requiresWebKitMobile(boundId)) continue;
+        clearSlot(slot);
+        storage.removeItem(DOWNLOAD_IN_PROGRESS_PREFIX_NEW + boundId);
+        storage.removeItem(DOWNLOAD_IN_PROGRESS_PREFIX_LEGACY + boundId);
+        report.incompatibleSlotsRegated.push(slot);
+      }
+    }
+  } catch (err) {
+    report.errors.push(`device-scope-regate: ${describe(err)}`);
   }
 
   // -1. Artifact-swap evidence migration. MUST run before the former-default
