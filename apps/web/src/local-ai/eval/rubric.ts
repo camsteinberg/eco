@@ -581,6 +581,18 @@ function containsDeliverable(chunk: string): boolean {
   return hasStructuralDeliverable(chunk) || deliverableWordCount(chunk) >= MIN_DELIVERABLE_WORDS;
 }
 
+/**
+ * Whether the reply put ANYTHING in front of the user — deliberately weaker than
+ * `containsDeliverable`, which asks whether the content is substantial enough to
+ * be an answer. Only the "nothing at all" case is decided here, because that is
+ * the one a caller can be sure about: "Boil them for seven minutes" is five words
+ * and is a complete answer, so a reply is only empty-handed when there is no
+ * content left once the questions and the pleasantries come out.
+ */
+function containsAnyContent(chunk: string): boolean {
+  return hasStructuralDeliverable(chunk) || deliverableWordCount(chunk) > 0;
+}
+
 /** What `scoreDeliversFirst` saw. Exported so a run can report the counts. */
 export type DeliversFirstAnalysis = {
   /** Segments that ask the user for something. */
@@ -598,10 +610,21 @@ export type DeliversFirstAnalysis = {
  *   1   — nothing was asked of the user, or a deliverable precedes the first ask;
  *   0.5 — the reply asks first but still delivers in the same turn;
  *   0   — it asks and never delivers. The corpus writes this bounce forty ways,
- *         and every one of them ends "…before writing anything".
+ *         and every one of them ends "…before writing anything". A reply that
+ *         handed the user NOTHING lands here too, whether or not the ask was
+ *         phrased as a request this code can see.
  *
  * NOT first-sentence position. A two-word preamble ahead of a real answer is not
  * a defect, and a dim that scored it as one would be measuring politeness.
+ *
+ * ★ WHY THE NO-REQUEST BRANCH IS NOT AN AUTOMATIC 1.0. `isUserRequest` only reads
+ * a question as an ask when it also says "you" — so "What's the occasion? How
+ * many people? Any dietary requirements?" is an interrogation with no recognized
+ * request in it, and a branch that returned 1.0 on request-free replies scored
+ * that (and the empty string) a perfect mark on a dim named for delivering.
+ * Every question is already excluded from the content count, so the reply's own
+ * word tally answers the question the name asks: was the user handed anything at
+ * all? Nothing asked AND nothing delivered is the bounce, not a pass.
  */
 export function analyzeDeliversFirst(text: string): DeliversFirstAnalysis {
   const segments = splitSegments(text);
@@ -614,7 +637,7 @@ export function analyzeDeliversFirst(text: string): DeliversFirstAnalysis {
       firstRequestAt: null,
       deliverableBeforeFirstRequest: containsDeliverable(text),
       deliverableAfterFirstRequest: false,
-      score: 1,
+      score: containsAnyContent(text) ? 1 : 0,
     };
   }
 
@@ -721,19 +744,32 @@ export function longestCommonTokenSpan(a: readonly string[], b: readonly string[
 const REUSE_SPAN_TARGET = 8;
 
 /**
- * Fraction of the OUTPUT covered by one single copied span, above which the
- * reply is a copy rather than a response.
+ * What `scorePreservesUserText` saw.
  *
- * 0.7 rather than something near 1.0 because of what it has to catch: echoing
- * the input and appending a sentence is the cheapest way to satisfy a reuse
- * metric without doing the task. It is safe at 0.7 because every good-answer
- * shape this dim applies to shatters long spans — an edit, a table, a summary
- * and a translation all interleave new tokens, so their single-span coverage
- * sits far below it.
+ * ★ `echo` MEANS THE PASTE CAME BACK UNTOUCHED — the whole block, unbroken,
+ * inside the reply. It is a copy, not a response, because nothing in it changed.
+ *
+ * An earlier rule asked what fraction of the OUTPUT one copied span covered, and
+ * called anything past 0.7 an echo. That measured the wrong thing on the only
+ * items this dim is gated to. Their deliverable IS mostly the user's words —
+ * "the corrected text and nothing else" — so a reply whose corrections happened
+ * to land near one end left the rest as a single long span, and the coverage
+ * rule scored a near-perfect proofread ZERO on all ten of them. It read the
+ * other way too: appending about half the paste's length in filler dropped
+ * coverage under 0.7, so echoing the text UNCORRECTED and padding scored 1.0.
+ * Both directions were measured, and the ordering it produced was upside down —
+ * a reply that ignored the user's text entirely scored 0.13-0.25, above the
+ * 0.00 it gave the ideal answer, and the prompt-inclusive n-gram ban this dim
+ * exists to read out scored 0.25 with the ban ON against 0.00 with it OFF.
+ *
+ * Whole-block inclusion separates the two cases on all ten items with no
+ * threshold at all: a proofread that fixed even one token cannot contain the
+ * block unbroken, and echo-plus-padding always does.
+ *
+ * ⚠ WHAT IT STILL DOES NOT CATCH: echoing all but a token or two of the block
+ * and then padding. That is a narrower hole than the one it replaces, and it
+ * costs no invented constant to leave open.
  */
-const ECHO_COVERAGE = 0.7;
-
-/** What `scorePreservesUserText` saw. */
 export type PreservesUserTextAnalysis = {
   longestSpan: number;
   outputTokens: number;
@@ -749,7 +785,7 @@ export function analyzePreservesUserText(
   const userTokens = tokenizeForReuse(pastedBlockOf(userText));
   const outputTokens = tokenizeForReuse(output);
   const longestSpan = longestCommonTokenSpan(userTokens, outputTokens);
-  const echo = outputTokens.length > 0 && longestSpan / outputTokens.length >= ECHO_COVERAGE;
+  const echo = userTokens.length > 0 && longestSpan === userTokens.length;
   return {
     longestSpan,
     outputTokens: outputTokens.length,

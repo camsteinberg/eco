@@ -663,6 +663,40 @@ describe('scoreDeliversFirst', () => {
     expect(scoreResult(delivers(), ctx({ output: asked })).deliversFirst).toBe(0);
     expect(scoreResult(spec(), ctx({ output: asked })).deliversFirst).toBeNull();
   });
+
+  it('★ an interrogation phrased without "you" is still an interrogation', () => {
+    // `isUserRequest` reads a question as an ask only when it also says "you", so
+    // none of these four register as requests — and a branch that returned 1.0
+    // whenever nothing was recognized as a request scored this, the single most
+    // common bounce shape in the corpus, a perfect mark.
+    const output =
+      "What's the occasion? How many people? Any dietary requirements? What sort of budget per head?";
+    expect(analyzeDeliversFirst(output).requestCount).toBe(0);
+    expect(scoreDeliversFirst(delivers(), output)).toBe(0);
+  });
+
+  it('★ a reply that handed the user nothing at all scores 0, not 1', () => {
+    expect(scoreDeliversFirst(delivers(), '')).toBe(0);
+    expect(scoreDeliversFirst(delivers(), '   \n  ')).toBe(0);
+    // Pleasantries only: the filler stripper leaves no content behind.
+    expect(scoreDeliversFirst(delivers(), 'Sure! Of course.')).toBe(0);
+  });
+
+  it('★ THE OTHER SIDE: a short, complete answer is not empty-handed', () => {
+    // The two-sided constraint. The empty-handed test asks whether ANY content
+    // survived, never whether there was enough of it — a five-word answer to a
+    // closed question is complete, and a dim that failed it would be paying for
+    // length. `answerDepth` owns "too thin", and only where the ask invites it.
+    for (const answer of [
+      'Boil them for seven minutes.',
+      'Yes.',
+      'It is 12 miles.',
+      'Yes — the second one.',
+      'About four hours, door to door.',
+    ]) {
+      expect(scoreDeliversFirst(delivers(), answer), answer).toBe(1);
+    }
+  });
 });
 
 describe('scoreArtifactDelivery', () => {
@@ -844,6 +878,49 @@ describe('scorePreservesUserText', () => {
     const output = `${PASTED_BLOCK} Let me know if you want anything else.`;
     expect(analyzePreservesUserText(PASTED_TURN, output).echo).toBe(true);
     expect(scorePreservesUserText(reuse(), output)).toBe(0);
+  });
+
+  it('★ nor does padding buy the echo its way out — half the paste again in filler', () => {
+    // The hole the old coverage rule left: it asked what fraction of the OUTPUT
+    // one copied span covered, so appending roughly half the paste's length in
+    // filler dropped that fraction under the threshold and scored the
+    // UNCORRECTED text a full 1.0.
+    const filler = Array.from({ length: 40 }, (_, i) => `filler${i}`).join(' ');
+    const output = `${PASTED_BLOCK}\n\n${filler}`;
+    expect(analyzePreservesUserText(PASTED_TURN, output).echo).toBe(true);
+    expect(scorePreservesUserText(reuse(), output)).toBe(0);
+  });
+
+  it('★ FALSE FIRE: a real proofread whose fixes land at one end is the IDEAL answer', () => {
+    // "The corrected text and nothing else" is what these items ask for, so the
+    // reply is mostly the user's words by design. Where the corrections happen to
+    // sit is not a property of the answer's quality — but under a
+    // fraction-of-output rule it decided the score: fixes in the middle split the
+    // span and scored 1.0, the same fix near the start left one long run and
+    // scored 0.00. Both are the same answer.
+    const fixedEarly =
+      "so basically what happened was we got to the site at 7 and the crew wasnt there, i called mike twice no answer.";
+    const fixedMiddle =
+      "so basically what happend was we got to the site at 7 and the crew wasn't there, i called mike twice no answer.";
+
+    expect(analyzePreservesUserText(PASTED_TURN, fixedEarly).echo).toBe(false);
+    expect(scorePreservesUserText(reuse(), fixedEarly)).toBe(1);
+    expect(scorePreservesUserText(reuse(), fixedMiddle)).toBe(1);
+  });
+
+  it('★ and the A/B this dim exists for reads the right way round', () => {
+    // The whole point is "does the prompt-inclusive n-gram ban cost us anything?"
+    // With the ban ON the span is capped at n-1; with it OFF a real proofread
+    // hands the wording back. The ban arm must score BELOW the unbanned one — the
+    // old rule had it the other way around on every gated item, 0.25 against 0.00.
+    const banned =
+      'so basically zulu what happend zulu was we zulu got to zulu the site zulu at 7 zulu and the zulu crew wasnt';
+    const proofread =
+      "so basically what happened was we got to the site at 7 and the crew wasnt there, i called mike twice no answer.";
+
+    const banScore = scorePreservesUserText(reuse(), banned)!;
+    const freeScore = scorePreservesUserText(reuse(), proofread)!;
+    expect(banScore).toBeLessThan(freeScore);
   });
 
   it('scores a genuine correction highly — real edits shatter the copied span', () => {
