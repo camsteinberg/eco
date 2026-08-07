@@ -221,8 +221,12 @@ const PASTED_TURN_MIN_CHARS = 600;
  * it. That is the fail-safe direction (silence, not noise), and it is well clear
  * of real behaviour: every user turn in the budget conversation, bill dumps
  * included, runs 195–387 characters.
+ *
+ * Exported because `detail-recap.ts` scopes itself the same way and for the
+ * same reason: a pasted document's dates and addresses are real, and are just
+ * as much not the USER's stated details.
  */
-function statedText(text: string): string {
+export function statedText(text: string): string {
   const stripped = text.replace(/<file\b[^>]*>[\s\S]*?(?:<\/file>|$)/gi, " ").trim();
   return stripped.length <= PASTED_TURN_MIN_CHARS ? stripped : "";
 }

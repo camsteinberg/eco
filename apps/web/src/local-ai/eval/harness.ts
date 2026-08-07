@@ -52,7 +52,7 @@ import {
   composeQualitySystemPrompt,
   getGenerationProfile,
 } from '../../lib/chat-intent';
-import { appendFigureRecaps, buildBranchFigureRecaps } from '../../lib/figure-recap';
+import { appendBranchRecaps, buildBranchRecaps } from '../../lib/detail-recap';
 import { getOnDeviceSystemPrompt } from '../../lib/system-prompt';
 import { getModel } from '../catalog/catalog';
 import { getDeviceProfile } from '../device/profile';
@@ -642,8 +642,8 @@ function buildResult(
  * SAME `applyTurnHints` production uses (the KV re-render contract); the
  * final user turn carries the spec-intent hint at its end via
  * `buildHintedUserTurn` (raw prompt when the hint is empty); and each user turn
- * then carries its figure recap after that, from the same `figure-recap` pair
- * dispatch uses and in the same order.
+ * then carries its figure and detail recaps after that, from the same
+ * `buildBranchRecaps`/`appendBranchRecaps` pair dispatch uses.
  *
  * The 'system' counterfactual and the Gemma-native contract below are left
  * WITHOUT recaps on purpose: both exist to hold one variable still while
@@ -764,22 +764,19 @@ function composeProbeMessages(
     };
   }
 
-  // Figure recaps derive from the RAW branch (history + this turn) and are
-  // applied AFTER the hints, exactly as `useChat.buildPrompt` does it. Composed
-  // here rather than left out because a probe that skips them stops mirroring
+  // Recaps derive from the RAW branch (history + this turn) and are applied
+  // AFTER the hints, exactly as `useChat.buildPrompt` does it. Composed here
+  // rather than left out because a probe that skips them stops mirroring
   // dispatch, and a before/after run would then measure nothing — the way a
   // derived probe set has twice gone unwired from this harness.
-  const branchRecaps = buildBranchFigureRecaps([
-    ...history,
-    { role: 'user', content: spec.prompt },
-  ]);
+  const branchRecaps = buildBranchRecaps([...history, { role: 'user', content: spec.prompt }]);
   const hintedBranch: ChatMessage[] = [
     ...(applyTurnHints(history, true, modelId) as ChatMessage[]),
     { role: 'user', content: buildHintedUserTurn(spec.prompt, spec.intent, true, modelId) },
   ];
   const messages: ChatMessage[] = [
     { role: 'system', content: baseSystemPrompt },
-    ...appendFigureRecaps(hintedBranch, branchRecaps),
+    ...appendBranchRecaps(hintedBranch, branchRecaps),
   ];
   return {
     messages,
