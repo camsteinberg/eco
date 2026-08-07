@@ -13,7 +13,9 @@
  *
  *   - free           → acquire immediately;
  *   - readiness/warmup holder → wait (abortable, bounded) and keep trying;
- *   - any other holder (switch-model, another tab's generation, …)
+ *   - THIS tab's own generation holder → wait (the abandoned-generation
+ *     window: interrupted or finishing in the background, releases on its own);
+ *   - any other holder (switch-model, ANOTHER tab's generation, …)
  *                    → fail fast with the honest busy message;
  *   - user stop while waiting → aborted result, no message shown.
  */
@@ -64,16 +66,27 @@ describe('non-waitable holder', () => {
     if (switching.ok) switching.release();
   });
 
-  it('fails fast while another generation holds the runtime (cross-tab)', async () => {
-    const other = acquireLocalHeavyWork('generation');
-    expect(other.ok).toBe(true);
+  it('fails fast while ANOTHER tab\'s generation holds the runtime', async () => {
+    // A genuinely foreign holder: a raw lease row this context never acquired
+    // (cross-tab via the shared localStorage key). It must NOT be planted with
+    // acquireLocalHeavyWork — that registers the lease as our own, which is
+    // the waitable same-tab case tested below.
+    localStorage.setItem(
+      RUNTIME_KEY,
+      JSON.stringify({
+        ownerId: 'generation:foreign-tab',
+        kind: 'generation',
+        startedAt: Date.now(),
+        expiresAt: Date.now() + 90_000,
+      }),
+    );
 
     const result = await acquireGenerationLease();
     expect(result.ok).toBe(false);
     if (!result.ok) {
+      expect(result.aborted).toBe(false);
       expect(result.message).toMatch(/already active/i);
     }
-    if (other.ok) other.release();
   });
 });
 
@@ -177,25 +190,4 @@ describe('same-tab abandoned generation (mid-stream navigation)', () => {
     if (result.ok) result.release();
   });
 
-  it("still fails fast when the generation holder belongs to ANOTHER tab", async () => {
-    // A genuinely foreign holder: a raw lease row this context never acquired
-    // (cross-tab via the shared localStorage key). Waiting out another tab's
-    // generation is unbounded, so the honest busy message stays correct.
-    localStorage.setItem(
-      RUNTIME_KEY,
-      JSON.stringify({
-        ownerId: 'generation:foreign-tab',
-        kind: 'generation',
-        startedAt: Date.now(),
-        expiresAt: Date.now() + 90_000,
-      }),
-    );
-
-    const result = await acquireGenerationLease();
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.aborted).toBe(false);
-      expect(result.message).toMatch(/already active/i);
-    }
-  });
 });
