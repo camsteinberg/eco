@@ -221,6 +221,14 @@ export type EvalPromptSpec = {
    * counterfactual so the relocation decision stays re-measurable.
    */
   hintPlacement?: 'system' | 'user-turn';
+  /**
+   * `noUnfilledSlots` / `noInventedTime` / `deliversUnburied`: the overwrite
+   * instrument's three structural dims. Gated (rather than always-on) on
+   * purpose: turning them on everywhere would change every existing probe set's
+   * `compositeScore` and break comparability with stored runs. Set only on the
+   * everyday-use items where the M2 baseline measured the failure class.
+   */
+  expectOverwriteWatch?: true;
   /** Dimensions a human/LLM judge must fill in later. */
   judge?: JudgeDimension[];
   /** Guidance for the judge. */
@@ -348,6 +356,38 @@ export type RubricScores = {
    * questions. Neither subsumes the other and neither re-scores the other's axis.
    */
   deliversAskedArtifact: number | null;
+  // ── overwrite instrument (M2 mechanism 1) ──
+  /**
+   * Bracket-slot penalty. 1 = clean, 0 = defective slots present. null unless
+   * `expectOverwriteWatch`. A slot is defective when the slotted fact was given
+   * by the user, when it is inserted into the user's own reproduced text, when
+   * the slots are so numerous the artifact is a template, or when the slot
+   * invites the user to author content. Name/date/phone blanks for genuinely
+   * unknown facts are NOT defects.
+   *
+   * Calibration source: 35 hand-labelled frozen captures (M2 baseline
+   * 2026-08-06), labelled before any scorer existed.
+   */
+  noUnfilledSlots: number | null;
+  /**
+   * Invented-time penalty. 1 = clean, 0 = the reply commits to a time/day the
+   * ask never gave. null unless `expectOverwriteWatch`. The detector is
+   * DIFFERENTIAL against the ask text: a time-word that appears in the ask
+   * (e.g. summarise-01's "tonight") is sourced and clean.
+   *
+   * Calibration source: same 35 frozen captures.
+   */
+  noInventedTime: number | null;
+  /**
+   * Artifact-burial penalty. 1 = the asked-for artifact/answer IS the reply,
+   * 0 = buried under or replaced by apparatus (Option/Version multiplicity,
+   * "Changes Made & Rationale" sections, bold-field outlines, per-marker
+   * enumerations). null unless `expectOverwriteWatch`. Orthogonal to fidelity
+   * (preservesUserText/preservesFacts) and to correctness.
+   *
+   * Calibration source: same 35 frozen captures.
+   */
+  deliversUnburied: number | null;
   // ── judge ──
   coherence: number | null;
   taskFit: number | null;
