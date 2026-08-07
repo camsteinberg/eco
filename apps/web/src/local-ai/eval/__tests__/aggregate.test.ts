@@ -40,9 +40,10 @@ const CONFIG = {
 /**
  * A rubric scores object with every dim non-null except the judge dims,
  * `depthMatch`, `deliversFirst`, `preservesUserText`, `preservesFacts`,
- * `preservesHistoryFacts` and `honorsRuledOut` (null = not-applicable, like a
- * probe without a depthBand or without `expectDeliverable` — keeps the
- * hand-computed means below stable); override per test.
+ * `preservesHistoryFacts`, `honorsRuledOut` and `deliversAskedArtifact` (null =
+ * not-applicable, like a probe without a depthBand or without
+ * `expectDeliverable` — keeps the hand-computed means below stable); override
+ * per test.
  */
 function makeScores(overrides?: Partial<RubricScores>): RubricScores {
   return {
@@ -62,6 +63,7 @@ function makeScores(overrides?: Partial<RubricScores>): RubricScores {
     preservesFacts: null,
     preservesHistoryFacts: null,
     honorsRuledOut: null,
+    deliversAskedArtifact: null,
     coherence: null,
     taskFit: null,
     ...overrides,
@@ -129,8 +131,9 @@ describe('AUTOMATED_DIMENSIONS', () => {
       'answerDepth',
       'depthMatch',
       // Spec-gated (`expectDeliverable` / `expectUserTextReuse` /
-      // `expectFactPreservation`), so they are null for every probe set that
-      // predates them and existing composites are unchanged by their arrival.
+      // `expectFactPreservation` / `expectsArtifact`), so they are null for every
+      // probe set that predates them and existing composites are unchanged by
+      // their arrival.
       'deliversFirst',
       'preservesUserText',
       'preservesFacts',
@@ -140,6 +143,7 @@ describe('AUTOMATED_DIMENSIONS', () => {
       // probe that names neither, so no existing composite moves.
       'preservesHistoryFacts',
       'honorsRuledOut',
+      'deliversAskedArtifact',
     ]);
     expect(AUTOMATED_DIMENSIONS).not.toContain('coherence');
     expect(AUTOMATED_DIMENSIONS).not.toContain('taskFit');

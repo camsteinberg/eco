@@ -71,8 +71,12 @@
  * it has to be a test failure rather than a judgement call. `preservesFacts` is
  * a second dim that sees it too, but only on the 7 covered items whose need
  * gates fact preservation — a generic non-answer never states the facts it
- * would have to reproduce. Pinned as its own positive check below, not folded
- * into this one, because it is a narrower and later finding than the first.
+ * would have to reproduce. `deliversAskedArtifact` is a third, narrower still: on
+ * the 2 covered items that ask for a sendable message, a generic non-answer
+ * addresses nobody and is not one. Both are pinned as their own positive checks
+ * below rather than folded into this one, because each is a narrower and later
+ * finding than the first — and because an exemption that is not measured is a
+ * silent skip.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -80,6 +84,7 @@ import { describe, expect, it } from 'vitest';
 import { EVERYDAY_USE_CORPUS, type EverydayUseItem } from '../../../__tests__/fixtures/everyday-use-corpus';
 import { AUTOMATED_DIMENSIONS } from '../aggregate';
 import {
+  EVERYDAY_ARTIFACT_ASKS,
   EVERYDAY_FACT_REPRODUCTION_ITEM_IDS,
   EVERYDAY_USE_PROBES,
   classifyAskOpenness,
@@ -452,6 +457,11 @@ describe('★★ MIRROR: a thin reply to an open ask scores badly on answerDepth
         // test below, which turns this into a positive measurement rather than
         // a silent skip. It only ever fires on the 7 items pinned there.
         if (dim === 'preservesFacts') continue;
+        // `deliversAskedArtifact` is a third, narrower exception, handled the
+        // same way: a generic non-answer is obviously not a sendable message, so
+        // it fires — but only on the covered items whose ask is for one. Pinned
+        // positively below rather than skipped in silence.
+        if (dim === 'deliversAskedArtifact') continue;
         const value = scores[dim];
         if (value === null) continue;
         expect(
@@ -483,6 +493,22 @@ describe('★★ MIRROR: a thin reply to an open ask scores badly on answerDepth
       const probe = probeFor(item);
       const scores = scoreResult(probe, ctxFor(thinAnswerFor(item)));
       expect(scores.preservesFacts, item.id).toBe(0);
+    }
+  });
+
+  it('★ deliversAskedArtifact ALSO sees it, on the covered items that ask for a sendable message', () => {
+    // The third narrow exception, pinned for the same reason as the one above:
+    // the exemption in the sweep is only honest if this list is exact. A generic
+    // non-answer addresses nobody and signs off to nobody, so an ask for a
+    // message it never wrote scores 0 — a different failure from thinness,
+    // visible on a different set of items, and neither a substitute for the other.
+    const artifactCoveredItems = COVERED_ITEMS.filter(
+      (item) => EVERYDAY_ARTIFACT_ASKS[item.id] !== undefined,
+    );
+    expect(artifactCoveredItems.map((item) => item.id)).toEqual(['draft-01', 'admin-gym-cancellation']);
+    for (const item of artifactCoveredItems) {
+      const scores = scoreResult(probeFor(item), ctxFor(thinAnswerFor(item)));
+      expect(scores.deliversAskedArtifact, item.id).toBe(0);
     }
   });
 

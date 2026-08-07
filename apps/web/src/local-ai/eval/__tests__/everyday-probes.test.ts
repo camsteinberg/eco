@@ -26,7 +26,10 @@ import {
 import { inferChatIntent } from '../../../lib/chat-intent';
 import {
   EVERYDAY_ANAPHORIC_PROBE_IDS,
+  EVERYDAY_ARTIFACT_ASKS,
+  EVERYDAY_ARTIFACT_ASK_CANDIDATE_IDS,
   EVERYDAY_ASK_OPENNESS,
+  EVERYDAY_UNGATED_ARTIFACT_ASKS,
   EVERYDAY_FACT_REPRODUCTION_ITEM_IDS,
   EVERYDAY_FAITHFUL_WITHOUT_PASTED_TEXT_ITEM_IDS,
   EVERYDAY_PROBE_IDS,
@@ -40,6 +43,7 @@ import {
   wantsSubstance,
 } from '../everyday-probes';
 import {
+  analyzeArtifactDelivery,
   analyzePreservesUserText,
   extractFacts,
   pastedBlockOf,
@@ -753,6 +757,89 @@ describe('preservesFacts applies where the WORDING is meant to change', () => {
     const followUp = EVERYDAY_USE_PROBES.find((p) => p.id === 'everyday-work-followup-shorter')!;
     expect(followUp.expectFactPreservation).toBeUndefined();
     expect(followUp.expectUserTextReuse).toBeUndefined();
+  });
+});
+
+describe('deliversAskedArtifact is pointed only at asks for correspondence', () => {
+  /**
+   * The three single-turn items whose deliverable is a message, email or letter
+   * the person will send. Read item by item against each one's own ask before
+   * being written down — if a rule change moves this list, go and read the item,
+   * do not re-copy the output.
+   */
+  const ARTIFACT_ASK_ITEM_IDS = ['work-email-tone-fix', 'draft-01', 'admin-gym-cancellation'];
+
+  it('pins the annotated items, their kind and their audience', () => {
+    expect(Object.keys(EVERYDAY_ARTIFACT_ASKS)).toEqual(ARTIFACT_ASK_ITEM_IDS);
+    expect(
+      Object.fromEntries(
+        Object.entries(EVERYDAY_ARTIFACT_ASKS).map(([id, entry]) => [id, entry.kind + ' → ' + entry.audience]),
+      ),
+    ).toEqual({
+      'work-email-tone-fix': 'email → Dave, the colleague the pasted email is already addressed to',
+      'draft-01': "message → her son's class teacher",
+      'admin-gym-cancellation': 'letter → the gym that has kept taking payments',
+    });
+  });
+
+  it('sets the spec field on exactly those probes, and on no others', () => {
+    const gated = EVERYDAY_USE_PROBES.filter((p) => p.expectsArtifact !== undefined).map((p) => p.id);
+    expect(gated).toEqual(ARTIFACT_ASK_ITEM_IDS.map(everydayProbeId));
+  });
+
+  it('★ every entry quotes the corpus text it rests on', () => {
+    for (const [id, entry] of Object.entries(EVERYDAY_ARTIFACT_ASKS)) {
+      expect(entry.why.length, id).toBeGreaterThan(60);
+    }
+    for (const [id, reason] of Object.entries(EVERYDAY_UNGATED_ARTIFACT_ASKS)) {
+      expect(reason.length, id).toBeGreaterThan(60);
+    }
+  });
+
+  it('★ hands the audience to the judge — the half a mechanical check reads only indirectly', () => {
+    const probe = EVERYDAY_USE_PROBES.find((p) => p.id === everydayProbeId('draft-01'));
+    expect(probe?.notes).toContain("the deliverable is a message the person will send to her son's class teacher");
+    expect(probe?.notes).toContain('not notes about it');
+  });
+
+  it('★ every mechanical candidate is classified — a new one cannot join silently', () => {
+    expect(EVERYDAY_ARTIFACT_ASK_CANDIDATE_IDS).toEqual([
+      'rewrite-03',
+      'work-sick-text',
+      'draft-01',
+      'admin-gym-cancellation',
+      'summarise-01',
+      'proofread-grandfather-letter',
+      'proofread-school-post',
+    ]);
+    for (const id of EVERYDAY_ARTIFACT_ASK_CANDIDATE_IDS) {
+      const gated = EVERYDAY_ARTIFACT_ASKS[id] !== undefined;
+      const ungated = EVERYDAY_UNGATED_ARTIFACT_ASKS[id] !== undefined;
+      expect(gated !== ungated, id + ' must be classified exactly once').toBe(true);
+    }
+  });
+
+  it('the two maps are disjoint and name only real corpus items', () => {
+    const ids = new Set(EVERYDAY_USE_CORPUS.map((item) => item.id));
+    for (const id of [
+      ...Object.keys(EVERYDAY_ARTIFACT_ASKS),
+      ...Object.keys(EVERYDAY_UNGATED_ARTIFACT_ASKS),
+    ]) {
+      expect(ids.has(id), id).toBe(true);
+    }
+    for (const id of Object.keys(EVERYDAY_ARTIFACT_ASKS)) {
+      expect(EVERYDAY_UNGATED_ARTIFACT_ASKS[id]).toBeUndefined();
+    }
+  });
+
+  it('★ pins the stated gap: an artifact ask the instrument cannot read', () => {
+    // "text my boss saying i cant come in today" is unmistakably an artifact ask
+    // and is deliberately ungated, because a good two-line text carries neither
+    // a salutation nor a signature. Rounding that off would be the same defect
+    // as inventing a ceiling the corpus never states.
+    expect(EVERYDAY_UNGATED_ARTIFACT_ASKS['work-sick-text']).toContain('A STATED GAP');
+    const goodBareText = 'Not going to make it in today — food poisoning. Sorry for the short notice.';
+    expect(analyzeArtifactDelivery(goodBareText).score).toBe(0);
   });
 });
 

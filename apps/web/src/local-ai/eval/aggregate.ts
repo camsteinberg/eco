@@ -34,19 +34,20 @@ import type {
 } from './types';
 
 /**
- * The 16 automated rubric dims (0..1). These — and only these — feed
+ * The 17 automated rubric dims (0..1). These — and only these — feed
  * `compositeScore`. `coherence` and `taskFit` are JUDGE dims (1..5) and are
  * intentionally excluded; they're surfaced via `judgeAverages` instead.
  * (Runs persisted before a dim existed — e.g. `answerDepth`, `noCjkLeak`,
  * `depthMatch`, `deliversFirst`, `preservesUserText`, `preservesFacts`,
- * `preservesHistoryFacts`, `honorsRuledOut` — simply lack the key; the
- * `isFiniteNumber` guard drops it from their means.)
+ * `preservesHistoryFacts`, `honorsRuledOut`, `deliversAskedArtifact` — simply
+ * lack the key; the `isFiniteNumber` guard drops it from their means.)
  *
  * `deliversFirst`, `preservesUserText`, `preservesFacts`,
- * `preservesHistoryFacts` and `honorsRuledOut` are spec-gated
- * (`expectDeliverable` / `expectUserTextReuse` / `expectFactPreservation` /
- * `historyFactSources` / `historyRuledOut`), so they are null for every probe
- * set that predates them and existing composites are unchanged by their arrival.
+ * `preservesHistoryFacts`, `honorsRuledOut` and `deliversAskedArtifact` are
+ * spec-gated (`expectDeliverable` / `expectUserTextReuse` /
+ * `expectFactPreservation` / `historyFactSources` / `historyRuledOut` /
+ * `expectsArtifact`), so they are null for every probe set that predates them
+ * and existing composites are unchanged by their arrival.
  */
 export const AUTOMATED_DIMENSIONS: readonly (keyof RubricScores)[] = [
   'correctStop',
@@ -65,6 +66,7 @@ export const AUTOMATED_DIMENSIONS: readonly (keyof RubricScores)[] = [
   'preservesFacts',
   'preservesHistoryFacts',
   'honorsRuledOut',
+  'deliversAskedArtifact',
 ] as const;
 
 /** All rubric dims, automated + judge — the universe for `dimensionAverages`. */

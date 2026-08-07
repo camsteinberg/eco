@@ -77,6 +77,24 @@ export type DepthBand = { minWords?: number; maxWords?: number };
 /** One prior conversation turn a multi-turn probe replays before its prompt. */
 export type EvalHistoryTurn = { role: 'user' | 'assistant'; content: string };
 
+/**
+ * The piece of correspondence an ask names, for the `deliversAskedArtifact` dim.
+ *
+ * `kind` is the medium the item's own words name — a text, an email, a letter.
+ * It gates the dim and is reported; nothing branches on it in the scorer today.
+ *
+ * `audience` is who the reply has to be written TO, in the item's own terms. It
+ * is deliberately NOT pattern-matched: matching a hand-written audience string
+ * against the reply would score the wording of the annotation rather than the
+ * reply. It rides the probe's `notes` to the judge, and it is what makes the
+ * annotation reviewable — "addressed to whom" is the half of this property a
+ * mechanical check reads only indirectly.
+ */
+export type ExpectedArtifact = {
+  kind: 'message' | 'email' | 'letter';
+  audience: string;
+};
+
 /** A judge dimension a human (or LLM judge) fills in later, 1..5. */
 export type JudgeDimension = 'coherence' | 'taskFit';
 
@@ -164,6 +182,19 @@ export type EvalPromptSpec = {
    * quoting an extra date. Presence is the gate.
    */
   historyRuledOut?: readonly string[];
+  /**
+   * `deliversAskedArtifact`: this ask is for a piece of correspondence the person
+   * will SEND, so the reply has to BE that message rather than notes about it.
+   *
+   * A RICHER ANNOTATION THAN A BOOLEAN, deliberately. `expectDeliverable` above
+   * is a flag because `deliversFirst` needs nothing else: any deliverable counts.
+   * This dim has to know what shape the deliverable takes and who it is written
+   * to, and both are readings of the corpus item that a person made and can be
+   * argued with — so they are written down rather than inferred at runtime.
+   * Hand-authored per item, with the justification beside it (see
+   * `everyday-probes.ts`); never derived from the prompt text.
+   */
+  expectsArtifact?: ExpectedArtifact;
   /**
    * Richness: a genuinely helpful reply should reach at least this many words
    * (graduated floor, NOT a length target — catches the terse failure mode).
@@ -301,6 +332,22 @@ export type RubricScores = {
    * thermometer he already said he does not own.
    */
   honorsRuledOut: number | null;
+  /**
+   * Did the reply hand back the message/email/letter the ask named, addressed to
+   * someone and in the person's own voice? null unless `expectsArtifact`.
+   *
+   *   1   — a salutation opens a body somebody could send;
+   *   0.5 — signed but never addressed: the announcement/flyer register, which is
+   *         where the hand-labelled borderline samples sit;
+   *   0   — notes, advice, fragments, or a deflection.
+   *
+   * ★ NOT `deliversFirst`. That dim counts ANY bullet list as a deliverable, so
+   * organiser notes score 1 on it — measured, on thirty real generations, at 29
+   * ones and one 0.5 while the artifact arrived in ten. This dim scores the SHAPE
+   * of what came back; that one scores whether anything came back before the
+   * questions. Neither subsumes the other and neither re-scores the other's axis.
+   */
+  deliversAskedArtifact: number | null;
   // ── judge ──
   coherence: number | null;
   taskFit: number | null;

@@ -11,7 +11,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   CANNED_LEAKAGE_PATTERNS,
+  analyzeArtifactDelivery,
   analyzeDeliversFirst,
+  scoreArtifactDelivery,
   analyzeFactPreservation,
   analyzePreservesUserText,
   extractFacts,
@@ -660,6 +662,112 @@ describe('scoreDeliversFirst', () => {
     const asked = 'What would you like me to do?';
     expect(scoreResult(delivers(), ctx({ output: asked })).deliversFirst).toBe(0);
     expect(scoreResult(spec(), ctx({ output: asked })).deliversFirst).toBeNull();
+  });
+});
+
+describe('scoreArtifactDelivery', () => {
+  const artifact = (overrides: Partial<EvalPromptSpec> = {}): EvalPromptSpec =>
+    spec({
+      expectsArtifact: { kind: 'message', audience: 'the family group chat' },
+      ...overrides,
+    });
+
+  const GOOD_MESSAGE = [
+    'Hi all 👋 Mum’s 60th — family Sunday lunch.',
+    '',
+    'Sunday 8th March, 1pm, the Italian on Bridgford Road. We’ve got the back room so it’s nice and quiet.',
+    '',
+    '£25 each for food and a drink — just get it to me any time before the day.',
+    '',
+    'Just let me know if you’re coming. Cheers x',
+  ].join('\n');
+
+  it('is null unless the spec carries an artifact annotation', () => {
+    expect(scoreArtifactDelivery(spec(), GOOD_MESSAGE)).toBeNull();
+    expect(scoreArtifactDelivery(artifact(), GOOD_MESSAGE)).toBe(1);
+  });
+
+  it('scores 1 for a message somebody could paste', () => {
+    // The corpus's own scripted reply to this turn, near enough. Emoji and all.
+    const analysis = analyzeArtifactDelivery(GOOD_MESSAGE);
+    expect(analysis.addressOpening).toBe('Hi all 👋');
+    expect(analysis.score).toBe(1);
+  });
+
+  it('scores 0 for organiser notes, however well formatted', () => {
+    const notes = [
+      '**📅 MUM’S 60TH — SUNDAY 8TH MARCH**',
+      '',
+      '### ✅ What’s confirmed:',
+      '- **Time:** 1pm',
+      '- **Cost:** £25 per person',
+      '',
+      '### ✅ Next steps:',
+      '1. Confirm attendance with everyone',
+      '2. Send a reminder with the payment status',
+    ].join('\n');
+    expect(scoreArtifactDelivery(artifact(), notes)).toBe(0);
+    // …and `deliversFirst` calls the very same reply a clean success, which is
+    // the whole reason this dim exists.
+    expect(analyzeDeliversFirst(notes).score).toBe(1);
+  });
+
+  it('★ the cheapest satisfying change — a salutation over a stub — FAILS', () => {
+    // If a greeting alone were enough, the cheapest way to pass would be to bolt
+    // one onto anything. The body floor is what forbids it.
+    expect(scoreArtifactDelivery(artifact(), 'Hi everyone,\n\nAll booked!')).toBe(0);
+  });
+
+  it('★ a thin non-delivery FAILS — a short reply must be able to score 0', () => {
+    expect(scoreArtifactDelivery(artifact(), 'Just hit send now.')).toBe(0);
+    expect(
+      scoreArtifactDelivery(artifact(), 'Send it again with the dates spelled out: Thursday and Friday.'),
+    ).toBe(0);
+  });
+
+  it('★ a delivered draft inside assistant framing PASSES', () => {
+    const framed = [
+      'No problem — here’s the version to send:',
+      '',
+      '“Hi [Teacher] — copying the front office per the attendance policy. [Son] will be out',
+      'Thursday and Friday for a family trip. Could you let me know if there’s anything he',
+      'should take with him or make up when he’s back? Thanks so much.”',
+    ].join('\n');
+    expect(scoreArtifactDelivery(artifact({ expectsArtifact: { kind: 'email', audience: 'the teacher' } }), framed)).toBe(1);
+  });
+
+  it('★ signed but addressed to nobody lands in the middle, not at either end', () => {
+    const announcement = [
+      '**📅 MUM’S 60TH — BOOKED!**',
+      '',
+      'Sunday 8th March, 1pm, the Italian on Bridgford Road. Back room, away from the bar,',
+      'so it will be nice and quiet for everyone. £25 each covers food and a drink, and the',
+      'deposit is already paid.',
+      '',
+      '— *Organiser*',
+    ].join('\n');
+    const analysis = analyzeArtifactDelivery(announcement);
+    expect(analysis.addressOpening).toBeNull();
+    expect(analysis.signOff).toBe('— *Organiser*');
+    expect(analysis.score).toBe(0.5);
+  });
+
+  it('does not read an assistant opener as an address to somebody', () => {
+    // "there" is not an audience. A dim that thought it was would score every
+    // chatty preamble as a delivered message.
+    const chatty = [
+      'Hi there! Happy to help with this.',
+      '',
+      'The main thing to decide is whether you want the deposit mentioned at all, since',
+      'most of them will assume it is covered, and whether the date needs repeating.',
+    ].join('\n');
+    expect(analyzeArtifactDelivery(chatty).addressOpening).toBeNull();
+    expect(scoreArtifactDelivery(artifact(), chatty)).toBe(0);
+  });
+
+  it('flows through scoreResult only when the spec opts in', () => {
+    expect(scoreResult(artifact(), ctx({ output: GOOD_MESSAGE })).deliversAskedArtifact).toBe(1);
+    expect(scoreResult(spec(), ctx({ output: GOOD_MESSAGE })).deliversAskedArtifact).toBeNull();
   });
 });
 

@@ -36,9 +36,11 @@ import {
   probedTurnOf,
   turnsBeforeProbe,
   type ConversationJob,
+  type MultiTurnEverydayItem,
 } from '../../../__tests__/fixtures/everyday-conversation-corpus';
 import { inferChatIntent } from '../../../lib/chat-intent';
 import {
+  EVERYDAY_CONVERSATION_ARTIFACT_ASKS,
   EVERYDAY_CONVERSATION_ASK_OPENNESS,
   EVERYDAY_CONVERSATION_PROBE_IDS,
   EVERYDAY_CONVERSATION_PROBE_SOURCE_ITEM,
@@ -684,5 +686,69 @@ describe('★ terms where mention is not violation, and the evidence for saying 
         ).toBe(0);
       }
     }
+  });
+});
+
+describe('deliversAskedArtifact — the two conversations that ask for a message', () => {
+  const ARTIFACT_ASK_ITEM_IDS = ['convo-birthday-lunch-message', 'convo-teacher-email-resend'];
+
+  function itemById(id: string): MultiTurnEverydayItem {
+    const item = EVERYDAY_CONVERSATION_CORPUS.find((i) => i.id === id);
+    if (item === undefined) throw new Error('no conversation ' + id);
+    return item;
+  }
+
+  it('pins the annotated conversations, their kind and their audience', () => {
+    expect(Object.keys(EVERYDAY_CONVERSATION_ARTIFACT_ASKS)).toEqual(ARTIFACT_ASK_ITEM_IDS);
+    expect(
+      Object.fromEntries(
+        Object.entries(EVERYDAY_CONVERSATION_ARTIFACT_ASKS).map(([id, entry]) => [
+          id,
+          entry.kind + ' → ' + entry.audience,
+        ]),
+      ),
+    ).toEqual({
+      'convo-birthday-lunch-message':
+        'message → the family group chat — fourteen relatives, several of them older',
+      'convo-teacher-email-resend':
+        "email → her son's class teacher, with the front office copied per the policy",
+    });
+  });
+
+  it('sets the spec field on exactly those probes, and on no others', () => {
+    const gated = EVERYDAY_CONVERSATION_PROBES.filter((p) => p.expectsArtifact !== undefined).map(
+      (p) => p.id,
+    );
+    // Probes are derived in CORPUS order, which is not the order of the map.
+    expect(gated).toEqual([
+      conversationProbeId('convo-teacher-email-resend'),
+      conversationProbeId('convo-birthday-lunch-message'),
+    ]);
+    expect([...gated].sort()).toEqual([...ARTIFACT_ASK_ITEM_IDS.map(conversationProbeId)].sort());
+  });
+
+  it('★ reads the PROBED TURN, not the conversation subject', () => {
+    // The insurance conversation ends in a formal complaint letter and is
+    // deliberately ungated: its probed turn is "remind me what the excess was",
+    // four turns earlier. Gating on the subject would score a recall answer as a
+    // failed letter.
+    expect(EVERYDAY_CONVERSATION_ARTIFACT_ASKS['convo-insurance-recall']).toBeUndefined();
+    expect(probedTurnOf(itemById('convo-insurance-recall')).text).toContain(
+      'remind me what the excess was',
+    );
+    // …while the two that ARE gated name the artifact in the probed turn itself.
+    expect(probedTurnOf(itemById('convo-birthday-lunch-message')).text).toContain(
+      'can you write the message i send to the family group chat',
+    );
+    expect(probedTurnOf(itemById('convo-teacher-email-resend')).text).toContain('can u resend it');
+  });
+
+  it('hands the audience to the judge in the probe notes', () => {
+    const probe = EVERYDAY_CONVERSATION_PROBES.find(
+      (p) => p.id === conversationProbeId('convo-birthday-lunch-message'),
+    );
+    expect(probe?.notes).toContain(
+      'the deliverable is a message the person will send to the family group chat',
+    );
   });
 });
