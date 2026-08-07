@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Button } from '@eco/ui';
+import { BackendCrossCheckPanel } from './BackendCrossCheckPanel';
 import { EvalHarnessPanel } from './EvalHarnessPanel';
 import { SustainedProbePanel } from './SustainedProbePanel';
 import type { LocalAiDiagnostic } from '../../../src/local-ai/diagnostics/capture';
@@ -783,6 +784,9 @@ export function DiagnosticsClient() {
 
         {/* Sustained memory probe */}
         <SustainedProbePanel />
+
+        {/* WebGPU/WASM backend cross-check */}
+        <BackendCrossCheckPanel />
 
         {/* Eval harness panel */}
         <EvalHarnessPanel />
