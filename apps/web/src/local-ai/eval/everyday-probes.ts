@@ -48,8 +48,11 @@
  * `notes`    — carries the item's `bounceCondition` verbatim to the judge,
  *              because ★ the bounce condition is the acceptance criterion.
  * `depthBand`, `minWords`, `expectDeliverable`, `expectUserTextReuse`,
- * `expectFactPreservation` — see the rule blocks below, each of which quotes the
- *              corpus text it reads.
+ * `expectFactPreservation`, `expectsArtifact` — see the rule blocks below, each
+ *              of which quotes the corpus text it reads. `expectsArtifact` is the
+ *              one that is NOT derived: whether an ask is for a sendable message,
+ *              and who it is addressed to, are readings of the item, so they are
+ *              hand-authored with their justification and their exclusions.
  *
  * ── ONE HONEST LIMITATION ───────────────────────────────────────────────────
  *
@@ -81,7 +84,7 @@ import {
   type EverydayUseItem,
 } from '../../__tests__/fixtures/everyday-use-corpus';
 import { pastedBlockOf } from './rubric';
-import type { EvalPromptSpec } from './types';
+import type { EvalPromptSpec, ExpectedArtifact } from './types';
 
 // ─── small shared helpers ──────────────────────────────────────────────────
 
@@ -566,6 +569,159 @@ function expectsFactPreservation(item: EverydayUseItem): boolean {
   );
 }
 
+// ─── the artifact asks: items whose deliverable is correspondence ──────────
+
+/** An artifact annotation plus the corpus text the reading rests on. */
+export type ArtifactAskEntry = ExpectedArtifact & { readonly why: string };
+
+/**
+ * ★ THE ARTIFACT ASKS — items where the person is asking for a piece of
+ * CORRESPONDENCE THEY WILL SEND, so the reply has to BE that message rather than
+ * notes, advice or a briefing about it.
+ *
+ * HAND-AUTHORED, ITEM BY ITEM, and it has to be: whether an ask is for a
+ * sendable message is a reading of the item, and "who is it addressed to" is not
+ * recoverable from the prompt text at all. Deriving it from a keyword would put
+ * `summarise-01` in the gate because a pasted group chat contains the words "ill
+ * message him". Every entry quotes the corpus text it rests on; every deliberate
+ * EXCLUSION is written down below with its reason, so the judgement can be
+ * argued with rather than reverse-engineered.
+ *
+ * THE RULE APPLIED: the item's own ask names a message, email or letter that the
+ * person will send to someone, and the reply's deliverable IS that
+ * correspondence. That is narrower than "the reply contains an artifact" — a
+ * poem, a eulogy, a printable budget and a Spanish sentence are all artifacts,
+ * and none of them is addressed to anybody.
+ */
+export const EVERYDAY_ARTIFACT_ASKS: Readonly<Record<string, ArtifactAskEntry>> = {
+  'work-email-tone-fix': {
+    kind: 'email',
+    audience: 'Dave, the colleague the pasted email is already addressed to',
+    why: 'The user typed "i have to send it this morning", and the bounce names notes instead of the thing: "Returns a bulleted \'analysis of the tone problems\' before (or instead of) the rewrite". The deliverable is the send-ready email to Dave.',
+  },
+  'draft-01': {
+    kind: 'message',
+    audience: "her son's class teacher",
+    why: '"write a message to my kids teacher asking about him falling behind in reading". Good answer: "One short email, six or seven lines … Ready to copy."',
+  },
+  'admin-gym-cancellation': {
+    kind: 'letter',
+    audience: 'the gym that has kept taking payments',
+    why: '"write me a letter to cancel my gym membership". Good answer: "A short, firm, unemotional letter"; bounce: "a polite letter that never states what they want back".',
+  },
+};
+
+/**
+ * The five proofread items that ARE addressed correspondence share one reason, so
+ * it is stated once rather than paraphrased five times.
+ */
+const PROOFREAD_CLASS_REASON = [
+  'The ask is "fix my mistakes", and the deliverable is the person\'s OWN text back —',
+  'a job `preservesUserText` already gates for all nine proofread items, and whose',
+  'measured failure is voice replacement rather than non-delivery. One of the nine',
+  'bounces does name non-delivery ("It gives her a numbered audit instead of a fixed',
+  'post"), so these are genuine candidates; nothing has yet measured this instrument',
+  'on a proofread generation, and gating a job on an instrument calibrated against a',
+  'different one is how an unfounded check ends up firing on answers that were fine.',
+  'Pinned here so the first person to measure them has to classify them rather than',
+  'inherit a gate.',
+].join(' ');
+
+/**
+ * ★ READ AND DELIBERATELY NOT GATED, with the reason for each. Without this list
+ * the exclusions would be invisible, and the honest ones — items whose ask IS an
+ * artifact ask that the instrument cannot read — would look like oversights.
+ *
+ * The four broadcast-copy proofread items (a birthday caption, a memorial-book
+ * entry, a marketplace ad, a job-application box) are absent because they are not
+ * correspondence at all: nobody is addressed in them, so there is nothing here to
+ * exclude.
+ */
+export const EVERYDAY_UNGATED_ARTIFACT_ASKS: Readonly<Record<string, string>> = {
+  'work-sick-text': [
+    '★ A STATED GAP, not a judgement that the ask is different. "text my boss saying i',
+    'cant come in today" is the plainest artifact ask in the corpus. The instrument',
+    'cannot read it: a good two-line text ("Not going to make it in today, food',
+    'poisoning — sorry for the short notice") carries neither a salutation nor a',
+    'signature, and to this dim it is the same shape as the measured non-delivery',
+    '"Just hit send now." Gating it would fail a correct answer, which is a defect',
+    'whatever the reasoning behind it.',
+  ].join(' '),
+  'work-followup-shorter': [
+    'The artifact and its audience both live in an earlier turn the corpus does not',
+    'hold ("shorter. and take out the sorry"). Same reason `expectUserTextReuse` is',
+    'off here: there is nothing in this turn to measure against.',
+  ].join(' '),
+  'rewrite-03': [
+    'The ask is a gut check — "does this sound rude" — and the good answer "Leads with',
+    'a direct verdict … then offers a softened version". A reply that answers and',
+    'offers no rewrite is still right, so the artifact is not the deliverable.',
+  ].join(' '),
+  'summarise-01': [
+    'The turn is a pasted group chat ending "tldr". The word "message" appears inside',
+    'the paste ("ill message him"), never in the ask. Listed so the keyword can never',
+    'be mistaken for the annotation.',
+  ].join(' '),
+  'family-text-thread': [
+    'The ask is "am i overreacting here or is she being off with me". The good answer',
+    '"offers one short message they could actually send" as its last move — an extra,',
+    'not the ask.',
+  ].join(' '),
+  'family-eulogy': [
+    'A eulogy is spoken, not sent. It has no addressee and a good one opens on the',
+    'person rather than on a salutation, so the address anchor would fail it.',
+  ].join(' '),
+  'translate-01': [
+    'The deliverable is one Spanish sentence to say or text, not a message: "The',
+    'Spanish sentence, plainly."',
+  ].join(' '),
+  'proofread-teacher-note-esl': PROOFREAD_CLASS_REASON,
+  'proofread-grandfather-letter': PROOFREAD_CLASS_REASON,
+  'proofread-crew-email': PROOFREAD_CLASS_REASON,
+  'proofread-review-reply': PROOFREAD_CLASS_REASON,
+  'proofread-school-post': PROOFREAD_CLASS_REASON,
+};
+
+/**
+ * Correspondence nouns in the ASK itself. A tripwire, not the annotation: the
+ * test below requires every item it finds to be classified into one of the two
+ * maps above, so a new "write me a message" item fails until someone reads it
+ * rather than silently missing the gate. It is scanned against `userInput` only —
+ * `goodAnswerLooksLike` mentions letters and notes for column letters and safety
+ * notes, and a tripwire that cries wolf gets switched off.
+ *
+ * It is one-directional. `work-email-tone-fix` is gated and names no noun at all
+ * ("i have to send it this morning"), which is exactly why a keyword cannot be
+ * the annotation.
+ */
+const CORRESPONDENCE_ASK_RE = /\b(?:messages?|emails?|e-mails?|letters?|texts?)\b/i;
+
+/** Items whose ask names correspondence. Every one must be classified. */
+export const EVERYDAY_ARTIFACT_ASK_CANDIDATE_IDS: readonly string[] = EVERYDAY_USE_CORPUS
+  .filter((item) => CORRESPONDENCE_ASK_RE.test(item.userInput))
+  .map((item) => item.id);
+
+/**
+ * The line an artifact ask adds to a probe's judge notes. This is where the
+ * `audience` annotation does its work: the mechanical scorer can see that
+ * SOMEBODY is addressed, but only a reader can see whether it is the right
+ * somebody, so the reading is handed to them in the item's own terms. Exported so
+ * both probe sets compose it identically.
+ */
+/** The spec-facing half of an annotation: the reading, without its provenance. */
+export function artifactOf(entry: ArtifactAskEntry): ExpectedArtifact {
+  return { kind: entry.kind, audience: entry.audience };
+}
+
+export function artifactNote(artifact: ArtifactAskEntry): string {
+  return [
+    `★ ARTIFACT: the deliverable is a ${artifact.kind} the person will send to ${artifact.audience}.`,
+    `The reply has to BE that ${artifact.kind} — in their voice, addressed to that audience,`,
+    'pasteable with at most trivial edits — not notes about it, not advice about it, and not',
+    'a version addressed back to the person who asked.',
+  ].join(' ');
+}
+
 function buildNotes(item: EverydayUseItem, openness: AskOpenness): string {
   const lines = [
     `ASK: ${openness}.`,
@@ -573,6 +729,10 @@ function buildNotes(item: EverydayUseItem, openness: AskOpenness): string {
     `GOOD ANSWER: ${item.goodAnswerLooksLike}`,
     `★ BOUNCE (the acceptance criterion — this response makes them give up): ${item.bounceCondition}`,
   ];
+  const artifact = EVERYDAY_ARTIFACT_ASKS[item.id];
+  if (artifact !== undefined) {
+    lines.push(artifactNote(artifact));
+  }
   if (hasPriorTurns(item.id)) {
     lines.push(
       'NOTE: anaphoric turn. The corpus holds no antecedent exchange and inventing one would be authoring corpus content, so this runs as an opening turn — judge it as such.',
@@ -592,6 +752,9 @@ function toProbe(item: EverydayUseItem): EvalPromptSpec {
     intent: inferChatIntent(item.userInput, { hasPriorTurns: hasPriorTurns(item.id) }),
     prompt: item.userInput,
     expectDeliverable: true,
+    ...(EVERYDAY_ARTIFACT_ASKS[item.id] !== undefined
+      ? { expectsArtifact: artifactOf(EVERYDAY_ARTIFACT_ASKS[item.id]!) }
+      : {}),
     ...(expectsUserTextReuse(item) ? { expectUserTextReuse: true as const } : {}),
     ...(expectsFactPreservation(item) ? { expectFactPreservation: true as const } : {}),
     ...(ceiling !== null ? { depthBand: { maxWords: ceiling } } : {}),

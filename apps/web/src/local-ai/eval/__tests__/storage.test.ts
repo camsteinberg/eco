@@ -57,6 +57,7 @@ function makeScores(overrides?: Partial<RubricScores>): RubricScores {
     preservesFacts: null,
     preservesHistoryFacts: null,
     honorsRuledOut: null,
+    deliversAskedArtifact: null,
     coherence: null,
     taskFit: null,
     ...overrides,
