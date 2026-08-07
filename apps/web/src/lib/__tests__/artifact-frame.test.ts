@@ -77,60 +77,54 @@ describe("buildBranchArtifactFrames — the corpus fire set", () => {
 describe("buildArtifactFrame — the gate's own rules", () => {
   const birthdayAsk = branchOf("convo-birthday-lunch-message")[6]!.content;
 
-  it("never fires on a first user turn, whatever the ask", () => {
-    expect(buildArtifactFrame(birthdayAsk, false)).toBe("");
+  it("fires on a first user turn when the ask matches", () => {
+    expect(buildArtifactFrame(birthdayAsk)).toBe(
+      "The message to send to the family group chat:",
+    );
   });
 
   it("is deterministic — the KV precondition", () => {
-    expect(buildArtifactFrame(birthdayAsk, true)).toBe(buildArtifactFrame(birthdayAsk, true));
+    expect(buildArtifactFrame(birthdayAsk)).toBe(buildArtifactFrame(birthdayAsk));
   });
 
   it('does not read "the email" as the verb email', () => {
-    expect(buildArtifactFrame("ok back to the email — can you summarise it", true)).toBe("");
+    expect(buildArtifactFrame("ok back to the email — can you summarise it")).toBe("");
   });
 
   it('does not frame plain "send it" — a turn can ask ABOUT sending', () => {
-    expect(buildArtifactFrame("about that email — did you send it to dave", true)).toBe("");
+    expect(buildArtifactFrame("about that email — did you send it to dave")).toBe("");
   });
 
   it("does not let a distant 'to' invent an audience", () => {
     expect(
       buildArtifactFrame(
         "go on then write the letter, ive not done one of these before and i dont want to sound like an idiot",
-        true,
       ),
     ).toBe("The letter:");
   });
 
   it('does not read a channel-naming fragment as an object — "Email, because…"', () => {
-    // "write it" governs no artifact noun, and the bare fragment names the
-    // channel, not an ask with an object: punctuation right after the "verb"
-    // must end the reading, or the subordinate clause becomes the recipient.
     expect(
       buildArtifactFrame(
         "can you write it for me then. Email, since ive got her address from before",
-        true,
       ),
     ).toBe("");
   });
 
   it("frames the reply — correspondence has a second half", () => {
-    expect(buildArtifactFrame("ok can you write the slack reply. keep it short", true)).toBe(
+    expect(buildArtifactFrame("ok can you write the slack reply. keep it short")).toBe(
       "The reply:",
     );
   });
 
   it("names the reply's audience when the ask gives one", () => {
-    expect(buildArtifactFrame("can u draft a reply to jess", true)).toBe(
+    expect(buildArtifactFrame("can u draft a reply to jess")).toBe(
       "The reply to send to jess:",
     );
   });
 
   it("stays silent on a verbless ask — a stated limit, not a target", () => {
-    // "i need the words" is a real correspondence ask with no author verb and
-    // no artifact noun the gate knows; a shape gate cannot see it without
-    // guessing, and silence is the fail-safe direction.
-    expect(buildArtifactFrame("i need the words. its only a small card so nothing gushing", true)).toBe(
+    expect(buildArtifactFrame("i need the words. its only a small card so nothing gushing")).toBe(
       "",
     );
   });
@@ -144,20 +138,65 @@ describe("buildArtifactFrame — the gate's own rules", () => {
  */
 describe("buildArtifactFrame — asking for a message vs asking about one", () => {
   it("does not frame a question about correspondence already sent", () => {
-    expect(buildArtifactFrame("did you send the email to dave", true)).toBe("");
+    expect(buildArtifactFrame("did you send the email to dave")).toBe("");
   });
 
   it("does not frame a question about when to send it", () => {
-    expect(buildArtifactFrame("when should i send the email", true)).toBe("");
+    expect(buildArtifactFrame("when should i send the email")).toBe("");
   });
 
   it("does not frame the user reporting that they sent it", () => {
-    expect(buildArtifactFrame("i sent the email to dave yesterday", true)).toBe("");
+    expect(buildArtifactFrame("i sent the email to dave yesterday")).toBe("");
   });
 
   it("frames a clause-initial imperative, lead-in words and all", () => {
-    expect(buildArtifactFrame("go on then write the letter to the school", true)).toBe(
+    expect(buildArtifactFrame("go on then write the letter to the school")).toBe(
       "The letter to send to the school:",
+    );
+  });
+});
+
+describe("buildArtifactFrame — correction verbs", () => {
+  it("frames 'fix the typos' as a correction", () => {
+    expect(buildArtifactFrame("fix the typos and grammar")).toBe("The corrected version:");
+  });
+
+  it("frames 'proofread this' without needing a correction object", () => {
+    expect(buildArtifactFrame("can someone proofread this")).toBe("The corrected version:");
+  });
+
+  it("uses a named artifact noun from the ask when available", () => {
+    expect(buildArtifactFrame("fix the grammar in this essay")).toBe("The corrected essay:");
+  });
+
+  it("stays silent when the correction verb has no text-correction object", () => {
+    expect(buildArtifactFrame("can you fix my wifi")).toBe("");
+  });
+
+  it("stays silent on non-text correction — 'fix the spacing in this css'", () => {
+    expect(buildArtifactFrame("fix the spacing in the code")).toBe("");
+  });
+
+  it("frames a proofread ask on a paste-heavy turn via askPrefix", () => {
+    const longTurn =
+      "can you fix the typos, im dyslexic and i miss stuff\n\n" +
+      "A".repeat(800);
+    expect(buildArtifactFrame(longTurn)).toBe("The corrected version:");
+  });
+
+  it("stays silent on a long turn with no clear instruction break", () => {
+    expect(buildArtifactFrame("A".repeat(700))).toBe("");
+  });
+
+  it("finds the artifact noun even when it is not near the correction verb", () => {
+    expect(
+      buildArtifactFrame("posting this ad on marketplace. can you fix the spelling in it"),
+    ).toBe("The corrected ad:");
+  });
+
+  it("'rewrite' is self-qualifying and finds the artifact noun", () => {
+    expect(buildArtifactFrame("can you rewrite the email to dave")).toBe(
+      "The corrected email:",
     );
   });
 });
