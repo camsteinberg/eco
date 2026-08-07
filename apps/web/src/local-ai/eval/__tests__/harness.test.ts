@@ -528,6 +528,42 @@ describe('runEval — captured probes', () => {
     expect(r.error).toBeNull();
   });
 
+  it('carries the figures an earlier turn stated into the probed turn', async () => {
+    // ★ STANDING NET. The harness composes its own message list, so a probe can
+    // silently stop mirroring dispatch — which is how a derived probe set has
+    // twice gone unwired here. If this breaks, a before/after run of the recap
+    // change is measuring nothing, and would report "no effect" either way.
+    const seen: ChatMessage[][] = [];
+    await runEval(
+      {
+        label: 'felt',
+        modelIds: ['m'],
+        promptIds: ['budget-t1'],
+        extraPrompts: [
+          {
+            id: 'budget-t1',
+            category: 'captured',
+            intent: 'explain',
+            prompt: 'write it out as a list i can stick on the fridge',
+            history: [
+              { role: 'user', content: 'take home was 2690 a month now its 2180' },
+              { role: 'assistant', content: 'Right, list what leaves your account.' },
+              { role: 'user', content: 'rent 745. council tax 142. water 31.' },
+              { role: 'assistant', content: 'Total out: 918.' },
+            ],
+          } as const satisfies EvalPromptSpec,
+        ],
+      },
+      baseDeps({ generate: recordingGenerate(seen) }),
+    );
+
+    const probedTurn = seen[0]!.at(-1)!.content;
+    expect(probedTurn).toContain('2180');
+    expect(probedTurn).toContain('rent 745');
+    // Derived from the turns BEFORE it, never from its own text.
+    expect(probedTurn.startsWith('write it out as a list')).toBe(true);
+  });
+
   it('includes extra prompts after the fixed pool in a default run', async () => {
     const seen: ChatMessage[][] = [];
     const { EVAL_PROMPTS } = await import('../prompts');
