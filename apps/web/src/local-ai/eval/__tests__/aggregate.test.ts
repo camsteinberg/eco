@@ -39,10 +39,10 @@ const CONFIG = {
 
 /**
  * A rubric scores object with every dim non-null except the judge dims,
- * `depthMatch`, `deliversFirst`, `preservesUserText` and `preservesFacts`
- * (null = not-applicable, like a probe without a depthBand or without
- * `expectDeliverable` — keeps the hand-computed means below stable); override
- * per test.
+ * `depthMatch`, `deliversFirst`, `preservesUserText`, `preservesFacts`,
+ * `preservesHistoryFacts` and `honorsRuledOut` (null = not-applicable, like a
+ * probe without a depthBand or without `expectDeliverable` — keeps the
+ * hand-computed means below stable); override per test.
  */
 function makeScores(overrides?: Partial<RubricScores>): RubricScores {
   return {
@@ -60,6 +60,8 @@ function makeScores(overrides?: Partial<RubricScores>): RubricScores {
     deliversFirst: null,
     preservesUserText: null,
     preservesFacts: null,
+    preservesHistoryFacts: null,
+    honorsRuledOut: null,
     coherence: null,
     taskFit: null,
     ...overrides,
@@ -113,7 +115,7 @@ describe('median', () => {
 });
 
 describe('AUTOMATED_DIMENSIONS', () => {
-  it('lists the 14 automated dims and excludes the judge dims', () => {
+  it('lists the 16 automated dims and excludes the judge dims', () => {
     expect(AUTOMATED_DIMENSIONS).toEqual([
       'correctStop',
       'noRepetition',
@@ -132,6 +134,12 @@ describe('AUTOMATED_DIMENSIONS', () => {
       'deliversFirst',
       'preservesUserText',
       'preservesFacts',
+      // The conversation pair, gated by `historyFactSources` / `historyRuledOut`
+      // — spans of an earlier turn whose facts must survive into this reply, and
+      // things an earlier turn ruled out that must not come back. Null for every
+      // probe that names neither, so no existing composite moves.
+      'preservesHistoryFacts',
+      'honorsRuledOut',
     ]);
     expect(AUTOMATED_DIMENSIONS).not.toContain('coherence');
     expect(AUTOMATED_DIMENSIONS).not.toContain('taskFit');

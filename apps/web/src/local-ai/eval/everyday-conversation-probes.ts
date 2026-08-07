@@ -41,6 +41,14 @@
  * `expectDeliverable` — true, as in the single-turn set.
  * `expectUserTextReuse` — never set. See the block below; this is a rule, not an
  *               accident, and it has a drift guard.
+ * `historyFactSources`, `historyRuledOut` — the corpus's `carriesForward` /
+ *               `ruledOut` quotes, copied through unchanged. The ONLY fields
+ *               here that are authored rather than computed, because the window
+ *               they describe cannot be derived from the history — see the block
+ *               below, and `rubric.analyzeHistoryFactPreservation`. The corpus's
+ *               third list, `mentionNotViolation`, is deliberately NOT copied
+ *               through: those terms are on the record precisely because a token
+ *               check flags the correct reply as readily as the wrong one.
  *
  * ── WHAT THIS SET DOES NOT MEASURE ──────────────────────────────────────────
  *
@@ -96,9 +104,26 @@ export function conversationProbeId(itemId: string): string {
  *
  * So five of these conversations carry `faithful-reproduction` and NONE of them
  * can have it measured. That is a real gap in the instrument, not a property of
- * the corpus: the dim reads one turn, and the requirement spans many. Closing it
- * needs a span measure that reads the history too — a rubric change, deliberately
- * not made here.
+ * the corpus: the dim reads one turn, and the requirement spans many.
+ *
+ * ── HALF OF THAT GAP IS NOW CLOSED, AND HALF IS STILL OPEN ──────────────────
+ *
+ * `faithful-reproduction` covers two jobs, and the single-turn set already
+ * splits them: the WORDING has to survive (`preservesUserText`, a span measure)
+ * or the FACTS have to survive (`preservesFacts`, an entity measure). The FACT
+ * half now has a conversation sibling — `preservesHistoryFacts`, fed by the
+ * `carriesForward` spans in the corpus's layer 2 and gated below. It reads the
+ * history, so a figure given twelve turns ago is measurable at last.
+ *
+ * ⚠ The SPAN half is still missing and this note is still the record of it. A
+ * longest-common-span measure over the history would say something the fact
+ * measure cannot: whether the resent email is RECOGNISABLY the one she approved,
+ * as opposed to a fresh email that happens to contain Thursday and Friday. That
+ * needs a scope rule for "which earlier text is the one being reproduced", and
+ * the honest answer is that the same authored quote would serve — but a span
+ * measure is not a survival count, and shipping it on the back of this one is
+ * how a dim ends up measuring something other than its name. Deliberately not
+ * made here.
  *
  * The list below is the drift guard. A conversation whose PROBED turn itself
  * carries a paste and needs `faithful-reproduction` would be a genuine
@@ -139,11 +164,35 @@ function buildNotes(item: MultiTurnEverydayItem, openness: AskOpenness): string 
   return lines.join('\n');
 }
 
+/**
+ * The spans of history whose facts this reply has to carry, straight off layer 2.
+ * Copied rather than re-derived for the same reason `probedTurnIndex` is: the
+ * judgement belongs to the corpus, and there must be exactly one copy of it.
+ */
+function historyFactSourcesFor(item: MultiTurnEverydayItem): readonly string[] {
+  return (conversationNeedsFor(item.id).carriesForward ?? []).map((span) => span.quote);
+}
+
+/**
+ * The terms layer 2 says an earlier turn ruled out.
+ *
+ * ⚠ Reads `ruledOut` and NOT `mentionNotViolation`, which is the point of the
+ * two lists being separate. A superseded value can be named by a correct reply
+ * ("£790, up from £745 in October"), so gating it scores the right answer the
+ * same as the wrong one; those terms stay on the record with the replies they
+ * flagged, and never reach a probe.
+ */
+function historyRuledOutFor(item: MultiTurnEverydayItem): readonly string[] {
+  return (conversationNeedsFor(item.id).ruledOut ?? []).map((entry) => entry.term);
+}
+
 function toProbe(item: MultiTurnEverydayItem): EvalPromptSpec {
   const view = probedTurnAsItem(item);
   const openness = classifyAskOpenness(view);
   const ceiling = ceilingWordsFor(view);
   const floor = richnessFloorFor(view, ceiling);
+  const factSources = historyFactSourcesFor(item);
+  const ruledOut = historyRuledOutFor(item);
 
   return {
     id: conversationProbeId(item.id),
@@ -152,6 +201,8 @@ function toProbe(item: MultiTurnEverydayItem): EvalPromptSpec {
     prompt: view.userInput,
     history: toHistory(item),
     expectDeliverable: true,
+    ...(factSources.length > 0 ? { historyFactSources: factSources } : {}),
+    ...(ruledOut.length > 0 ? { historyRuledOut: ruledOut } : {}),
     ...(ceiling !== null ? { depthBand: { maxWords: ceiling } } : {}),
     ...(floor !== null ? { minWords: floor } : {}),
     judge: ['taskFit', 'coherence'],

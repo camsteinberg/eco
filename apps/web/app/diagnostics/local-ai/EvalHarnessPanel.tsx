@@ -454,22 +454,28 @@ export function EvalHarnessPanel() {
           { SHAPE_PROBES, SHAPE_RESEARCH_ARMS },
           { FELT_PROBES },
           { EVERYDAY_USE_PROBES },
+          { EVERYDAY_CONVERSATION_PROBES },
         ] = await Promise.all([
           import('../../../src/local-ai/eval/prompts'),
           import('../../../src/local-ai/eval/shape-probes'),
           import('../../../src/local-ai/eval/felt-probes'),
           import('../../../src/local-ai/eval/everyday-probes'),
+          import('../../../src/local-ai/eval/everyday-conversation-probes'),
         ]);
         return [
           ...EVAL_PROMPTS,
           ...SHAPE_PROBES,
           ...FELT_PROBES,
           ...(includeResearchArms ? SHAPE_RESEARCH_ARMS : []),
-          // Derived from the everyday-use corpus, so they are NOT in the
-          // harness's checked-in pool — they are named here so
-          // `eco-eval-categories=everyday-use` / `eco-eval-prompts=everyday-…`
-          // can resolve them, and ride to the harness as extraPrompts below.
+          // Both everyday sets are derived from their corpora, so neither is in
+          // the harness's checked-in pool — they are named here so
+          // `eco-eval-categories=everyday-use` / `=everyday-conversation` and
+          // `eco-eval-prompts=everyday-…` can resolve them, and ride to the
+          // harness as extraPrompts below. Their categories stay separate: a
+          // probe replaying eight turns of history is not comparable with one
+          // that carries none, so neither selects the other.
           ...EVERYDAY_USE_PROBES,
+          ...EVERYDAY_CONVERSATION_PROBES,
           ...tangentProbes,
         ];
       };
@@ -514,18 +520,22 @@ export function EvalHarnessPanel() {
             : `Autorun started on [${validIds.join(', ')}].${promptNote}`,
         );
       }
-      // The everyday probes are derived from the corpus and live outside the
+      // The everyday probes are derived from their corpora and live outside the
       // harness's checked-in pool, so the selected set has to ride along as
       // session-scoped extraPrompts. Armed only when the resolved selection
       // actually names one: a run that selected none carries exactly the
-      // extras it carried before this existed.
+      // extras it carried before this existed. The conversation probes must
+      // ride the same way or their `history` never reaches the harness.
       let everydayProbes: EvalPromptSpec[] = [];
       if (promptIds && promptIds.length > 0) {
-        const { EVERYDAY_USE_PROBES } = await import(
-          '../../../src/local-ai/eval/everyday-probes'
-        );
+        const [{ EVERYDAY_USE_PROBES }, { EVERYDAY_CONVERSATION_PROBES }] = await Promise.all([
+          import('../../../src/local-ai/eval/everyday-probes'),
+          import('../../../src/local-ai/eval/everyday-conversation-probes'),
+        ]);
         const wanted = new Set(promptIds);
-        everydayProbes = EVERYDAY_USE_PROBES.filter((p) => wanted.has(p.id));
+        everydayProbes = [...EVERYDAY_USE_PROBES, ...EVERYDAY_CONVERSATION_PROBES].filter((p) =>
+          wanted.has(p.id),
+        );
       }
       const extraPrompts = [...tangentProbes, ...everydayProbes];
 
