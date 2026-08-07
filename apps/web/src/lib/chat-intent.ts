@@ -622,6 +622,70 @@ export function buildTurnQualityInstruction(
     // So the honest target is earlier-turn recall generally, not one bill's unit
     // conversion — and anything aimed at it needs n≈10 per arm (a generation
     // here costs ~20-35s, so that is affordable).
+    //
+    // ⚠ TWO ADDITIONS TO THE `writing` HINT WERE BUILT, MEASURED ON THE REAL
+    // MODEL, AND REVERTED. Left as-is on evidence, not on inertia. Anything
+    // tried next should start from these numbers rather than from the anecdote.
+    //
+    // THE FAILURE THEY WERE AIMED AT IS REAL. Asked part-way through a
+    // conversation to write the message she will paste into a family group
+    // chat — the `convo-birthday-lunch-message` conversation in
+    // `__tests__/fixtures/everyday-conversation-corpus.ts`, probed at turn 6 —
+    // the shipping 2B hands back an invitation with the specifics missing.
+    // Measured over 10 real generations (`candidate/qwen3.5-2b-onnx`, sampled,
+    // maxTokens 1536, production user-turn hints), against a conversation that
+    // has already settled the venue, the date, the price and the back room:
+    //
+    //   venue named at all              1/10   (6/10 wrote "[Restaurant Name]")
+    //   date right (Sunday 8th March)   5/10
+    //   a WRONG weekday or date         5/10   (Saturday x3 — the day the
+    //                                           conversation explicitly moved
+    //                                           OFF, which the corpus names as
+    //                                           its bounce condition)
+    //   £25 a head present              5/10
+    //   everything above, in one reply  1/10
+    //
+    // ★ IT IS NOT A CONTEXT PROBLEM, which is what makes it interesting.
+    // Nothing truncates: the whole conversation is in the prompt, the assistant
+    // turn immediately above restates both the date and the £25, and one sample
+    // in ten does reproduce every specific. What the conversation never does is
+    // give the restaurant a NAME — it is "an italian on bridgford road weve
+    // been to before, not il pescatore thats the fish one, the other one". The
+    // model wants a name for the invitation slot, does not accept the
+    // description as one, and brackets or drops it.
+    //
+    // BOTH ATTEMPTS ADDED A CLAUSE ONLY TO MID-CONVERSATION ASKS FOR
+    // CORRESPONDENCE (an author verb governing message/email/letter/invite,
+    // with prior turns) — deliberately NOT to the hint below, which fires on
+    // every writing turn in the product. The gate was unit-tested to leave the
+    // whole single-turn corpus and the other three multi-turn conversations
+    // byte-identical, and the clause was confirmed present in the production
+    // bundle. Each arm is n=10 at the config above:
+    //
+    //   "Use the specifics this conversation already gave you, in the words
+    //    they were given in — no placeholders in brackets, and nothing invented
+    //    to fill a gap."
+    //     Placeholders 7/10 -> 4/10, but by DELETION rather than recall: replies
+    //     got 24% shorter and £25 fell 5/10 -> 2/10. Clean replies 1/10 -> 0/10.
+    //     ★ And "in the words they were given in" resurrected the SUPERSEDED
+    //     date: the 7th of March, corrected away early in the conversation,
+    //     went 1/10 -> 5/10. Telling a small model to reuse the user's own
+    //     wording makes it likelier to reuse wording that was later corrected.
+    //
+    //   "Write it ready to send as it stands, with the details this
+    //    conversation has settled already in it."
+    //     Worse across the board: venue 0/10, date right 5/10 -> 2/10, back room
+    //     8/10 -> 2/10, placeholders back to 7/10, clean 0/10. One reply was a
+    //     nine-placeholder blank template — the bounce condition verbatim.
+    //
+    // READ TOGETHER: this defect does not respond to an instruction at the end
+    // of the user turn, in either direction. Pushing on form moved which failure
+    // appeared, never the failure rate. The facts are present but not salient,
+    // and two different families of clause both failed to make them salient. The
+    // next lever to try is CONTEXT CONSTRUCTION — restating the settled details
+    // near the ask, the way `lib/figure-recap.ts` does for money-shaped figures,
+    // extended to the facts that are not numbers. That is a bigger build than a
+    // hint and it needs its own before/after run; it is not attempted here.
     writing: "Match the requested format and tone; avoid filler.",
     file: "Lead with the conclusion; cite specifics from the file.",
     research: "Distinguish supported claims from uncertain ones; cite sources only when you can back the claim.",
