@@ -22,67 +22,128 @@
  * text for that chunk (possibly empty); `flush()` releases any final
  * buffered content on generation end.
  *
- * Ported from `workers/inference-worker.ts` — the legacy implementations
- * are battle-tested. Behavior is preserved exactly so output looks the
- * same after cutover.
+ * Ported from `workers/inference-worker.ts`. The legacy implementations were
+ * carried over as-is; the one deliberate divergence since is the stray-close
+ * handling in ThinkTagFilter documented on that class.
  */
 
 // ─── ThinkTagFilter ─────────────────────────────────────────────────────────
 
+const THINK_OPEN = '<think>';
+const THINK_CLOSE = '</think>';
+
+/** Longest tag prefix that can sit unresolved at the end of a chunk. */
+const MAX_PARTIAL_TAG_LEN = Math.max(THINK_OPEN.length, THINK_CLOSE.length) - 1;
+
+/**
+ * Length of the longest suffix of `text` that is a proper prefix of EITHER
+ * think tag — i.e. how many trailing characters have to be held back in case
+ * the next chunk completes a tag. Tokenizers routinely split `</think>` into
+ * `</` + `think` + `>`, so a close needs the same protection an open has
+ * always had.
+ */
+function pendingTagPrefixLength(text: string): number {
+  const longest = Math.min(MAX_PARTIAL_TAG_LEN, text.length);
+  for (let len = longest; len >= 1; len--) {
+    const suffix = text.slice(-len).toLowerCase();
+    if (THINK_OPEN.startsWith(suffix) || THINK_CLOSE.startsWith(suffix)) return len;
+  }
+  return 0;
+}
+
+/**
+ * Strips reasoning blocks from a streamed reply.
+ *
+ * ★ INVARIANT: a complete `<think>` or `</think>` never reaches visible output,
+ * whether or not it is part of a well-formed pair, and whatever its case. That
+ * has to hold defensively, because a model can and does emit an UNMATCHED
+ * close: `candidate/qwen3.5-2b-onnx` produced one mid-reply on the
+ * `convo-grape-climbdown` conversation probe, and the old state machine — which
+ * only looked for `</think>` while already inside a block — passed it straight
+ * through to the user (`noThinkLeakage: 0`).
+ *
+ * Why a model emits a lone close: with thinking disabled, the Qwen3.5 template
+ * (plus our KV-reuse patch, runtime/template-patches.ts) renders every assistant
+ * turn — history included — as `<|im_start|>assistant\n<think>\n\n</think>\n\n…`.
+ * Deep in a conversation the model has seen `</think>\n\n` immediately ahead of
+ * assistant prose many times over, so emitting one mid-answer and starting the
+ * answer again is an unremarkable continuation of its own context. Suppressing
+ * the restart is a decoding question; keeping the tag off the screen is this
+ * filter's job, and it is the half that can be made deterministic.
+ *
+ * A stray close is dropped in place, zero-width. The blank lines behind it are
+ * swallowed (as after a real close) ONLY when no visible text has been emitted
+ * yet, so a reply can't open with blank lines — while mid-reply the surrounding
+ * whitespace is left alone rather than welding two sentences together.
+ */
 export class ThinkTagFilter {
   private buffer = '';
   private insideThink = false;
   private justClosedThink = false;
+  private startedVisibleText = false;
 
   process(chunk: string): string {
     this.buffer += chunk;
     let output = '';
 
+    const emit = (text: string): void => {
+      if (text.length === 0) return;
+      output += text;
+      if (!this.startedVisibleText && /\S/.test(text)) this.startedVisibleText = true;
+    };
+
     while (this.buffer.length > 0) {
+      const lower = this.buffer.toLowerCase();
+
       if (this.insideThink) {
-        const closeIdx = this.buffer.indexOf('</think>');
-        if (closeIdx !== -1) {
-          this.buffer = this.buffer.slice(closeIdx + 8);
-          this.insideThink = false;
-          this.justClosedThink = true;
-        } else if (this.buffer.length >= 8) {
-          this.buffer = this.buffer.slice(-7);
-          break;
-        } else {
+        const closeIdx = lower.indexOf(THINK_CLOSE);
+        if (closeIdx === -1) {
+          // Hidden reasoning: discard it, keeping only what could head a close.
+          if (this.buffer.length > MAX_PARTIAL_TAG_LEN) {
+            this.buffer = this.buffer.slice(-MAX_PARTIAL_TAG_LEN);
+          }
           break;
         }
-      } else {
-        if (this.justClosedThink) {
-          this.buffer = this.buffer.replace(/^\s+/, '');
-          this.justClosedThink = false;
-          if (this.buffer.length === 0) break;
-        }
-
-        const openIdx = this.buffer.indexOf('<think>');
-        if (openIdx !== -1) {
-          output += this.buffer.slice(0, openIdx);
-          this.buffer = this.buffer.slice(openIdx + 7);
-          this.insideThink = true;
-        } else {
-          let partialLen = 0;
-          const tag = '<think>';
-          for (let len = Math.min(6, this.buffer.length); len >= 1; len--) {
-            if (tag.startsWith(this.buffer.slice(-len))) {
-              partialLen = len;
-              break;
-            }
-          }
-
-          if (partialLen > 0) {
-            output += this.buffer.slice(0, -partialLen);
-            this.buffer = this.buffer.slice(-partialLen);
-            break;
-          } else {
-            output += this.buffer;
-            this.buffer = '';
-          }
-        }
+        this.buffer = this.buffer.slice(closeIdx + THINK_CLOSE.length);
+        this.insideThink = false;
+        this.justClosedThink = true;
+        continue;
       }
+
+      if (this.justClosedThink) {
+        this.buffer = this.buffer.replace(/^\s+/, '');
+        this.justClosedThink = false;
+        if (this.buffer.length === 0) break;
+        continue;
+      }
+
+      const openIdx = lower.indexOf(THINK_OPEN);
+      const closeIdx = lower.indexOf(THINK_CLOSE);
+
+      if (openIdx !== -1 && (closeIdx === -1 || openIdx < closeIdx)) {
+        emit(this.buffer.slice(0, openIdx));
+        this.buffer = this.buffer.slice(openIdx + THINK_OPEN.length);
+        this.insideThink = true;
+        continue;
+      }
+
+      if (closeIdx !== -1) {
+        // A close with no opener — see the invariant above.
+        emit(this.buffer.slice(0, closeIdx));
+        this.buffer = this.buffer.slice(closeIdx + THINK_CLOSE.length);
+        this.justClosedThink = !this.startedVisibleText;
+        continue;
+      }
+
+      const pending = pendingTagPrefixLength(this.buffer);
+      if (pending > 0) {
+        emit(this.buffer.slice(0, this.buffer.length - pending));
+        this.buffer = this.buffer.slice(this.buffer.length - pending);
+        break;
+      }
+
+      emit(this.buffer);
+      this.buffer = '';
     }
 
     return output;
@@ -94,6 +155,7 @@ export class ThinkTagFilter {
     this.buffer = '';
     this.insideThink = false;
     this.justClosedThink = false;
+    this.startedVisibleText = false;
     return wasInsideThink ? '' : remaining;
   }
 }
