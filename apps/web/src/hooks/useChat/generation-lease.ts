@@ -17,8 +17,17 @@
  *     before the lease those sends queued behind the lifecycle lock and
  *     succeeded, so failing fast here would be a regression. The chat UI
  *     already shows the honest "loading" phase during this window.
- *   - held by anything else (switch-model, another tab's generation,
- *     benchmark, unload) → fail fast with the honest busy copy.
+ *   - held by THIS tab's own 'generation' lease → WAIT. This is the
+ *     abandoned-generation window: an interrupt (stop, conversation
+ *     switch) flips the UI to idle synchronously, but the lease releases
+ *     only when the aborted stream unwinds — and when a reply is left to
+ *     finish in the background (navigating off /chat), the lease is held
+ *     until it completes. Either way the holder is ours and releases on
+ *     its own, so the send queues instead of bouncing with an error card.
+ *   - held by anything else (switch-model, ANOTHER tab's generation,
+ *     benchmark, unload) → fail fast with the honest busy copy — another
+ *     tab's generation is unbounded from here and genuinely not ours to
+ *     wait out.
  *   - user stop while waiting → `aborted: true`; the caller stays silent
  *     (the stop path already finalized the message).
  */
@@ -26,6 +35,7 @@
 import {
   acquireLocalHeavyWork,
   describeLocalHeavyWorkBusy,
+  isLocalHeavyWorkLeaseOwnedByThisContext,
   type LocalHeavyWorkKind,
 } from '../../lib/local-heavy-work-owner';
 
@@ -83,7 +93,14 @@ export async function acquireGenerationLease(options?: {
     }
 
     const holderKind = attempt.active?.kind;
-    const waitable = holderKind != null && WAITABLE_KINDS.has(holderKind);
+    // A 'generation' holder is waitable only when it is OUR OWN lease —
+    // the still-unwinding (or finishing-in-background) generation this tab
+    // already abandoned. A foreign generation keeps the honest fail-fast.
+    const waitable =
+      holderKind != null &&
+      (WAITABLE_KINDS.has(holderKind) ||
+        (holderKind === 'generation' &&
+          isLocalHeavyWorkLeaseOwnedByThisContext(attempt.active)));
     if (!waitable) {
       return {
         ok: false,

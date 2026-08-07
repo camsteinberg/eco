@@ -13,7 +13,9 @@
  *
  *   - free           → acquire immediately;
  *   - readiness/warmup holder → wait (abortable, bounded) and keep trying;
- *   - any other holder (switch-model, another tab's generation, …)
+ *   - THIS tab's own generation holder → wait (the abandoned-generation
+ *     window: interrupted or finishing in the background, releases on its own);
+ *   - any other holder (switch-model, ANOTHER tab's generation, …)
  *                    → fail fast with the honest busy message;
  *   - user stop while waiting → aborted result, no message shown.
  */
@@ -64,16 +66,27 @@ describe('non-waitable holder', () => {
     if (switching.ok) switching.release();
   });
 
-  it('fails fast while another generation holds the runtime (cross-tab)', async () => {
-    const other = acquireLocalHeavyWork('generation');
-    expect(other.ok).toBe(true);
+  it('fails fast while ANOTHER tab\'s generation holds the runtime', async () => {
+    // A genuinely foreign holder: a raw lease row this context never acquired
+    // (cross-tab via the shared localStorage key). It must NOT be planted with
+    // acquireLocalHeavyWork — that registers the lease as our own, which is
+    // the waitable same-tab case tested below.
+    localStorage.setItem(
+      RUNTIME_KEY,
+      JSON.stringify({
+        ownerId: 'generation:foreign-tab',
+        kind: 'generation',
+        startedAt: Date.now(),
+        expiresAt: Date.now() + 90_000,
+      }),
+    );
 
     const result = await acquireGenerationLease();
     expect(result.ok).toBe(false);
     if (!result.ok) {
+      expect(result.aborted).toBe(false);
       expect(result.message).toMatch(/already active/i);
     }
-    if (other.ok) other.release();
   });
 });
 
@@ -142,4 +155,39 @@ describe('waitable holder (readiness/warmup)', () => {
     if (!result.ok) expect(result.aborted).toBe(true);
     if (readiness.ok) readiness.release();
   });
+});
+
+describe('same-tab abandoned generation (mid-stream navigation)', () => {
+  // The shipped failure (observed live 3× on 2026-08-07, main db3c2bf):
+  // navigating away mid-stream interrupts the generation — the UI flips to
+  // idle synchronously — but the 'generation' lease is released only in the
+  // send loop's `finally`, once the aborted stream actually unwinds. In that
+  // window the composer is enabled, OUR OWN lease is still held, and because
+  // 'generation' is not a waitable kind the next send bounces with
+  // "Local inference is already active" (surfaced as "Something went
+  // sideways") instead of waiting out a holder this tab already abandoned.
+  //
+  // The invariant pinned here is implementation-agnostic: whether the fix
+  // releases the lease at interrupt time or makes an own-context 'generation'
+  // holder waitable, a send must never fail off this tab's own unwinding
+  // lease. The cross-tab fail-fast stays honest (companion test below).
+
+  it("waits out this tab's own still-unwinding generation lease instead of bouncing the send", async () => {
+    // Our own abandoned generation: acquired in THIS context, so the owner
+    // registry knows it's ours. It releases 1.5s later, when the aborted
+    // stream unwinds and the send loop's `finally` runs.
+    const abandoned = acquireLocalHeavyWork('generation');
+    expect(abandoned.ok).toBe(true);
+    setTimeout(() => {
+      if (abandoned.ok) abandoned.release();
+    }, 1_500);
+
+    const pending = acquireGenerationLease();
+    await vi.advanceTimersByTimeAsync(5_000);
+    const result = await pending;
+
+    expect(result.ok).toBe(true);
+    if (result.ok) result.release();
+  });
+
 });
