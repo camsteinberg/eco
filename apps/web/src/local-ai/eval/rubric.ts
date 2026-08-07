@@ -1816,7 +1816,7 @@ export function scoreArtifactDelivery(spec: EvalPromptSpec, text: string): numbe
  *   - More than ~5 distinct slots make it a template → defective.
  */
 
-const SLOT_RE = /\[[^\[\]\n]{1,60}\]/g;
+const SLOT_RE = /\[[^[\]\n]{1,60}\]/g;
 
 const GENERIC_SINGLE_WORDS = new Set([
   'answer', 'response', 'reply', 'reason', 'result', 'detail', 'details',
