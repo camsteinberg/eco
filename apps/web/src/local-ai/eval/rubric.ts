@@ -1766,6 +1766,488 @@ export function scoreArtifactDelivery(spec: EvalPromptSpec, text: string): numbe
   return analyzeArtifactDelivery(text).score;
 }
 
+// ─── overwrite instrument (M2 mechanism 1) ──────────────────────────────────
+//
+// Three structural dims measuring answer-layer defects that ride alongside the
+// model's outputs: bracket-slot placeholders, invented time commitments, and
+// artifact burial. Each is 0..1 (or null when the spec's `expectOverwriteWatch`
+// is absent). Calibrated against 35 hand-labelled frozen captures from the M2
+// baseline batches of 2026-08-06 (labelled before any scorer existed).
+//
+// ★ WHAT THESE DIMS DELIBERATELY CANNOT SEE
+//
+//   - Correctness. A fabricated legal citation or a wrong Costco schedule is
+//     someone else's job. These dims measure structural defects.
+//   - Fidelity. A corrupted fact ("£7 not £8" becoming "£7 not £8" of money) or
+//     a voice replacement ("Upon arrival at the site") belongs to
+//     preservesFacts / preservesUserText.
+//   - Whether the reply is useful. The judge owns that.
+//
+// ★ CALIBRATION SOURCE
+//
+//   35 frozen captures in captured-overwrite-replies.ts (M2 baseline 2026-08-06,
+//   hand-labelled by a reader before any scorer existed). Tolerance: ±0.25 from
+//   every hand label. The labels are law; the scorer conforms to them.
+
+// ─── noUnfilledSlots ──────────────────────────────────────────────────────
+
+/**
+ * Bracket-slot penalty.
+ *
+ * WHAT IT MEASURES: whether the reply contains bracket placeholders
+ * (`[Child's Name]`, `[answer]`, `[specific skill, e.g., ...]`) that force the
+ * user to fill in content the ask already supplied, or that turn the artifact
+ * into a template the user has to complete.
+ *
+ * WHAT IT DELIBERATELY CANNOT SEE: whether the reply is correct, whether the
+ * slotted fact would have been the RIGHT fact, whether the reply preserved the
+ * user's voice. Those belong to other dims.
+ *
+ * CALIBRATION: 35 frozen captures. The awkward classes:
+ *   - Name/phone/date blanks for genuinely unknown facts are CLEAN (the gym
+ *     item's GOOD asks for "clearly marked blanks").
+ *   - Identity slots ([Your Name], [Last Name]) are defective when the ask
+ *     or paste contains a personal-name signature (Sarah, Dez, Devi).
+ *   - [Boss's Name] in a text-message artifact (ask says "text my boss") is
+ *     partial (0.5): a text can be sent without a name, but it forces an edit.
+ *   - Slots that invite authoring ("e.g." inside, or long descriptive content)
+ *     are defective.
+ *   - A literal [answer] inserted into the user's own text is defective.
+ *   - More than ~5 distinct slots make it a template → defective.
+ */
+
+const SLOT_RE = /\[[^[\]\n]{1,60}\]/g;
+
+const GENERIC_SINGLE_WORDS = new Set([
+  'answer', 'response', 'reply', 'reason', 'result', 'detail', 'details',
+  'action', 'topic', 'subject', 'item', 'example', 'option',
+]);
+
+const IDENTITY_SLOT_RE =
+  /\b(?:your\s+(?:full\s+)?name|(?:first|last)\s+name|(?:boss|manager|supervisor|teacher|doctor|recipient|addressee)(?:'s|s)?\s+name|phone\s*(?:number)?|email|linkedin|github)\b/i;
+
+const AUTHORING_INVITE_RE = /\be\.?g\.?\b|(?:such as|for (?:example|instance))\b/i;
+
+
+function extractSignatureNames(text: string): string[] {
+  const names: string[] = [];
+  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+  for (let i = lines.length - 1; i >= Math.max(0, lines.length - 4); i--) {
+    const line = lines[i]!;
+    if (/^[A-Z][a-z]{2,}$/.test(line)) names.push(line.toLowerCase());
+    const closingMatch = /^(?:sincerely|regards|thanks|thank\s*you|best|warmly|cheers|love|respectfully|with\s+respect),?\s*$/i.exec(
+      lines[i - 1] ?? '',
+    );
+    if (closingMatch && /^[A-Z][a-z]{2,}/.test(line)) {
+      names.push(line.split(/[\s,]/)[0]!.toLowerCase());
+    }
+  }
+  const nameLineRe = /(?:^|\n)\s*(?:[-–—]\s*)?([A-Z][a-z]{2,})\s*(?:\n|$)/g;
+  let m;
+  while ((m = nameLineRe.exec(text)) !== null) {
+    names.push(m[1]!.toLowerCase());
+  }
+  const introRe = /\b(?:[Mm]y name is|[Ii]'m|[Ii]m|[Ii] am)\s+([A-Z][a-z]{2,})\b/g;
+  while ((m = introRe.exec(text)) !== null) {
+    names.push(m[1]!.toLowerCase());
+  }
+  return [...new Set(names)];
+}
+
+function classifySlot(
+  slotContent: string,
+  askNames: string[],
+  sanctionsBlanks: boolean,
+  isTextMessage: boolean,
+): 'clean' | 'partial' | 'defect' {
+  const inner = slotContent.slice(1, -1).trim();
+  const lower = inner.toLowerCase();
+
+  if (GENERIC_SINGLE_WORDS.has(lower)) return 'defect';
+
+  if (AUTHORING_INVITE_RE.test(inner)) return 'defect';
+  if (inner.length > 25 && /[,;]/.test(inner)) return 'defect';
+
+  if (IDENTITY_SLOT_RE.test(inner)) {
+    if (askNames.length > 0) return isTextMessage ? 'partial' : 'defect';
+    if (isTextMessage) return 'partial';
+    return 'clean';
+  }
+
+  if (/\b(?:date|day|phone|number|email)\b/i.test(inner) && inner.split(/\s+/).length <= 4) {
+    return sanctionsBlanks ? 'clean' : 'partial';
+  }
+
+  return 'clean';
+}
+
+function slotLineContext(text: string, slotIndex: number): { inBoldField: boolean } {
+  const lineStart = text.lastIndexOf('\n', slotIndex) + 1;
+  const line = text.slice(lineStart, text.indexOf('\n', slotIndex) === -1 ? undefined : text.indexOf('\n', slotIndex));
+  const trimmed = line.trim();
+  const inBoldField = /^\*{2}[^*]+\*{2}/.test(trimmed) || /^\*{2}[^*]+:/.test(trimmed);
+  return { inBoldField };
+}
+
+export function scoreNoUnfilledSlots(spec: EvalPromptSpec, text: string): number | null {
+  if (!spec.expectOverwriteWatch) return null;
+
+  const slotMatches: { match: string; index: number }[] = [];
+  let m;
+  SLOT_RE.lastIndex = 0;
+  while ((m = SLOT_RE.exec(text)) !== null) {
+    slotMatches.push({ match: m[0]!, index: m.index });
+  }
+
+  if (slotMatches.length === 0) return 1;
+
+  const askNames = extractSignatureNames(spec.prompt);
+  const sanctionsBlanks = /\bclearly marked blanks\b/i.test(spec.notes ?? '');
+  const isTextMessage = /\btext\s+(?:my|to)\b/i.test(spec.prompt);
+
+  const distinctSlots = new Set(slotMatches.map((s) => s.match.toLowerCase()));
+  if (distinctSlots.size > 5) return 0;
+
+  let worstClass: 'clean' | 'partial' | 'defect' = 'clean';
+  for (const { match, index } of slotMatches) {
+    const { inBoldField } = slotLineContext(text, index);
+    const cls = classifySlot(match, askNames, sanctionsBlanks, isTextMessage);
+    const effective = cls === 'clean' && inBoldField && !sanctionsBlanks && /\byour\s+(?:full\s+)?name\b/i.test(match) ? 'partial' as const : cls;
+    if (effective === 'defect') { worstClass = 'defect'; break; }
+    if (effective === 'partial' && worstClass === 'clean') worstClass = 'partial';
+  }
+
+  if (worstClass === 'defect') return 0;
+  if (worstClass === 'partial') return 0.5;
+  return 1;
+}
+
+// ─── noInventedTime ──────────────────────────────────────────────────────
+
+/**
+ * Invented-time penalty.
+ *
+ * WHAT IT MEASURES: whether the reply commits to a time-word or day-name the
+ * ask never gave ("next week", "tomorrow morning", "Friday"). The detector is
+ * DIFFERENTIAL against the ask text: a time-word that appears in the ask
+ * (case-insensitive, with morphological equivalence for plurals and day-name
+ * variants) is sourced and clean.
+ *
+ * WHAT IT DELIBERATELY CANNOT SEE: whether the time is correct, numeric clock
+ * times (8:30 AM), or numeric durations used informationally ("30 days",
+ * "3 months"). Duration matching was considered and rejected: the 35 captures
+ * show legal-advice durations ("usually 30 days") and medical timelines
+ * ("3 months") labelled clean, and a rule that false-positives on informational
+ * prose and cannot distinguish it from a commitment is worse than no rule.
+ *
+ * CALIBRATION: 35 frozen captures. The differential design exists because
+ * summarise-01's "tonight" is sourced from "will send tonight" in the pasted
+ * thread, and a bare word list would false-positive there.
+ *
+ * SEVERITY: when invented time appears only in apparatus-headed sections
+ * (Recommendations, Next Steps, etc.) rather than the main body → 0.5; when
+ * it appears in the main body or the reply is short enough to be one section
+ * → 0; when none → 1.
+ */
+
+const TIME_PHRASES: readonly string[] = [
+  'tomorrow morning',
+  'tomorrow evening',
+  'tomorrow afternoon',
+  'tomorrow night',
+  'later today',
+  'this evening',
+  'this morning',
+  'this afternoon',
+  'this weekend',
+  'next week',
+  'last week',
+  'next month',
+  'last month',
+  'next year',
+  'last year',
+  'in the morning',
+  'tonight',
+  'tomorrow',
+  'yesterday',
+  'a few days',
+];
+
+const WEEKDAY_NAMES = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+
+function normalizeForTimeMatch(text: string): string {
+  return text.toLowerCase().replace(/['']/g, "'").replace(/\s+/g, ' ');
+}
+
+const WEEKDAY_ABBREVS: Readonly<Record<string, string[]>> = {
+  monday: ['mon'],
+  tuesday: ['tue', 'tues'],
+  wednesday: ['wed', 'weds'],
+  thursday: ['thu', 'thur', 'thurs'],
+  friday: ['fri'],
+  saturday: ['sat'],
+  sunday: ['sun'],
+};
+
+function isTimePhraseSourced(phrase: string, askNorm: string): boolean {
+  const lower = phrase.toLowerCase();
+  if (askNorm.includes(lower)) return true;
+  if (WEEKDAY_NAMES.includes(lower)) {
+    for (const variant of [lower, lower + 's']) {
+      if (askNorm.includes(variant)) return true;
+    }
+    const abbrevs = WEEKDAY_ABBREVS[lower];
+    if (abbrevs) {
+      for (const abbr of abbrevs) {
+        const abbrRe = new RegExp(`\\b${abbr}\\b`, 'i');
+        if (abbrRe.test(askNorm)) return true;
+      }
+    }
+  }
+  return false;
+}
+
+const ADVISORY_SECTION_HEADER_RE =
+  /^(?:#{1,4}\s+)?(?:\*{1,2})?(?:\d+\.?\s+)?(?:recommendation|next\s*step|practical\s*(?:takeaway|implication|note)|monitoring|follow[\s-]*up|when\s*to|what\s*to\s*(?:do|tell)|concrete\s*recommendation|important\s*next|what\s*(?:to\s*tell|matters)|how\s*to\s*(?:respond|handle))/i;
+
+function isTimeInApparatusOnly(text: string, inventedPhrases: string[]): boolean {
+  const replyLines = text.split('\n');
+  let inAdvisorySection = false;
+  let foundInMain = false;
+  let foundInApparatus = false;
+
+  for (const line of replyLines) {
+    const trimmed = line.trim();
+    if (ADVISORY_SECTION_HEADER_RE.test(trimmed)) {
+      inAdvisorySection = true;
+    } else if (/^\*{2}/.test(trimmed) && ADVISORY_SECTION_HEADER_RE.test(trimmed.replace(/\*{1,2}/g, ''))) {
+      inAdvisorySection = true;
+    } else if (/^#{1,4}\s/.test(trimmed) && !ADVISORY_SECTION_HEADER_RE.test(trimmed)) {
+      inAdvisorySection = false;
+    }
+
+    const lineLower = trimmed.toLowerCase();
+    for (const phrase of inventedPhrases) {
+      const phraseRe = new RegExp(`\\b${phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+      if (phraseRe.test(lineLower)) {
+        if (inAdvisorySection) {
+          foundInApparatus = true;
+        } else {
+          foundInMain = true;
+        }
+      }
+    }
+  }
+
+  if (foundInApparatus && !foundInMain) return true;
+
+  const totalLines = replyLines.filter((l) => l.trim().length > 0).length;
+  for (const phrase of inventedPhrases) {
+    const phraseRe = new RegExp(`\\b${phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+    for (let i = 0; i < replyLines.length; i++) {
+      if (phraseRe.test(replyLines[i]!.toLowerCase())) {
+        const linesFromEnd = replyLines.slice(i).filter((l) => l.trim().length > 0).length;
+        if (linesFromEnd <= Math.max(3, totalLines * 0.2)) {
+          foundInApparatus = true;
+        } else {
+          foundInMain = true;
+        }
+      }
+    }
+  }
+
+  return foundInApparatus && !foundInMain;
+}
+
+export function scoreNoInventedTime(spec: EvalPromptSpec, text: string): number | null {
+  if (!spec.expectOverwriteWatch) return null;
+
+  const askNorm = normalizeForTimeMatch(spec.prompt);
+  const replyNorm = normalizeForTimeMatch(text);
+
+  const inventedPhrases: string[] = [];
+
+  for (const phrase of TIME_PHRASES) {
+    const lower = phrase.toLowerCase();
+    const phraseRe = new RegExp(`\\b${lower.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+    if (phraseRe.test(replyNorm) && !isTimePhraseSourced(phrase, askNorm)) {
+      inventedPhrases.push(lower);
+    }
+  }
+
+  for (const day of WEEKDAY_NAMES) {
+    const dayRe = new RegExp(`\\b${day}s?\\b`, 'i');
+    if (dayRe.test(replyNorm) && !isTimePhraseSourced(day, askNorm)) {
+      inventedPhrases.push(day);
+    }
+  }
+
+  if (inventedPhrases.length === 0) {
+    const durationRe = /\b(\d+)(?:\s*(?:–|-|to)\s*(\d+))?\s+(day|week|month|year)s?\b/gi;
+    const unitDays: Record<string, number> = { day: 1, week: 7, month: 30, year: 365 };
+    const askDurations: { min: number; max: number }[] = [];
+    let dm;
+    const askLower = spec.prompt.toLowerCase();
+    const askDurRe = /\b(\d+)(?:\s*(?:–|-|to)\s*(\d+))?\s+(day|week|month|year)s?\b/gi;
+    while ((dm = askDurRe.exec(askLower)) !== null) {
+      const lo = parseInt(dm[1]!, 10) * (unitDays[dm[3]!] ?? 1);
+      const hi = (dm[2] ? parseInt(dm[2]!, 10) : parseInt(dm[1]!, 10)) * (unitDays[dm[3]!] ?? 1);
+      askDurations.push({ min: lo, max: hi });
+    }
+
+    const replyLower = text.toLowerCase();
+    let hasUnsourced = false;
+    while ((dm = durationRe.exec(replyLower)) !== null) {
+      const lo = parseInt(dm[1]!, 10) * (unitDays[dm[3]!] ?? 1);
+      const hi = (dm[2] ? parseInt(dm[2]!, 10) : parseInt(dm[1]!, 10)) * (unitDays[dm[3]!] ?? 1);
+      const sourced = askDurations.some(
+        (a) => Math.abs(lo - a.min) <= a.min * 0.2 && Math.abs(hi - a.max) <= a.max * 0.2,
+      );
+      if (!sourced && lo !== hi) {
+        hasUnsourced = true;
+        inventedPhrases.push(`${dm[0]}`);
+      }
+    }
+
+    if (!hasUnsourced) return 1;
+  }
+
+  if (isTimeInApparatusOnly(text, inventedPhrases)) return 0.5;
+
+  return 0;
+}
+
+// ─── deliversUnburied ────────────────────────────────────────────────────
+
+/**
+ * Artifact-burial penalty.
+ *
+ * WHAT IT MEASURES: whether the asked-for artifact/answer IS the reply, versus
+ * being buried under or replaced by apparatus — Option/Version multiplicity for
+ * a single-artifact ask, "Changes Made & Rationale"/"Trade-offs" meta-sections,
+ * bold-field outlines replacing prose, per-marker enumerations the ask did not
+ * want.
+ *
+ * WHAT IT DELIBERATELY CANNOT SEE: whether the artifact is correct, whether it
+ * preserved the user's voice, whether it is addressed to the right audience.
+ * Orthogonal to fidelity and correctness.
+ *
+ * CALIBRATION: 35 frozen captures. Key calibration pairs:
+ *   - rewrite-03 b1/s1 (label 1): verdict + "Here's why:" bullets + softened
+ *     option. This is the right shape for a gut-check ask — NOT apparatus.
+ *   - summarise-01 b1/s5 (label 0.5): 111-word bulleted summary with action
+ *     items. Borderline: more structured than "4-5 lines" asks for.
+ *   - explain-01 b1/s1 (label 0.5): explain asks legitimately use headers.
+ *   - proofread-memorial-tribute b1/s1 (label 0): bold-field outline replacing
+ *     prose — not even a connected text.
+ *   - school-essay-not-ai b1/s1 (label 0): no rewritten essay at all — meta-
+ *     analysis + robotic-phrasing tips + table.
+ *
+ * LIMITS:
+ *   - A one-line preamble ("Here's the cleaned-up version…") is NOT apparatus.
+ *   - Short no-header replies are always clean.
+ *   - The dim does not distinguish "good apparatus" from "bad apparatus" — a
+ *     legitimately helpful "Why these changes" section still counts as apparatus
+ *     share if it dominates the reply.
+ */
+
+function countOptionSections(text: string): number {
+  const lines = text.split('\n');
+  let count = 0;
+  for (const line of lines) {
+    if (/^#{1,4}\s*(?:\*{1,2})?(?:option|version|alternative|variation|approach)\s*\d/i.test(line.trim())) {
+      count++;
+    }
+  }
+  return count;
+}
+
+const TABLE_LINE_RE = /^\s*\|.*\|/;
+
+function isBoldFieldOutline(text: string): boolean {
+  const nonEmpty = text.split('\n').filter((l) => l.trim().length > 0);
+  if (nonEmpty.length < 6) return false;
+  let boldFieldCount = 0;
+  let proseLineCount = 0;
+  for (const line of nonEmpty) {
+    const trimmed = line.trim();
+    if (/^\*{2}\d*\.?\s*[^*\n]{2,50}\*{2}\s*$/.test(trimmed)) {
+      boldFieldCount++;
+    } else if (trimmed.length > 20 && !/^[*#|>]/.test(trimmed) && !/^---/.test(trimmed)) {
+      proseLineCount++;
+    }
+  }
+  return boldFieldCount >= 4 && boldFieldCount > proseLineCount * 1.5;
+}
+
+function wordCountOf(text: string): number {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+const META_HEADER_LABEL_RE =
+  /\b(?:changes?\s*made|rationale|trade[\s-]?offs?|recommendations?|context\s*(?:&\s*|and\s+)?(?:analysis|details)?|practical\s*(?:implications?|details|notes?)|next\s*steps?|breakdown|concrete\s*recommendation|important\s*(?:next\s*step|exception|detail)|monitoring\s*strategy|why\s+(?:these?|this|does?|did|it|the|i|we|your|that)|why\s+(?:these?\s+)?changes?|the\s+"?why"?)\b/i;
+
+
+function isMetaHeader(line: string): boolean {
+  const clean = line.trim()
+    .replace(/^#{1,4}\s+/, '')
+    .replace(/\*{1,2}/g, '')
+    .replace(/[^\w\s]/g, ' ')
+    .trim()
+    .toLowerCase();
+  return META_HEADER_LABEL_RE.test(clean);
+}
+
+export function scoreDeliversUnburied(spec: EvalPromptSpec, text: string): number | null {
+  if (!spec.expectOverwriteWatch) return null;
+
+  const totalWords = wordCountOf(text);
+  if (totalWords < 50) return 1;
+
+  if (countOptionSections(text) >= 2) return 0;
+
+  if (isBoldFieldOutline(text)) return 0;
+
+  const lines = text.split('\n');
+  const hashHeaders = lines.filter((l) => /^#{1,4}\s/.test(l.trim())).length;
+  const metaHeaders = lines.filter((l) => /^#{1,4}\s/.test(l.trim()) && isMetaHeader(l)).length;
+  const boldDividers = lines.filter((l) => /^\*{2}[^*\n]{2,60}:\*{2}\s*$/.test(l.trim())).length;
+  const boldFieldLines = lines.filter((l) => /^\*{2}\d*\.?\s*[^*\n]{2,50}\*{2}\s*$/.test(l.trim())).length;
+  const tableLines = lines.filter((l) => TABLE_LINE_RE.test(l.trim())).length;
+  const bulletLines = lines.filter((l) => /^\s*(?:\*\s|\d+\.\s)/.test(l)).length;
+
+  const metaWeight = metaHeaders + boldDividers + Math.floor(tableLines / 2);
+
+  const contentHeaders = hashHeaders - metaHeaders;
+
+  const firstHeaderIdx = lines.findIndex((l) => /^#{1,4}\s/.test(l.trim()));
+  const preambleContentWords = firstHeaderIdx > 0
+    ? wordCountOf(lines.slice(0, firstHeaderIdx).join('\n'))
+    : 0;
+  const hasSubstantialPreamble = preambleContentWords >= 40;
+
+  if (totalWords >= 350 && hashHeaders >= 3 && preambleContentWords < 100) return 0;
+  if (totalWords >= 250 && hashHeaders >= 3 && metaHeaders >= 1 && contentHeaders <= 1 && !hasSubstantialPreamble) return 0;
+  if (totalWords >= 250 && hashHeaders >= 4 && metaHeaders >= 2 && !hasSubstantialPreamble) return 0;
+  if (totalWords >= 250 && metaWeight >= 4 && !hasSubstantialPreamble) return 0;
+  if (totalWords >= 200 && boldFieldLines >= 3) return 0;
+  if (totalWords >= 200 && tableLines >= 3 && metaHeaders >= 1 && preambleContentWords < 100) return 0;
+  if (totalWords >= 100 && boldDividers >= 3) return 0;
+  if (totalWords >= 200 && bulletLines >= 8 && boldDividers >= 1) return 0;
+  if (totalWords >= 200 && bulletLines >= 15) return 0;
+  if (totalWords >= 200 && bulletLines >= 8 && boldFieldLines >= 1 && hashHeaders === 0) return 0;
+  if (totalWords >= 100 && boldDividers >= 1 && bulletLines >= 6 && hashHeaders === 0) return 0;
+
+  if (totalWords >= 250 && metaHeaders >= 2) return 0.5;
+  if (totalWords >= 250 && hashHeaders >= 3) return 0.5;
+  if (totalWords >= 250 && metaWeight >= 2) return 0.5;
+  if (totalWords >= 200 && tableLines >= 3) return 0.5;
+  if (totalWords >= 100 && boldDividers >= 2) return 0.5;
+  if (totalWords >= 100 && bulletLines >= 8 && hashHeaders === 0 && boldDividers === 0) return 0.5;
+
+  return 1;
+}
+
 // ─── correct stop ──────────────────────────────────────────────────────────
 
 /**
@@ -1815,6 +2297,9 @@ export function scoreResult(spec: EvalPromptSpec, ctx: RubricContext): RubricSco
     preservesFacts: scoreFactPreservation(spec, ctx.output),
     preservesHistoryFacts: scoreHistoryFactPreservation(spec, ctx.output),
     honorsRuledOut: scoreHonorsRuledOut(spec, ctx.output),
+    noUnfilledSlots: scoreNoUnfilledSlots(spec, ctx.output),
+    noInventedTime: scoreNoInventedTime(spec, ctx.output),
+    deliversUnburied: scoreDeliversUnburied(spec, ctx.output),
     coherence: null,
     taskFit: null,
   };

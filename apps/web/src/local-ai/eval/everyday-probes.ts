@@ -722,6 +722,48 @@ export function artifactNote(artifact: ArtifactAskEntry): string {
   ].join(' ');
 }
 
+// ─── overwrite watch: items whose outputs are checked for structural defects ──
+
+/**
+ * ★ THE OVERWRITE WATCH — items where the three structural dims
+ * (noUnfilledSlots, noInventedTime, deliversUnburied) are computed.
+ *
+ * HAND-AUTHORED, ITEM BY ITEM. The M2 baseline measured these failure classes
+ * across the full 49-item corpus; the 22 items below are the ones where at
+ * least one of the three dims fired on at least one sample in the two
+ * independent batches. Each entry gives the one-line reason the item belongs.
+ *
+ * THE RULE APPLIED: the item produced at least one defective sample on at least
+ * one of the three axes (bracket slots, invented time, artifact burial) in the
+ * M2 baseline captures. Items that never triggered are not gated because the
+ * dims would score a clean 1.0 on every run and contribute nothing but noise
+ * to the composite.
+ */
+export const EVERYDAY_OVERWRITE_WATCH: Readonly<Record<string, string>> = {
+  'work-email-tone-fix': 'bounce names [Your Name] placeholders; all 3 axes fired in baseline',
+  'work-followup-shorter': 'anaphoric follow-up; confused meta-replies measured',
+  'rewrite-03': 'gut-check ask; model wraps verdict in apparatus sections',
+  'sw-15': 'proofread ask; literal [answer] slot inserted into user text + apparatus',
+  'school-essay-not-ai': 'rewrite ask; model returns meta-analysis instead of rewritten essay',
+  'work-sick-text': 'text-message ask; [Boss\'s Name] slot in a text where no name is needed',
+  'draft-01': 'write-from-scratch; invented time + some samples template-many slots',
+  'admin-gym-cancellation': 'write-from-scratch; good answer sanctions blanks but model over-slots',
+  'health-blood-results': 'decode ask; per-marker enumeration replaces the triage asked for',
+  'health-hospital-letter': 'decode ask; apparatus sections + invented follow-up schedules',
+  'legal-rent-increase': 'decode ask; fabricated law + invented sample letters with slots',
+  'summarise-01': 'summarise ask; sourced time-words test the differential detector',
+  'explain-01': 'explain ask; headers partly legitimate but over-structures past good answer',
+  'factual-02': 'factual yes/no ask; model invents opening hours and time commitments',
+  'money-insurance-jump': 'decide/advise ask; model wraps advice in sections + invented $ amounts',
+  'family-text-thread': 'emotional support ask; model returns essay headers instead of a position',
+  'proofread-vet-application': 'proofread ask; identity slots when name Devi is given in the paste',
+  'proofread-crew-email': 'proofread ask; [Your Name] slot when signed Dez in the paste',
+  'proofread-marketplace-ad': 'proofread ask; clean — calibrates the one-line preamble rule',
+  'proofread-memorial-tribute': 'proofread ask; bold-field outline replaces prose tribute',
+  'proofread-school-post': 'proofread ask; model invents schedule replacing her Friday ask',
+  'ft-15': 'session-mechanic ask; near-GOOD short reply — calibrates clean baseline',
+};
+
 function buildNotes(item: EverydayUseItem, openness: AskOpenness): string {
   const lines = [
     `ASK: ${openness}.`,
@@ -759,6 +801,9 @@ function toProbe(item: EverydayUseItem): EvalPromptSpec {
     ...(expectsFactPreservation(item) ? { expectFactPreservation: true as const } : {}),
     ...(ceiling !== null ? { depthBand: { maxWords: ceiling } } : {}),
     ...(floor !== null ? { minWords: floor } : {}),
+    ...(EVERYDAY_OVERWRITE_WATCH[item.id] !== undefined
+      ? { expectOverwriteWatch: true as const }
+      : {}),
     judge: ['taskFit', 'coherence'],
     notes: buildNotes(item, openness),
   };
