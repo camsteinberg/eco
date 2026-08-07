@@ -12,7 +12,6 @@ import { ShortcutsOverlay } from '../shortcuts/ShortcutsOverlay'
 import { CommandPalette } from '../command/CommandPalette'
 import { BottomSheet } from '../ui/BottomSheet'
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts'
-import { interruptActiveGeneration } from '../../hooks/useChat'
 import { useConversationStore } from '../../stores/conversationStore'
 import { useChatStore } from '../../stores/chatStore'
 import { useSession, clearUnsafeClientState, bestEffortSignOut } from '../../lib/auth'
@@ -23,8 +22,8 @@ import { useThemeStore } from '../../stores/themeStore'
 import { SidebarErrorBoundary } from './SidebarErrorBoundary'
 import { OfflineBanner } from './OfflineBanner'
 import { buildAuthPageHref } from '../../lib/auth-continuation'
-import { clearGuestLocalContext, rememberGuestLocalContext } from '../../lib/guest-local-context'
-import { toDbMessage } from '../../lib/db'
+import { rememberGuestLocalContext } from '../../lib/guest-local-context'
+import { startNewChat } from '../../lib/start-new-chat'
 import { rememberPendingConversationSearch } from '../../lib/conversation-navigation'
 import { isSupporterBillingHref } from '../../lib/supporter-membership'
 import { canGuestAccessAppRoute, getViewerMode } from '../../lib/access-policy'
@@ -185,32 +184,10 @@ export function AppShell({ children }: AppShellProps) {
   }, [])
 
   const handleNewChat = useCallback(() => {
-    const chatState = useChatStore.getState()
-    const conversationStore = useConversationStore.getState()
-
-    if (chatState.isStreaming) {
-      interruptActiveGeneration()
-    }
-
-    if (activeId) {
-      const currentMessages = useChatStore.getState().messages
-      for (const message of currentMessages) {
-        void conversationStore.saveMessage(toDbMessage(message, activeId))
-      }
-
-      const lastMessage = currentMessages[currentMessages.length - 1]
-      if (lastMessage) {
-        conversationStore.updateConversation(activeId, { activeLeafId: lastMessage.id })
-      }
-    }
-
-    clearGuestLocalContext()
-    conversationStore.setActive(null)
-    chatState.clearMessages()
-    chatState.restorePersistedPreferences()
+    startNewChat()
     setSidebarOpen(false)
     router.push('/chat')
-  }, [activeId, router])
+  }, [router])
 
   const handleExportMarkdown = useCallback(async () => {
     const convId = useConversationStore.getState().activeConversationId
