@@ -65,9 +65,11 @@ describe("UncertaintyNote", () => {
       "Unverified: Eco couldn’t confirm this against a source",
     );
 
-    // Copy speaks to the user's concern (reliability), in plain warm language.
+    // Copy speaks to the user's concern (reliability), in plain warm language —
+    // the status alone, with no instruction to go verify elsewhere (Cam, 2026-08-07:
+    // the "worth a quick double-check" clause handed the user homework).
     expect(note).toHaveTextContent(/couldn.t confirm this against a source/i);
-    expect(note).toHaveTextContent(/double-check/i);
+    expect(note).not.toHaveTextContent(/double-check/i);
   });
 
   it("renders the distinct unreachable (transient) copy", () => {

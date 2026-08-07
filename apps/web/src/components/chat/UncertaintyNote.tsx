@@ -43,7 +43,7 @@ export function UncertaintyNote({
   const text =
     status === "unreachable"
       ? "Eco couldn’t reach its sources to check this just now — try again in a moment."
-      : "Eco couldn’t confirm this against a source — worth a quick double-check if it matters.";
+      : "Eco couldn’t confirm this against a source.";
 
   // Screen-reader prefix matches the state: "unverified" is the epistemic case (no
   // source confirmed the claim); "unreachable" is transient (sources couldn't be
