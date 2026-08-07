@@ -585,6 +585,43 @@ export function buildTurnQualityInstruction(
     // user turn — where recency makes a hint strongest — moves the reply further
     // from the ask rather than closer. Anything tried next needs a different
     // lever and its own before/after run.
+    //
+    // ⚠ A THIRD LEVER WAS SCOPED AND NOT BUILT, because measuring the thing it
+    // targeted showed the target was mis-described. Recorded so the next attempt
+    // starts from the numbers rather than from the anecdote.
+    //
+    // The brief was: `convo-four-day-budget-list` drops "car tax" from the
+    // printed list in 3 of 3 replications, so surface its monthly equivalent in
+    // context (a context-construction lever, not another hint). The drop is real
+    // and common — but the mechanism and the rate were both wrong, and the fact
+    // worth chasing is a different one.
+    //
+    //   1. THERE IS NOTHING TO SURFACE, AND NO ARITHMETIC TO DO. The converted
+    //      figure is ALREADY in the replayed history — assistant turn 6 says
+    //      "car tax £245/yr = £21 a month" verbatim — and nothing truncates
+    //      history on this path (`getLocalModelContextBudget` caps OUTPUT tokens
+    //      only). When the model gets it right it writes "| Car Tax | £21 |
+    //      Annual payment (£245) |", so the conversion was never the barrier.
+    //      When it gets it wrong it omits the row, or misattaches the unit
+    //      elsewhere ("Council Tax | £142 | Yearly payment, £11.83/month").
+    //   2. IT IS NOT 3-OF-3. Measured over 18 real generations (17 sampled on the
+    //      production profile + 1 greedy; the token cap never bound — longest
+    //      completion 749): the car-tax row is present in 5/18 and carries a
+    //      correct monthly figure in 4/18. The best-powered single config
+    //      (sampled, 1536, n=10) puts it at 2/10, both correct. Two n=3 runs at
+    //      the SAME config split 0/3 and 2/3 — so n=3 cannot resolve this effect
+    //      and no before/after at that size is evidence either way.
+    //
+    // What IS reproducible is a different fact: the income £2,180 — the number
+    // the whole conversation exists to test ("does 4 days a week work?") — is
+    // absent from 18 of 18. Replies instead say "roughly £1,750/month coming in"
+    // (the outgoings relabelled) or "Income Available: £0". The survival pattern
+    // is recall distance, not units: what the probed turn re-names itself
+    // survives (rent £790 18/18) and what only exists in earlier turns does not
+    // (income, turn 1: 0/18; water £31, turn 3: 8/18; car tax, turn 5: 5/18).
+    // So the honest target is earlier-turn recall generally, not one bill's unit
+    // conversion — and anything aimed at it needs n≈10 per arm (a generation
+    // here costs ~20-35s, so that is affordable).
     writing: "Match the requested format and tone; avoid filler.",
     file: "Lead with the conclusion; cite specifics from the file.",
     research: "Distinguish supported claims from uncertain ones; cite sources only when you can back the claim.",
