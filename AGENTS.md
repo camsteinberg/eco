@@ -24,24 +24,8 @@ not extended.
 
 ## Tech stack
 
-| Layer | Tool |
-|---|---|
-| Package manager | pnpm 9 |
-| Monorepo | Turborepo 2 |
-| Node | 22 LTS |
-| TypeScript | 5.x, strict mode |
-| Web app | Next.js 16 (App Router), React 19, Tailwind CSS 4, Zustand |
-| API gateway | Hono on Node.js |
-| Auth | Better Auth (email + OAuth) |
-| Payments | Stripe (Supporter tier) |
-| Database | PostgreSQL + Drizzle ORM (auth + billing tables only); Redis (rate limiting) |
-| On-device inference (primary) | Transformers.js v4 + WebGPU |
-| On-device inference (secondary) | LiteRT-LM (Gemma 4 E2B) |
-| ML model storage | Cache API / OPFS dual-backend |
-| Animation | Motion v12 (import from `motion/react`) |
-| Markdown / streaming | `react-markdown` + `rehype-highlight` + KaTeX |
-| Testing | Vitest (unit), Playwright (E2E) |
-| Licensing | AGPL-3.0-or-later on all source files |
+The dependency manifests (`package.json` in the root, apps, and packages) are the
+source of truth for the stack.
 
 **Pinned versions worth knowing:**
 
@@ -89,16 +73,11 @@ hardcode values.
 ## Running the project
 
 ```bash
-pnpm install         # install everything
-pnpm dev             # web (3000) + api (3001)
-pnpm build           # build all packages and apps
-pnpm type-check      # type-check the monorepo
-pnpm lint            # lint
-pnpm test            # all TypeScript unit tests
-pnpm --filter @eco/web exec playwright test   # E2E (Playwright)
-
 pnpm qa              # everything CI gates on, in one command — run before a PR
 ```
+
+The rest of the day-to-day commands are the standard ones in the root
+`package.json` scripts (E2E runs via `pnpm --filter @eco/web exec playwright test`).
 
 `pnpm qa` runs type-check, lint, the circular-dependency check, the unit suites, and
 the full build, failing on the first problem. It mirrors the jobs that gate a merge,
