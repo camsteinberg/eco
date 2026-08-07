@@ -12,6 +12,7 @@ const POPULATED: StorageBreakdown = {
   browserUsage: 3 * ONE_GB,
   browserQuota: 18 * ONE_GB,
   ecoTotalBytes: 2 * ONE_GB,
+  measured: true,
   models: [
     { id: 'local/phi3-mini-4k-q4f16', friendlyName: 'Phi-3 Mini', vendor: 'Microsoft', sizeBytes: 1.4 * ONE_GB },
     { id: 'local/qwen3-0.6b', friendlyName: 'Qwen3 0.6B', vendor: 'Hugging Face', sizeBytes: 0.6 * ONE_GB },
@@ -22,6 +23,7 @@ const EMPTY: StorageBreakdown = {
   browserUsage: 50_000_000,
   browserQuota: 18 * ONE_GB,
   ecoTotalBytes: 0,
+  measured: true,
   models: [],
 };
 
@@ -163,6 +165,7 @@ describe('LocalAiStoragePanel — loading + missing-data', () => {
       browserUsage: null,
       browserQuota: null,
       ecoTotalBytes: 500_000_000,
+      measured: true,
       models: [
         { id: 'local/x', friendlyName: 'Test', vendor: 'Anyone', sizeBytes: 500_000_000 },
       ],
@@ -183,5 +186,29 @@ describe('LocalAiStoragePanel — loading + missing-data', () => {
     expect(screen.getAllByText(/477 MB/).length).toBeGreaterThanOrEqual(1);
     const card = screen.getByTestId('storage-model-card-local/x');
     expect(card).toHaveTextContent(/477 MB/);
+  });
+});
+
+// "Nothing cached" is a confident claim — when the Cache API could not even be
+// asked, the panel must say it could not check, not assert emptiness while
+// gigabytes sit on disk (measured live 2026-08-05).
+describe('LocalAiStoragePanel — unmeasurable storage', () => {
+  it('does not claim "Nothing cached" when storage could not be measured', () => {
+    const unmeasured: StorageBreakdown = {
+      browserUsage: 1_600_000_000,
+      browserQuota: 12 * ONE_GB,
+      ecoTotalBytes: 0,
+      models: [],
+      measured: false,
+    };
+    render(
+      <LocalAiStoragePanel
+        status="ready"
+        breakdown={unmeasured}
+        onClearModel={async () => undefined}
+      />,
+    );
+    expect(screen.queryByText(/Nothing cached on this device yet/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/couldn.t check storage/i)).toBeInTheDocument();
   });
 });

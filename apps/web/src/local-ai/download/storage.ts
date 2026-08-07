@@ -48,6 +48,14 @@ export const ECO_CACHE_SIZE_HEADER = 'x-eco-cache-size-bytes';
 export const ECO_PARTS_NATIVE_HEADER = 'x-eco-parts-native';
 
 /**
+ * URL marker for chunk-part entries: `<fileUrl>.ecopart.<stamp>.<offset>`.
+ * Part of the cache format contract (like the two headers above) — storage
+ * accounting uses it to recognise that a part entry's bytes are already
+ * covered by its completed manifest's stamped aggregate.
+ */
+export const ECO_PART_MARKER = '.ecopart.';
+
+/**
  * A listed chunk-part was gone while composing a parts-native read. Thrown into
  * the composition stream so the consumer's existing corrupted-entry handling
  * (re-download) fires. Defined here (not imported from download.ts) so storage

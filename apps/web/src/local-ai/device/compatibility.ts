@@ -190,6 +190,15 @@ export const WEBKIT_MOBILE_VALIDATED_MODEL_IDS: readonly string[] = [
   'candidate/qwen2.5-0.5b-mlc',
 ];
 
+/**
+ * True when `modelId` is scoped to iOS/WebKit-mobile only. Form-factor facts
+ * only (no capability probes), so callers can safely clear a persisted binding
+ * on a device class the model was never meant for.
+ */
+export function requiresWebKitMobile(modelId: string): boolean {
+  return RULES[modelId]?.requireWebKitMobile === true;
+}
+
 export function isCompatible(model: ModelConfig, profile: DeviceProfile): CompatibilityResult {
   const rule = RULES[model.id];
   if (!rule) return 'unsupported';

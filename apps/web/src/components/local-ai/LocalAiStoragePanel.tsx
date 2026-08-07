@@ -90,7 +90,11 @@ export function LocalAiStoragePanel({ status, breakdown, onClearModel }: LocalAi
       )}
 
       {breakdown && breakdown.models.length === 0 && status === 'ready' && (
-        <EmptyStorageState reduceMotion={reduceMotion} />
+        breakdown.measured ? (
+          <EmptyStorageState reduceMotion={reduceMotion} />
+        ) : (
+          <UnmeasuredStorageState reduceMotion={reduceMotion} />
+        )
       )}
     </section>
   );
@@ -322,6 +326,33 @@ function EmptyStorageState({ reduceMotion }: { reduceMotion: boolean | null }) {
       <p style={{ color: 'var(--eco-text-secondary)' }} className="text-xs max-w-xs">
         Models you download for Eco will appear here so you can see exactly
         what&apos;s stored — and prune anything you no longer use.
+      </p>
+    </motion.div>
+  );
+}
+
+/**
+ * "Nothing cached" is a confident claim. When the Cache API could not even be
+ * asked, say we could not check — cached models may well be on disk.
+ */
+function UnmeasuredStorageState({ reduceMotion }: { reduceMotion: boolean | null }) {
+  return (
+    <motion.div
+      className="mt-5 flex flex-col items-center text-center gap-3 py-4"
+      initial={reduceMotion ? false : { opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={reduceMotion ? { duration: 0 } : { duration: 0.4 }}
+    >
+      <div style={{ width: 56, color: 'var(--eco-text-secondary)' }} aria-hidden>
+        <LeafIllustration />
+      </div>
+      <p style={{ color: 'var(--eco-text)' }} className="text-sm font-medium">
+        Eco couldn&apos;t check storage on this device
+      </p>
+      <p style={{ color: 'var(--eco-text-secondary)' }} className="text-xs max-w-xs">
+        This browser didn&apos;t let Eco read its model cache just now, so
+        nothing is listed — downloaded models may still be here. Reload to
+        try again.
       </p>
     </motion.div>
   );

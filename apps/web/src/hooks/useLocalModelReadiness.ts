@@ -39,7 +39,9 @@ import { resolveReadyLocalRecoveryModelId } from "../local-ai/lifecycle/recovery
 import { hasStagedUpgrade } from "../local-ai/lifecycle/upgrade";
 
 export type LocalModelReadiness = {
-  /** True when the eco-fast slot is ready and a recovery model is resolved. */
+  /** True when the slot the current selection resolves to is ready — the
+   *  model the chat will actually dispatch to, not hard-wired eco-fast
+   *  (Settings and chat must answer readiness for the same model). */
   localModelReady: boolean;
   /** Whether on-device replies are being kept shorter due to low battery. */
   showBatteryReducedNotice: boolean;
@@ -80,7 +82,10 @@ export function useLocalModelReadiness(): LocalModelReadiness {
     return unsubscribe;
   }, []);
 
-  const ecoFastSlot = getSlot("eco-fast");
+  // The slot the chat's current selection resolves to — readiness answers for
+  // the model a send would actually use (hard-wiring eco-fast here made the
+  // error card call a ready, serving eco-smart "not ready", 2026-08-05).
+  const selectedSlotState = getSlot(resolveSelectedSlot(selectedModel));
   void slotVersion; // force re-derive on slot changes
 
   const [prepareRunState, setPrepareRunState] = useState<
@@ -247,8 +252,8 @@ export function useLocalModelReadiness(): LocalModelReadiness {
     remoteMode: "none",
     heavyWorkDryRun: "none",
   });
-  const localRecoveryModelId = ecoFastSlot.modelId ?? downloadedRecoveryModelId;
-  const localModelReady = localRecoveryModelId !== null && ecoFastSlot.status === "ready";
+  const localRecoveryModelId = selectedSlotState.modelId ?? downloadedRecoveryModelId;
+  const localModelReady = localRecoveryModelId !== null && selectedSlotState.status === "ready";
   const batteryRestriction = computeRestriction(batteryLevel, batteryCharging);
   const showBatteryReducedNotice = isLocalAiModel(selectedModel) && batteryRestriction === "reduced";
   const validationProtectionBanner = isLocalAiModel(selectedModel)
@@ -352,7 +357,7 @@ export function useLocalModelReadiness(): LocalModelReadiness {
   }, []);
 
   useEffect(() => {
-    if (ecoFastSlot.status === "ready" && ecoFastSlot.modelId) {
+    if (selectedSlotState.status === "ready" && selectedSlotState.modelId) {
       // Slot is ready — no need to search for recovery candidates
       return;
     }
@@ -373,7 +378,7 @@ export function useLocalModelReadiness(): LocalModelReadiness {
     return () => {
       cancelled = true;
     };
-  }, [ecoFastSlot.status, ecoFastSlot.modelId, selectedModel]);
+  }, [selectedSlotState.status, selectedSlotState.modelId, selectedModel]);
 
   return {
     localModelReady,

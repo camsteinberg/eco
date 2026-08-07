@@ -204,6 +204,63 @@ export async function webllmModelCachePresence(
 }
 
 /**
+ * Actual bytes of this model's files sitting in WebLLM's cache namespaces, for
+ * storage accounting. The entries carry no size headers (WebLLM writes them,
+ * not Eco), so sizes are stream-counted — one chunk in memory at a time, no
+ * body retained. Missing files are skipped (a partial wipe still has real
+ * bytes on disk worth reporting).
+ *
+ *   - number ⇒ measured bytes (0 = genuinely nothing present)
+ *   - null   ⇒ could not look. Callers must not render this as "0 bytes".
+ */
+export async function measureWebllmModelCacheBytes(
+  model: ModelConfig,
+  deps: Pick<WebLLMCacheBridgeDeps, 'caches' | 'origin'> = {},
+): Promise<number | null> {
+  const artifact = model.artifact;
+  if (!artifact?.hfId || !artifact.files?.length) return null;
+  try {
+    const cacheStorage = resolveCaches(deps.caches);
+    const origin = resolveOrigin(deps.origin);
+    const base = webllmModelBaseUrl(stripMlcOrgPrefix(artifact.hfId), origin);
+    const openCaches = new Map<WebLLMCacheScope, CacheLike>();
+    let total = 0;
+    for (const fileName of artifact.files) {
+      const { scope, key } = webllmCacheTargetFor(fileName, base);
+      let cache = openCaches.get(scope);
+      if (!cache) {
+        cache = await cacheStorage.open(scope);
+        openCaches.set(scope, cache);
+      }
+      const hit = await cache.match(key);
+      if (!hit) continue;
+      total += await countResponseBytes(hit);
+    }
+    return total;
+  } catch {
+    return null;
+  }
+}
+
+async function countResponseBytes(response: Response): Promise<number> {
+  const declared = response.headers.get('content-length');
+  if (declared != null) {
+    const bytes = Number(declared);
+    if (Number.isFinite(bytes) && bytes >= 0) return bytes;
+  }
+  const body = response.body;
+  if (!body) return 0;
+  const reader = body.getReader();
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+  }
+  return total;
+}
+
+/**
  * Download a `webllm` model through Eco's pipeline and pre-populate WebLLM's
  * cache so `engine.reload()` is a pure cache hit. Throws on any failure — most
  * importantly, if the cache-key contract is not satisfied after a completed

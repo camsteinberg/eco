@@ -190,3 +190,104 @@ describe('useLocalAiStorageBreakdown', () => {
     await waitFor(() => expect(result.current.data?.ecoTotalBytes).toBe(500));
   });
 });
+
+// A completed chunked file is BOTH a manifest at the identity key (stamped with
+// the aggregate size) and every chunk part as its own entry — summing all
+// entries counts the file twice (verified live 2026-08-05: "Eco models use
+// 2.6 GB, browser total 1.6 GB" in one sentence).
+describe('useLocalAiStorageBreakdown — parts-native accounting', () => {
+  it('counts a completed chunked file once, not manifest + parts', async () => {
+    const storage = new FakeStorage();
+    const [first] = getCatalog();
+    if (!first) throw new Error('catalog too small');
+    const base = 'https://eco-model.cache/weights.onnx';
+    storage.setBytes(first.id, base, 1400);
+    storage.setBytes(first.id, `${base}.ecopart.s1400.0`, 700);
+    storage.setBytes(first.id, `${base}.ecopart.s1400.700`, 700);
+
+    const { result } = renderHook(() =>
+      useLocalAiStorageBreakdown({
+        storage,
+        estimateBrowserStorage: async () => null,
+      }),
+    );
+
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+    const entry = result.current.data!.models.find((m) => m.id === first.id);
+    expect(entry?.sizeBytes).toBe(1400);
+    expect(result.current.data!.ecoTotalBytes).toBe(1400);
+  });
+
+  it('still counts orphan parts mid-download (no identity entry yet)', async () => {
+    const storage = new FakeStorage();
+    const [first] = getCatalog();
+    if (!first) throw new Error('catalog too small');
+    const base = 'https://eco-model.cache/weights.onnx';
+    storage.setBytes(first.id, `${base}.ecopart.s1400.0`, 700);
+    storage.setBytes(first.id, `${base}.ecopart.s1400.700`, 300);
+
+    const { result } = renderHook(() =>
+      useLocalAiStorageBreakdown({
+        storage,
+        estimateBrowserStorage: async () => null,
+      }),
+    );
+
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+    const entry = result.current.data!.models.find((m) => m.id === first.id);
+    expect(entry?.sizeBytes).toBe(1000);
+  });
+});
+
+// A webllm model's weights live in WebLLM's own cache namespaces — its Eco
+// namespace is deliberately emptied after staging, so an Eco-only sweep reads
+// "nothing cached" while hundreds of MB sit on disk (the live 2026-08-05
+// "nothing cached with 1.6GB on disk" story).
+describe('useLocalAiStorageBreakdown — webllm lane', () => {
+  it('includes bytes measured from the WebLLM cache for webllm-runtime models', async () => {
+    const storage = new FakeStorage();
+    const webllmModel = getCatalog().find((m) => m.runtime === 'webllm');
+    if (!webllmModel) throw new Error('no webllm model in catalog');
+
+    const { result } = renderHook(() =>
+      useLocalAiStorageBreakdown({
+        storage,
+        estimateBrowserStorage: async () => null,
+        measureWebllmModel: async (model) =>
+          model.id === webllmModel.id ? 289_000_000 : null,
+      }),
+    );
+
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+    const entry = result.current.data!.models.find((m) => m.id === webllmModel.id);
+    expect(entry?.sizeBytes).toBe(289_000_000);
+    expect(result.current.data!.ecoTotalBytes).toBe(289_000_000);
+  });
+});
+
+describe('useLocalAiStorageBreakdown — unmeasurable storage', () => {
+  it('reports measured: false when no cache backend is available', async () => {
+    const { result } = renderHook(() =>
+      useLocalAiStorageBreakdown({
+        estimateBrowserStorage: async () => ({ usage: 1_600_000_000, quota: 12_000_000_000 }),
+      }),
+    );
+
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+    expect(result.current.data!.measured).toBe(false);
+    expect(result.current.data!.models).toEqual([]);
+  });
+
+  it('reports measured: true when a backend answered', async () => {
+    const storage = new FakeStorage();
+    const { result } = renderHook(() =>
+      useLocalAiStorageBreakdown({
+        storage,
+        estimateBrowserStorage: async () => null,
+      }),
+    );
+
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+    expect(result.current.data!.measured).toBe(true);
+  });
+});

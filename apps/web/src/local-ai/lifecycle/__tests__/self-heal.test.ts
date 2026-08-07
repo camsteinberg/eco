@@ -797,7 +797,11 @@ describe('runSelfHeal — WebKit-mobile re-gate', () => {
       expect(getSlot('eco-fast').modelId).toBe(QWEN_FLOOR);
       expect(getSlot('eco-fast').status).toBe('ready');
     } finally {
-      (WEBKIT_MOBILE_VALIDATED_MODEL_IDS as string[]).length = 0;
+      // Remove only what this test pushed — `length = 0` would also wipe the
+      // real catalog entries and poison every later test in this module.
+      const list = WEBKIT_MOBILE_VALIDATED_MODEL_IDS as string[];
+      const pushed = list.indexOf(QWEN_FLOOR);
+      if (pushed >= 0) list.splice(pushed, 1);
     }
   });
 
@@ -1504,5 +1508,80 @@ describe('reconcilePreparingSlots', () => {
     expect(report.slotsPromotedToReady).toEqual([]);
     expect(getSlot('eco-fast').status).toBe('preparing');
     expect(report.errors.length).toBeGreaterThan(0);
+  });
+});
+
+// The desktop mirror of the WebKit-mobile re-gate. A slot can hold a binding to
+// the iOS-only WebLLM model on a desktop profile (seen live 2026-08-05: Settings
+// confidently announced "Eco Mobile (Qwen)" — "Made for iPhone" — on a Chromium
+// desktop). Selection would never pick it here (isCompatible → 'unsupported'),
+// but nothing re-checked a binding that already existed. Boot must clear it so
+// every surface reading the slots tells the truth.
+
+describe('runSelfHeal — iOS-only binding on a non-WebKit-mobile device', () => {
+  const MLC = 'candidate/qwen2.5-0.5b-mlc';
+  const SMART = 'candidate/qwen3.5-2b-onnx';
+
+  const chromiumDesktop: DeviceProfile = {
+    browserClass: 'chromium',
+    webgpuSupport: 'webgpu',
+    deviceMemoryGB: 16,
+    isMobile: false,
+    override: 'auto',
+  };
+  const iosWebKit: DeviceProfile = {
+    browserClass: 'safari',
+    webgpuSupport: 'webgpu',
+    deviceMemoryGB: 4,
+    isMobile: true,
+    override: 'auto',
+  };
+
+  it('clears a desktop slot bound to the iOS-only model, leaving the other slot alone', async () => {
+    setSlot('eco-fast', MLC);
+    setSlotStatus('eco-fast', 'ready');
+    setSlot('eco-smart', SMART);
+    setSlotStatus('eco-smart', 'ready');
+
+    const report = await runSelfHeal({
+      now: () => nowMs,
+      storage,
+      resolveDeviceProfile: () => chromiumDesktop,
+    });
+
+    expect(report.errors).toEqual([]);
+    expect(report.incompatibleSlotsRegated).toEqual(['eco-fast']);
+    expect(getSlot('eco-fast').modelId).toBeNull();
+    expect(getSlot('eco-fast').status).toBe('empty');
+    expect(getSlot('eco-smart').modelId).toBe(SMART);
+    expect(getSlot('eco-smart').status).toBe('ready');
+  });
+
+  it("drops the cleared binding's download-in-progress markers so nothing resumes it", async () => {
+    setSlot('eco-fast', MLC);
+    setSlotStatus('eco-fast', 'preparing');
+    storage.setItem('eco-local-ai-download-in-progress-' + MLC, String(nowMs));
+    storage.setItem('eco-model-download-in-progress:' + MLC, String(nowMs));
+
+    await runSelfHeal({ now: () => nowMs, storage, resolveDeviceProfile: () => chromiumDesktop });
+
+    expect(storage.getItem('eco-local-ai-download-in-progress-' + MLC)).toBeNull();
+    expect(storage.getItem('eco-model-download-in-progress:' + MLC)).toBeNull();
+  });
+
+  it('leaves the iOS-only model bound on iOS WebKit itself (validated there)', async () => {
+    setSlot('eco-fast', MLC);
+    setSlotStatus('eco-fast', 'ready');
+
+    const report = await runSelfHeal({
+      now: () => nowMs,
+      storage,
+      resolveDeviceProfile: () => iosWebKit,
+    });
+
+    expect(report.incompatibleSlotsRegated).toEqual([]);
+    expect(report.webkitMobileSlotsRegated).toEqual([]);
+    expect(getSlot('eco-fast').modelId).toBe(MLC);
+    expect(getSlot('eco-fast').status).toBe('ready');
   });
 });

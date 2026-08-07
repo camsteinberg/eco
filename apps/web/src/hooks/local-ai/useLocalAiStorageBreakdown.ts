@@ -7,8 +7,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { getCatalog } from '../../local-ai/catalog/catalog';
 import {
   CacheApiStorage,
+  ECO_PART_MARKER,
   type Storage,
 } from '../../local-ai/download/storage';
+import type { ModelConfig } from '../../local-ai/types';
 
 /**
  * Per-model storage accounting (v7.1).
@@ -38,6 +40,12 @@ export type StorageBreakdown = {
   browserQuota: number | null;
   ecoTotalBytes: number;
   models: StorageModelEntry[];
+  /**
+   * False when the Cache API could not even be asked. Zero models with
+   * `measured: false` means "we could not check" — never render it as
+   * "nothing cached" (gigabytes may well be on disk).
+   */
+  measured: boolean;
 };
 
 export type UseLocalAiStorageBreakdownOptions = {
@@ -45,6 +53,12 @@ export type UseLocalAiStorageBreakdownOptions = {
   storage?: Storage;
   /** Inject the estimate function for tests. */
   estimateBrowserStorage?: () => Promise<StorageEstimate | null>;
+  /**
+   * Inject the WebLLM-lane measurer for tests. Defaults to the cache bridge's
+   * `measureWebllmModelCacheBytes` (lazy-imported so the settings bundle only
+   * loads the bridge when it actually measures).
+   */
+  measureWebllmModel?: (model: ModelConfig) => Promise<number | null>;
   /** Bump this value to force a recompute (e.g. after clearing a model). */
   refreshKey?: unknown;
 };
@@ -58,7 +72,7 @@ export type UseLocalAiStorageBreakdownResult = {
 export function useLocalAiStorageBreakdown(
   options: UseLocalAiStorageBreakdownOptions = {},
 ): UseLocalAiStorageBreakdownResult {
-  const { storage, estimateBrowserStorage, refreshKey } = options;
+  const { storage, estimateBrowserStorage, measureWebllmModel, refreshKey } = options;
   const [data, setData] = useState<StorageBreakdown | null>(null);
   const [status, setStatus] = useState<'loading' | 'ready'>('loading');
   const [internalKey, setInternalKey] = useState(0);
@@ -72,7 +86,7 @@ export function useLocalAiStorageBreakdown(
     setStatus('loading');
 
     (async () => {
-      const breakdown = await computeBreakdown({ storage, estimateBrowserStorage });
+      const breakdown = await computeBreakdown({ storage, estimateBrowserStorage, measureWebllmModel });
       if (cancelled) return;
       setData(breakdown);
       setStatus('ready');
@@ -81,7 +95,7 @@ export function useLocalAiStorageBreakdown(
     return () => {
       cancelled = true;
     };
-  }, [storage, estimateBrowserStorage, refreshKey, internalKey]);
+  }, [storage, estimateBrowserStorage, measureWebllmModel, refreshKey, internalKey]);
 
   return { status, data, refresh };
 }
@@ -89,9 +103,11 @@ export function useLocalAiStorageBreakdown(
 async function computeBreakdown(opts: {
   storage?: Storage;
   estimateBrowserStorage?: () => Promise<StorageEstimate | null>;
+  measureWebllmModel?: (model: ModelConfig) => Promise<number | null>;
 }): Promise<StorageBreakdown> {
   const browser = await readBrowserEstimate(opts.estimateBrowserStorage);
   const backend = opts.storage ?? safeCacheApiStorage();
+  const measureWebllm = opts.measureWebllmModel ?? defaultMeasureWebllmModel;
 
   const models: StorageModelEntry[] = [];
   let ecoTotal = 0;
@@ -99,11 +115,18 @@ async function computeBreakdown(opts: {
   if (backend) {
     for (const model of getCatalog()) {
       try {
-        const entries = await backend.listForModel(model.id);
-        const bytes = entries.reduce(
+        const entries = dedupePartEntries(await backend.listForModel(model.id));
+        let bytes = entries.reduce(
           (sum, entry) => sum + (entry.sizeBytes ?? 0),
           0,
         );
+        if (model.runtime === 'webllm') {
+          // A webllm model's weights live in WebLLM's own cache namespaces —
+          // its Eco namespace is deliberately emptied after staging, so the
+          // Eco sweep alone reads a fully-downloaded model as zero bytes.
+          const webllmBytes = await measureWebllm(model);
+          if (webllmBytes != null) bytes += webllmBytes;
+        }
         if (bytes <= 0) continue;
         models.push({
           id: model.id,
@@ -123,7 +146,35 @@ async function computeBreakdown(opts: {
     browserQuota: browser?.quota ?? null,
     ecoTotalBytes: ecoTotal,
     models,
+    measured: backend != null,
   };
+}
+
+/**
+ * A completed chunked file exists as BOTH a manifest at its identity URL
+ * (stamped with the aggregate size) and every chunk part as its own entry
+ * (`<url>.ecopart.<stamp>.<offset>`) — summing everything counts the file
+ * twice. Drop a part entry when its identity entry is present; keep orphan
+ * parts (mid-download) so partial bytes still show as real usage.
+ */
+function dedupePartEntries(
+  entries: { url: string; sizeBytes: number | null }[],
+): { url: string; sizeBytes: number | null }[] {
+  const urls = new Set(entries.map((entry) => entry.url));
+  return entries.filter((entry) => {
+    const marker = entry.url.indexOf(ECO_PART_MARKER);
+    if (marker < 0) return true;
+    return !urls.has(entry.url.slice(0, marker));
+  });
+}
+
+async function defaultMeasureWebllmModel(model: ModelConfig): Promise<number | null> {
+  try {
+    const bridge = await import('../../local-ai/runtime/webllm-cache-bridge');
+    return await bridge.measureWebllmModelCacheBytes(model);
+  } catch {
+    return null;
+  }
 }
 
 async function readBrowserEstimate(

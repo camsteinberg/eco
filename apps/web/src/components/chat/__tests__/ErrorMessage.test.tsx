@@ -462,3 +462,19 @@ describe("ErrorMessage", () => {
     expect(screen.queryByRole("button", { name: /try again/i })).not.toBeInTheDocument();
   });
 });
+
+// No-excuse-UI: this is a local-first app — when a generation fails on the
+// user's own device, nobody at Eco is "on it". The card must never promise
+// invisible help (verified live 2026-08-05: "We are on it; try again shortly").
+describe("generic fallback copy", () => {
+  it("never promises that somebody is working on a local failure", () => {
+    // The generic pool is hash-picked from the message string — render enough
+    // distinct messages to hit every entry in the pool.
+    for (let i = 0; i < 12; i++) {
+      const { unmount } = render(<ErrorMessage message={`unclassified failure ${String(i)}`} />);
+      const alert = screen.getByRole("alert");
+      expect(alert.textContent).not.toMatch(/we.?re on it|we are on it|try again shortly/i);
+      unmount();
+    }
+  });
+});
