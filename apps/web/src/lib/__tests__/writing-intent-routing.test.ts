@@ -37,6 +37,7 @@ import {
   inferChatIntent,
 } from "../chat-intent";
 import { DEEP_RE, LONG_FORM_RE, inferAnswerShape } from "../answer-shape";
+import { isTextRepairAsk } from "../ask-text";
 import { PREFERRED_DEFAULT_MODEL_ID } from "../../local-ai/selection/recommend";
 import { REALISTIC_INPUTS } from "../../__tests__/fixtures/realistic-inputs";
 import { EVERYDAY_USE_CORPUS } from "../../__tests__/fixtures/everyday-use-corpus";
@@ -95,12 +96,34 @@ describe("writing intent — words demoted from bare tokens to governed nouns", 
   });
 });
 
-describe("writing intent — the narrowing is strictly subtractive", () => {
-  it("routes nothing to writing that the old bare-word form did not also match", () => {
-    // The property that makes this change safe to reason about: it can only
-    // SHRINK what reaches `writing`. A future widening that adds a genuinely new
-    // token lands here as a named string rather than as a silent behaviour
-    // change, and has to be justified on its own evidence.
+describe("writing intent — the narrowing is subtractive apart from one named widening", () => {
+  /**
+   * ★ THE WIDENING, named as this block demanded it be named.
+   *
+   * This assertion read `toEqual([])` and was described as strictly
+   * subtractive, with the note that a future widening "lands here as a named
+   * string rather than as a silent behaviour change, and has to be justified on
+   * its own evidence". `isTextRepairAsk` (lib/ask-text.ts) is that widening, and
+   * this is the evidence: measured over two live batches on the shipping 2B,
+   * `deliversUnburied` averaged 0.42 across the turns routed `deep` and 0.91
+   * across those routed `writing`, and every one of these five was landing on
+   * `deep` — collecting "include concrete recommendations and tradeoffs" in
+   * reply to "fix my spelling".
+   *
+   * All five are repair asks and nothing else is. That second property is the
+   * one worth guarding: the check below asserts not just that the list matches,
+   * but that every entry on it is a repair ask, so a widening that let
+   * something else through could not hide inside an updated list.
+   */
+  const NEWLY_WRITING_REPAIR_ASKS: readonly string[] = [
+    "fix the spelling and grammar but dont change my voice",
+    "hi can you check this for mistakes please.",
+    "Could you please fix my spelling in this letter to my granddaughter.",
+    "can you fix the typos and grammar.",
+    "can someone proofread this before i send it to my crew, just typos and grammar.",
+  ];
+
+  it("routes nothing new to writing except text-repair asks", () => {
     const corpus: readonly string[] = [
       ...REALISTIC_INPUTS.map((sample) => sample.text),
       ...EVERYDAY_USE_CORPUS.map((item) => item.userInput),
@@ -111,7 +134,18 @@ describe("writing intent — the narrowing is strictly subtractive", () => {
     const newlyWriting = corpus.filter(
       (text) => inferChatIntent(text) === "writing" && !WRITING_RE_BEFORE_NARROWING.test(text),
     );
-    expect(newlyWriting).toEqual([]);
+
+    // Every newly-routed turn is a repair ask — no other category slipped in.
+    expect(newlyWriting.filter((text) => !isTextRepairAsk(text))).toEqual([]);
+
+    // And it is these five, identified by the instruction each one opens with.
+    expect(newlyWriting.length).toBe(NEWLY_WRITING_REPAIR_ASKS.length);
+    for (const fragment of NEWLY_WRITING_REPAIR_ASKS) {
+      expect(
+        newlyWriting.some((text) => text.includes(fragment)),
+        `no newly-writing turn contains "${fragment}"`,
+      ).toBe(true);
+    }
   });
 });
 
@@ -134,14 +168,27 @@ describe("writing intent — the narrowing is strictly subtractive", () => {
  * sounds sincere is instructed to produce sections and tradeoffs.
  *
  * THE TRUE MECHANISM IS NOT `WRITING_RE`. The turn carries no depth word at all
- * — both depth constants decline it, asserted below. It lands `deep` purely
+ * — both depth constants decline it, asserted below. It landed `deep` purely
  * because the pasted apology is longer than 360 characters and
- * `inferAnswerShape`'s length catch-all reads any long turn as a request for a
- * lecture (`shape-length-catchall`, named in the everyday-use sweep). The
- * narrowing did not create this; it removed an accidental shield that a
- * paste-reading bug was providing. Closing the length catch-all is what fixes
- * it — the answer is never to re-add a bare `story` token, which would restore
- * the correct budget by restoring the bug that produced it.
+ * `inferAnswerShape`'s length catch-all read any long turn as a request for a
+ * lecture. The narrowing did not create this; it removed an accidental shield
+ * that a paste-reading bug was providing. Closing the length catch-all is what
+ * fixes it — the answer is never to re-add a bare `story` token, which would
+ * restore the correct budget by restoring the bug that produced it.
+ *
+ * ★ NOW: `explain`, 1536 tokens. The length catch-all was closed the way this
+ * note said it should be — `inferChatIntent` measures the INSTRUCTION and not
+ * the paste (lib/ask-text.ts), so the apology's length no longer reaches the
+ * shape classifier at all. The lecture instruction is gone and the budget is
+ * back to the middle.
+ *
+ * ★ IT IS NOT FULLY RECOVERED, and the remaining half is recorded rather than
+ * rounded up. `explain` still carries "develop the details that matter", which
+ * is not what someone wants when they ask whether an apology sounds sincere;
+ * the right home is `writing`. The repair-verb arm does not reach it — "I've
+ * rewritten this like nine times" is a report, not a request, and the arm
+ * (correctly) declines it. Recovering the rest means a rule for gut-check asks
+ * ("does this sound X"), which is a different family and needs its own evidence.
  *
  * ★ THE W5 WIDENING WILL NOT RECOVER THIS ITEM EITHER. The ask line is "I've
  * rewritten this like nine times." — an authoring verb with no text noun after
@@ -153,7 +200,7 @@ describe("writing intent — the narrowing is strictly subtractive", () => {
  */
 const APOLOGY_ITEM_ID = "personal-writing/friend-apology-message";
 
-describe("writing intent — KNOWN REGRESSION: an apology now gets the lecture treatment", () => {
+describe("writing intent — the apology regression, half recovered", () => {
   function apologyText(): string {
     const item = REALISTIC_INPUTS.find((sample) => sample.id === APOLOGY_ITEM_ID);
     if (item === undefined) {
@@ -162,7 +209,7 @@ describe("writing intent — KNOWN REGRESSION: an apology now gets the lecture t
     return item.text;
   }
 
-  it("routes to deep with the sections-and-tradeoffs instruction", () => {
+  it("no longer takes the lecture treatment, but has not reached writing", () => {
     const text = apologyText();
     const intent = inferChatIntent(text);
     expect({
@@ -170,9 +217,11 @@ describe("writing intent — KNOWN REGRESSION: an apology now gets the lecture t
       maxTokens: getGenerationProfile(intent, true, PREFERRED_DEFAULT_MODEL_ID).maxTokens,
       hint: buildTurnQualityInstruction(intent, true, PREFERRED_DEFAULT_MODEL_ID),
     }).toEqual({
-      intent: "deep",
-      maxTokens: 2048,
-      hint: "Use clear sections; include concrete recommendations and tradeoffs.",
+      intent: "explain",
+      maxTokens: 1536,
+      hint:
+        "Lead with a plain-language explanation, then develop the details that matter"
+        + " — reasons, examples, practical implications.",
     });
   });
 

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Bos Computing LLC
 
+import { askPrefix } from "./ask-text";
+
 /**
  * A completion frame for artifact asks: when a user turn asks for an artifact
  * to be produced (correspondence, corrected text, etc.), the turn's rendered
@@ -272,26 +274,6 @@ function latestNounBefore(tokens: readonly Token[], index: number): string {
     if (token.kind === "word" && ARTIFACT_NOUNS.has(token.lower)) return token.lower;
   }
   return "";
-}
-
-/**
- * The instruction the user typed, extracted from turns that may contain
- * pasted documents. Short turns (≤600 chars) are returned whole; long turns
- * return the first paragraph (before `\n\n`), which is where the ask sits
- * when a paste follows. Replaces the module's earlier `statedText` import
- * with a split that understands paste-heavy proofread asks rather than
- * blanking them entirely.
- */
-const PASTED_TURN_MIN_CHARS = 600;
-
-function askPrefix(text: string): string {
-  const stripped = text.replace(/<file\b[^>]*>[\s\S]*?(?:<\/file>|$)/gi, " ").trim();
-  if (stripped.length <= PASTED_TURN_MIN_CHARS) return stripped;
-  const breakIndex = stripped.indexOf("\n\n");
-  if (breakIndex < 10) return "";
-  const prefix = stripped.slice(0, breakIndex).trim();
-  if (prefix.length > PASTED_TURN_MIN_CHARS) return "";
-  return prefix;
 }
 
 /** Whether a CORRECTION_OBJECT sits within the verb's window. */
