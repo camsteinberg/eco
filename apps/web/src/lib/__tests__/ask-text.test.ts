@@ -39,6 +39,20 @@ describe("askPrefix — the instruction, not the pasted subject", () => {
 });
 
 describe("isTextRepairAsk — the user wants text back, not commentary", () => {
+  // ★ The production build once dropped the `)\b` closing the first alternative
+  // (see the note in ask-text.ts). Node built the string correctly, so nothing
+  // in this suite could see it — the bundle threw at module evaluation instead.
+  // This cannot catch a build-time mangle, but it does catch a source-level one,
+  // and it states the shape the regex is required to have.
+  it("matches both alternatives independently — the group is closed", () => {
+    // Self-qualifying arm alone, with no text-quality object anywhere.
+    expect(isTextRepairAsk("please rephrase")).toBe(true);
+    // Verb-plus-object arm alone, with no self-qualifying verb anywhere.
+    expect(isTextRepairAsk("sort out the punctuation")).toBe(true);
+    // A self-qualifying verb must not need an object to be in range.
+    expect(isTextRepairAsk("spellcheck it")).toBe(true);
+  });
+
   it("fires on a correction verb with a text object", () => {
     expect(isTextRepairAsk("can you fix the typos")).toBe(true);
     expect(isTextRepairAsk("could you correct my spelling")).toBe(true);

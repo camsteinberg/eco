@@ -106,9 +106,23 @@ const TEXT_QUALITY_OBJECT =
 /** How far past the verb its object may sit, in characters, within one clause. */
 const OBJECT_WINDOW = 30;
 
+/**
+ * ★ ONE TEMPLATE LITERAL, NOT TWO CONCATENATED WITH `+`.
+ *
+ * This was written as `` `…` + `…` `` and the production build MISCOMPILED it:
+ * the `)\b` closing the first alternative was dropped from the emitted string,
+ * so the bundle threw "Invalid regular expression: Unterminated group" at module
+ * evaluation and every page importing it died. Node and vitest built the string
+ * correctly, so the whole unit suite and a forced `pnpm qa` went green on a
+ * bundle that could not load — caught only by opening a real browser.
+ *
+ * `WRITING_RE` in chat-intent.ts survives the same minifier because it
+ * concatenates plain `"` strings rather than template literals. Keep this a
+ * single template with interpolations (the shape `calculator-tool.ts` uses) and
+ * do not split it back up for line length.
+ */
 const TEXT_REPAIR_RE = new RegExp(
-  `\\b(?:${SELF_QUALIFYING_REPAIR_VERB})\\b`
-    + `|\\b(?:${REPAIR_VERB})\\b[^.?!]{0,${OBJECT_WINDOW}}?\\b(?:${TEXT_QUALITY_OBJECT})\\b`,
+  `\\b(?:${SELF_QUALIFYING_REPAIR_VERB})\\b|\\b(?:${REPAIR_VERB})\\b[^.?!]{0,${OBJECT_WINDOW}}?\\b(?:${TEXT_QUALITY_OBJECT})\\b`,
   "i",
 );
 
