@@ -41,6 +41,11 @@ import {
   type BranchRecaps,
 } from "../lib/detail-recap";
 import { inferAnswerShape, type AnswerShape } from "../lib/answer-shape";
+import {
+  applySentenceRepair,
+  buildSentenceRepairPass,
+  isSentenceRepairEnabled,
+} from "../lib/sentence-repair";
 import { buildLocalHardConstraintRepair } from "../lib/local-generation-constraints";
 import { LocalInferenceStreamError } from "../local-ai/runtime/errors";
 import { buildLocalFallbackMessages, getLocalRuntimeCrashRecovery } from "../lib/chat-recovery";
@@ -477,6 +482,36 @@ export function useChat() {
       }),
       ...(continueFinalMessage ? { continueFinalMessage: true } : {}),
     };
+  }
+
+  /**
+   * The same headroom arithmetic `stopForUnsafeLocalContext` runs, WITHOUT its
+   * side effects. A caller that has a usable alternative — the sentence-repair
+   * pass, which can simply not be taken — needs to ask whether a prompt fits
+   * without erroring the message when the answer is no.
+   */
+  function assessLocalContextFit(
+    messages: Array<{ role: "user" | "assistant" | "system"; content: string }>,
+    systemPrompt: string,
+    modelId: string,
+    requestedNewTokens: number,
+  ): { ok: boolean; reason: string; grantedNewTokens: number } {
+    const contextLength = getContextTokens(modelId, undefined, {
+      allowValidationModel: allowValidationModelMetadata,
+    });
+    const grantedNewTokens = clampRequestedNewTokensForContext(
+      messages,
+      systemPrompt,
+      contextLength,
+      requestedNewTokens,
+    );
+    const decision = assessLocalContextSafety(
+      messages,
+      systemPrompt,
+      contextLength,
+      grantedNewTokens,
+    );
+    return { ok: decision.ok, reason: decision.ok ? "" : decision.reason, grantedNewTokens };
   }
 
   function stopForUnsafeLocalContext(
@@ -1281,14 +1316,70 @@ export function useChat() {
       }));
     }
 
+    // RAW turn: both the sentence-repair pass and the hard-constraint repair
+    // below key on what the USER typed, so a host-authored hint or recap can
+    // never trigger either one.
+    const latestUserPrompt = [...apiMessages]
+      .reverse()
+      .find((message) => message.role === "user")?.content ?? "";
+
+    // ── Sentence repair: the plan for pass one (flagged, dark by default) ───
+    // On a repair ask the model is asked which NUMBERED sentences it would
+    // change; the app does the changing, so untouched sentences are untouched
+    // by construction (lib/sentence-repair.ts). Null at any step means "take
+    // the ordinary path", never "fail" — the numbered prompt restates the
+    // pasted text, so it can outgrow the context that the plain turn fits in,
+    // and that is a reason to skip the attempt, not to error the turn.
+    const sentenceRepairPass = isSentenceRepairEnabled()
+      ? buildSentenceRepairPass(latestUserPrompt)
+      : null;
+    const sentenceRepairPlan = (() => {
+      if (!sentenceRepairPass) return null;
+      const repairSystemPrompt = [systemPrompt, sentenceRepairPass.systemInstruction].join("\n\n");
+      const repairMessages = [
+        ...plan.hintedMessages.slice(0, -1),
+        { role: "user" as const, content: sentenceRepairPass.userPrompt },
+      ];
+      const fit = assessLocalContextFit(
+        repairMessages,
+        repairSystemPrompt,
+        model,
+        sentenceRepairPass.generationOptions.max_new_tokens,
+      );
+      if (!fit.ok) return null;
+      return {
+        pass: sentenceRepairPass,
+        systemPrompt: repairSystemPrompt,
+        messages: [
+          { role: "system" as const, content: repairSystemPrompt },
+          ...repairMessages,
+        ],
+        options: {
+          ...sentenceRepairPass.generationOptions,
+          max_new_tokens: fit.grantedNewTokens,
+        },
+      };
+    })();
+
     try {
       // ── Primary generation ────────────────────────────────────────────────
+      // When a sentence-repair plan exists this IS the corrections pass: same
+      // slot, same lease, same receipt scope — one generation either way.
+      if (sentenceRepairPlan) {
+        effectiveGenerationOptions = { ...sentenceRepairPlan.options };
+        effectiveSystemPrompt = sentenceRepairPlan.systemPrompt;
+      }
       const primaryResult = await runGeneration({
         generation,
-        stream: v1LocalShim.generate(messagesWithSystem, model, {
-          ...localGenerationOptions,
-          onLifecycleEvent: recordLifecycleBreadcrumb,
-        }),
+        stream: sentenceRepairPlan
+          ? v1LocalShim.generate(sentenceRepairPlan.messages, model, {
+              ...sentenceRepairPlan.options,
+              onLifecycleEvent: recordLifecycleBreadcrumb,
+            })
+          : v1LocalShim.generate(messagesWithSystem, model, {
+              ...localGenerationOptions,
+              onLifecycleEvent: recordLifecycleBreadcrumb,
+            }),
         assistantId,
         ...streamIO,
       });
@@ -1302,19 +1393,69 @@ export function useChat() {
         return;
       }
 
+      // ── Sentence repair: pass two, which runs no model at all ─────────────
+      // Either the app substitutes the named sentences into the person's own
+      // text, or the corrections did not parse and the turn re-runs as today's
+      // whole-text generation. The fallback is the whole safety story: this
+      // path can be no worse than the one it replaces.
+      let sentenceRepairApplied = false;
+      if (sentenceRepairPlan && !generation.abortController.signal.aborted) {
+        const outcome = applySentenceRepair(sentenceRepairPlan.pass, primaryResult.finalText);
+        if (outcome.status === "applied") {
+          sentenceRepairApplied = true;
+          updateMessage(assistantId, { content: outcome.text, lastSeq: 0 });
+          generation.batcher.resetSeq();
+        } else {
+          // Record the corrections pass's receipt HERE, while the scope still
+          // describes it — the same reason the hard-constraint repair does.
+          const correctionsUsage = getLocalAiLastUsage();
+          recordReceiptAsync((base, sph) => ({
+            ...base,
+            systemPromptHash: sph,
+            status: 'complete' as const,
+            promptTokens: correctionsUsage?.promptTokens ?? 0,
+            completionTokens: correctionsUsage?.completionTokens ?? 0,
+          }));
+
+          beginGenerationScope('repair');
+          effectiveGenerationOptions = { ...localGenerationOptions };
+          effectiveSystemPrompt = systemPrompt;
+          updateMessage(assistantId, { content: "", lastSeq: 0 });
+          generation.batcher.resetSeq();
+          const fallbackResult = await runGeneration({
+            generation,
+            stream: v1LocalShim.generate(messagesWithSystem, model, {
+              ...localGenerationOptions,
+              onLifecycleEvent: recordLifecycleBreadcrumb,
+            }),
+            assistantId,
+            ...streamIO,
+          });
+          if (fallbackResult.status === "error") {
+            finalizeErrorResult(fallbackResult.error);
+            return;
+          }
+          if (fallbackResult.status === "aborted") {
+            finalizeAbortedResult();
+            return;
+          }
+        }
+      }
+
       // ── Hard-constraint repair (second generation) ────────────────────────
       // Skipped when the user stopped (abort set) — the explicit user-stop
       // invariant: a stopped turn is never silently re-generated.
       let deterministicReplacementApplied = false;
-      // RAW turn again: a repair triggers on a hard constraint the USER stated,
-      // so a host-authored directive must not be able to trigger one.
-      const latestUserPrompt = [...apiMessages]
-        .reverse()
-        .find((message) => message.role === "user")?.content ?? "";
-      const repair = buildLocalHardConstraintRepair({
-        userPrompt: latestUserPrompt,
-        outputText: primaryResult.finalText,
-      });
+      // Skipped when the app already produced the answer deterministically: the
+      // hard constraints are dietary and output-format ones, neither of which a
+      // proofread ask states, and `primaryResult.finalText` is a corrections
+      // list rather than the reply in that case.
+      const repair = sentenceRepairApplied
+        ? null
+        : buildLocalHardConstraintRepair({
+            userPrompt: latestUserPrompt,
+            outputText: primaryResult.finalText,
+          });
       if (repair && !generation.abortController.signal.aborted) {
         if (repair.replacementText !== undefined) {
           deterministicReplacementApplied = true;

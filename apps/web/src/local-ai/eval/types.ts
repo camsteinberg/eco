@@ -569,6 +569,13 @@ export type EvalRunConfigFingerprint = {
    * refuses to diff runs that lack it.
    */
   everydayArm?: EvalEverydayArmId;
+  /**
+   * Whether the two-pass sentence-repair path was on (`lib/sentence-repair.ts`).
+   * Absent means off, which is every run before the path existed. A run with
+   * this set is not comparable to one without on the repair items — it is a
+   * different generation protocol, not a different prompt.
+   */
+  sentenceRepair?: boolean;
   /** Number of prompt specs run per model. */
   promptCount: number;
   /** Deterministic non-content hash of selected prompt IDs, categories, topology metadata, and scoring flags. */

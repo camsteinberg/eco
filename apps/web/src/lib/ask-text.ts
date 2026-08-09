@@ -73,16 +73,33 @@ const PASTE_MIN_CHARS = 200;
  * wrong split costs nothing that is not already being paid.
  */
 export function instructionParagraph(text: string): string {
+  return splitTurn(text).instruction;
+}
+
+/**
+ * The material the user PASTED, or "" when the turn is all ask.
+ *
+ * The exact complement of {@link instructionParagraph} — same split, other
+ * half — so a caller can rely on the two agreeing about where the boundary is.
+ * Returns the block verbatim (only outer whitespace trimmed), because callers
+ * that repair it have to be able to hand it back unchanged.
+ */
+export function pastedBlock(text: string): string {
+  return splitTurn(text).paste;
+}
+
+function splitTurn(text: string): { instruction: string; paste: string } {
   const stripped = text.replace(/<file\b[^>]*>[\s\S]*?(?:<\/file>|$)/gi, " ").trim();
+  const whole = { instruction: stripped, paste: "" };
   const breakIndex = stripped.indexOf("\n\n");
-  if (breakIndex < 10) return stripped;
+  if (breakIndex < 10) return whole;
 
   const instruction = stripped.slice(0, breakIndex).trim();
   const rest = stripped.slice(breakIndex).trim();
-  if (instruction.length > PASTED_TURN_MIN_CHARS) return stripped;
-  if (rest.length < PASTE_MIN_CHARS) return stripped;
-  if (rest.length < instruction.length * PASTE_DOMINANCE_RATIO) return stripped;
-  return instruction;
+  if (instruction.length > PASTED_TURN_MIN_CHARS) return whole;
+  if (rest.length < PASTE_MIN_CHARS) return whole;
+  if (rest.length < instruction.length * PASTE_DOMINANCE_RATIO) return whole;
+  return { instruction, paste: rest };
 }
 
 /**

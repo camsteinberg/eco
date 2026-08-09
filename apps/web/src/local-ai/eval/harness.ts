@@ -54,6 +54,7 @@ import {
 } from '../../lib/chat-intent';
 import { appendBranchRecaps, buildBranchRecaps } from '../../lib/detail-recap';
 import { getOnDeviceSystemPrompt } from '../../lib/system-prompt';
+import { applySentenceRepair, buildSentenceRepairPass } from '../../lib/sentence-repair';
 import { getModel } from '../catalog/catalog';
 import { getDeviceProfile } from '../device/profile';
 import { classifyDeviceClass } from '../evidence/seed';
@@ -220,6 +221,19 @@ export type EvalRunConfig = {
    * by default: production runs measure exactly what ships.
    */
   everydayArm?: EvalEverydayArmId;
+  /**
+   * Run repair asks through the two-pass sentence-repair path
+   * (`lib/sentence-repair.ts`) — the model names the numbered sentences it
+   * would change and the harness applies them, exactly as dispatch does behind
+   * the `eco-sentence-repair` flag.
+   *
+   * NOT an everyday arm. The arms parameterize the prompt and the sampling; this
+   * changes the generation PROTOCOL — one call plus a deterministic apply,
+   * falling back to a second whole-text call when the corrections do not parse.
+   * It is stamped on the fingerprint for the same reason greedy mode is: a run
+   * with it on is not silently comparable to one without.
+   */
+  sentenceRepair?: boolean;
   /** Hard cap per generation (default 512 — keeps runs fast). */
   maxTokensCap?: number;
   /** Applies to the TOKEN STREAM only, not load (default 60000). */
@@ -875,6 +889,9 @@ export async function runEval(config: EvalRunConfig, deps?: EvalRunnerDeps): Pro
       applyEverydayArmOptions(d.buildOptions(modelId, intent), everydayArm)
     : d.buildOptions;
 
+  /** Two-pass repair, per the config. Off is the default and the shipped state. */
+  const sentenceRepair = config.sentenceRepair ?? false;
+
   const emit = (p: EvalProgress): void => config.onProgress?.(p);
 
   const startedAt = new Date(d.now()).toISOString();
@@ -946,29 +963,86 @@ export async function runEval(config: EvalRunConfig, deps?: EvalRunnerDeps): Pro
         messageTopology,
       );
 
+      // ── Two-pass sentence repair ────────────────────────────────────────
+      // The corrections pass reuses the composed message list and changes only
+      // the two things dispatch changes: the system message gains the
+      // corrections instruction, and the final user turn becomes the numbered
+      // prompt (which is why the last turn's hint and recaps drop — the
+      // numbered prompt IS the instruction). Null for any spec that is not a
+      // repair ask, which is how a mixed run stays a mixed run.
+      const repairPlan = (() => {
+        if (!sentenceRepair) return null;
+        const pass = buildSentenceRepairPass(spec.prompt);
+        if (!pass) return null;
+        const messages = composed.messages.map((message, index) => {
+          if (index === 0 && message.role === 'system') {
+            return { ...message, content: [message.content, pass.systemInstruction].join('\n\n') };
+          }
+          if (index === composed.messages.length - 1) {
+            return { ...message, content: pass.userPrompt };
+          }
+          return message;
+        });
+        const options: GenerateOptions = {
+          ...requestedOptions,
+          temperature: pass.generationOptions.temperature,
+          topP: pass.generationOptions.top_p,
+          maxTokens: Math.min(pass.generationOptions.max_new_tokens, cap),
+        };
+        // The one knob that must not survive: Transformers.js bans n-grams
+        // across the prompt too, so any value here forbids the model from
+        // quoting the sentences it is being asked to correct.
+        delete options.noRepeatNgramSize;
+        return { pass, messages, options };
+      })();
+
       for (let sampleIndex = 1; sampleIndex <= samplesPerProbe; sampleIndex++) {
         if (runSignal?.aborted) break;
         const resultSampleIndex = samplesPerProbe > 1 ? sampleIndex : undefined;
 
         emit({ phase: 'generating', modelId, promptId: spec.id, completed, total });
 
-        const outcome = await runStream(
+        let usedOptions = repairPlan ? repairPlan.options : requestedOptions;
+        let outcome = await runStream(
           d.generate,
           model,
-          composed.messages,
-          requestedOptions,
+          repairPlan ? repairPlan.messages : composed.messages,
+          usedOptions,
           timeoutMs,
           runSignal,
           d.now,
         );
+
+        if (repairPlan && outcome.error === null) {
+          const applied = applySentenceRepair(repairPlan.pass, outcome.output);
+          if (applied.status === 'applied') {
+            // What the person would see is the applied text, so that is what
+            // gets scored — never the corrections list the model emitted.
+            outcome = { ...outcome, output: applied.text };
+          } else {
+            // Fallback: the corrections did not parse, so the turn runs exactly
+            // as it does today. Scored as today's answer, because it IS today's
+            // answer — the recorded options say which path produced the row.
+            usedOptions = requestedOptions;
+            outcome = await runStream(
+              d.generate,
+              model,
+              composed.messages,
+              requestedOptions,
+              timeoutMs,
+              runSignal,
+              d.now,
+            );
+          }
+        }
 
         emit({ phase: 'scoring', modelId, promptId: spec.id, completed, total });
         results.push(
           buildResult(
             spec,
             model,
-            requestedOptions,
-            requestedMaxTokens,
+            usedOptions,
+            usedOptions.maxTokens ?? requestedMaxTokens,
             outcome,
             composed.promptTrace,
             resultSampleIndex,
@@ -989,6 +1063,7 @@ export async function runEval(config: EvalRunConfig, deps?: EvalRunnerDeps): Pro
     perGenerationTimeoutMs: timeoutMs,
     includeResearchArms: config.includeResearchArms ?? false,
     ...(config.everydayArm ? { everydayArm: config.everydayArm } : {}),
+    ...(sentenceRepair ? { sentenceRepair: true } : {}),
     promptCount: prompts.length,
     promptSetHash: hashPromptSet(prompts),
     compositionEra: COMPOSITION_ERA,
