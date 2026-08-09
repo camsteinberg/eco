@@ -254,6 +254,7 @@ function scores(): RubricScores {
     depthMatch: null,
     deliversFirst: 1,
     preservesUserText: null,
+    preservesUserRegister: null,
     preservesFacts: null,
     preservesHistoryFacts: null,
     honorsRuledOut: null,

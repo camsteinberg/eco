@@ -60,6 +60,7 @@ function makeScores(overrides?: Partial<RubricScores>): RubricScores {
     depthMatch: null,
     deliversFirst: null,
     preservesUserText: null,
+    preservesUserRegister: null,
     preservesFacts: null,
     preservesHistoryFacts: null,
     honorsRuledOut: null,
@@ -120,7 +121,7 @@ describe('median', () => {
 });
 
 describe('AUTOMATED_DIMENSIONS', () => {
-  it('lists the 16 automated dims and excludes the judge dims', () => {
+  it('lists the 17 automated dims and excludes the judge dims', () => {
     expect(AUTOMATED_DIMENSIONS).toEqual([
       'correctStop',
       'noRepetition',
@@ -139,6 +140,7 @@ describe('AUTOMATED_DIMENSIONS', () => {
       // their arrival.
       'deliversFirst',
       'preservesUserText',
+      'preservesUserRegister',
       'preservesFacts',
       // The conversation pair, gated by `historyFactSources` / `historyRuledOut`
       // — spans of an earlier turn whose facts must survive into this reply, and
