@@ -304,6 +304,25 @@ jobs:
       - name: Build packages
         run: pnpm build
 
+      # The browser half of the gate. Nothing else in CI evaluates the emitted
+      # bundle in a browser — on 2026-08-08 a build miscompilation shipped a
+      # chunk that threw at module evaluation while every other job here was
+      # green. Runs in this job because it needs the .next output built above.
+      - name: Install Chromium for the bundle smoke
+        run: pnpm --filter @eco/web exec playwright install --with-deps chromium
+
+      - name: Bundle smoke (production build in a real browser)
+        run: pnpm smoke
+
+      - name: Upload bundle smoke artifacts
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: bundle-smoke-artifacts
+          path: apps/web/test-results/
+          if-no-files-found: ignore
+          retention-days: 14
+
   security-audit:
     name: Security Audit
     runs-on: ubuntu-latest

@@ -16,6 +16,7 @@ export default defineConfig({
     // vitest coverage, so only the Playwright spec itself is filtered out.
     exclude: [
       "e2e/**",
+      "e2e-smoke/**",
       "e2e-webllm/**",
       "e2e-perf/*.spec.ts",
       "node_modules/**",
