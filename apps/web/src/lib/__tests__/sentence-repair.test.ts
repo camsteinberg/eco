@@ -218,10 +218,34 @@ describe("applySentenceRepair — the app changes the text, not the model", () =
 
   it("accepts the numbering shapes a model actually writes", () => {
     const pass = passFor();
-    for (const line of ["3: fixed", "3. fixed", "3) fixed", "- 3: fixed"]) {
+    // `<3>:` is the shape the 2B model used on every line of a live run — the
+    // parser dropped all of them and the path looked like it could not work.
+    for (const line of ["3: fixed", "3. fixed", "3) fixed", "- 3: fixed", "<3>: fixed", "[3]: fixed"]) {
       const outcome = applySentenceRepair(pass, line);
-      expect(outcome.status).toBe("applied");
+      expect(outcome.status, line).toBe("applied");
     }
+  });
+
+  it("strips the change-note the model appends, so it never lands in her text", () => {
+    const pass = passFor();
+    const outcome = applySentenceRepair(
+      pass,
+      '<3>: I want to say sorry because he has not finished it. (Corrected "not finish" to "has not finished")',
+    );
+    expect(outcome.status).toBe("applied");
+    if (outcome.status !== "applied") return;
+    expect(outcome.text).toContain("he has not finished it.");
+    expect(outcome.text).not.toContain("Corrected");
+  });
+
+  it("keeps a trailing parenthesis that is the person's own words", () => {
+    // The birthday caption ends a line "(ur not slick)". A rule that stripped
+    // any trailing bracket would delete her joke.
+    const pass = passFor();
+    const outcome = applySentenceRepair(pass, "3: he has not finished it (ur not slick)");
+    expect(outcome.status).toBe("applied");
+    if (outcome.status !== "applied") return;
+    expect(outcome.text).toContain("(ur not slick)");
   });
 
   it("drops a number outside the range without losing the rest", () => {

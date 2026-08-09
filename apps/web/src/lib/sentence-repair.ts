@@ -37,6 +37,24 @@
  * whole-text generation — no worse than the current behaviour, which is the
  * only bar a flagged path has to clear.
  *
+ * ★★ KNOWN DEFECT — DO NOT TURN THE FLAG ON. Measured live on 2026-08-09
+ * against qwen3.5-2b (evidence: `m2-evidence/two-pass-repair-runs-2026-08-09.json`,
+ * label `two-pass-t3`). The model complies with the format, but ITS numbering
+ * does not reliably agree with OURS: on both samples of the ESL note it
+ * returned its corrections one line out, so the app substituted the "4th grade"
+ * correction into her NEXT sentence — duplicating one line and DELETING the
+ * apology about the reading log, which is the reason she wrote the note at all.
+ *
+ * The guarantee this module claims — an unnamed sentence is never regenerated —
+ * holds only if the two numberings agree, and they do not. What is needed is an
+ * alignment check: some way to confirm a returned line belongs to the unit it
+ * names before substituting it. That is the "does this have to become
+ * elaborate to work at all?" question, and it is a decision, not a detail.
+ *
+ * Note also that the ENTIRE scorecard read 1.00 on that output —
+ * `preservesUserText`, `preservesUserRegister`, `noUnfilledSlots`,
+ * `deliversUnburied`. A lost sentence is invisible to every dim we have.
+ *
  * ★ EXACT REASSEMBLY IS THE LOAD-BEARING PROPERTY. Each unit carries the
  * whitespace that followed it, so re-joining units with no replacements
  * reproduces the source character for character — blank lines, line breaks and
@@ -288,11 +306,30 @@ export function buildSentenceRepairPass(turnText: string): SentenceRepairPass | 
 
 /**
  * A numbered correction line. Tolerant about the shape the model writes it in
- * — "3: ", "3. ", "3) ", with or without a bullet — because the number is the
- * only part that has to be right, and strict parsing would throw away
- * corrections over punctuation.
+ * — "3: ", "3. ", "3) ", "<3>: ", "[3]: ", with or without a bullet — because
+ * the number is the only part that has to be right, and strict parsing throws
+ * away corrections over punctuation.
+ *
+ * ★ THE ANGLE BRACKETS ARE NOT HYPOTHETICAL. A first live run measured this
+ * path falling back on 8 of 9 repair samples, which read exactly like "a 2B
+ * model cannot produce this format". It could: it was writing `<3>: …` and the
+ * parser was dropping every line. The lesson is the cheap one — read what the
+ * model actually emitted before concluding anything about what it can do.
  */
-const CORRECTION_LINE_RE = /^\s*(?:[-*+•]\s*)?(\d{1,3})\s*[:.)\]]\s+(.+?)\s*$/;
+const CORRECTION_LINE_RE =
+  /^\s*(?:[-*+•]\s*)?(?:<(\d{1,3})>|\[(\d{1,3})\]|(\d{1,3}))\s*[:.)\]]\s+(.+?)\s*$/;
+
+/**
+ * A change-note the model appends to a corrected line — `(Corrected "lose" to
+ * "lost")`, `(Kept as written)`. Substituting one into the person's text would
+ * put our commentary inside their note to their son's teacher.
+ *
+ * ★ MATCHED ON THE ANNOTATION VERB, NEVER ON "ENDS IN A PARENTHESIS". The
+ * birthday caption ends a line with `(ur not slick)` — her words. A rule that
+ * stripped any trailing bracket would delete them.
+ */
+const CHANGE_NOTE_RE =
+  /\s*\((?:corrected|changed|removed|added|kept|fixed|replaced|no change|unchanged|left)\b[^()]*\)\s*$/i;
 
 /**
  * Apply the model's corrections to the person's text.
@@ -314,9 +351,10 @@ export function applySentenceRepair(
     const match = CORRECTION_LINE_RE.exec(line);
     if (!match) continue;
     sawNumberedLine = true;
-    const index = Number(match[1]) - 1;
-    const body = match[2]!;
+    const index = Number(match[1] ?? match[2] ?? match[3]) - 1;
+    const body = match[4]!.replace(CHANGE_NOTE_RE, "");
     if (index < 0 || index >= pass.units.length) continue;
+    if (body.length === 0) continue;
     // First mention wins: a model that repeats a number is drifting, and the
     // first answer is the one it gave before it started drifting.
     if (replacements.has(index)) continue;
