@@ -176,6 +176,8 @@ export function EvalHarnessPanel() {
       identityArm?: EvalRunConfig['identityArm'];
       /** Autorun-only: everyday-use A/B cell (stamped on the run's fingerprint). */
       everydayArm?: EvalRunConfig['everydayArm'];
+      /** Autorun-only: run repair asks through the two-pass sentence repair. */
+      sentenceRepair?: boolean;
       /** Autorun-only: session-scoped probes appended to the pool (e.g. the tangent set). */
       extraPrompts?: EvalRunConfig['extraPrompts'];
     }) => {
@@ -233,6 +235,7 @@ export function EvalHarnessPanel() {
           ...(override?.messageTopology ? { messageTopology: override.messageTopology } : {}),
           ...(override?.identityArm ? { identityArm: override.identityArm } : {}),
           ...(override?.everydayArm ? { everydayArm: override.everydayArm } : {}),
+          ...(override?.sentenceRepair ? { sentenceRepair: true } : {}),
           ...(override?.perGenerationTimeoutMs !== undefined
             ? { perGenerationTimeoutMs: override.perGenerationTimeoutMs }
             : {}),
@@ -353,6 +356,14 @@ export function EvalHarnessPanel() {
     // than re-listing the ids here; anything unknown is ignored, matching
     // `eco-eval-arm`. Absent = no arm, i.e. exactly what ships.
     const rawEverydayArm = searchParams.get('eco-eval-everyday-arm');
+
+    // `eco-eval-sentence-repair=1`: run repair asks through the two-pass path
+    // (lib/sentence-repair.ts) instead of asking for the whole text back. Not
+    // an everyday arm — it changes the generation PROTOCOL rather than the
+    // prompt — so it is its own switch and its own fingerprint stamp. The
+    // recorded temperature (0.2, against writing's 0.48) is how a run is
+    // checked for having actually taken the path.
+    const sentenceRepair = searchParams.get('eco-eval-sentence-repair') === '1';
 
     // `eco-eval-tangent=1`: append the eco-tangent experiment set and, unless an
     // explicit prompt/category subset is given, run ONLY that set (the A/B pass).
@@ -551,6 +562,7 @@ export function EvalHarnessPanel() {
         ...(autoTimeoutMs !== undefined ? { perGenerationTimeoutMs: autoTimeoutMs } : {}),
         ...(autoIdentityArm ? { identityArm: autoIdentityArm } : {}),
         ...(everydayArm ? { everydayArm } : {}),
+        ...(sentenceRepair ? { sentenceRepair: true } : {}),
         ...(extraPrompts.length > 0 ? { extraPrompts } : {}),
       });
     })();
@@ -1500,6 +1512,10 @@ export function EvalHarnessPanel() {
                     >
                       {run.label} — {run.runId}
                       {run.config ? ` · ${run.config.samplingMode}` : ''}
+                      {/* A two-pass run is a different generation protocol, not a
+                          different prompt — visible here so it is never ticked
+                          into an A/B against a one-pass run by mistake. */}
+                      {run.config?.sentenceRepair ? ' · two-pass repair' : ''}
                     </span>
                   </label>
                 </li>
