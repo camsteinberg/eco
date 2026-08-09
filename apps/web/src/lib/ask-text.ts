@@ -86,22 +86,74 @@ export function instructionParagraph(text: string): string {
 }
 
 /**
+ * ★ ONE REPAIR VOCABULARY, TWO CONSUMERS.
+ *
+ * This module decides whether an ask is a repair ask; `artifact-frame` decides
+ * whether to end the turn with "The corrected version:". Both need the same
+ * answer to "is this person asking for their text back, fixed?" and both used
+ * to keep their own word lists. They drifted: the frame recognised only
+ * fix/correct, so "check this for mistakes", "clean up the spelling in it" and
+ * "check my spelling and grammar" were routed as repair asks and then given no
+ * artifact frame at all — three of the corpus's ten repair items, silently.
+ *
+ * The vocabulary below is the single source of truth. The regex here is built
+ * from it, and `artifact-frame` scans tokens against it, so a verb added for
+ * one consumer can no longer be missing from the other.
+ *
+ * Each entry is a word sequence. A multi-word entry matches all three ways a
+ * person writes it — "proof read", "proof-read", "proofread".
+ */
+
+/**
  * Verbs that need a text-quality object to confirm they are about text —
  * "fix the typos" is a repair ask, "fix my wifi" is not.
  */
-const REPAIR_VERB = "fix|correct|check|edit|clean ?up|tidy ?up|sort out";
+export const REPAIR_VERBS: readonly (readonly string[])[] = [
+  ["fix"],
+  ["correct"],
+  ["check"],
+  ["edit"],
+  ["clean", "up"],
+  ["tidy", "up"],
+  ["sort", "out"],
+];
 
 /**
  * Verbs that mean text repair on their own. "proofread" cannot be about a
- * carburettor, and "reword" cannot ask for anything but text back. Same set
- * `artifact-frame` treats as self-qualifying, for the same reason.
+ * carburettor, and "reword" cannot ask for anything but text back — so these
+ * need no object.
  */
-const SELF_QUALIFYING_REPAIR_VERB =
-  "proof ?read|spell ?check|re-?write|re-?word|rephrase";
+export const SELF_QUALIFYING_REPAIR_VERBS: readonly (readonly string[])[] = [
+  ["proof", "read"],
+  ["spell", "check"],
+  ["re", "write"],
+  ["re", "word"],
+  ["rephrase"],
+];
 
 /** Objects that confirm a repair verb is about text quality. */
-const TEXT_QUALITY_OBJECT =
-  "typos?|spelling|grammar|grammer|punctuation|mistakes?|errors?|wording";
+export const TEXT_QUALITY_OBJECTS: ReadonlySet<string> = new Set([
+  "typo",
+  "typos",
+  "spelling",
+  "grammar",
+  "grammer",
+  "punctuation",
+  "mistake",
+  "mistakes",
+  "error",
+  "errors",
+  "wording",
+]);
+
+/** A word sequence as one regex alternative: "clean up", "clean-up", "cleanup". */
+function verbPattern(phrase: readonly string[]): string {
+  return phrase.join("[- ]?");
+}
+
+const REPAIR_VERB = REPAIR_VERBS.map(verbPattern).join("|");
+const SELF_QUALIFYING_REPAIR_VERB = SELF_QUALIFYING_REPAIR_VERBS.map(verbPattern).join("|");
+const TEXT_QUALITY_OBJECT = [...TEXT_QUALITY_OBJECTS].join("|");
 
 /** How far past the verb its object may sit, in characters, within one clause. */
 const OBJECT_WINDOW = 30;
@@ -119,7 +171,9 @@ const OBJECT_WINDOW = 30;
  * `WRITING_RE` in chat-intent.ts survives the same minifier because it
  * concatenates plain `"` strings rather than template literals. Keep this a
  * single template with interpolations (the shape `calculator-tool.ts` uses) and
- * do not split it back up for line length.
+ * do not split it back up for line length. Deriving the interpolated sources
+ * from the vocabulary tables above does not change that shape — the alternation
+ * is joined before it reaches the template, and the template stays one literal.
  */
 const TEXT_REPAIR_RE = new RegExp(
   `\\b(?:${SELF_QUALIFYING_REPAIR_VERB})\\b|\\b(?:${REPAIR_VERB})\\b[^.?!]{0,${OBJECT_WINDOW}}?\\b(?:${TEXT_QUALITY_OBJECT})\\b`,

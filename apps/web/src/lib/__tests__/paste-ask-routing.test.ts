@@ -4,6 +4,8 @@
 import { describe, expect, it } from "vitest";
 
 import { EVERYDAY_USE_CORPUS } from "../../__tests__/fixtures/everyday-use-corpus";
+import { buildArtifactFrame } from "../artifact-frame";
+import { isTextRepairAsk } from "../ask-text";
 import { inferTurnIntent } from "../chat-intent";
 
 type CorpusItem = { readonly id: string; readonly userInput: string };
@@ -71,5 +73,65 @@ describe("paste-heavy asks route on the instruction, not the paste", () => {
         inferTurnIntent(item.userInput, false),
       );
     }
+  });
+});
+
+/**
+ * ★ ROUTED AS A REPAIR, THEN GIVEN NO ARTIFACT FRAME.
+ *
+ * The classifier and the frame both answer "is this person asking for their
+ * text back, fixed?" and each used to keep its own word list. The frame's was
+ * shorter, so three items were routed as repair asks and then handed nothing:
+ * `proofread-teacher-note-esl` ("check this for mistakes"),
+ * `proofread-marketplace-ad` ("clean up the spelling in it") and
+ * `proofread-review-reply` ("check my spelling and grammer") — while their
+ * siblings ended on "The corrected post:".
+ *
+ * The per-item expectations below are the visible half. This sweep is the
+ * mechanism: any verb either side learns without the other closes the same gap
+ * again, and the sweep is what notices.
+ */
+describe("every repair ask ends on a frame naming the artifact", () => {
+  it("no corpus item is routed as a repair and then left unframed", () => {
+    const unframed = CORPUS.filter(
+      (item) => isTextRepairAsk(item.userInput) && buildArtifactFrame(item.userInput) === "",
+    ).map((item) => item.id);
+    expect(unframed).toEqual([]);
+  });
+
+  const PINNED_FRAMES: Readonly<Record<string, string>> = {
+    "proofread-teacher-note-esl": "The corrected version:", // "check this for mistakes"
+    "proofread-marketplace-ad": "The corrected ad:", // "clean up the spelling in it"
+    "proofread-review-reply": "The corrected reply:", // "check my spelling and grammer"
+    // Unchanged by the vocabulary merge — pinned so a widening cannot move them.
+    "proofread-birthday-caption": "The corrected post:",
+    "proofread-grandfather-letter": "The corrected letter:",
+    "proofread-crew-email": "The corrected version:",
+    "proofread-school-post": "The corrected version:",
+    "proofread-vet-application": "The corrected version:",
+    "sw-15": "The corrected version:",
+  };
+
+  for (const [id, expected] of Object.entries(PINNED_FRAMES)) {
+    it(`frames ${id} as "${expected}"`, () => {
+      const item = CORPUS.find((entry) => entry.id === id);
+      if (!item) throw new Error(`no corpus item ${id}`);
+      expect(buildArtifactFrame(item.userInput)).toBe(expected);
+    });
+  }
+
+  /**
+   * The other direction — an instrument that only fires is not an instrument.
+   * A wider vocabulary that also framed turns nobody asked an artifact of
+   * would be a regression wearing a fix's clothes; the gate's fail-safe
+   * direction is silence. The only two non-repair items that carry a frame are
+   * write-from-scratch asks that open "write a message to…" / "write me a
+   * letter to…", which the correspondence scan has always caught.
+   */
+  it("frames no turn that is neither a repair ask nor a request to write one", () => {
+    const framed = CORPUS.filter(
+      (item) => !isTextRepairAsk(item.userInput) && buildArtifactFrame(item.userInput) !== "",
+    ).map((item) => item.id);
+    expect(framed).toEqual(["draft-01", "admin-gym-cancellation"]);
   });
 });

@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Bos Computing LLC
 
-import { askPrefix } from "./ask-text";
+import {
+  REPAIR_VERBS,
+  SELF_QUALIFYING_REPAIR_VERBS,
+  TEXT_QUALITY_OBJECTS,
+  askPrefix,
+} from "./ask-text";
 
 /**
  * A completion frame for artifact asks: when a user turn asks for an artifact
@@ -13,10 +18,11 @@ import { askPrefix } from "./ask-text";
  * TWO PATTERN FAMILIES:
  *   1. Correspondence — an author/send verb governing an artifact noun:
  *      "write the message to Dave", "can u resend it".
- *   2. Correction — a correction verb (fix, proofread, correct, rewrite) with
- *      a text-correction object (typos, spelling, grammar): "fix the typos",
- *      "proofread this before i send it". Frame: "The corrected [noun]:" or
- *      "The corrected version:" when no artifact noun is named.
+ *   2. Correction — a repair verb with a text-quality object ("fix the typos",
+ *      "check this for mistakes"), or a self-qualifying one that needs no
+ *      object ("proofread this before i send it"). The vocabulary is
+ *      `ask-text`'s, shared with the classifier. Frame: "The corrected
+ *      [noun]:" or "The corrected version:" when no artifact noun is named.
  *
  * ★ WHY A FRAME AND NOT AN INSTRUCTION. Measured (PR #113, n=10 per arm): two
  * different instruction clauses appended to exactly these asks both FAILED —
@@ -104,22 +110,19 @@ const IMPERATIVE_LEAD_IN = new Set([
 ]);
 
 /**
- * Verbs that ask for text to be corrected/improved. "proofread" is
- * self-qualifying; the others need a CORRECTION_OBJECT in the verb's window
- * to confirm the verb is about text, not about fixing a car or rewriting
- * history.
+ * ★ THE CORRECTION VOCABULARY LIVES IN `ask-text`, NOT HERE.
+ *
+ * This module used to keep its own shorter lists — fix/correct, and six
+ * objects. `ask-text` recognised seven more forms, so three corpus items
+ * ("check this for mistakes", "clean up the spelling in it", "check my
+ * spelling and grammar") were classified as repair asks and then handed no
+ * frame at all, while their siblings got "The corrected post:". Two lists that
+ * answer the same question are a drift waiting to happen; there is now one.
+ *
+ * `SELF_QUALIFYING_REPAIR_VERBS` need no object — "proofread" cannot be about
+ * a carburettor. `REPAIR_VERBS` need a `TEXT_QUALITY_OBJECTS` word inside the
+ * window below, to keep "fix" from framing a car repair.
  */
-const CORRECTION_VERBS = new Set(["fix", "correct"]);
-const SELF_QUALIFYING_CORRECTION_VERBS = new Set(["proofread", "rewrite"]);
-
-/**
- * Objects that confirm a correction verb is about TEXT correction:
- * "fix the typos", "correct the grammar". Without one of these in the
- * verb's window, "fix" could mean anything.
- */
-const CORRECTION_OBJECTS = new Set([
-  "typos", "typo", "spelling", "grammar", "punctuation", "mistakes",
-]);
 
 /** How many words past the correction verb an object may sit. */
 const CORRECTION_OBJECT_WINDOW = 4;
@@ -276,15 +279,53 @@ function latestNounBefore(tokens: readonly Token[], index: number): string {
   return "";
 }
 
-/** Whether a CORRECTION_OBJECT sits within the verb's window. */
+/** Whether a text-quality object sits within the verb's window. */
 function hasCorrectionObject(tokens: readonly Token[], verbIndex: number): boolean {
   let index = verbIndex;
   for (let seen = 0; seen < CORRECTION_OBJECT_WINDOW; seen++) {
     index = nextWord(tokens, index);
     if (index === -1) return false;
-    if (CORRECTION_OBJECTS.has(tokens[index]!.lower)) return true;
+    if (TEXT_QUALITY_OBJECTS.has(tokens[index]!.lower)) return true;
   }
   return false;
+}
+
+/**
+ * The index of the LAST token of `phrase` if the phrase starts at `index`, or
+ * -1. A multi-word entry matches the same three forms its regex alternative
+ * does: two word tokens ("clean up"), two tokens across punctuation
+ * ("clean-up", since punctuation is skipped), or one closed-up token
+ * ("cleanup"). Returning the last index rather than a boolean is what lets the
+ * object window start after "up" instead of after "clean".
+ */
+function matchPhrase(
+  tokens: readonly Token[],
+  index: number,
+  phrase: readonly string[],
+): number {
+  if (phrase.length > 1 && tokens[index]!.lower === phrase.join("")) return index;
+  let at = index;
+  for (let part = 0; part < phrase.length; part++) {
+    if (part > 0) {
+      at = nextWord(tokens, at);
+      if (at === -1) return -1;
+    }
+    if (tokens[at]!.lower !== phrase[part]) return -1;
+  }
+  return at;
+}
+
+/** The last token index of whichever phrase matches at `index`, or -1. */
+function matchAnyPhrase(
+  tokens: readonly Token[],
+  index: number,
+  phrases: readonly (readonly string[])[],
+): number {
+  for (const phrase of phrases) {
+    const end = matchPhrase(tokens, index, phrase);
+    if (end !== -1) return end;
+  }
+  return -1;
 }
 
 /** The first ARTIFACT_NOUN anywhere in the token stream. */
@@ -361,15 +402,16 @@ export function buildArtifactFrame(turnText: string): string {
     const token = tokens[i]!;
     if (token.kind !== "word") continue;
 
-    if (SELF_QUALIFYING_CORRECTION_VERBS.has(token.lower)) {
+    if (matchAnyPhrase(tokens, i, SELF_QUALIFYING_REPAIR_VERBS) !== -1) {
       if (!isRequestShaped(tokens, i)) continue;
       const noun = anyArtifactNoun(tokens);
       return correctionFrame(noun.length > 0 ? noun : "version");
     }
 
-    if (CORRECTION_VERBS.has(token.lower)) {
+    const repairEnd = matchAnyPhrase(tokens, i, REPAIR_VERBS);
+    if (repairEnd !== -1) {
       if (!isRequestShaped(tokens, i)) continue;
-      if (!hasCorrectionObject(tokens, i)) continue;
+      if (!hasCorrectionObject(tokens, repairEnd)) continue;
       const noun = anyArtifactNoun(tokens);
       return correctionFrame(noun.length > 0 ? noun : "version");
     }

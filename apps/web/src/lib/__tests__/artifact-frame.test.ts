@@ -9,6 +9,7 @@ import {
   buildArtifactFrame,
   buildBranchArtifactFrames,
 } from "../artifact-frame";
+import { isTextRepairAsk } from "../ask-text";
 import { appendBranchRecaps, buildBranchRecaps } from "../detail-recap";
 import { applyTurnHints } from "../chat-intent";
 
@@ -198,6 +199,65 @@ describe("buildArtifactFrame — correction verbs", () => {
     expect(buildArtifactFrame("can you rewrite the email to dave")).toBe(
       "The corrected email:",
     );
+  });
+});
+
+/**
+ * ★ THE VOCABULARY IS `ask-text`'s, NOT THIS MODULE'S.
+ *
+ * Every verb the classifier reads as a repair ask has to reach the frame, or a
+ * turn is routed as "give this person their text back" and then ends on the
+ * recap block's list shape instead of on the artifact. That is what happened
+ * to "check this for mistakes" — routed `writing`, framed nothing.
+ */
+describe("buildArtifactFrame — the repair vocabulary shared with the classifier", () => {
+  const REPAIR_ASKS: Readonly<Record<string, string>> = {
+    // The verbs the frame could not see before the vocabularies were merged.
+    "hi can you check this for mistakes please": "The corrected version:",
+    "can you just clean up the spelling in it": "The corrected version:",
+    "can you check my spelling and grammer": "The corrected version:",
+    "could you edit the wording on this": "The corrected version:",
+    "can you tidy up the punctuation": "The corrected version:",
+    "please sort out the typos": "The corrected version:",
+    // Self-qualifying, no object needed.
+    "can you spellcheck this": "The corrected version:",
+    "could you reword this": "The corrected version:",
+    "please rephrase it": "The corrected version:",
+  };
+
+  for (const [ask, expected] of Object.entries(REPAIR_ASKS)) {
+    it(`frames "${ask}"`, () => {
+      expect(buildArtifactFrame(ask)).toBe(expected);
+      expect(isTextRepairAsk(ask)).toBe(true);
+    });
+  }
+
+  it("matches a two-word verb closed up, spaced or hyphenated", () => {
+    for (const ask of [
+      "can you cleanup the spelling",
+      "can you clean up the spelling",
+      "can you clean-up the spelling",
+    ]) {
+      expect(buildArtifactFrame(ask)).toBe("The corrected version:");
+    }
+  });
+
+  it("starts the object window after the whole verb, not after its first word", () => {
+    // "up the spelling" is three words past "clean"; past "up" it is two. A
+    // window measured from the first word runs out on longer object phrases.
+    expect(buildArtifactFrame("can you clean up all of the spelling")).toBe(
+      "The corrected version:",
+    );
+  });
+
+  it("still needs an object — a bare repair verb frames nothing", () => {
+    expect(buildArtifactFrame("can you check this")).toBe("");
+    expect(buildArtifactFrame("can you clean up the garage")).toBe("");
+    expect(buildArtifactFrame("can you sort out my broadband")).toBe("");
+  });
+
+  it("still needs a request shape — a question about text is not an ask for it", () => {
+    expect(buildArtifactFrame("did you check the spelling on that")).toBe("");
   });
 });
 
