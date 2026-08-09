@@ -1,13 +1,20 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Bos Computing LLC
 
-import { statedText } from "./figure-recap";
-
 /**
- * A completion frame for correspondence asks: when a mid-conversation user turn
- * asks for a message/email to be written (or sent again), the turn's rendered
+ * A completion frame for artifact asks: when a user turn asks for an artifact
+ * to be produced (correspondence, corrected text, etc.), the turn's rendered
  * form ends with a noun phrase naming that artifact — "The message to send to
- * the family group chat:" — after the hint and the recap blocks.
+ * the family group chat:" or "The corrected version:" — after the hint and
+ * the recap blocks.
+ *
+ * TWO PATTERN FAMILIES:
+ *   1. Correspondence — an author/send verb governing an artifact noun:
+ *      "write the message to Dave", "can u resend it".
+ *   2. Correction — a correction verb (fix, proofread, correct, rewrite) with
+ *      a text-correction object (typos, spelling, grammar): "fix the typos",
+ *      "proofread this before i send it". Frame: "The corrected [noun]:" or
+ *      "The corrected version:" when no artifact noun is named.
  *
  * ★ WHY A FRAME AND NOT AN INSTRUCTION. Measured (PR #113, n=10 per arm): two
  * different instruction clauses appended to exactly these asks both FAILED —
@@ -21,20 +28,22 @@ import { statedText } from "./figure-recap";
  * thing the model reads.
  *
  * ★ MECHANICAL, NOT SALIENT — the recap modules' rule, for the same reason.
- * The gate never judges whether the user "really" wants correspondence; it
- * fires on SHAPE: an author/send verb, in an ask rather than a question
- * (`isRequestShaped`), governing an artifact noun in the typed part of the
- * turn. Silence is the fail-safe direction: a missed frame costs nothing that
- * today's baseline doesn't already cost, a wrong frame invites the wrong
- * artifact.
+ * The gate never judges whether the user "really" wants an artifact; it fires
+ * on SHAPE: a recognised verb in a request context, governing a recognised
+ * noun or correction object. Silence is the fail-safe direction: a missed
+ * frame costs nothing that today's baseline doesn't already cost, a wrong
+ * frame invites the wrong artifact.
  *
  * ★ KV STRICT-PREFIX CONTRACT (`runtime/kv-cache.ts`): the frame derives ONLY
- * from the turn's own text and its user-turn ordinal, so a past turn always
- * re-renders byte-identically. Classifiers never see it — frames are applied
- * after `applyTurnHints` and after both recap blocks (`appendBranchRecaps`).
+ * from the turn's own text, so a past turn always re-renders
+ * byte-identically. Classifiers never see it — frames are applied after
+ * `applyTurnHints` and after both recap blocks (`appendBranchRecaps`).
  */
 
-/** Nouns that name a piece of correspondence the user can ask for. */
+/**
+ * Nouns that name an artifact the user can ask for. Correspondence plus the
+ * kinds proofread/rewrite/decode jobs produce.
+ */
 const ARTIFACT_NOUNS = new Set([
   "message",
   "email",
@@ -43,6 +52,11 @@ const ARTIFACT_NOUNS = new Set([
   "invitation",
   "text",
   "reply",
+  "post",
+  "ad",
+  "essay",
+  "version",
+  "summary",
 ]);
 
 /**
@@ -86,6 +100,27 @@ const REQUEST_LEADS = new Set([
 const IMPERATIVE_LEAD_IN = new Set([
   "ok", "okay", "right", "so", "then", "now", "just", "and", "go", "on",
 ]);
+
+/**
+ * Verbs that ask for text to be corrected/improved. "proofread" is
+ * self-qualifying; the others need a CORRECTION_OBJECT in the verb's window
+ * to confirm the verb is about text, not about fixing a car or rewriting
+ * history.
+ */
+const CORRECTION_VERBS = new Set(["fix", "correct"]);
+const SELF_QUALIFYING_CORRECTION_VERBS = new Set(["proofread", "rewrite"]);
+
+/**
+ * Objects that confirm a correction verb is about TEXT correction:
+ * "fix the typos", "correct the grammar". Without one of these in the
+ * verb's window, "fix" could mean anything.
+ */
+const CORRECTION_OBJECTS = new Set([
+  "typos", "typo", "spelling", "grammar", "punctuation", "mistakes",
+]);
+
+/** How many words past the correction verb an object may sit. */
+const CORRECTION_OBJECT_WINDOW = 4;
 
 /** How many word tokens back from the verb a request lead may sit. */
 const REQUEST_LEAD_WINDOW = 4;
@@ -239,53 +274,88 @@ function latestNounBefore(tokens: readonly Token[], index: number): string {
   return "";
 }
 
+/**
+ * The instruction the user typed, extracted from turns that may contain
+ * pasted documents. Short turns (≤600 chars) are returned whole; long turns
+ * return the first paragraph (before `\n\n`), which is where the ask sits
+ * when a paste follows. Replaces the module's earlier `statedText` import
+ * with a split that understands paste-heavy proofread asks rather than
+ * blanking them entirely.
+ */
+const PASTED_TURN_MIN_CHARS = 600;
+
+function askPrefix(text: string): string {
+  const stripped = text.replace(/<file\b[^>]*>[\s\S]*?(?:<\/file>|$)/gi, " ").trim();
+  if (stripped.length <= PASTED_TURN_MIN_CHARS) return stripped;
+  const breakIndex = stripped.indexOf("\n\n");
+  if (breakIndex < 10) return "";
+  const prefix = stripped.slice(0, breakIndex).trim();
+  if (prefix.length > PASTED_TURN_MIN_CHARS) return "";
+  return prefix;
+}
+
+/** Whether a CORRECTION_OBJECT sits within the verb's window. */
+function hasCorrectionObject(tokens: readonly Token[], verbIndex: number): boolean {
+  let index = verbIndex;
+  for (let seen = 0; seen < CORRECTION_OBJECT_WINDOW; seen++) {
+    index = nextWord(tokens, index);
+    if (index === -1) return false;
+    if (CORRECTION_OBJECTS.has(tokens[index]!.lower)) return true;
+  }
+  return false;
+}
+
+/** The first ARTIFACT_NOUN anywhere in the token stream. */
+function anyArtifactNoun(tokens: readonly Token[]): string {
+  for (const token of tokens) {
+    if (token.kind === "word" && ARTIFACT_NOUNS.has(token.lower)) return token.lower;
+  }
+  return "";
+}
+
 function frameLine(noun: string, audience: string, again: boolean): string {
   if (again) return `The ${noun} again:`;
   if (audience.length > 0) return `The ${noun} to send to ${audience}:`;
   return `The ${noun}:`;
 }
 
+function correctionFrame(noun: string): string {
+  return `The corrected ${noun}:`;
+}
+
 /**
- * The frame for one turn, or "" — a pure function of the turn's own text and
- * whether user turns precede it. First user turns never frame: the ask is the
- * whole turn there and nothing has yet displaced it. Runs over `statedText`,
- * so a pasted document can neither fire the gate nor supply an audience.
+ * The frame for one turn, or "" — a pure function of the turn's own text.
+ * Runs over `askPrefix`, so a pasted document can neither fire the gate nor
+ * supply an audience.
+ *
+ * Two scans run in order (first match wins):
+ *   1. Correspondence — AUTHOR_VERB + ARTIFACT_NOUN → "The [noun]:" / "… to send to [audience]:"
+ *   2. Correction — CORRECTION_VERB + CORRECTION_OBJECT → "The corrected [noun]:" / "The corrected version:"
  */
-export function buildArtifactFrame(turnText: string, hasPriorTurns: boolean): string {
-  if (!hasPriorTurns) return "";
-  const source = statedText(turnText);
+export function buildArtifactFrame(turnText: string): string {
+  const source = askPrefix(turnText);
   if (source.length === 0) return "";
   const tokens = tokenize(source);
 
+  // ── Scan 1: correspondence ──────────────────────────────────────────────
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i]!;
     if (token.kind !== "word" || !AUTHOR_VERBS.has(token.lower)) continue;
     const verb = token.lower;
 
-    // "back to the email" is the NOUN "email", not the verb — a marker before
-    // a verb that doubles as a noun disqualifies the occurrence entirely.
     if (VERB_AS_NOUN[verb] !== undefined) {
       const before = previousWord(tokens, i);
       if (before !== -1 && NOUN_MARKERS.has(tokens[before]!.lower)) continue;
     }
 
-    // "did you send the email to dave" asks ABOUT correspondence and must not
-    // be answered with any; only a request or an imperative gets a frame.
     if (!isRequestShaped(tokens, i)) continue;
 
-    // "write the message", "resend the email" — a noun the verb governs.
     const nounIndex = nounAfterVerb(tokens, i);
     if (nounIndex !== -1) {
       const noun = tokens[nounIndex]!.lower;
       return frameLine(noun, audienceAfterNoun(tokens, nounIndex), verb === "resend");
     }
 
-    // "email my sons teacher" — the verb names the artifact; the object is the
-    // audience. No object, no ask — and the object must follow the verb
-    // DIRECTLY: "Email, because ive got her address" is a fragment naming a
-    // channel, and punctuation after the "verb" means the words beyond it are
-    // not its object. Reading on from there frames a subordinate clause as the
-    // recipient.
     const verbNoun = VERB_AS_NOUN[verb];
     if (verbNoun !== undefined) {
       const head = i + 1;
@@ -295,10 +365,6 @@ export function buildArtifactFrame(turnText: string, hasPriorTurns: boolean): st
       return frameLine(verbNoun, audience, false);
     }
 
-    // "can u resend it" — the pronoun resolves to the turn's own earlier
-    // artifact noun, or nothing. Never to another turn's, and never for plain
-    // "send it" — a turn can ask ABOUT sending ("did you send it?"), and
-    // silence is the fail-safe direction.
     if (verb === "resend") {
       const objectIndex = nextWord(tokens, i);
       if (objectIndex === -1 || !OBJECT_PRONOUNS.has(tokens[objectIndex]!.lower)) continue;
@@ -307,24 +373,41 @@ export function buildArtifactFrame(turnText: string, hasPriorTurns: boolean): st
       return frameLine(noun, "", true);
     }
   }
+
+  // ── Scan 2: correction ──────────────────────────────────────────────────
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i]!;
+    if (token.kind !== "word") continue;
+
+    if (SELF_QUALIFYING_CORRECTION_VERBS.has(token.lower)) {
+      if (!isRequestShaped(tokens, i)) continue;
+      const noun = anyArtifactNoun(tokens);
+      return correctionFrame(noun.length > 0 ? noun : "version");
+    }
+
+    if (CORRECTION_VERBS.has(token.lower)) {
+      if (!isRequestShaped(tokens, i)) continue;
+      if (!hasCorrectionObject(tokens, i)) continue;
+      const noun = anyArtifactNoun(tokens);
+      return correctionFrame(noun.length > 0 ? noun : "version");
+    }
+  }
+
   return "";
 }
 
 /**
  * The frame each user turn in a branch should carry, indexed by user-turn
- * ordinal (0 = the first user turn, which always gets ""). Derived from the
- * FULL branch for the same KV reason as the recaps, though each frame reads
- * only its own turn.
+ * ordinal. Derived from the FULL branch for the same KV reason as the
+ * recaps, though each frame reads only its own turn.
  */
 export function buildBranchArtifactFrames(
   messages: readonly { role: string; content: string }[],
 ): readonly string[] {
   const frames: string[] = [];
-  let ordinal = 0;
   for (const message of messages) {
     if (message.role !== "user") continue;
-    frames.push(buildArtifactFrame(message.content, ordinal > 0));
-    ordinal++;
+    frames.push(buildArtifactFrame(message.content));
   }
   return frames;
 }
