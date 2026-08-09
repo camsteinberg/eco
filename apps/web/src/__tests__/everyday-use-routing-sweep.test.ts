@@ -120,6 +120,7 @@ import {
   type EverydayUseItem,
 } from "./fixtures/everyday-use-corpus";
 import { checkSourceCitations } from "./helpers/source-citations";
+import { isTextRepairAsk } from "../lib/ask-text";
 
 // ---------------------------------------------------------------------------
 // The measurement
@@ -389,14 +390,26 @@ function modelsTighteningBansByIntent(): readonly string[] {
 // ---------------------------------------------------------------------------
 
 const GAP_MECHANISMS = {
-  "shape-length-catchall": [
-    "`inferAnswerShape` returns `teaching` for any turn longer than 360 characters",
-    "(answer-shape.ts LONG_ASK_MIN_CHARS), and `mapShapeToDepthIntent` sends teaching to",
-    "`deep`. So pasting anything longer than a paragraph is read as a request for a",
-    "lecture and comes back with 'Use clear sections; include concrete recommendations",
-    "and tradeoffs'. The length of what someone pasted says nothing about how long an",
-    "answer they want — usually the reverse, since the long thing is the input.",
-  ].join(" "),
+  // `shape-length-catchall` lived here and is deliberately gone. It described
+  // `inferAnswerShape` returning `teaching` for any turn over 360 characters
+  // (answer-shape.ts LONG_ASK_MIN_CHARS) and `mapShapeToDepthIntent` sending
+  // teaching to `deep` — so pasting anything longer than a paragraph was read
+  // as a request for a lecture and came back with "Use clear sections; include
+  // concrete recommendations and tradeoffs". It explained fourteen gaps, more
+  // than any other mechanism in this file.
+  //
+  // It explains none of them now, because the cascade no longer measures the
+  // paste: `inferChatIntent` classifies `instructionParagraph` (lib/ask-text.ts),
+  // so the length that reaches the shape classifier is the length of the ASK.
+  // Deleted rather than kept as history, per the test below. What it described
+  // is now pinned two ways — `lib/__tests__/paste-ask-routing.test.ts` for the
+  // routing, and the `[]`-anchored paste-trigger block at the end of this file.
+  //
+  // ★ The gaps it explained did not all close. Nine did; the rest MOVED to
+  // `writing-budget-is-middle` or `explain-default-middle` and are still listed
+  // below at their new intents. The budget path still cannot see a length bound
+  // — that was always a second mechanism stacked under the first, and removing
+  // the first is what made it the only one left.
 
   "explain-default-middle": [
     "Nothing in the cascade matches and `inferAnswerShape` (answer-shape.ts) returns",
@@ -465,15 +478,14 @@ const KNOWN_GAPS: ReadonlyMap<GapKey, { mechanism: GapMechanism; intent: ChatInt
     // real-model A/B settled that the ban could come off. Deleted rather than
     // relaxed, per this file's rule. `faithful-reproduction` now has no pinned
     // gaps at all, so every item that needs it is live above.
-    ["no-elaboration-hint/work-email-tone-fix", { mechanism: "shape-length-catchall", intent: "deep" }],
-    ["direct-budget/work-email-tone-fix", { mechanism: "shape-length-catchall", intent: "deep" }],
+    ["no-elaboration-hint/work-email-tone-fix", { mechanism: "explain-default-middle", intent: "explain" }],
+    ["direct-budget/work-email-tone-fix", { mechanism: "explain-default-middle", intent: "explain" }],
     ["no-elaboration-hint/work-followup-shorter", { mechanism: "explain-default-middle", intent: "explain" }],
     ["direct-budget/work-followup-shorter", { mechanism: "explain-default-middle", intent: "explain" }],
     ["direct-budget/rewrite-03", { mechanism: "writing-budget-is-middle", intent: "writing" }],
-    ["no-elaboration-hint/sw-15", { mechanism: "shape-length-catchall", intent: "deep" }],
-    ["direct-budget/sw-15", { mechanism: "shape-length-catchall", intent: "deep" }],
-    ["no-elaboration-hint/school-essay-not-ai", { mechanism: "shape-length-catchall", intent: "deep" }],
-    ["direct-budget/school-essay-not-ai", { mechanism: "shape-length-catchall", intent: "deep" }],
+    ["direct-budget/sw-15", { mechanism: "writing-budget-is-middle", intent: "writing" }],
+    ["no-elaboration-hint/school-essay-not-ai", { mechanism: "explain-default-middle", intent: "explain" }],
+    ["direct-budget/school-essay-not-ai", { mechanism: "explain-default-middle", intent: "explain" }],
     ["direct-budget/work-sick-text", { mechanism: "brevity-misses-the-budget", intent: "explain" }],
     ["direct-budget/draft-01", { mechanism: "writing-budget-is-middle", intent: "writing" }],
     ["direct-budget/admin-gym-cancellation", { mechanism: "writing-budget-is-middle", intent: "writing" }],
@@ -481,8 +493,19 @@ const KNOWN_GAPS: ReadonlyMap<GapKey, { mechanism: GapMechanism; intent: ChatInt
     ["direct-budget/ft-06", { mechanism: "writing-budget-is-middle", intent: "writing" }],
     ["no-elaboration-hint/health-blood-results", { mechanism: "explain-default-middle", intent: "explain" }],
     ["direct-budget/health-blood-results", { mechanism: "explain-default-middle", intent: "explain" }],
-    ["no-elaboration-hint/health-hospital-letter", { mechanism: "shape-length-catchall", intent: "deep" }],
-    ["direct-budget/school-letter-esl-parent", { mechanism: "writing-budget-is-middle", intent: "writing" }],
+    ["no-elaboration-hint/health-hospital-letter", { mechanism: "explain-default-middle", intent: "explain" }],
+    ["direct-budget/school-letter-esl-parent", { mechanism: "explain-default-middle", intent: "explain" }],
+    // ★ TWO NEW no-elaboration-hint GAPS, opened by the routing fix and recorded
+    // rather than absorbed. Both turns used to escape this check by landing on
+    // an intent that was WRONG for a different reason: the school letter matched
+    // WRITING_RE on its own "we write to advise", and the landlord's letter
+    // matched RESEARCH_RE on "your current lease term". Classifying the ask
+    // moved both to `explain`, which is the right task class and carries the
+    // elaboration hint. Neither person wants development — one wants three
+    // lines with two figures in them, the other wants a verdict and a deadline.
+    // The gap is the `explain` hint, not the routing, and it is now visible.
+    ["no-elaboration-hint/school-letter-esl-parent", { mechanism: "explain-default-middle", intent: "explain" }],
+    ["no-elaboration-hint/legal-rent-increase", { mechanism: "explain-default-middle", intent: "explain" }],
     // `direct-budget/summarise-01` was pinned here under
     // `cascade-beats-brief-shape`. It CLOSED on 2026-07-27 when WRITING_RE
     // stopped matching the bare word 'message' inside the user's pasted thread:
@@ -520,8 +543,6 @@ const KNOWN_GAPS: ReadonlyMap<GapKey, { mechanism: GapMechanism; intent: ChatInt
     ["direct-budget/company-02", { mechanism: "explain-default-middle", intent: "explain" }],
     ["no-elaboration-hint/translate-01", { mechanism: "explain-default-middle", intent: "explain" }],
     ["direct-budget/translate-01", { mechanism: "explain-default-middle", intent: "explain" }],
-    ["no-elaboration-hint/translate-02", { mechanism: "shape-length-catchall", intent: "deep" }],
-    ["direct-budget/translate-02", { mechanism: "shape-length-catchall", intent: "deep" }],
     ["no-elaboration-hint/ft-04", { mechanism: "explain-default-middle", intent: "explain" }],
     ["direct-budget/ft-04", { mechanism: "explain-default-middle", intent: "explain" }],
     ["no-elaboration-hint/ft-13", { mechanism: "explain-default-middle", intent: "explain" }],
@@ -541,25 +562,19 @@ const KNOWN_GAPS: ReadonlyMap<GapKey, { mechanism: GapMechanism; intent: ChatInt
     // explained entirely by mechanisms already on file is evidence those
     // mechanisms are real, not curve-fitted to the forty.
 
-    ["no-elaboration-hint/proofread-teacher-note-esl", { mechanism: "shape-length-catchall", intent: "deep" }],
-    ["direct-budget/proofread-teacher-note-esl", { mechanism: "shape-length-catchall", intent: "deep" }],
-    ["no-elaboration-hint/proofread-birthday-caption", { mechanism: "shape-length-catchall", intent: "deep" }],
-    ["direct-budget/proofread-birthday-caption", { mechanism: "shape-length-catchall", intent: "deep" }],
-    ["no-elaboration-hint/proofread-memorial-tribute", { mechanism: "shape-length-catchall", intent: "deep" }],
-    ["direct-budget/proofread-memorial-tribute", { mechanism: "shape-length-catchall", intent: "deep" }],
-    ["no-elaboration-hint/proofread-grandfather-letter", { mechanism: "shape-length-catchall", intent: "deep" }],
-    ["direct-budget/proofread-grandfather-letter", { mechanism: "shape-length-catchall", intent: "deep" }],
-    ["no-elaboration-hint/proofread-vet-application", { mechanism: "shape-length-catchall", intent: "deep" }],
-    ["direct-budget/proofread-vet-application", { mechanism: "shape-length-catchall", intent: "deep" }],
-    ["no-elaboration-hint/proofread-crew-email", { mechanism: "shape-length-catchall", intent: "deep" }],
-    ["direct-budget/proofread-crew-email", { mechanism: "shape-length-catchall", intent: "deep" }],
-    ["no-elaboration-hint/proofread-review-reply", { mechanism: "shape-length-catchall", intent: "deep" }],
-    ["direct-budget/proofread-review-reply", { mechanism: "shape-length-catchall", intent: "deep" }],
+    ["direct-budget/proofread-teacher-note-esl", { mechanism: "writing-budget-is-middle", intent: "writing" }],
+    ["direct-budget/proofread-birthday-caption", { mechanism: "writing-budget-is-middle", intent: "writing" }],
+    ["no-elaboration-hint/proofread-memorial-tribute", { mechanism: "explain-default-middle", intent: "explain" }],
+    ["direct-budget/proofread-memorial-tribute", { mechanism: "explain-default-middle", intent: "explain" }],
+    ["direct-budget/proofread-grandfather-letter", { mechanism: "writing-budget-is-middle", intent: "writing" }],
+    ["direct-budget/proofread-vet-application", { mechanism: "writing-budget-is-middle", intent: "writing" }],
+    ["direct-budget/proofread-crew-email", { mechanism: "writing-budget-is-middle", intent: "writing" }],
+    ["direct-budget/proofread-review-reply", { mechanism: "writing-budget-is-middle", intent: "writing" }],
 
     // The one that routes `deep` with NO hint at all: she typed "keep it short",
     // hint suppression saw it, and the 2048-token budget did not. Suppression and
     // routing are two systems that do not talk, which is the whole mechanism.
-    ["direct-budget/proofread-marketplace-ad", { mechanism: "brevity-misses-the-budget", intent: "deep" }],
+    ["direct-budget/proofread-marketplace-ad", { mechanism: "brevity-misses-the-budget", intent: "writing" }],
     // The one that routes `writing`: "posting this on the school parents page" hits
     // the writing branch, whose budget is the 1536 middle whatever the artifact is.
     ["direct-budget/proofread-school-post", { mechanism: "writing-budget-is-middle", intent: "writing" }],
@@ -572,20 +587,20 @@ const KNOWN_GAPS: ReadonlyMap<GapKey, { mechanism: GapMechanism; intent: ChatInt
 const ROUTING_TODAY: Readonly<
   Record<string, { intent: ChatIntent; maxTokens: number; temperature: number; hint: string }>
 > = {
-  "work-email-tone-fix": { intent: "deep", maxTokens: 2048, temperature: 0.6, hint: "Use clear sections; include concrete recommendations and tradeoffs." },
+  "work-email-tone-fix": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
   "work-followup-shorter": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
   "rewrite-03": { intent: "writing", maxTokens: 1536, temperature: 0.48, hint: "Match the requested format and tone; avoid filler." },
-  "sw-15": { intent: "deep", maxTokens: 2048, temperature: 0.6, hint: "Use clear sections; include concrete recommendations and tradeoffs." },
-  "school-essay-not-ai": { intent: "deep", maxTokens: 2048, temperature: 0.6, hint: "Use clear sections; include concrete recommendations and tradeoffs." },
+  "sw-15": { intent: "writing", maxTokens: 1536, temperature: 0.48, hint: "Match the requested format and tone; avoid filler." },
+  "school-essay-not-ai": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
   "work-sick-text": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "" },
   "draft-01": { intent: "writing", maxTokens: 1536, temperature: 0.48, hint: "Match the requested format and tone; avoid filler." },
   "admin-gym-cancellation": { intent: "writing", maxTokens: 1536, temperature: 0.48, hint: "Match the requested format and tone; avoid filler." },
   "family-eulogy": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
   "ft-06": { intent: "writing", maxTokens: 1536, temperature: 0.48, hint: "Match the requested format and tone; avoid filler." },
   "health-blood-results": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "health-hospital-letter": { intent: "deep", maxTokens: 2048, temperature: 0.6, hint: "Use clear sections; include concrete recommendations and tradeoffs." },
-  "school-letter-esl-parent": { intent: "writing", maxTokens: 1536, temperature: 0.48, hint: "Match the requested format and tone; avoid filler." },
-  "legal-rent-increase": { intent: "research", maxTokens: 2048, temperature: 0.6, hint: "Distinguish supported claims from uncertain ones; cite sources only when you can back the claim." },
+  "health-hospital-letter": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
+  "school-letter-esl-parent": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
+  "legal-rent-increase": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
   "summarise-01": { intent: "quick", maxTokens: 1024, temperature: 0.32, hint: "" },
   "explain-01": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
   "school-fractions": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
@@ -605,7 +620,7 @@ const ROUTING_TODAY: Readonly<
   "company-01": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
   "company-02": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
   "translate-01": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "translate-02": { intent: "deep", maxTokens: 2048, temperature: 0.6, hint: "Use clear sections; include concrete recommendations and tradeoffs." },
+  "translate-02": { intent: "quick", maxTokens: 1024, temperature: 0.32, hint: "" },
   "ft-01": { intent: "quick", maxTokens: 1024, temperature: 0.32, hint: "" },
   "ft-04": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
   "ft-08": { intent: "quick", maxTokens: 1024, temperature: 0.32, hint: "" },
@@ -613,21 +628,33 @@ const ROUTING_TODAY: Readonly<
   "sw-12": { intent: "quick", maxTokens: 1024, temperature: 0.32, hint: "" },
   "ft-15": { intent: "quick", maxTokens: 1024, temperature: 0.32, hint: "" },
   // ── WAVE 2 — the proofread-class jobs ─────────────────────────────────────
-  // Eight of nine land on `deep` at 2048 tokens because of how long the thing
-  // they PASTED is, on turns whose whole instruction was "fix my mistakes and
-  // change nothing else". The ninth reaches `writing` through the word
-  // "posting". One of the eight carries no hint at all — she typed "keep it
-  // short" — and still gets the 2048 ceiling, which is the clearest single
-  // illustration in this file that hint suppression and the budget path are two
-  // systems that do not talk to each other.
-  "proofread-teacher-note-esl": { intent: "deep", maxTokens: 2048, temperature: 0.6, hint: "Use clear sections; include concrete recommendations and tradeoffs." },
-  "proofread-birthday-caption": { intent: "deep", maxTokens: 2048, temperature: 0.6, hint: "Use clear sections; include concrete recommendations and tradeoffs." },
-  "proofread-memorial-tribute": { intent: "deep", maxTokens: 2048, temperature: 0.6, hint: "Use clear sections; include concrete recommendations and tradeoffs." },
-  "proofread-grandfather-letter": { intent: "deep", maxTokens: 2048, temperature: 0.6, hint: "Use clear sections; include concrete recommendations and tradeoffs." },
-  "proofread-vet-application": { intent: "deep", maxTokens: 2048, temperature: 0.6, hint: "Use clear sections; include concrete recommendations and tradeoffs." },
-  "proofread-crew-email": { intent: "deep", maxTokens: 2048, temperature: 0.6, hint: "Use clear sections; include concrete recommendations and tradeoffs." },
-  "proofread-marketplace-ad": { intent: "deep", maxTokens: 2048, temperature: 0.6, hint: "" },
-  "proofread-review-reply": { intent: "deep", maxTokens: 2048, temperature: 0.6, hint: "Use clear sections; include concrete recommendations and tradeoffs." },
+  // Eight of nine USED to land on `deep` at 2048 tokens because of how long the
+  // thing they PASTED is, on turns whose whole instruction was "fix my mistakes
+  // and change nothing else" — and were then told to "include concrete
+  // recommendations and tradeoffs". Live replies duly came back with a
+  // "Concrete Recommendations & Tradeoffs" section instead of the corrected
+  // text (`deliversUnburied` averaged 0.42 across `deep` against 0.91 across
+  // `writing`).
+  //
+  // The cascade now classifies the INSTRUCTION rather than the paste, and reads
+  // a repair ask as a writing ask, so seven reach `writing`. Two do not, and
+  // that is deliberate rather than an oversight: `memorial-tribute` ("knock the
+  // spelling errors out of it") and `school-essay-not-ai` ("make this better")
+  // are repair asks phrased as "make this <different>", a family that needs the
+  // paste to resolve "this". Widening the repair vocabulary until they passed
+  // would be fitting the rule to the labelled items instead of to the category.
+  // See lib/ask-text.ts.
+  //
+  // `marketplace-ad` still carries no hint at all — she typed "keep it short" —
+  // but now takes the 1536 writing ceiling rather than 2048.
+  "proofread-teacher-note-esl": { intent: "writing", maxTokens: 1536, temperature: 0.48, hint: "Match the requested format and tone; avoid filler." },
+  "proofread-birthday-caption": { intent: "writing", maxTokens: 1536, temperature: 0.48, hint: "Match the requested format and tone; avoid filler." },
+  "proofread-memorial-tribute": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
+  "proofread-grandfather-letter": { intent: "writing", maxTokens: 1536, temperature: 0.48, hint: "Match the requested format and tone; avoid filler." },
+  "proofread-vet-application": { intent: "writing", maxTokens: 1536, temperature: 0.48, hint: "Match the requested format and tone; avoid filler." },
+  "proofread-crew-email": { intent: "writing", maxTokens: 1536, temperature: 0.48, hint: "Match the requested format and tone; avoid filler." },
+  "proofread-marketplace-ad": { intent: "writing", maxTokens: 1536, temperature: 0.48, hint: "" },
+  "proofread-review-reply": { intent: "writing", maxTokens: 1536, temperature: 0.48, hint: "Match the requested format and tone; avoid filler." },
   "proofread-school-post": { intent: "writing", maxTokens: 1536, temperature: 0.48, hint: "Match the requested format and tone; avoid filler." },
 };
 
@@ -1087,36 +1114,52 @@ describe("everyday-use sweep — the intent cascade reads pasted content", () =>
     if (triggers === undefined || !item.hasPastedContent) {
       return null;
     }
-    const ask = (item.userInput.split("\n")[0] ?? "").toLowerCase();
+    // A repair ask reaches `writing` through `isTextRepairAsk`, which reads the
+    // instruction and nothing else. Attributing those to a word in the paste
+    // would be the instrument mis-crediting the cause — the failure mode this
+    // block was written to catch in the first place.
+    if (isTextRepairAsk(item.userInput)) {
+      return null;
+    }
+    // Compare against the INSTRUCTION — the paragraph the user typed — and not
+    // against the window the cascade happened to classify. Those differ on
+    // short turns, and that difference is the defect this block exists to see:
+    // a turn small enough to fall under the dominance rule still gets its
+    // pasted quote classified along with the ask.
+    const ask = (item.userInput.split("\n\n")[0] ?? "").toLowerCase();
     const whole = item.userInput.toLowerCase();
     return triggers.find((word) => whole.includes(word) && !ask.includes(word)) ?? null;
   }
 
-  it("still routes turns on words found only inside the paste", () => {
+  it("routes on words found only inside the paste in one remaining case", () => {
     const affected = EVERYDAY_USE_CORPUS.filter((item) => pasteOnlyTrigger(item) !== null).map(
       (item) => `${item.id}:${route(item).intent}:${pasteOnlyTrigger(item) ?? ""}`,
     );
-    // Pinned as CURRENT behaviour, not asserted as correct. Scoping the cascade
-    // to the ask window should empty this list.
-    expect(affected.sort()).toEqual([
-      // A landlord's letter contains "your current lease term", so RESEARCH_RE —
-      // the highest-precedence branch in the cascade — routes the turn to the
-      // research treatment on a model with no web access.
-      "legal-rent-increase:research:current",
-      // ★ A FOURTH CASE, and it arrived exactly the way this block predicted one
-      // would: not by anyone adding a rule, but by adding an ordinary item. Her
-      // own ask says "fix my typos"; the post she pasted says "please email the
-      // councillor", and that `email` is what reaches the writing branch.
-      "proofread-school-post:writing:email",
-      // "Per my last email" in the pasted draft.
-      "rewrite-03:writing:email",
-      // The school letter's own "we write to advise".
-      "school-letter-esl-parent:writing:write",
-      // `summarise-01` ("ill message him" inside a pasted group chat, overriding
-      // a correct `brief` shape) LEFT this list on 2026-07-27: WRITING_RE no
-      // longer matches a bare `message`, so the paste can no longer route the
-      // turn. Four remain — the defect class is narrowed, not closed.
-    ]);
+    // ★ THREE OF FOUR CLOSED. This list was pinned as current behaviour with
+    // the note "scoping the cascade to the ask window should empty this list";
+    // the cascade now classifies `instructionParagraph`, and three went. Gone:
+    //
+    //   legal-rent-increase:research:current  — a landlord's letter says "your
+    //     current lease term", and RESEARCH_RE is the highest-precedence branch,
+    //     so the turn took the research treatment on a model with no web access.
+    //   proofread-school-post:writing:email   — her ask says "fix my typos"; the
+    //     post she pasted says "please email the councillor".
+    //   school-letter-esl-parent:writing:write — the letter's "we write to advise".
+    //
+    // Two of those were routed CORRECTLY by accident (school-post wants
+    // writing) — which is why this list pins the trigger word and not just the
+    // intent. A right answer for a wrong reason still had to move.
+    //
+    // ★ THE ONE THAT REMAINS, and why it is not a rule waiting to be written.
+    // `rewrite-03` is 116 characters: "does this sound rude" plus a 96-character
+    // quote. The paste-dominance rule deliberately does not split a turn that
+    // small — at that size the whole turn genuinely reads as the ask, and
+    // splitting it changed the routing of turns that were being handled well.
+    // So the quote sits inside the classified window and its "per my last
+    // email" reaches WRITING_RE. The routing that results is right; the reason
+    // is not. Lowering the split threshold to catch it is the obvious fix and
+    // the wrong one until something measures what else it moves.
+    expect(affected.sort()).toEqual(["rewrite-03:writing:email"]);
   });
 });
 

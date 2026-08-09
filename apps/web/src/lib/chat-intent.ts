@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Bos Computing LLC
 
 import { getCatalog } from "../local-ai/catalog/catalog";
+import { instructionParagraph, isTextRepairAsk } from "./ask-text";
 import {
   DEEP_RE,
   LONG_FORM_RE,
@@ -382,13 +383,35 @@ export type InferChatIntentOptions = {
  * which Stage 0 measured at a 68% misroute rate (teaching-shaped asks never
  * reached deep; single facts rode the explain padding register). See the
  * Stage-0 shape-routing measurements for that evidence.
+ *
+ * ★ EVERY TEST BELOW READS THE ASK, NOT THE PASTE. A turn that pastes a
+ * document is fifteen words of instruction and four hundred of subject, and a
+ * cascade run over the whole turn classifies the SUBJECT. Measured on the
+ * everyday-use corpus before this changed: eleven of the twelve paste-heavy
+ * turns — every proofread ask in the corpus — landed on `deep`, whose turn
+ * hint is "Use clear sections; include concrete recommendations and
+ * tradeoffs". Replies duly came back with a "Concrete Recommendations &
+ * Tradeoffs" section instead of the corrected text, and `deliversUnburied`
+ * averaged 0.42 on `deep` against 0.91 on `writing`. `askPrefix` returns ""
+ * when a long turn has no credible instruction paragraph, and the cascade then
+ * falls back to the whole turn — silence is the fail-safe direction.
+ *
+ * ★ A REPAIR ASK IS A WRITING ASK, and is tested ahead of the depth words so a
+ * stray "full"/"complete" in the instruction cannot steal it. "Fix my typos"
+ * wants text back, not an essay about the text; WRITING_RE already encodes
+ * that category for text that is being CREATED (write, draft) and this
+ * completes it for text being REPAIRED. See lib/ask-text.ts for what the
+ * category deliberately excludes.
  */
 export function inferChatIntent(content: string, options?: InferChatIntentOptions): ChatIntent {
-  const text = content.trim();
+  const raw = content.trim();
+  const text = instructionParagraph(raw);
 
   if (options?.researchMode || RESEARCH_RE.test(text)) return "research";
-  if (options?.hasFiles || /<file\b/i.test(text)) return "file";
+  // The file test reads `raw`: askPrefix strips file blocks by design.
+  if (options?.hasFiles || /<file\b/i.test(raw)) return "file";
   if (CODE_RE.test(text)) return "code";
+  if (isTextRepairAsk(raw)) return "writing";
   if (LONG_FORM_RE.test(text)) return "deep";
   if (DEEP_RE.test(text)) return "deep";
   if (WRITING_RE.test(text)) return "writing";
