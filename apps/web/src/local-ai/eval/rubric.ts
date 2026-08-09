@@ -14,6 +14,7 @@
  */
 
 import { hasCjkScript } from '../../lib/cjk-script';
+import { scorePreservesUserRegister } from './register-shift';
 import type { EvalPromptSpec, RubricContext, RubricScores } from './types';
 
 // ─── small helpers ───────────────────────────────────────────────────────
@@ -2294,6 +2295,11 @@ export function scoreResult(spec: EvalPromptSpec, ctx: RubricContext): RubricSco
     deliversFirst: scoreDeliversFirst(spec, ctx.output),
     deliversAskedArtifact: scoreArtifactDelivery(spec, ctx.output),
     preservesUserText: scorePreservesUserText(spec, ctx.output),
+    preservesUserRegister: scorePreservesUserRegister(
+      pastedBlockOf(spec.prompt),
+      ctx.output,
+      spec.expectUserRegister === true,
+    ),
     preservesFacts: scoreFactPreservation(spec, ctx.output),
     preservesHistoryFacts: scoreHistoryFactPreservation(spec, ctx.output),
     honorsRuledOut: scoreHonorsRuledOut(spec, ctx.output),

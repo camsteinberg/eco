@@ -797,7 +797,12 @@ function toProbe(item: EverydayUseItem): EvalPromptSpec {
     ...(EVERYDAY_ARTIFACT_ASKS[item.id] !== undefined
       ? { expectsArtifact: artifactOf(EVERYDAY_ARTIFACT_ASKS[item.id]!) }
       : {}),
-    ...(expectsUserTextReuse(item) ? { expectUserTextReuse: true as const } : {}),
+    // Register rides the SAME gate as text reuse, deliberately: those items are
+    // exactly the asks that say "leave it in my own words", and the two dims
+    // read different halves of that one promise — the words, and the voice.
+    ...(expectsUserTextReuse(item)
+      ? { expectUserTextReuse: true as const, expectUserRegister: true as const }
+      : {}),
     ...(expectsFactPreservation(item) ? { expectFactPreservation: true as const } : {}),
     ...(ceiling !== null ? { depthBand: { maxWords: ceiling } } : {}),
     ...(floor !== null ? { minWords: floor } : {}),
