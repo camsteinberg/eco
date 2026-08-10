@@ -207,37 +207,49 @@ const CONTROL_SAMPLING_TODAY: Readonly<Record<string, Readonly<Record<string, st
     "local/phi3-mini-4k-q4f16": "quick:1024/0.2",
     "local/qwen3-0.6b": "quick:512/0.32",
     "candidate/lfm2.5-1.2b-instruct-onnx": "quick:1024/0.2",
+    "candidate/lfm2.5-1.2b-instruct-q4-onnx": "quick:1024/0.2",
     "candidate/lfm2.5-350m-onnx": "quick:384/0.25",
     "candidate/qwen3.5-2b-onnx": "quick:1024/0.32",
     "candidate/gemma-4-e2b-litert": "quick:256/0.18",
     "candidate/qwen2.5-0.5b-mlc": "quick:1024/0.45",
+    "candidate/qwen2.5-0.5b-instruct-onnx": "quick:512/0.32",
+    "candidate/smollm2-360m-instruct-onnx": "quick:512/0.32",
   },
   shorter: {
     "local/phi3-mini-4k-q4f16": "quick:1024/0.2",
     "local/qwen3-0.6b": "quick:512/0.32",
     "candidate/lfm2.5-1.2b-instruct-onnx": "quick:1024/0.2",
+    "candidate/lfm2.5-1.2b-instruct-q4-onnx": "quick:1024/0.2",
     "candidate/lfm2.5-350m-onnx": "quick:384/0.25",
     "candidate/qwen3.5-2b-onnx": "quick:1024/0.32",
     "candidate/gemma-4-e2b-litert": "quick:256/0.18",
     "candidate/qwen2.5-0.5b-mlc": "quick:1024/0.45",
+    "candidate/qwen2.5-0.5b-instruct-onnx": "quick:512/0.32",
+    "candidate/smollm2-360m-instruct-onnx": "quick:512/0.32",
   },
   expand: {
     "local/phi3-mini-4k-q4f16": "deep:1024/0.45",
     "local/qwen3-0.6b": "deep:512/0.6",
     "candidate/lfm2.5-1.2b-instruct-onnx": "deep:2048/0.3",
+    "candidate/lfm2.5-1.2b-instruct-q4-onnx": "deep:2048/0.3",
     "candidate/lfm2.5-350m-onnx": "deep:384/0.45",
     "candidate/qwen3.5-2b-onnx": "deep:2048/0.6",
     "candidate/gemma-4-e2b-litert": "deep:1536/0.42",
     "candidate/qwen2.5-0.5b-mlc": "deep:2048/0.55",
+    "candidate/qwen2.5-0.5b-instruct-onnx": "deep:512/0.6",
+    "candidate/smollm2-360m-instruct-onnx": "deep:512/0.6",
   },
   simplify: {
     "local/phi3-mini-4k-q4f16": "quick:1024/0.2",
     "local/qwen3-0.6b": "quick:512/0.32",
     "candidate/lfm2.5-1.2b-instruct-onnx": "quick:1024/0.2",
+    "candidate/lfm2.5-1.2b-instruct-q4-onnx": "quick:1024/0.2",
     "candidate/lfm2.5-350m-onnx": "quick:384/0.25",
     "candidate/qwen3.5-2b-onnx": "quick:1024/0.32",
     "candidate/gemma-4-e2b-litert": "quick:256/0.18",
     "candidate/qwen2.5-0.5b-mlc": "quick:1024/0.45",
+    "candidate/qwen2.5-0.5b-instruct-onnx": "quick:512/0.32",
+    "candidate/smollm2-360m-instruct-onnx": "quick:512/0.32",
   },
 };
 
@@ -252,10 +264,13 @@ const TYPED_ROUTING_TODAY: Readonly<Record<string, string>> = {
   "local/phi3-mini-4k-q4f16": "quick:1024/0.2",
   "local/qwen3-0.6b": "quick:512/0.32",
   "candidate/lfm2.5-1.2b-instruct-onnx": "quick:1024/0.2",
+  "candidate/lfm2.5-1.2b-instruct-q4-onnx": "quick:1024/0.2",
   "candidate/lfm2.5-350m-onnx": "quick:384/0.25",
   "candidate/qwen3.5-2b-onnx": "quick:1024/0.32",
   "candidate/gemma-4-e2b-litert": "quick:256/0.18",
   "candidate/qwen2.5-0.5b-mlc": "quick:1024/0.45",
+  "candidate/qwen2.5-0.5b-instruct-onnx": "quick:512/0.32",
+  "candidate/smollm2-360m-instruct-onnx": "quick:512/0.32",
 };
 
 /**
@@ -273,10 +288,14 @@ const DEEPENABLE_TODAY: Readonly<Record<string, boolean>> = {
   "local/phi3-mini-4k-q4f16": false,
   "local/qwen3-0.6b": false,
   "candidate/lfm2.5-1.2b-instruct-onnx": true,
+  "candidate/lfm2.5-1.2b-instruct-q4-onnx": true,
   "candidate/lfm2.5-350m-onnx": false,
   "candidate/qwen3.5-2b-onnx": true,
   "candidate/gemma-4-e2b-litert": true,
   "candidate/qwen2.5-0.5b-mlc": true,
+  // Flat 512 CPU-EP budget (quick == deep), so "Expand" has no headroom — like qwen3-0.6b.
+  "candidate/qwen2.5-0.5b-instruct-onnx": false,
+  "candidate/smollm2-360m-instruct-onnx": false,
 };
 
 /**

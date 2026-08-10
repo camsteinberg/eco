@@ -64,7 +64,7 @@ export type WorkerInbound =
       type: 'init';
       modelId: string;
       hfId: string;
-      dtype: 'q4' | 'q4f16' | 'q2f16';
+      dtype: 'q4' | 'q4f16' | 'q2f16' | 'int8';
       modelFriendlyName: string;
       forceWasm?: boolean;
       /**
@@ -513,9 +513,10 @@ function defaultGenerateId(): string {
  * doesn't need to inspect the model id string — which would break now that
  * we send hfId instead of catalog id.
  */
-function dtypeFromFormat(format: string): 'q4' | 'q4f16' | 'q2f16' {
+function dtypeFromFormat(format: string): 'q4' | 'q4f16' | 'q2f16' | 'int8' {
   if (format === 'onnx-q4') return 'q4';
   if (format === 'onnx-q2f16') return 'q2f16';
+  if (format === 'onnx-int8') return 'int8';
   // onnx-q4f16 or anything else → q4f16
   return 'q4f16';
 }

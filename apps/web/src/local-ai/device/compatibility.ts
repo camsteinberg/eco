@@ -27,6 +27,15 @@ export type CompatibilityResult = 'supported' | 'unsupported' | 'with-warning';
 type CompatibilityRule = {
   /** Requires WebGPU (cannot run in WASM-only). */
   requireWebgpu: boolean;
+  /**
+   * Restricts the model to NO-WebGPU (`webgpuSupport === 'wasm-only'`) devices — the
+   * inverse of `requireWebgpu`. Set for the int8 CPU-EP floor models (SmolLM2-360M /
+   * Qwen2.5-0.5B): they clear the GatherBlockQuantized wall and run on the CPU EP, but
+   * decode far slower on the WebGPU EP than a WebGPU-native build, so on any device WITH
+   * WebGPU (full or f16-less) a WebGPU model is the better pick and these are not offered.
+   * Optional; absent means "no wasm-only restriction."
+   */
+  requireWasmOnly?: boolean;
   /** Minimum reported device memory in GB. 0 means "no floor". */
   minDeviceMemoryGB: number;
   /** Browser engines that have been measured or are confidently predicted. */
@@ -109,6 +118,31 @@ const RULES: Readonly<Record<string, CompatibilityRule>> = Object.freeze({
   'local/qwen3-0.6b': {
     requireWebgpu: false,
     minDeviceMemoryGB: 4,
+    allowedBrowsers: ['chromium', 'safari', 'firefox', 'mobile', 'unknown'] as const,
+    warnIfMobile: false,
+  },
+  // Qwen2.5-0.5B-Instruct (onnx-int8) — the no-GPU/WASM floor candidate. A small,
+  // NON-reasoning instruct model whose int8 ONNX export uses standard per-tensor
+  // quantization (no block-quantized embeddings), so it emits no GatherBlockQuantized
+  // and runs on ort-web's CPU/WASM EP — unlike the LFM2.5 q4 builds (cpuEpIncompatible).
+  // Universal floor tier like qwen3-0.6b: requireWebgpu false, all browser classes,
+  // 4GB floor. NOT cpuEpIncompatible (int8 clears the wall; confirmed on-device via the
+  // backend cross-check before graduation). Same non-f16 CPU-safe path (formatRequiresShaderF16
+  // → false for onnx-int8).
+  'candidate/qwen2.5-0.5b-instruct-onnx': {
+    requireWebgpu: false,
+    requireWasmOnly: true,
+    minDeviceMemoryGB: 4,
+    allowedBrowsers: ['chromium', 'safari', 'firefox', 'mobile', 'unknown'] as const,
+    warnIfMobile: false,
+  },
+  // SmolLM2-360M-Instruct (onnx-int8) — the lightest no-GPU floor for the weakest
+  // CPU-only devices. Same int8 CPU-EP-safe rationale as above; 3GB floor since the
+  // resident set is tiny (~0.36GB weights).
+  'candidate/smollm2-360m-instruct-onnx': {
+    requireWebgpu: false,
+    requireWasmOnly: true,
+    minDeviceMemoryGB: 3,
     allowedBrowsers: ['chromium', 'safari', 'firefox', 'mobile', 'unknown'] as const,
     warnIfMobile: false,
   },
@@ -253,6 +287,14 @@ export function isCompatible(model: ModelConfig, profile: DeviceProfile): Compat
     return 'unsupported';
   }
 
+  // Inverse of requireWebgpu: the int8 CPU-EP floor models are offered ONLY on
+  // no-WebGPU devices. On any device with a WebGPU adapter (full or f16-less) a
+  // WebGPU-native build decodes far faster, so these slow-on-WebGPU builds must not
+  // surface there. (On 'none' devices the below-floor short-circuit already declines.)
+  if (rule.requireWasmOnly && profile.webgpuSupport !== 'wasm-only') {
+    return 'unsupported';
+  }
+
   // Below-floor short-circuit: webgpuSupport === 'none' fails EVERY catalog
   // model, including Qwen3/LFM2.5 that don't require WebGPU. The intentional
   // design is: profiles with no WebGPU AND no viable WASM (the 'none'
@@ -338,6 +380,7 @@ export function formatRequiresShaderF16(format: ModelConfig['format']): boolean 
     case 'mlc-q4f16':
       return true;
     case 'onnx-q4':
+    case 'onnx-int8':
     case 'litertlm':
       return false;
   }

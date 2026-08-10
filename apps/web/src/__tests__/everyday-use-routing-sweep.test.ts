@@ -683,6 +683,9 @@ const MODEL_MATRIX_TODAY: Readonly<Record<string, string>> = {
     "quick:512/0.32 explain:512/0.42 deep:512/0.6 code:512/0.2 writing:512/0.48 file:512/0.6 research:512/0.6",
   "candidate/lfm2.5-1.2b-instruct-onnx":
     "quick:1024/0.2 explain:1536/0.3 deep:2048/0.3 code:2048/0.2 writing:1536/0.4 file:2048/0.3 research:2048/0.3",
+  // f16-less plain-int4 build of the same 1.2B — same slice + 2048 budget as above.
+  "candidate/lfm2.5-1.2b-instruct-q4-onnx":
+    "quick:1024/0.2 explain:1536/0.3 deep:2048/0.3 code:2048/0.2 writing:1536/0.4 file:2048/0.3 research:2048/0.3",
   "candidate/lfm2.5-350m-onnx":
     "quick:384/0.25 explain:384/0.45 deep:384/0.45 code:384/0.45 writing:384/0.38 file:384/0.45 research:384/0.45",
   "candidate/qwen3.5-2b-onnx":
@@ -691,6 +694,11 @@ const MODEL_MATRIX_TODAY: Readonly<Record<string, string>> = {
     "quick:256/0.18 explain:768/0.3 deep:1536/0.42 code:1024/0.18 writing:1024/0.45 file:1536/0.45 research:1536/0.45",
   "candidate/qwen2.5-0.5b-mlc":
     "quick:1024/0.45 explain:1536/0.55 deep:2048/0.55 code:2048/0.25 writing:1536/0.75 file:2048/0.4 research:2048/0.35",
+  // No-GPU int8 floor models — same 512 CPU-EP cap + generic Qwen slice as qwen3-0.6b.
+  "candidate/qwen2.5-0.5b-instruct-onnx":
+    "quick:512/0.32 explain:512/0.42 deep:512/0.6 code:512/0.2 writing:512/0.48 file:512/0.6 research:512/0.6",
+  "candidate/smollm2-360m-instruct-onnx":
+    "quick:512/0.32 explain:512/0.42 deep:512/0.6 code:512/0.2 writing:512/0.48 file:512/0.6 research:512/0.6",
 };
 
 describe("everyday-use sweep — today's routing, pinned exactly", () => {
@@ -903,11 +911,11 @@ describe("everyday-use sweep — the instrument", () => {
   });
 
   it("names the models whose budget axis is flat, where a swept budget check would be vacuous", () => {
-    // Three of seven models hand every intent the same ceiling, so on them a
+    // Five of ten models hand every intent the same ceiling, so on them a
     // budget assertion is satisfied by the model's own cap and says nothing
     // about routing. That is WHY budget assertions run against the everyday
     // default only — pinned so that sweeping this check across models later
-    // cannot silently be three-sevenths vacuous.
+    // cannot silently be half vacuous.
     const flatBudgetAxis = CATALOG_MODEL_IDS.filter(
       (modelId) =>
         new Set(INTENT_ORDER.map((intent) => getGenerationProfile(intent, true, modelId).maxTokens))
@@ -917,6 +925,9 @@ describe("everyday-use sweep — the instrument", () => {
       "local/phi3-mini-4k-q4f16",
       "local/qwen3-0.6b",
       "candidate/lfm2.5-350m-onnx",
+      // The no-GPU int8 floor models: flat 512 budget across every intent (CPU-EP cap).
+      "candidate/qwen2.5-0.5b-instruct-onnx",
+      "candidate/smollm2-360m-instruct-onnx",
     ]);
   });
 });

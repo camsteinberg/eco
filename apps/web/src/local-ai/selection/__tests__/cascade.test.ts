@@ -97,20 +97,36 @@ describe('cascadePath', () => {
 });
 
 describe('cascadePath — Finding E: WASM cascade never attempts CPU-EP-unloadable models', () => {
-  // On a wasm-only device the whole ladder must be [qwen3-0.6b] — the 350m
-  // (block-quant embeddings → GatherBlockQuantized, absent on ort-web's CPU EP)
-  // must never appear, so the setup cascade cannot burn a doomed download on it.
-  it('the wasm-only cascade path is exactly qwen3-0.6b (no 350m rung)', () => {
+  // On a wasm-only device the ladder is the CPU-EP-safe floor set — SmolLM2-360M
+  // (preferred fast floor) first, then Qwen2.5-0.5B and qwen3-0.6b. The int4 LFM2.5
+  // builds (350m, 1.2B-q4) block-quantize embeddings → GatherBlockQuantized, absent
+  // on ort-web's CPU EP, so they must NEVER appear — the setup cascade cannot burn a
+  // doomed download on a model that can't load here.
+  it('the wasm-only cascade is the CPU-EP-safe floor set, SmolLM2 first, no 350m rung', () => {
     const path = cascadePath('eco-fast', PROFILE_FIREFOX).map((m) => m.id);
-    expect(path).toEqual(['local/qwen3-0.6b']);
+    expect(path[0]).toBe('candidate/smollm2-360m-instruct-onnx');
     expect(path).not.toContain('candidate/lfm2.5-350m-onnx');
+    expect([...path].sort()).toEqual(
+      [
+        'candidate/qwen2.5-0.5b-instruct-onnx',
+        'candidate/smollm2-360m-instruct-onnx',
+        'local/qwen3-0.6b',
+      ].sort(),
+    );
   });
 
-  it('nextInCascade never yields the 350m on a wasm-only device', () => {
-    const failed = getModel('local/qwen3-0.6b')!;
-    const next = nextInCascade(failed, 'eco-fast', PROFILE_FIREFOX);
-    // Nothing else is CPU-EP-viable — the ladder is honestly exhausted.
-    expect(next).toBeNull();
+  it('nextInCascade never yields a CPU-EP-unloadable model on a wasm-only device', () => {
+    // Walk the whole ladder from the top; no rung may be a block-quant int4 build.
+    let current = cascadePath('eco-fast', PROFILE_FIREFOX)[0]!;
+    const visited = [current.id];
+    for (let i = 0; i < 5; i++) {
+      const next = nextInCascade(current, 'eco-fast', PROFILE_FIREFOX);
+      if (!next) break;
+      visited.push(next.id);
+      current = next;
+    }
+    expect(visited).not.toContain('candidate/lfm2.5-350m-onnx');
+    expect(visited).not.toContain('candidate/lfm2.5-1.2b-instruct-q4-onnx');
   });
 });
 

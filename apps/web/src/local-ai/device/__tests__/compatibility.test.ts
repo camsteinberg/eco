@@ -240,11 +240,20 @@ describe('device/compatibility — CPU-EP incompatibility (Finding E)', () => {
     }
   });
 
-  it('leaves qwen3-0.6b the sole assignable model on a wasm-only device', () => {
+  it('leaves only the CPU-EP-safe floor models assignable on a wasm-only device', () => {
     const assignable = getCatalog()
       .filter((m) => isAssignable(m, PROFILES.chromiumWasmOnly))
       .map((m) => m.id);
-    expect(assignable).toEqual(['local/qwen3-0.6b']);
+    // qwen3-0.6b (q4f16, runs on the CPU EP) plus the two int8 floors — SmolLM2-360M
+    // and Qwen2.5-0.5B — clear the wall. The block-quant int4 LFM2.5 builds
+    // (cpuEpIncompatible) and every requireWebgpu model are excluded.
+    expect(assignable).toEqual([
+      'local/qwen3-0.6b',
+      'candidate/qwen2.5-0.5b-instruct-onnx',
+      'candidate/smollm2-360m-instruct-onnx',
+    ]);
+    expect(assignable).not.toContain('candidate/lfm2.5-350m-onnx');
+    expect(assignable).not.toContain('candidate/lfm2.5-1.2b-instruct-q4-onnx');
   });
 
   it('does NOT change WebGPU behavior — the CPU-EP rule only bites on wasm-only', () => {

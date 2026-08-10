@@ -27,13 +27,15 @@ const V1_CATALOG_IDS = [
   'candidate/qwen3.5-2b-onnx',
   'candidate/gemma-4-e2b-litert',
   'candidate/qwen2.5-0.5b-mlc',
+  'candidate/qwen2.5-0.5b-instruct-onnx',
+  'candidate/smollm2-360m-instruct-onnx',
 ] as const;
 
 const TECHNICAL_ID_PATTERN = /q4f16|q4f|q4_1|webllm|onnx|fp16|q8|q4\b|q2f16|bnb4|mlc/i;
 
 describe('local-ai catalog (Phase C)', () => {
-  it('ships exactly 8 models', () => {
-    expect(getCatalog()).toHaveLength(8);
+  it('ships exactly 10 models', () => {
+    expect(getCatalog()).toHaveLength(10);
   });
 
   it('ships the locked v1.0 catalog ids in source order', () => {
@@ -48,7 +50,7 @@ describe('local-ai catalog (Phase C)', () => {
     expect(model!.vendor, `${id}.vendor`).toMatch(/\S/);
     expect(model!.sizeGB, `${id}.sizeGB`).toBeGreaterThan(0);
     expect(['transformers', 'litert', 'webllm']).toContain(model!.runtime);
-    expect(['onnx-q4', 'onnx-q4f16', 'litertlm', 'mlc-q4f16']).toContain(model!.format);
+    expect(['onnx-q4', 'onnx-q4f16', 'onnx-int8', 'litertlm', 'mlc-q4f16']).toContain(model!.format);
     expect(model!.capabilities.intent.length, `${id}.capabilities.intent`).toBeGreaterThan(0);
     expect(model!.capabilities.tasks.length, `${id}.capabilities.tasks`).toBeGreaterThan(0);
     expect(model!.capabilities.contextTokens, `${id}.capabilities.contextTokens`).toBeGreaterThan(0);
@@ -81,6 +83,11 @@ describe('local-ai catalog (Phase C)', () => {
       // ModelRecord.overrides.context_window_size (see runtime/webllm-config.ts),
       // not just clamped in what Eco sends. Raising it needs a fresh on-device run.
       'candidate/qwen2.5-0.5b-mlc': 4096,
+      // The int8 no-GPU CPU-EP floor models. Both are natively larger-context
+      // (Qwen2.5 32k / SmolLM2 8k) but capped at 4096 to bound the KV-cache working
+      // set on the weak, memory-tight devices this floor serves.
+      'candidate/qwen2.5-0.5b-instruct-onnx': 4096,
+      'candidate/smollm2-360m-instruct-onnx': 4096,
     };
     for (const id of V1_CATALOG_IDS) {
       expect(getModel(id)!.capabilities.contextTokens, id).toBe(expected[id]);
@@ -124,7 +131,7 @@ describe('local-ai catalog (Phase C)', () => {
     }).toThrow();
     // And the array itself is a copy — mutating it doesn't break the next reader.
     snapshot.length = 0;
-    expect(getCatalog()).toHaveLength(8);
+    expect(getCatalog()).toHaveLength(10);
   });
 
   // The catalog's artifact files must have corresponding entries in

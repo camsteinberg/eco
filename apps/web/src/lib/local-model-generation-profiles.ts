@@ -357,6 +357,10 @@ const PROFILE_BY_MODEL_ID: Record<string, GenerationProfileSlice> = {
   // Fast / low-memory fallback: graduated from the eval lane into the catalog,
   // now intentionally behind Qwen3.5-2B for everyday/default selection.
   "candidate/lfm2.5-1.2b-instruct-onnx": LFM25_1_2B_GEN,
+  // The f16-less plain-int4 (onnx-q4) build of the SAME 1.2B (PR #137) — shares its
+  // q4f16 sibling's generation slice. (Was missing here, silently falling through to
+  // the lfm2 family fallback = the 350M's slice; restored to the correct 1.2B slice.)
+  "candidate/lfm2.5-1.2b-instruct-q4-onnx": LFM25_1_2B_GEN,
   // Shipping smart pick (chat #7, graduated 2026-06-11). Moved off the shared
   // QWEN_GEN slice onto the dedicated QWEN35_GEN: the winning bake-off run
   // (`eval-mq8s89xp-1xeys0c7`) surfaced a reproducible CJK token leak (s1 "甲烷"
@@ -382,6 +386,14 @@ const PROFILE_BY_MODEL_ID: Record<string, GenerationProfileSlice> = {
   // so it rides the shared generic Qwen slice (same as qwen3-0.6b) — deliberately
   // NOT QWEN35_GEN, which carries the Qwen3.5-family-only CJK-token suppression.
   "candidate/qwen2.5-0.5b-mlc": QWEN_GEN,
+  // No-GPU (WASM/CPU-EP) int8 floor models. Both are small non-reasoning instruct
+  // models, so they ride the generic small-instruct Qwen slice (moderate temperature
+  // plus a repetitionPenalty loop guard that a sub-1B model benefits from) — the same
+  // slice as the Qwen2.5-0.5B-mlc sibling. NOT QWEN35_GEN (that carries the
+  // Qwen3.5-family-only CJK-token suppression). SmolLM2 is a different family but has
+  // no vendor-specific sampling rec, so the generic slice is the honest default.
+  "candidate/qwen2.5-0.5b-instruct-onnx": QWEN_GEN,
+  "candidate/smollm2-360m-instruct-onnx": QWEN_GEN,
   "candidate/gemma-4-e4b-litert": GEMMA4_LITERT_GEN,
 };
 
