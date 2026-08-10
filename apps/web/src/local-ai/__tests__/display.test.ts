@@ -42,14 +42,14 @@ describe('getDisplayInfo', () => {
     expect(info.provenance).toBe('Alibaba · 0.6 GB');
   });
 
-  it('maps LFM2.5 1.2B to Eco Fast (Liquid) — demoted to the fast/light tier by the everyday-swap', () => {
+  it('maps LFM2.5 1.2B to Eco Fast (Liquid) — the everyday default (model-ladder read 2026-08-09)', () => {
     const info = getDisplayInfo('candidate/lfm2.5-1.2b-instruct-onnx', {
       friendlyName: 'LFM2.5 1.2B',
       vendor: 'Liquid AI',
       sizeGB: 0.76,
     });
     expect(info.friendlyName).toBe('Eco Fast (Liquid)');
-    expect(info.qualityPhrase).toBe('Quickest replies · light footprint');
+    expect(info.qualityPhrase).toBe('The everyday default · quick, clear answers');
     expect(info.provenance).toBe('Liquid AI · 0.8 GB');
   });
 
@@ -64,14 +64,14 @@ describe('getDisplayInfo', () => {
     expect(info.provenance).toBe('Liquid AI · 0.3 GB');
   });
 
-  it('maps Qwen3.5 2B to Eco (Qwen) — the everyday default after the swap', () => {
+  it('maps Qwen3.5 2B to Eco (Qwen) — an opt-in larger model (no longer the everyday default)', () => {
     const info = getDisplayInfo('candidate/qwen3.5-2b-onnx', {
       friendlyName: 'Qwen3.5 2B',
       vendor: 'Alibaba',
       sizeGB: 1.4,
     });
     expect(info.friendlyName).toBe('Eco (Qwen)');
-    expect(info.qualityPhrase).toBe('The everyday default · deeper, instruction-faithful answers');
+    expect(info.qualityPhrase).toBe('A larger model · longer, slower answers');
     expect(info.provenance).toBe('Alibaba · 1.4 GB');
   });
 

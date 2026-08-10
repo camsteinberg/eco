@@ -336,6 +336,15 @@ export async function planUpgradeOffer(options: PlanUpgradeOfferOptions): Promis
   if (!target) return null;
   if (target.id === options.currentModelId) return null;
   if (target.id === options.ecoSmartReadyModelId) return null;
+  // The upgrade card only ever carries a device UP. After the 2026-08-09 slot
+  // collapse (eco-smart == the 1.2B everyday default), a legacy device still
+  // bound to the larger Qwen3.5-2B would otherwise be offered the SMALLER 1.2B
+  // framed as "a stronger model" — a downgrade wearing an upgrade's clothes.
+  // Never offer a target that isn't a genuine step up in size. (The real up-size
+  // paths are preserved: a 350M/0.6B starter → 1.2B, and later 2B → the graduated
+  // LFM2-2.6B, both increase in size.)
+  const current = options.currentModelId ? getModel(options.currentModelId) : null;
+  if (current && target.sizeGB <= current.sizeGB) return null;
 
   const record = options.record;
   if (record) {
