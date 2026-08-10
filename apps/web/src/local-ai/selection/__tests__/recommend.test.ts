@@ -114,40 +114,47 @@ describe('recommend — WebGPU adapter without shader-f16', () => {
     webgpuShaderF16: false,
   };
 
-  it('recommends the graduated Gemma 4 (LiteRT) for the eco-fast slot', () => {
+  it('recommends the plain-int4 LFM2.5-1.2B (q4) for the eco-fast slot', () => {
+    // Device-coverage fix (2026-08-10): the f16-less eco-fast pick is now the SAME
+    // 1.2B everyday default, via its plain-int4 build (onnx-q4, needs no shader-f16)
+    // — not Gemma 4 (kept as the deeper eco-smart pick below).
     const pick = recommend('eco-fast', PROFILE_NO_SHADER_F16);
-    expect(pick.id).toBe('candidate/gemma-4-e2b-litert');
-    expect(pick.format).toBe('litertlm');
+    expect(pick.id).toBe('candidate/lfm2.5-1.2b-instruct-q4-onnx');
+    expect(pick.format).toBe('onnx-q4');
   });
 
-  it('also defaults the eco-smart slot to Gemma 4 on an f16-less adapter', () => {
-    // Both slots fall back to the f16-less default where Qwen3.5-2B (q4f16)
-    // is unassignable — mirroring how both slots collapse onto Qwen on capable
-    // hardware.
+  it('defaults the eco-smart (deeper) slot to Gemma 4 on an f16-less adapter', () => {
+    // eco-fast gets the plain-int4 1.2B (its own instant-start rung); eco-smart
+    // keeps Gemma 4 as the deeper f16-less pick, since Qwen3.5-2B / the 2.6B (q4f16)
+    // are unassignable without shader-f16.
     const pick = recommend('eco-smart', PROFILE_NO_SHADER_F16);
     expect(pick.id).toBe('candidate/gemma-4-e2b-litert');
   });
 
-  it('promotes Gemma 4 first on an f16-less adapter with LFM2.5-350M as the light fallback', () => {
+  it('promotes the 1.2B (q4) first on an f16-less adapter, with 350M + Gemma 4 as fallbacks', () => {
     const candidates = listCandidates('eco-fast', PROFILE_NO_SHADER_F16);
-    expect(candidates[0]!.model.id).toBe('candidate/gemma-4-e2b-litert');
-    // The f16-free survivors after Bonsai's retirement (2026-07-11): Gemma 4 +
-    // the 0.28GB LFM2.5-350M starter.
+    expect(candidates[0]!.model.id).toBe('candidate/lfm2.5-1.2b-instruct-q4-onnx');
+    // The f16-free survivors: the plain-int4 1.2B (default), the 0.28GB LFM2.5-350M
+    // light floor, and Gemma 4 (litertlm deeper pick).
     expect(candidates.map((c) => c.model.id)).toContain('candidate/lfm2.5-350m-onnx');
+    expect(candidates.map((c) => c.model.id)).toContain('candidate/gemma-4-e2b-litert');
   });
 
-  it('ranks the f16-less ladder Gemma 4 → LFM2.5-350M (q4)', () => {
-    // The cascade walks this ranking on setup failures (selection/cascade.ts):
-    // when the 2GB Gemma download fails, the next attempt is the 0.28GB starter.
-    // Bonsai was the former last rung; it retired 2026-07-11.
+  it('ranks the f16-less ladder 1.2B (q4) → LFM2.5-350M → Gemma 4', () => {
+    // The cascade walks this ranking on setup failures (selection/cascade.ts): the
+    // good 1.2B (q4) leads as the first download, then the tiny 350M, then the
+    // larger Gemma 4 LiteRT. Order captured empirically from the real functions.
     const ids = listCandidates('eco-fast', PROFILE_NO_SHADER_F16).map((c) => c.model.id);
-    expect(ids[0]).toBe('candidate/gemma-4-e2b-litert');
-    expect(ids[ids.length - 1]).toBe('candidate/lfm2.5-350m-onnx');
+    expect(ids).toEqual([
+      'candidate/lfm2.5-1.2b-instruct-q4-onnx',
+      'candidate/lfm2.5-350m-onnx',
+      'candidate/gemma-4-e2b-litert',
+    ]);
   });
 
-  it('surfaces Gemma 4 first in the flat catalog dialog on an f16-less adapter', () => {
+  it('surfaces the 1.2B (q4) first in the flat catalog dialog on an f16-less adapter', () => {
     const r = listCatalog(PROFILE_NO_SHADER_F16);
-    expect(r.available[0]!.model.id).toBe('candidate/gemma-4-e2b-litert');
+    expect(r.available[0]!.model.id).toBe('candidate/lfm2.5-1.2b-instruct-q4-onnx');
   });
 
   it('excludes every f16 model from the eco-fast candidate list', () => {
@@ -280,10 +287,16 @@ describe('starterModelForSlot — instant-start Stage A pick (slice 2b)', () => 
     expect(starter?.id).toBe(recommend('eco-fast', PROFILE_24GB).id);
   });
 
-  it('picks the 350m-q4 starter on an f16-less adapter (fixes the founder-class device)', () => {
+  it('picks the 1.2B (q4) starter on an f16-less adapter — no step-down to the weak 350M', () => {
+    // Device-coverage fix (2026-08-10): the f16-less first download used to step
+    // DOWN to the weak 350M because Gemma 4 (1.87GB) exceeds STARTER_MAX_SIZE_GB.
+    // The plain-int4 1.2B (0.85GB) is now the f16-less eco-fast pick AND fits the
+    // budget, so it is its own starter — converging with recommend() exactly as on
+    // capable hardware.
     const starter = starterModelForSlot('eco-fast', PROFILE_NO_SHADER_F16);
-    expect(starter?.id).toBe('candidate/lfm2.5-350m-onnx');
+    expect(starter?.id).toBe('candidate/lfm2.5-1.2b-instruct-q4-onnx');
     expect(starter?.format).toBe('onnx-q4');
+    expect(starter?.id).toBe(recommend('eco-fast', PROFILE_NO_SHADER_F16).id);
   });
 
   it('never returns a model the engine would not offer (structural reuse of listCandidates)', () => {

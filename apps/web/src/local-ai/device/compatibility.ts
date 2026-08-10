@@ -56,6 +56,17 @@ type CompatibilityRule = {
    * setup cascade never attempts a model that can't load on this device's EP.
    */
   cpuEpIncompatible?: boolean;
+  /**
+   * The inverse of the `shader-f16` gate below: this build is a plain-int4
+   * (`onnx-q4`) variant published SPECIFICALLY to serve f16-less-but-WebGPU
+   * adapters (older-Intel desktop / Adreno-Android), where its q4f16 sibling is
+   * filtered out. On an adapter that DOES expose shader-f16 the q4f16 sibling is
+   * the better pick (smaller, f16-accelerated), so this variant is declined
+   * there — otherwise both would surface as duplicate rows for the same model.
+   * Optional; absent means "no shader-f16 restriction." Only bites on a probed
+   * WebGPU adapter (`webgpuShaderF16 === true`); an unprobed profile is unaffected.
+   */
+  requireNoShaderF16?: boolean;
 };
 
 const RULES: Readonly<Record<string, CompatibilityRule>> = Object.freeze({
@@ -70,6 +81,24 @@ const RULES: Readonly<Record<string, CompatibilityRule>> = Object.freeze({
     minDeviceMemoryGB: 8,
     allowedBrowsers: ['chromium'] as const,
     warnIfMobile: true,
+  },
+  // LFM2.5-1.2B (onnx-q4) — the f16-less-but-WebGPU everyday pick. Same model as
+  // the q4f16 default above, but the plain-int4 build that needs no shader-f16,
+  // so it stays ASSIGNABLE on older-Intel-desktop / Adreno-Android adapters where
+  // every q4f16 build is filtered out — giving those devices the good 1.2B as the
+  // first impression instead of the weak 350M starter. requireNoShaderF16 scopes
+  // it to f16-LESS adapters (the q4f16 sibling wins on f16-capable ones, so the
+  // two never surface as duplicate rows). cpuEpIncompatible: its block-quantized
+  // embeddings emit GatherBlockQuantized, which runs on the WebGPU EP but not the
+  // CPU/WASM EP — so it declines on wasm-only (qwen3-0.6b stays that floor), just
+  // like the 350M.
+  'candidate/lfm2.5-1.2b-instruct-q4-onnx': {
+    requireWebgpu: false,
+    minDeviceMemoryGB: 8,
+    allowedBrowsers: ['chromium'] as const,
+    warnIfMobile: true,
+    cpuEpIncompatible: true,
+    requireNoShaderF16: true,
   },
   // 'unknown' is included: a user-agent we cannot classify gets the same
   // unvalidated-browser tier as safari/firefox rather than a categorical
@@ -260,6 +289,18 @@ export function isCompatible(model: ModelConfig, profile: DeviceProfile): Compat
     profile.webgpuSupport === 'webgpu'
     && profile.webgpuShaderF16 === false
     && formatRequiresShaderF16(model.format)
+  ) {
+    return 'unsupported';
+  }
+
+  // Inverse of the gate above: a `requireNoShaderF16` build is a plain-int4
+  // variant published for f16-less adapters, so it is declined on an adapter that
+  // DOES expose shader-f16 — there its q4f16 sibling is the better, non-duplicate
+  // pick. Explicit `=== true`: an unprobed profile (`undefined`) is unaffected.
+  if (
+    profile.webgpuSupport === 'webgpu'
+    && profile.webgpuShaderF16 === true
+    && rule.requireNoShaderF16
   ) {
     return 'unsupported';
   }
