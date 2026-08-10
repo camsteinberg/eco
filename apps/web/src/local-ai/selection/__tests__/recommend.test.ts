@@ -225,23 +225,33 @@ describe('recommend — per-slot preferred picks', () => {
 });
 
 describe('recommend — non-Chromium profiles', () => {
-  // Finding E: on a wasm-only profile the 350m (block-quant embeddings) is
-  // CPU-EP-unloadable, so qwen3-0.6b is the only WASM-viable model. Both slots
-  // resolve to it directly — no cascade through the 350m.
-  it('Firefox WASM 16 GB eco-fast returns Qwen3 (350m is CPU-EP-unloadable)', () => {
+  // Finding E + the no-GPU floor (2026-08-10): on a wasm-only profile the int4
+  // LFM2.5 builds (350m, 1.2B-q4) block-quantize embeddings and are CPU-EP-unloadable,
+  // so they never appear. The preferred floor is now the fast int8 SmolLM2-360M (both
+  // slots floor to it); Qwen2.5-0.5B and the retired qwen3-0.6b remain as alternatives.
+  it('Firefox WASM 16 GB eco-fast returns SmolLM2-360M (the fast int8 floor)', () => {
     const pick = recommend('eco-fast', PROFILE_FIREFOX);
-    expect(pick.id).toBe('local/qwen3-0.6b');
+    expect(pick.id).toBe('candidate/smollm2-360m-instruct-onnx');
   });
 
-  it('Firefox WASM 16 GB eco-smart returns Qwen3', () => {
+  it('Firefox WASM 16 GB eco-smart also floors to SmolLM2-360M', () => {
     const pick = recommend('eco-smart', PROFILE_FIREFOX);
-    expect(pick.id).toBe('local/qwen3-0.6b');
+    expect(pick.id).toBe('candidate/smollm2-360m-instruct-onnx');
   });
 
-  it('never surfaces the 350m on a wasm-only profile (no doomed cascade rung)', () => {
+  it('surfaces the CPU-EP-safe floor set, SmolLM2 first, and never the 350m', () => {
     const ids = listCandidates('eco-fast', PROFILE_FIREFOX).map((c) => c.model.id);
+    // SmolLM2 (the preferred fast floor) leads; Qwen2.5-0.5B and qwen3-0.6b follow as
+    // alternatives. The block-quant 350m (CPU-EP-unloadable) never appears.
+    expect(ids[0]).toBe('candidate/smollm2-360m-instruct-onnx');
     expect(ids).not.toContain('candidate/lfm2.5-350m-onnx');
-    expect(ids).toEqual(['local/qwen3-0.6b']);
+    expect([...ids].sort()).toEqual(
+      [
+        'candidate/qwen2.5-0.5b-instruct-onnx',
+        'candidate/smollm2-360m-instruct-onnx',
+        'local/qwen3-0.6b',
+      ].sort(),
+    );
   });
 });
 
@@ -312,15 +322,15 @@ describe('starterModelForSlot — instant-start Stage A pick (slice 2b)', () => 
     expect(starterModelForSlot('eco-fast', PROFILE_BELOW_FLOOR)).toBeNull();
   });
 
-  it('converges with recommend() when only one candidate survives', () => {
+  it('converges with recommend() on a wasm-only device (the fast int8 floor)', () => {
     // wasm-only devices where the starter IS the class-best: Stage A and the
-    // upgrade path collapse into a no-op — same model, no popup. Finding E: the
-    // 350m is CPU-EP-unloadable here, so qwen3-0.6b is the sole WASM-viable model
-    // and therefore both the starter and the recommendation.
+    // upgrade path collapse into a no-op — same model, no popup. The preferred
+    // no-GPU floor SmolLM2-360M (0.37GB ≤ STARTER_MAX_SIZE_GB) is both the starter
+    // and the recommendation, so a fresh no-GPU device's first chat runs on it.
     const candidates = listCandidates('eco-fast', PROFILE_FIREFOX);
     const starter = starterModelForSlot('eco-fast', PROFILE_FIREFOX);
     expect(candidates.map((c) => c.model.id)).toContain(starter!.id);
-    expect(starter?.id).toBe('local/qwen3-0.6b');
+    expect(starter?.id).toBe('candidate/smollm2-360m-instruct-onnx');
     expect(starter?.id).toBe(recommend('eco-fast', PROFILE_FIREFOX).id);
   });
 });
@@ -706,12 +716,12 @@ describe('recommend — WebKit-mobile MLC entry is additive only', () => {
   });
 
   it('recommendations on served profiles are unchanged by the entry (spot-check known-good picks)', () => {
-    // Qwen3.5-2B stays the everyday default on capable Chromium; qwen3-0.6b stays
-    // the desktop-Safari / Firefox floor. If the MLC entry leaked into any of
-    // these, one of these ids would change.
+    // LFM2.5-1.2B stays the everyday default on capable Chromium; SmolLM2-360M is the
+    // no-GPU (Firefox WASM) floor. If the MLC entry leaked into any of these, one of
+    // these ids would change.
     expect(recommend('eco-fast', PROFILE_24GB).id).toBe('candidate/lfm2.5-1.2b-instruct-onnx');
     expect(recommend('eco-smart', PROFILE_24GB).id).toBe('candidate/lfm2.5-1.2b-instruct-onnx');
-    expect(recommend('eco-fast', PROFILE_FIREFOX).id).toBe('local/qwen3-0.6b');
+    expect(recommend('eco-fast', PROFILE_FIREFOX).id).toBe('candidate/smollm2-360m-instruct-onnx');
   });
 
   it('IS the recommendation on iOS/WebKit-mobile with WebGPU (the positive case)', () => {

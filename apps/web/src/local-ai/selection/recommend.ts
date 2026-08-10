@@ -201,6 +201,27 @@ const PREFERRED_MODEL_ID_BY_SLOT: Readonly<Record<Slot, string>> = {
 };
 
 /**
+ * No-WebGPU (WASM/CPU-EP) floor preference. On a `wasm-only` device the f16 primary
+ * (requireWebgpu) and its f16-less int4 sibling BOTH can never load: the int4 LFM2.5
+ * builds block-quantize embeddings → emit GatherBlockQuantized, which ort-web 1.26's
+ * CPU/WASM EP does not implement (verified on-device 2026-08-10, three LFM2.5 builds).
+ * So a no-GPU device needs its own preferred pick. SmolLM2-360M (onnx-int8) is the fast
+ * floor — ~2.7× the retired qwen3-0.6b's CPU-EP throughput (8.1 vs 2.98 words/s on-device),
+ * coherent + WebGPU/WASM-consistent, and small enough (0.37GB, 3GB memory floor) to reach
+ * devices below the 4GB rung that previously got nothing. Qwen2.5-0.5B (int8, 4GB floor)
+ * stays offerable as a higher-world-knowledge alternative on 4GB+ devices; qwen3-0.6b stays
+ * in the catalog but is no longer the preferred floor. int8 has no block-quantized embeddings,
+ * so it clears the wall — but it decodes far slower on the WebGPU EP than a WebGPU-native
+ * build, so this preference is consulted ONLY on `webgpuSupport === 'wasm-only'`.
+ */
+export const PREFERRED_WASM_FLOOR_MODEL_ID = 'candidate/smollm2-360m-instruct-onnx';
+
+const PREFERRED_WASM_FLOOR_MODEL_ID_BY_SLOT: Readonly<Record<Slot, string>> = {
+  'eco-fast': PREFERRED_WASM_FLOOR_MODEL_ID,
+  'eco-smart': PREFERRED_WASM_FLOOR_MODEL_ID,
+};
+
+/**
  * The device-appropriate preferred pick for a slot: the best-tier model THIS
  * device can actually run. The primary is the slot's f16 pick (LFM2.5-1.2B for
  * both slots today); when the device can't run it (no shader-f16, low memory, …)
@@ -218,6 +239,14 @@ function preferredModelIdForSlot(slot: Slot, profile: DeviceProfile): string {
   const f16lessFallback = PREFERRED_F16LESS_MODEL_ID_BY_SLOT[slot];
   if (isCatalogModelAssignable(f16lessFallback, profile)) {
     return f16lessFallback;
+  }
+  // No-WebGPU floor: neither the f16 primary nor its f16-less int4 sibling can load
+  // on the CPU EP, so prefer the fast int8 floor (SmolLM2-360M where assignable, down
+  // to 3GB). Gated to wasm-only so int8 never wins on a (low-memory) WebGPU device,
+  // where it decodes far slower than a WebGPU-native build. Unassignable → safe no-op.
+  if (profile.webgpuSupport === 'wasm-only') {
+    const wasmFloor = PREFERRED_WASM_FLOOR_MODEL_ID_BY_SLOT[slot];
+    if (isCatalogModelAssignable(wasmFloor, profile)) return wasmFloor;
   }
   return primary;
 }

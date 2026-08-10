@@ -70,6 +70,42 @@ const CHAT_INTENT_MODEL_DATA: Record<string, ChatIntentModelSlice> = {
       },
     },
   },
+  // No-GPU (WASM/CPU-EP) int8 floor models. Small non-reasoning instruct models that
+  // ride the generic Qwen slice (QWEN_GEN via PROFILE_BY_MODEL_ID). maxNewTokens caps
+  // at 512 like the retired qwen3-0.6b floor: these run on the slow CPU EP (~3-8
+  // words/s), so a 1024/2048 budget would make a "deep"/"expand" answer take minutes
+  // on a phone. EOS ends normal replies well before the cap.
+  "candidate/qwen2.5-0.5b-instruct-onnx": {
+    id: "candidate/qwen2.5-0.5b-instruct-onnx",
+    family: "qwen3",
+    qualityTier: "fast",
+    maxNewTokens: { webgpu: 512 },
+    generationDefaults: {
+      topP: 0.95,
+      topK: 20,
+      repetitionPenalty: 1.08,
+      intentOverrides: {
+        writing: { topP: 0.92 },
+      },
+    },
+  },
+  // SmolLM2 is a different family (outside the v1 LocalModelFamily union), so it casts
+  // to ChatIntentModelSlice — same pattern as smollm3/gemma4 below. Its profile still
+  // resolves through the explicit PROFILE_BY_MODEL_ID (QWEN_GEN) row, not family fallback.
+  "candidate/smollm2-360m-instruct-onnx": {
+    id: "candidate/smollm2-360m-instruct-onnx",
+    family: "smollm2",
+    qualityTier: "fast",
+    maxNewTokens: { webgpu: 512 },
+    generationDefaults: {
+      topP: 0.95,
+      topK: 20,
+      repetitionPenalty: 1.08,
+      intentOverrides: {
+        writing: { topP: 0.92 },
+      },
+    },
+  } as unknown as ChatIntentModelSlice,
   "local/phi3-mini-4k-q4f16": {
     id: "local/phi3-mini-4k-q4f16",
     family: "phi",
@@ -84,6 +120,15 @@ const CHAT_INTENT_MODEL_DATA: Record<string, ChatIntentModelSlice> = {
     // per-intent budgets instead of being flattened to 1024; the headroom
     // clamp in useChat keeps long conversations from tripping the
     // context-safety refusal. EOS ends normal replies well before the cap.
+    maxNewTokens: { webgpu: 2048 },
+  },
+  // The f16-less plain-int4 build of the same 1.2B (PR #137) — same family, tier, and
+  // 2048 budget as its q4f16 sibling above. (Was missing here, falling through to the
+  // default budget; pinned to match the sibling so the two builds route identically.)
+  "candidate/lfm2.5-1.2b-instruct-q4-onnx": {
+    id: "candidate/lfm2.5-1.2b-instruct-q4-onnx",
+    family: "lfm2",
+    qualityTier: "fast",
     maxNewTokens: { webgpu: 2048 },
   },
   "candidate/lfm2.5-350m-onnx": {

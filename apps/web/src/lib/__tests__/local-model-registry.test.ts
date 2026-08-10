@@ -19,12 +19,14 @@ const V1_CATALOG_IDS = [
   "candidate/qwen3.5-2b-onnx",
   "candidate/gemma-4-e2b-litert",
   "candidate/qwen2.5-0.5b-mlc",
+  "candidate/qwen2.5-0.5b-instruct-onnx",
+  "candidate/smollm2-360m-instruct-onnx",
 ] as const;
 
 describe("local model registry (v1 catalog)", () => {
-  it("contains exactly the 8 v1 catalog models", () => {
+  it("contains exactly the 10 v1 catalog models", () => {
     const entries = getLocalModelRegistryEntries();
-    expect(entries).toHaveLength(8);
+    expect(entries).toHaveLength(10);
     expect(entries.map((e) => e.modelId)).toEqual(
       expect.arrayContaining([...V1_CATALOG_IDS]),
     );

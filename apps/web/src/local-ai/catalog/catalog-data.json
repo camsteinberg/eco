@@ -255,6 +255,81 @@
           "merges.txt"
         ]
       }
+    },
+    {
+      "id": "candidate/qwen2.5-0.5b-instruct-onnx",
+      "friendlyName": "Qwen2.5 0.5B",
+      "vendor": "Alibaba",
+      "sizeGB": 0.52,
+      "runtime": "transformers",
+      "format": "onnx-int8",
+      "capabilities": {
+        "intent": [
+          "snappy",
+          "balanced"
+        ],
+        "tasks": [
+          "chat",
+          "writing"
+        ],
+        "contextTokens": 4096
+      },
+      "bestFor": "The no-GPU floor: a small, non-reasoning instruction-tuned model that runs on the CPU (WASM) execution provider where GPU builds can't, for clean everyday chat and writing on older or GPU-less devices.",
+      "knownLimitation": "Runs on the CPU so replies are slow (tens of seconds), and open-world factual answers can be wrong without grounding.",
+      "evidenceTier": "predicted",
+      "systemRoleSupport": "native",
+      "artifact": {
+        "hfId": "onnx-community/Qwen2.5-0.5B-Instruct",
+        "revision": "cc5cc01a65cc3ff17bdb73a7de33d879f62599b0",
+        "files": [
+          "onnx/model_int8.onnx",
+          "config.json",
+          "generation_config.json",
+          "tokenizer.json",
+          "tokenizer_config.json",
+          "vocab.json",
+          "merges.txt",
+          "added_tokens.json",
+          "special_tokens_map.json"
+        ]
+      }
+    },
+    {
+      "id": "candidate/smollm2-360m-instruct-onnx",
+      "friendlyName": "SmolLM2 360M",
+      "vendor": "Hugging Face",
+      "sizeGB": 0.37,
+      "runtime": "transformers",
+      "format": "onnx-int8",
+      "capabilities": {
+        "intent": [
+          "snappy",
+          "balanced"
+        ],
+        "tasks": [
+          "chat",
+          "writing"
+        ],
+        "contextTokens": 4096
+      },
+      "bestFor": "The lightest no-GPU floor: a tiny DPO-tuned chat model for the weakest CPU-only devices, where a larger model is too slow to load or run.",
+      "knownLimitation": "Very small, so world knowledge is thin and open-ended answers can be shallow; CPU-only generation is slow.",
+      "evidenceTier": "predicted",
+      "systemRoleSupport": "native",
+      "artifact": {
+        "hfId": "onnx-community/SmolLM2-360M-Instruct-ONNX",
+        "revision": "fe7c7db4c8921c9e3fa1c65cfd296fb3b1b1a8f9",
+        "files": [
+          "onnx/model_int8.onnx",
+          "config.json",
+          "generation_config.json",
+          "tokenizer.json",
+          "tokenizer_config.json",
+          "vocab.json",
+          "merges.txt",
+          "special_tokens_map.json"
+        ]
+      }
     }
   ]
 }

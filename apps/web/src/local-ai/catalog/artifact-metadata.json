@@ -79,5 +79,26 @@
     "tokenizer_config.json": { "sizeBytes": 7308, "oid": "2e174d67d63d86ccc35baecd4f3014549e325387" },
     "vocab.json": { "sizeBytes": 2776833, "oid": "4783fe10ac3adce15ac8f358ef5462739852c569" },
     "merges.txt": { "sizeBytes": 1671839, "oid": "20024bfe7c83998e9aeaf98a0cd6a2ce6306c2f0" }
+  },
+  "candidate/qwen2.5-0.5b-instruct-onnx": {
+    "onnx/model_int8.onnx": { "sizeBytes": 512096557, "oid": "41834041ab1b29eff9fc592f1a29a1844133aea35832ea9fa91682be13016100" },
+    "config.json": { "sizeBytes": 678, "oid": "eea21cd6f7909a44509a193b7fcdac194766c904" },
+    "generation_config.json": { "sizeBytes": 242, "oid": "f602853d6100c43666f46c67b1c354fa15fe0b93" },
+    "tokenizer.json": { "sizeBytes": 7031673, "oid": "d24314ef7f0afd1b678c2e24c767e19f24f86b0e" },
+    "tokenizer_config.json": { "sizeBytes": 7306, "oid": "8adf747ccaf85ff9587338cee6ed6be027b98210" },
+    "vocab.json": { "sizeBytes": 2776833, "oid": "4783fe10ac3adce15ac8f358ef5462739852c569" },
+    "merges.txt": { "sizeBytes": 1671853, "oid": "31349551d90c7606f325fe0f11bbb8bd5fa0d7c7" },
+    "added_tokens.json": { "sizeBytes": 605, "oid": "482ced4679301bf287ebb310bdd1790eb4514232" },
+    "special_tokens_map.json": { "sizeBytes": 613, "oid": "ac23c0aaa2434523c494330aeb79c58395378103" }
+  },
+  "candidate/smollm2-360m-instruct-onnx": {
+    "onnx/model_int8.onnx": { "sizeBytes": 363115149, "oid": "5ee6c8dc6791050d8779687a16c8167643a234e00ea41e06a92e05f88003dbb3" },
+    "config.json": { "sizeBytes": 961, "oid": "0190cf076f865de8987b2fd214ecb9d55171195b" },
+    "generation_config.json": { "sizeBytes": 132, "oid": "96ecabaa5f96198c92ddf06f504c7cbc372f46dc" },
+    "tokenizer.json": { "sizeBytes": 3522656, "oid": "a7d434dcaa7ae62910bed536fb292282905c9b44" },
+    "tokenizer_config.json": { "sizeBytes": 3794, "oid": "30da3ba280f015b5456e5a80c60b45f5acc14669" },
+    "vocab.json": { "sizeBytes": 800662, "oid": "0ad5ecc2035b7031b88afb544ee95e2d49baa484" },
+    "merges.txt": { "sizeBytes": 466391, "oid": "69503b13f727ba3812b6803e97442a6de05ef5eb" },
+    "special_tokens_map.json": { "sizeBytes": 655, "oid": "44719d2e365acac0637fd25a3acf46494ca45940" }
   }
 }

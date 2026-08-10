@@ -78,9 +78,9 @@ describe("ModelSelector (composer)", () => {
 
     const listbox = getListbox();
     const options = within(listbox).getAllByRole("option");
-    // Exactly the 8 catalog models — one option per catalog entry.
+    // Exactly the 10 catalog models — one option per catalog entry.
     expect(options).toHaveLength(getCatalog().length);
-    expect(options).toHaveLength(8);
+    expect(options).toHaveLength(10);
 
     // Branded friendly names are surfaced; no "Eco Network" / network copy.
     expect(within(listbox).getByText("Eco (Qwen)")).toBeInTheDocument();
