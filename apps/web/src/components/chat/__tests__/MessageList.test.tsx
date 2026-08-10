@@ -32,14 +32,20 @@ vi.mock("../MessageBubble", () => ({
     onNavigatePrev,
     onNavigateNext,
     siblingInfo,
+    isFirstGrounded,
   }: {
     content: string;
     onNavigatePrev?: () => void;
     onNavigateNext?: () => void;
     siblingInfo?: { currentIndex: number; total: number };
+    isFirstGrounded?: boolean;
   }) => (
     <div>
       <span>{content}</span>
+      {/* Surface the once-per-chat grounding-notice anchor decision (computed in
+          MessageList) so its high-confidence gating is directly testable without
+          the real notice/motion. Only renders on the anchored message. */}
+      {isFirstGrounded ? <span data-testid="grounding-anchor">anchor</span> : null}
       {siblingInfo ? (
         <div>
           <button type="button" onClick={onNavigatePrev}>
@@ -272,5 +278,96 @@ describe("MessageList branch navigation", () => {
     );
 
     expect(log.scrollTop).toBe(600);
+  });
+});
+
+describe("MessageList grounding-notice anchor (provenance honesty)", () => {
+  beforeEach(() => {
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      callback(0);
+      return 1;
+    });
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /**
+   * A grounded assistant reply carrying a single Wikipedia citation at the given
+   * confidence tier — or, when `tier` is omitted, a legacy row (source but no tier)
+   * to prove the strict `=== "high"` gate treats "unknown" as non-high.
+   */
+  function groundedAssistant(
+    id: string,
+    content: string,
+    tier?: "high" | "low" | "followup" | "fulltext",
+  ): ChatMessage {
+    return {
+      id,
+      role: "assistant",
+      content,
+      createdAt: 2,
+      parentId: "user-1",
+      citations: [
+        {
+          id: 1,
+          title: "Some Title",
+          url: "https://en.wikipedia.org/wiki/Some_Title",
+          source: "Wikipedia",
+          ...(tier ? { groundingConfidence: tier } : {}),
+        },
+      ],
+    };
+  }
+
+  /** The message-id of the row that received `isFirstGrounded` (the notice anchor), or null. */
+  function anchoredMessageId(): string | null {
+    const marker = screen.queryByTestId("grounding-anchor");
+    if (marker === null) return null;
+    return marker.closest("[data-message-id]")?.getAttribute("data-message-id") ?? null;
+  }
+
+  it("anchors the notice on a HIGH-confidence grounded reply", () => {
+    const messages: ChatMessage[] = [
+      chatMessage("user-1", "user", "what is france"),
+      groundedAssistant("assistant-1", "France is a country.", "high"),
+    ];
+    render(<MessageList messages={messages} isStreaming={false} />);
+    expect(anchoredMessageId()).toBe("assistant-1");
+  });
+
+  it.each(["fulltext", "low", "followup"] as const)(
+    "does NOT anchor the notice on a %s (fuzzy) grounding — it may be off-target",
+    (tier) => {
+      const messages: ChatMessage[] = [
+        chatMessage("user-1", "user", "how do i get a red wine stain out"),
+        groundedAssistant("assistant-1", "Blot the stain…", tier),
+      ];
+      render(<MessageList messages={messages} isStreaming={false} />);
+      expect(screen.queryByTestId("grounding-anchor")).not.toBeInTheDocument();
+    },
+  );
+
+  it("skips a fuzzy first grounding and anchors the first HIGH one instead", () => {
+    const messages: ChatMessage[] = [
+      chatMessage("user-1", "user", "how do i get a red wine stain out"),
+      groundedAssistant("assistant-1", "Blot the stain…", "fulltext"),
+      chatMessage("user-2", "user", "what is france"),
+      groundedAssistant("assistant-2", "France is a country.", "high"),
+    ];
+    render(<MessageList messages={messages} isStreaming={false} />);
+    // The fuzzy earlier grounding never anchors; the later high-confidence one does.
+    expect(anchoredMessageId()).toBe("assistant-2");
+  });
+
+  it("does NOT anchor a legacy grounded citation that carries no tier", () => {
+    const messages: ChatMessage[] = [
+      chatMessage("user-1", "user", "what is france"),
+      groundedAssistant("assistant-1", "France is a country.", undefined),
+    ];
+    render(<MessageList messages={messages} isStreaming={false} />);
+    expect(screen.queryByTestId("grounding-anchor")).not.toBeInTheDocument();
   });
 });

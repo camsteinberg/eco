@@ -692,6 +692,9 @@ describe("wikipediaGroundingTool.execute — found WITH population", () => {
       source: "Wikipedia",
       title: "Paris",
       url: "https://en.wikipedia.org/wiki/Paris",
+      // Omitted confidence on a clean entity hit defaults to "high" — the only tier
+      // that earns the once-per-chat "isn't guesswork" disclosure.
+      groundingConfidence: "high",
       asOf: "2023",
     });
     expect(result.display).toBe("Source: Wikipedia — Paris");
@@ -822,6 +825,7 @@ describe("wikipediaGroundingTool.execute — found WITHOUT a property", () => {
       source: "Wikipedia",
       title: "Marie Curie",
       url: "https://en.wikipedia.org/wiki/Marie_Curie",
+      groundingConfidence: "high",
     });
   });
 
@@ -909,6 +913,9 @@ describe("wikipediaGroundingTool.execute — end-to-end via match", () => {
     const result = await execute(args!);
     expect(result.forModel).toContain("Mark Elliot Zuckerberg is an American businessman.");
     expect(result.citation?.title).toBe("Mark Zuckerberg");
+    // A lowercase-recovered hit is "low" confidence — it still cites, but the tier
+    // rides onto the citation so the host withholds the "isn't guesswork" notice.
+    expect(result.citation?.groundingConfidence).toBe("low");
   });
 
   it("HEDGES (no longer silently abstains) on a low-confidence uncovered hit (T3)", async () => {
@@ -1080,6 +1087,8 @@ describe("wikipediaGroundingTool.execute — follow-up hedge semantics", () => {
       source: "Wikipedia",
       title: "Eiffel Tower",
       url: "https://en.wikipedia.org/wiki/Eiffel_Tower",
+      // A carried-subject follow-up is "followup" confidence, not "high" — no notice.
+      groundingConfidence: "followup",
     });
   });
 
@@ -1114,6 +1123,7 @@ describe("wikipediaGroundingTool.execute — follow-up hedge semantics", () => {
       source: "Wikipedia",
       title: "Kyoto",
       url: "https://en.wikipedia.org/wiki/Kyoto",
+      groundingConfidence: "followup",
       asOf: "2020",
     });
   });
@@ -1597,6 +1607,9 @@ describe("wikipediaGroundingTool.execute — fulltext: found via the inverted ga
       source: "Wikipedia",
       title: "Apple",
       url: "https://en.wikipedia.org/wiki/Apple",
+      // The zero-entity keyword path is "fulltext" confidence — the tier behind the
+      // "red wine" → /wiki/Red own-goal. It cites but never anchors the notice.
+      groundingConfidence: "fulltext",
     });
   });
 
@@ -1987,6 +2000,7 @@ describe("wikipediaGroundingTool.execute — verification signal", () => {
       source: "Wikipedia",
       title: "Paris",
       url: "https://en.wikipedia.org/wiki/Paris",
+      groundingConfidence: "high",
     });
   });
 

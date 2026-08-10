@@ -63,10 +63,12 @@ type MessageBubbleProps = {
   onAssistantAction?: (action: AssistantReplyControl) => void;
   isLatestAssistant?: boolean;
   /**
-   * True only for the FIRST grounded (sourced-citation) assistant message in the
-   * conversation. Gates the once-per-chat grounding notice — anchoring it to the
-   * first grounded reply instead of the latest stops it reappearing under every new
-   * grounded answer.
+   * True only for the FIRST HIGH-CONFIDENCE grounded assistant message in the
+   * conversation (computed in `MessageList`). Gates the once-per-chat grounding
+   * notice — anchoring it to the first grounded reply instead of the latest stops it
+   * reappearing under every new grounded answer, and requiring high confidence keeps
+   * the "isn't guesswork" disclosure off fuzzy (fulltext/low/followup) groundings
+   * whose cited article may be off-target.
    */
   isFirstGrounded?: boolean;
   /** Dev-gated (lib/dev-capture.ts): flag this reply into the eval capture set. */
@@ -186,11 +188,13 @@ export function MessageBubble({
   const showUncertaintyNote =
     !isStreaming && status !== "error" && !!verification && !hasGroundingCitation;
 
-  // The grounding disclosure shows ONCE PER CHAT: under the FIRST grounded answer in
-  // the conversation only (finished + grounded) — NOT the latest, otherwise it
+  // The grounding disclosure shows ONCE PER CHAT: under the FIRST high-confidence
+  // grounded answer only (finished + grounded) — NOT the latest, otherwise it
   // reappears under every new grounded reply and the user has to dismiss it each
-  // time (the bug Cam hit). Still gated by the global `groundingNoticeSeen` opt-out:
-  // Dismiss/Manage flips that flag → it never returns in any chat.
+  // time (the bug Cam hit). The "first high-confidence grounded" decision lives in
+  // `MessageList` (isFirstGrounded), so a fuzzy grounding never anchors the notice —
+  // it keeps its chip but not the "isn't guesswork" claim. Still gated by the global
+  // `groundingNoticeSeen` opt-out: Dismiss/Manage flips that flag → it never returns.
   const showGroundingNotice =
     !isStreaming &&
     hasGroundingCitation &&

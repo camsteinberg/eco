@@ -487,6 +487,10 @@ describe("useChat — grounding pipeline (citation presentation)", () => {
         title: "Eiffel Tower",
         url: "https://en.wikipedia.org/wiki/Eiffel_Tower",
         source: "Wikipedia",
+        // "Tell me about the Eiffel Tower" is a clean Title-Case entity match →
+        // "high" confidence, mapped through onto the message citation so the
+        // once-per-chat grounding notice can gate on it (provenance honesty).
+        groundingConfidence: "high",
       },
     ]);
   });

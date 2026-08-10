@@ -17,4 +17,13 @@ export type Citation = {
   source?: string
   /** The year a grounded fact was recorded (e.g. "2023"), when known. */
   asOf?: string
+  /**
+   * The grounding tool's confidence tier for this hit, mirrored from
+   * {@link import("./tools/registry").EcoCitation.groundingConfidence} so it
+   * survives persistence. Only `"high"` (clean entity + coverage-gate pass) earns
+   * the once-per-chat "isn't guesswork" disclosure; the fuzzier tiers keep their
+   * chip but suppress that claim. Absent on legacy rows / research citations —
+   * treated as non-`"high"`.
+   */
+  groundingConfidence?: "high" | "low" | "followup" | "fulltext"
 }

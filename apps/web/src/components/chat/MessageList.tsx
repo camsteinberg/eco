@@ -230,13 +230,24 @@ export function MessageList({
     }
     return null;
   })();
-  // The FIRST assistant message in the conversation carrying a grounded (sourced)
-  // citation — the ONLY message the once-per-chat grounding notice attaches to, so
-  // it no longer reappears under every subsequent grounded reply. Mirrors the
-  // lastAssistantId inline scan; same `!!c.source` test the chip/notice key on.
+  // The FIRST assistant message in the conversation carrying a HIGH-CONFIDENCE
+  // grounded citation — the ONLY message the once-per-chat grounding notice attaches
+  // to. Two reasons for the high-confidence requirement, not just `!!c.source`:
+  //  1. Once-per-chat: anchoring to the first (not the latest) grounded reply stops
+  //     the notice reappearing under every subsequent grounded answer.
+  //  2. Provenance honesty: the notice claims "Eco looked this up… so the answer
+  //     isn't guesswork". That is only true for a clean-entity, coverage-gate-passed
+  //     hit ("high"). The fuzzy tiers (fulltext/low/followup) can resolve an
+  //     off-target article ("red wine" → /wiki/Red), so they keep their citation
+  //     chip but must never anchor the disclosure. A chat whose only groundings are
+  //     fuzzy correctly shows no notice; the first later "high" hit anchors it.
   const firstGroundedAssistantId = (() => {
     for (const m of messages) {
-      if (m.role === "assistant" && m.citations?.some((c) => !!c.source)) return m.id;
+      if (
+        m.role === "assistant" &&
+        m.citations?.some((c) => !!c.source && c.groundingConfidence === "high")
+      )
+        return m.id;
     }
     return null;
   })();
