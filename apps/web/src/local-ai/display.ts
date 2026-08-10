@@ -34,7 +34,7 @@ const DISPLAY_MAP: Record<string, Omit<DisplayInfo, 'provenance'> & { provider: 
   },
   'candidate/lfm2.5-1.2b-instruct-onnx': {
     friendlyName: 'Eco Fast (Liquid)',
-    qualityPhrase: 'Quickest replies · light footprint',
+    qualityPhrase: 'The everyday default · quick, clear answers',
     provider: 'Liquid AI',
   },
   'candidate/lfm2.5-350m-onnx': {
@@ -44,7 +44,7 @@ const DISPLAY_MAP: Record<string, Omit<DisplayInfo, 'provenance'> & { provider: 
   },
   'candidate/qwen3.5-2b-onnx': {
     friendlyName: 'Eco (Qwen)',
-    qualityPhrase: 'The everyday default · deeper, instruction-faithful answers',
+    qualityPhrase: 'A larger model · longer, slower answers',
     provider: 'Alibaba',
   },
   'local/qwen3-0.6b': {

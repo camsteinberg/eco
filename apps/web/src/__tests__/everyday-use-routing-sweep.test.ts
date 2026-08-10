@@ -587,46 +587,46 @@ const KNOWN_GAPS: ReadonlyMap<GapKey, { mechanism: GapMechanism; intent: ChatInt
 const ROUTING_TODAY: Readonly<
   Record<string, { intent: ChatIntent; maxTokens: number; temperature: number; hint: string }>
 > = {
-  "work-email-tone-fix": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "work-followup-shorter": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "rewrite-03": { intent: "writing", maxTokens: 1536, temperature: 0.48, hint: "Match the requested format and tone; avoid filler." },
-  "sw-15": { intent: "writing", maxTokens: 1536, temperature: 0.48, hint: "Match the requested format and tone; avoid filler." },
-  "school-essay-not-ai": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "work-sick-text": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "" },
-  "draft-01": { intent: "writing", maxTokens: 1536, temperature: 0.48, hint: "Match the requested format and tone; avoid filler." },
-  "admin-gym-cancellation": { intent: "writing", maxTokens: 1536, temperature: 0.48, hint: "Match the requested format and tone; avoid filler." },
-  "family-eulogy": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "ft-06": { intent: "writing", maxTokens: 1536, temperature: 0.48, hint: "Match the requested format and tone; avoid filler." },
-  "health-blood-results": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "health-hospital-letter": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "school-letter-esl-parent": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "legal-rent-increase": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "summarise-01": { intent: "quick", maxTokens: 1024, temperature: 0.32, hint: "" },
-  "explain-01": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "school-fractions": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "factual-01": { intent: "quick", maxTokens: 1024, temperature: 0.32, hint: "" },
-  "factual-02": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "factual-04": { intent: "quick", maxTokens: 1024, temperature: 0.32, hint: "" },
-  "decide-01": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "money-insurance-jump": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "ft-14": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "money-budget-house": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "excel-sumif": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "sw-13": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "food-fridge-dinner": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "travel-lisbon-kid": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "ideas-01": { intent: "deep", maxTokens: 2048, temperature: 0.6, hint: "Use clear sections; include concrete recommendations and tradeoffs." },
-  "family-text-thread": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "company-01": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "company-02": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "translate-01": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "translate-02": { intent: "quick", maxTokens: 1024, temperature: 0.32, hint: "" },
-  "ft-01": { intent: "quick", maxTokens: 1024, temperature: 0.32, hint: "" },
-  "ft-04": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "ft-08": { intent: "quick", maxTokens: 1024, temperature: 0.32, hint: "" },
-  "ft-13": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "sw-12": { intent: "quick", maxTokens: 1024, temperature: 0.32, hint: "" },
-  "ft-15": { intent: "quick", maxTokens: 1024, temperature: 0.32, hint: "" },
+  "work-email-tone-fix": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
+  "work-followup-shorter": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
+  "rewrite-03": { intent: "writing", maxTokens: 1536, temperature: 0.4, hint: "Match the requested format and tone; avoid filler." },
+  "sw-15": { intent: "writing", maxTokens: 1536, temperature: 0.4, hint: "Match the requested format and tone; avoid filler." },
+  "school-essay-not-ai": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
+  "work-sick-text": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "" },
+  "draft-01": { intent: "writing", maxTokens: 1536, temperature: 0.4, hint: "Match the requested format and tone; avoid filler." },
+  "admin-gym-cancellation": { intent: "writing", maxTokens: 1536, temperature: 0.4, hint: "Match the requested format and tone; avoid filler." },
+  "family-eulogy": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
+  "ft-06": { intent: "writing", maxTokens: 1536, temperature: 0.4, hint: "Match the requested format and tone; avoid filler." },
+  "health-blood-results": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
+  "health-hospital-letter": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
+  "school-letter-esl-parent": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
+  "legal-rent-increase": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
+  "summarise-01": { intent: "quick", maxTokens: 1024, temperature: 0.2, hint: "" },
+  "explain-01": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
+  "school-fractions": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
+  "factual-01": { intent: "quick", maxTokens: 1024, temperature: 0.2, hint: "" },
+  "factual-02": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
+  "factual-04": { intent: "quick", maxTokens: 1024, temperature: 0.2, hint: "" },
+  "decide-01": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
+  "money-insurance-jump": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
+  "ft-14": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
+  "money-budget-house": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
+  "excel-sumif": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
+  "sw-13": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
+  "food-fridge-dinner": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
+  "travel-lisbon-kid": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
+  "ideas-01": { intent: "deep", maxTokens: 2048, temperature: 0.3, hint: "Use clear sections; include concrete recommendations and tradeoffs." },
+  "family-text-thread": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
+  "company-01": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
+  "company-02": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
+  "translate-01": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
+  "translate-02": { intent: "quick", maxTokens: 1024, temperature: 0.2, hint: "" },
+  "ft-01": { intent: "quick", maxTokens: 1024, temperature: 0.2, hint: "" },
+  "ft-04": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
+  "ft-08": { intent: "quick", maxTokens: 1024, temperature: 0.2, hint: "" },
+  "ft-13": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
+  "sw-12": { intent: "quick", maxTokens: 1024, temperature: 0.2, hint: "" },
+  "ft-15": { intent: "quick", maxTokens: 1024, temperature: 0.2, hint: "" },
   // ── WAVE 2 — the proofread-class jobs ─────────────────────────────────────
   // Eight of nine USED to land on `deep` at 2048 tokens because of how long the
   // thing they PASTED is, on turns whose whole instruction was "fix my mistakes
@@ -647,15 +647,15 @@ const ROUTING_TODAY: Readonly<
   //
   // `marketplace-ad` still carries no hint at all — she typed "keep it short" —
   // but now takes the 1536 writing ceiling rather than 2048.
-  "proofread-teacher-note-esl": { intent: "writing", maxTokens: 1536, temperature: 0.48, hint: "Match the requested format and tone; avoid filler." },
-  "proofread-birthday-caption": { intent: "writing", maxTokens: 1536, temperature: 0.48, hint: "Match the requested format and tone; avoid filler." },
-  "proofread-memorial-tribute": { intent: "explain", maxTokens: 1536, temperature: 0.42, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "proofread-grandfather-letter": { intent: "writing", maxTokens: 1536, temperature: 0.48, hint: "Match the requested format and tone; avoid filler." },
-  "proofread-vet-application": { intent: "writing", maxTokens: 1536, temperature: 0.48, hint: "Match the requested format and tone; avoid filler." },
-  "proofread-crew-email": { intent: "writing", maxTokens: 1536, temperature: 0.48, hint: "Match the requested format and tone; avoid filler." },
-  "proofread-marketplace-ad": { intent: "writing", maxTokens: 1536, temperature: 0.48, hint: "" },
-  "proofread-review-reply": { intent: "writing", maxTokens: 1536, temperature: 0.48, hint: "Match the requested format and tone; avoid filler." },
-  "proofread-school-post": { intent: "writing", maxTokens: 1536, temperature: 0.48, hint: "Match the requested format and tone; avoid filler." },
+  "proofread-teacher-note-esl": { intent: "writing", maxTokens: 1536, temperature: 0.4, hint: "Match the requested format and tone; avoid filler." },
+  "proofread-birthday-caption": { intent: "writing", maxTokens: 1536, temperature: 0.4, hint: "Match the requested format and tone; avoid filler." },
+  "proofread-memorial-tribute": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
+  "proofread-grandfather-letter": { intent: "writing", maxTokens: 1536, temperature: 0.4, hint: "Match the requested format and tone; avoid filler." },
+  "proofread-vet-application": { intent: "writing", maxTokens: 1536, temperature: 0.4, hint: "Match the requested format and tone; avoid filler." },
+  "proofread-crew-email": { intent: "writing", maxTokens: 1536, temperature: 0.4, hint: "Match the requested format and tone; avoid filler." },
+  "proofread-marketplace-ad": { intent: "writing", maxTokens: 1536, temperature: 0.4, hint: "" },
+  "proofread-review-reply": { intent: "writing", maxTokens: 1536, temperature: 0.4, hint: "Match the requested format and tone; avoid filler." },
+  "proofread-school-post": { intent: "writing", maxTokens: 1536, temperature: 0.4, hint: "Match the requested format and tone; avoid filler." },
 };
 
 /**
@@ -664,9 +664,11 @@ const ROUTING_TODAY: Readonly<
  *
  * Two things visible here that no per-item view shows:
  *
- *   - `candidate/lfm2.5-350m-onnx` — the model every first-time user's first
- *     answer comes from — carries an n-gram ban on ALL SEVEN intents and caps
- *     every one of them at 384 tokens.
+ *   - `candidate/lfm2.5-350m-onnx` — the instant-start floor on constrained
+ *     devices (since the 2026-08-09 model-ladder fix a capable device's first
+ *     answer comes from the 1.2B default, not this; the 350M is the starter only
+ *     where the class-best is too big to download fast, e.g. f16-less adapters) —
+ *     carries an n-gram ban on ALL SEVEN intents and caps every one at 384 tokens.
  *   - `candidate/qwen2.5-0.5b-mlc` is the one row whose temperatures are the
  *     bare per-intent defaults rather than a model profile, because it is absent
  *     from chat-intent's model registry. Its runtime forwards only max_tokens

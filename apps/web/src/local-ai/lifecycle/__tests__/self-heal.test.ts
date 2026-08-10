@@ -597,21 +597,29 @@ describe('runSelfHeal — former-default slot migration', () => {
     expect(storage.getItem('eco-local-ai-retired-notice-v1')).not.toBeNull();
   });
 
-  it('rebinds an eco-fast slot stuck on the superseded LFM2.5 default to Qwen3.5 on capable devices', async () => {
+  it('leaves an eco-fast slot on the current LFM2.5 default untouched, even when the resolver differs', async () => {
+    // Model-ladder read (2026-08-09): the 1.2B is the CURRENT everyday default, so
+    // FORMER_EVERYDAY_DEFAULT_IDS no longer lists it and the migration is dormant
+    // (the list is empty). Even when the resolver would pick a different model
+    // (here QWEN), the 1.2B is not a former default, so nothing migrates — and the
+    // outgoing 2B is deliberately not a former default either (no forced downgrade
+    // of a working bigger model). This replaces the old assertion that the 1.2B
+    // was migrated UP to the 2B, which the swap-reversal made obsolete.
     setSlot('eco-fast', LFM);
     setSlotStatus('eco-fast', 'ready');
 
     const report = await runSelfHeal({ now: () => nowMs, storage, resolveEcoFastDefault: () => QWEN });
 
-    expect(report.staleDefaultSlotMigrated).toBe(true);
-    expect(getSlot('eco-fast').modelId).toBe(QWEN);
-    expect(getSlot('eco-fast').status).toBe('preparing');
+    expect(report.staleDefaultSlotMigrated).toBe(false);
+    expect(getSlot('eco-fast').modelId).toBe(LFM);
+    expect(getSlot('eco-fast').status).toBe('ready');
   });
 
-  it('leaves LFM2.5 bound where it is STILL the device-appropriate default (low-memory no-op)', async () => {
-    // On a device where Qwen3.5 isn't assignable, recommend('eco-fast') returns
-    // LFM2.5 itself → target === bound → the migration no-ops. This is why LFM2.5
-    // can sit in FORMER_EVERYDAY_DEFAULT_IDS without stranding low-end devices.
+  it('leaves LFM2.5 bound where it is the device-appropriate default (low-memory no-op)', async () => {
+    // On a low-memory device recommend('eco-fast') returns LFM2.5 — which is also
+    // the current everyday default everywhere it's assignable. It is not in the
+    // (now-empty) FORMER_EVERYDAY_DEFAULT_IDS, so the migration block is skipped
+    // and the binding is left exactly as it is.
     setSlot('eco-fast', LFM);
     setSlotStatus('eco-fast', 'ready');
 

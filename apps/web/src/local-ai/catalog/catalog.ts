@@ -11,8 +11,10 @@
  *   4. candidate/lfm2.5-350m-onnx  — LFM2.5      (starter; f16-less-WebGPU light rung —
  *                                    NOT the WASM floor: its block-quant embeddings need
  *                                    GatherBlockQuantized, absent on ort-web's CPU EP)
- *   5. candidate/qwen3.5-2b-onnx   — Qwen3.5 2B  (capable-laptop, proven; SMART PICK,
- *                                    graduated 2026-06-11 from the chat #7 bake-off)
+ *   5. candidate/qwen3.5-2b-onnx   — Qwen3.5 2B  (capable-laptop, proven; opt-in larger
+ *                                    model via Settings. Was the everyday default + smart
+ *                                    pick until the 2026-08-09 model-ladder read moved both
+ *                                    slots to the faster, as-accurate 1.2B)
  *   6. candidate/gemma-4-e2b-litert — Gemma 4    (LiteRT; f16-less-WebGPU default, proven)
  *   7. candidate/qwen2.5-0.5b-mlc  — Qwen2.5 0.5B (WebLLM/MLC; the WebKit-mobile pick,
  *                                    real-iPhone validated; iOS-only via requireWebKitMobile)

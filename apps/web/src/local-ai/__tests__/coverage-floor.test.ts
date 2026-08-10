@@ -22,7 +22,7 @@
  * benchmark, never let a user land on a dialog with zero options.
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { listCatalog } from '../selection/recommend';
 import type { DeviceProfile } from '../types';
 
@@ -129,13 +129,23 @@ describe('coverage floor — every above-floor profile lands on at least one AI'
   }
 
   it('at least one profile surfaces a benchmark-sourced entry', () => {
-    // The preferred default is promoted to position 0 regardless of its
-    // confidence source, so benchmark coverage is asserted across the whole
-    // surfaced list rather than at index 0.
-    const hits = PROFILES.filter(({ profile }) => {
-      const r = listCatalog(profile);
-      return r.available.some((entry) => entry.confidence === 'benchmark');
-    });
-    expect(hits.length).toBeGreaterThan(0);
+    // Pin the clock inside phi3's benchmark-seed freshness window (seed dated
+    // 2026-05-13, 45-day TTL). Its sibling in recommend.test.ts already does this;
+    // WITHOUT it this assertion rots the moment the seed ages out — it was in fact
+    // failing on the real 2026-08-09 clock, unseen because CI is billing-locked.
+    // The preferred default is promoted to position 0 regardless of its confidence
+    // source, so benchmark coverage is asserted across the whole surfaced list
+    // rather than at index 0.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-19T00:00:00.000Z'));
+    try {
+      const hits = PROFILES.filter(({ profile }) => {
+        const r = listCatalog(profile);
+        return r.available.some((entry) => entry.confidence === 'benchmark');
+      });
+      expect(hits.length).toBeGreaterThan(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

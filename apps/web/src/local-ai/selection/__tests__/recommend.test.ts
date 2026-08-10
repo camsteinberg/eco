@@ -185,34 +185,35 @@ describe('recommend — per-slot preference', () => {
 });
 
 describe('recommend — per-slot preferred picks', () => {
-  it('eco-fast resolves to Qwen3.5-2B on compatible devices (everyday-swap default)', () => {
-    // Everyday-swap (2026-06-13): Qwen3.5-2B is the everyday default on devices
-    // that can run it (8 GB floor). "Ceiling on default model size" still holds —
-    // stronger hardware doesn't auto-upgrade to a bigger model; it loads the
-    // default faster. LFM2.5-1.2B demotes to the fast/light tier.
+  it('eco-fast resolves to LFM2.5-1.2B on compatible devices (model-ladder default)', () => {
+    // Model-ladder read (2026-08-09, reverses the 2026-06-13 everyday-swap):
+    // LFM2.5-1.2B-instruct is the everyday default on devices that can run it
+    // (8 GB floor) — the fast, accurate workhorse. Stronger hardware doesn't
+    // auto-upgrade to a bigger model; the 2B is opt-in via "Choose your own".
     const fast8 = recommend('eco-fast', PROFILE_8GB, 'snappy');
     const fast24 = recommend('eco-fast', PROFILE_24GB, 'snappy');
-    expect(fast8.id).toBe('candidate/qwen3.5-2b-onnx');
-    expect(fast24.id).toBe('candidate/qwen3.5-2b-onnx');
+    expect(fast8.id).toBe('candidate/lfm2.5-1.2b-instruct-onnx');
+    expect(fast24.id).toBe('candidate/lfm2.5-1.2b-instruct-onnx');
   });
 
-  it('eco-smart resolves to Qwen3.5-2B on compatible devices (coincides with the everyday default)', () => {
-    // Post-swap the eco-smart pick coincides with the everyday default: the
-    // everyday default IS the smart-tier model. The slot stays distinct in code
-    // for when a larger smart model (Qwen3.5-4B) graduates.
+  it('eco-smart resolves to LFM2.5-1.2B on compatible devices (collapsed onto the everyday default)', () => {
+    // The smart slot is collapsed onto the everyday default (1.2B) so the
+    // consent-driven upgrade card never auto-pushes a deeper model onto a fresh
+    // device. The slot stays distinct in code for when the measured deeper tier
+    // (LFM2-2.6B) graduates and PREFERRED_SMART_MODEL_ID moves.
     const smart8 = recommend('eco-smart', PROFILE_8GB, 'quality');
     const smart24 = recommend('eco-smart', PROFILE_24GB, 'quality');
-    expect(smart8.id).toBe('candidate/qwen3.5-2b-onnx');
-    expect(smart24.id).toBe('candidate/qwen3.5-2b-onnx');
+    expect(smart8.id).toBe('candidate/lfm2.5-1.2b-instruct-onnx');
+    expect(smart24.id).toBe('candidate/lfm2.5-1.2b-instruct-onnx');
   });
 
-  it('both slots resolve to the SAME model on capable hardware post-swap (fast === smart === Qwen3.5)', () => {
-    // The everyday-swap collapsed the two slots onto Qwen3.5-2B. They re-split
-    // when a larger smart model graduates and PREFERRED_SMART_MODEL_ID moves.
+  it('both slots resolve to the SAME model on capable hardware (fast === smart === LFM2.5-1.2B)', () => {
+    // Both slots collapse onto LFM2.5-1.2B. They re-split when the deeper tier
+    // graduates and PREFERRED_SMART_MODEL_ID moves off the everyday default.
     const fast = recommend('eco-fast', PROFILE_24GB);
     const smart = recommend('eco-smart', PROFILE_24GB);
-    expect(fast.id).toBe('candidate/qwen3.5-2b-onnx');
-    expect(smart.id).toBe('candidate/qwen3.5-2b-onnx');
+    expect(fast.id).toBe('candidate/lfm2.5-1.2b-instruct-onnx');
+    expect(smart.id).toBe('candidate/lfm2.5-1.2b-instruct-onnx');
   });
 });
 
@@ -266,13 +267,17 @@ describe('starterModelForSlot — instant-start Stage A pick (slice 2b)', () => 
     webgpuShaderF16: false,
   };
 
-  it('picks the smallest offerable model on capable hardware, not the class-best', () => {
-    // Stage A optimizes for the fastest trustworthy chat, not the best model:
-    // a 0.28 GB starter gets a fresh device talking in ~a minute, and the
-    // consent-driven upgrade carries it to the class-best afterwards.
+  it('picks the class-best 1.2B on capable hardware (within the fast-download budget)', () => {
+    // Model-ladder fix (2026-08-09): Stage A no longer serves the SMALLEST model.
+    // The old smallest-wins rule handed a capable device LFM2.5-350M (0.28 GB) —
+    // an extraction model wrong-type for chat that also fails to load on WebGPU
+    // (GatherBlockQuantized). Now the class-best pick is the starter when it fits
+    // STARTER_MAX_SIZE_GB, so the 0.76 GB everyday default is a fast-enough first
+    // download AND a good first impression — and Stage A converges with the
+    // class-best (no jarring mid-session swap).
     const starter = starterModelForSlot('eco-fast', PROFILE_24GB);
-    expect(starter?.id).toBe('candidate/lfm2.5-350m-onnx');
-    expect(starter?.id).not.toBe(recommend('eco-fast', PROFILE_24GB).id);
+    expect(starter?.id).toBe('candidate/lfm2.5-1.2b-instruct-onnx');
+    expect(starter?.id).toBe(recommend('eco-fast', PROFILE_24GB).id);
   });
 
   it('picks the 350m-q4 starter on an f16-less adapter (fixes the founder-class device)', () => {
@@ -322,19 +327,19 @@ describe('listCandidates', () => {
     }
   });
 
-  it('returns Qwen3.5-2B first (preferred default) then remaining by score descending', () => {
+  it('returns LFM2.5-1.2B first (preferred default) then remaining by score descending', () => {
     const ranked = listCandidates('eco-fast', PROFILE_24GB);
     // The default should be promoted to position 0 on capable devices.
-    expect(ranked[0]!.model.id).toBe('candidate/qwen3.5-2b-onnx');
+    expect(ranked[0]!.model.id).toBe('candidate/lfm2.5-1.2b-instruct-onnx');
     // Remaining entries (after the promoted default) are score-descending.
     for (let i = 2; i < ranked.length; i++) {
       expect(ranked[i - 1]!.score.total).toBeGreaterThanOrEqual(ranked[i]!.score.total);
     }
   });
 
-  it('returns Qwen3.5-2B first for eco-smart (preferred smart pick), score order after', () => {
+  it('returns LFM2.5-1.2B first for eco-smart (collapsed onto the default), score order after', () => {
     const ranked = listCandidates('eco-smart', PROFILE_24GB);
-    expect(ranked[0]!.model.id).toBe('candidate/qwen3.5-2b-onnx');
+    expect(ranked[0]!.model.id).toBe('candidate/lfm2.5-1.2b-instruct-onnx');
     for (let i = 2; i < ranked.length; i++) {
       expect(ranked[i - 1]!.score.total).toBeGreaterThanOrEqual(ranked[i]!.score.total);
     }
@@ -395,10 +400,10 @@ describe('listCatalog', () => {
     expect(Array.isArray(r.available)).toBe(true);
   });
 
-  it('ranks Qwen3.5-2B first (preferred default) then remaining by fit score', () => {
+  it('ranks LFM2.5-1.2B first (preferred default) then remaining by fit score', () => {
     const r = listCatalog(PROFILE_24GB);
     // The default should be promoted to position 0 on capable devices.
-    expect(r.available[0]!.model.id).toBe('candidate/qwen3.5-2b-onnx');
+    expect(r.available[0]!.model.id).toBe('candidate/lfm2.5-1.2b-instruct-onnx');
     // Remaining entries (after the promoted default) are score-descending.
     for (let i = 2; i < r.available.length; i++) {
       expect(r.available[i - 1]!.scoreTotal).toBeGreaterThanOrEqual(r.available[i]!.scoreTotal);
@@ -474,7 +479,7 @@ describe('recommend — confidence floor', () => {
     expect(candidates.length).toBeGreaterThan(0);
     expect(catalog.available[0]!.confidence).toBe('calculated');
     expect(candidates.some((candidate) => candidate.admission.reason === 'predicted-fit')).toBe(true);
-    expect(recommend('eco-fast', PROFILE_24GB).id).toBe('candidate/qwen3.5-2b-onnx');
+    expect(recommend('eco-fast', PROFILE_24GB).id).toBe('candidate/lfm2.5-1.2b-instruct-onnx');
   });
 
   it('throws NoAssignableModelError when every model has a recent smoke-fail on this profile', () => {
@@ -691,8 +696,8 @@ describe('recommend — WebKit-mobile MLC entry is additive only', () => {
     // Qwen3.5-2B stays the everyday default on capable Chromium; qwen3-0.6b stays
     // the desktop-Safari / Firefox floor. If the MLC entry leaked into any of
     // these, one of these ids would change.
-    expect(recommend('eco-fast', PROFILE_24GB).id).toBe('candidate/qwen3.5-2b-onnx');
-    expect(recommend('eco-smart', PROFILE_24GB).id).toBe('candidate/qwen3.5-2b-onnx');
+    expect(recommend('eco-fast', PROFILE_24GB).id).toBe('candidate/lfm2.5-1.2b-instruct-onnx');
+    expect(recommend('eco-smart', PROFILE_24GB).id).toBe('candidate/lfm2.5-1.2b-instruct-onnx');
     expect(recommend('eco-fast', PROFILE_FIREFOX).id).toBe('local/qwen3-0.6b');
   });
 

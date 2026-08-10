@@ -54,44 +54,51 @@ import { scoreFit, type FitScore } from './fit-scoring';
 import { getMetrics, modelMatchesSlot, slotDefaultIntent } from './predicted-fit';
 
 /**
- * Everyday default (everyday-swap, graduated 2026-06-13): Qwen3.5-2B is the
- * default recommendation on any device that can run it. It won the chat #7
- * smart-tier bake-off (run `eval-mq8s89xp-1xeys0c7`, 114/114 on real WebGPU)
- * and then cleared the everyday-swap gates — fresh-profile cold-load (~2.5 min
- * for 1.4GB on real network), DeltaNet KV-reuse multi-turn (restored in #151),
- * deterministic CJK suppression (#156), and founder dogfood — so it is promoted
- * from the smart slot to the everyday default. It roughly doubles the answer-depth
- * floor over the previous LFM2.5 default and admits uncertainty instead of
- * confidently fabricating (the floor behavior the swap was for).
+ * Everyday default (model-ladder read, 2026-08-09): LFM2.5-1.2B-instruct is the
+ * default recommendation on any device that can run it. This REVERSES the
+ * 2026-06-13 everyday-swap to Qwen3.5-2B. That swap graduated on a rubric-scored
+ * bake-off; a by-eye read on real WebGPU (the rubric cannot see answer quality —
+ * it scored reader-rejected output 1.00) found the 2B buys no clear everyday-quality
+ * gain over the 1.2B while costing ~2–4× the speed, AND it hallucinates on
+ * open-knowledge asks (fabricated Roman history) and mangles simple reasoning
+ * (bat-and-ball headlined "$0.10"). The 1.2B is the fast, accurate everyday
+ * workhorse: ~300ms first token / ~51 tok/s / ~4s per answer vs the 2B's
+ * ~567ms / ~23 tok/s / ~15.5s. Evidence: m2-evidence/model-ladder-by-eye-2026-08-09.md
+ * and deeper-tier-read-by-eye-2026-08-09.md.
  *
- * Stronger hardware loads the default faster — it doesn't trigger an auto-upgrade
- * to a bigger model. Users who want a lighter/faster footprint (LFM2.5-1.2B =
- * "Eco Fast") or more reasoning (Phi-3) can opt in via "Choose your own".
+ * The 2B is NOT removed — it stays selectable via Settings ("Choose your own").
+ * A genuinely-stronger DEEPER tier (LFM2-2.6B, which beats the 2B on reasoning/
+ * knowledge at equal speed) is a separate catalog graduation, not wired here yet.
  *
- * If Qwen3.5-2B is incompatible with the current device, the device-appropriate
+ * If the 1.2B is incompatible with the current device, the device-appropriate
  * default applies (see `preferredModelIdForSlot`): on f16-less-but-WebGPU adapters
  * (older-Intel desktop / Adreno Android) that is Gemma 4 (LiteRT) — see
  * PREFERRED_F16LESS_DEFAULT_MODEL_ID. On low-memory / WASM-only / non-Chromium
- * devices where neither runs, the natural fit-score ranking applies and the
- * smaller compatible models win — LFM2.5-1.2B, then LFM2.5-350M / Qwen3-0.6B.
- * LFM2.5-1.2B is therefore demoted to the fast/light tier, NOT removed: it stays
- * selectable AND remains the automatic default where neither Qwen nor Gemma run.
+ * devices the natural fit-score ranking applies and the smaller compatible models
+ * win (Qwen3-0.6B).
  *
  * Wired here (not in catalog data) to keep the change surface small for v1.0.
  * Future revisions may move this to a `defaultPreference` field on ModelConfig.
  */
-export const PREFERRED_DEFAULT_MODEL_ID = 'candidate/qwen3.5-2b-onnx';
+export const PREFERRED_DEFAULT_MODEL_ID = 'candidate/lfm2.5-1.2b-instruct-onnx';
 
 /**
- * Smart-slot pick. Post everyday-swap this COINCIDES with the everyday default:
- * the everyday default IS now the smart-tier model (Qwen3.5-2B), so eco-fast and
- * eco-smart resolve to the same model on capable hardware. The two-slot
- * architecture stays in place — when a larger smart model graduates (Qwen3.5-4B
- * is the high-memory candidate from the same bake-off), pointing this constant at
- * it re-splits the slots with no other change. Where Qwen3.5-2B is not assignable,
- * the natural fit-score ranking applies unchanged.
+ * Smart-slot pick. Collapsed onto the everyday default (LFM2.5-1.2B) as of the
+ * 2026-08-09 model-ladder read: eco-fast and eco-smart resolve to the same model
+ * on capable hardware. This is deliberate — it keeps the consent-driven upgrade
+ * card (lifecycle/upgrade.ts offers `recommend('eco-smart')`) from auto-pushing a
+ * DEEPER model onto a fresh device: the old both-slots-are-2B state had setup
+ * chatting on a starter, then the card nagging toward the 2B; with both slots at
+ * the 1.2B the card's target equals the bound model, so it never fires. The 1.2B
+ * IS the everyday product; a bigger model is opt-in via Settings.
+ *
+ * The two-slot architecture stays in place. When the measured deeper tier
+ * (LFM2-2.6B — beats the 2B on reasoning/knowledge at equal speed) graduates into
+ * the shipping catalog, pointing this constant at it re-splits the slots and the
+ * upgrade card starts offering it as a genuine "deeper" download, with no other
+ * change. Where the 1.2B is not assignable, the natural fit-score ranking applies.
  */
-export const PREFERRED_SMART_MODEL_ID = 'candidate/qwen3.5-2b-onnx';
+export const PREFERRED_SMART_MODEL_ID = 'candidate/lfm2.5-1.2b-instruct-onnx';
 
 /**
  * Models that were once the everyday default and should yield to the CURRENT
@@ -100,24 +107,24 @@ export const PREFERRED_SMART_MODEL_ID = 'candidate/qwen3.5-2b-onnx';
  * profile)`, not a fixed constant. Profiles primed before a graduation otherwise
  * keep the old model forever.
  *
- * LFM2.5-1.2B is here because the 2026-06-13 everyday-swap superseded it on
- * capable devices — but it is NOT demoted everywhere (it remains the default on
- * low-memory/non-Chromium devices). The device-aware rebind handles this: on a
- * low-memory device `recommend('eco-fast')` returns LFM2.5 itself, so the rebind
- * is a no-op.
+ * Empty as of the 2026-08-09 model-ladder read. LFM2.5-1.2B was here (superseded
+ * by the 2026-06-13 everyday-swap to Qwen3.5-2B) but that swap is now reversed —
+ * the 1.2B is the CURRENT default, so it must not be migrated away from. The
+ * outgoing Qwen3.5-2B is deliberately NOT added: the former-default rebind exists
+ * to move auto-primed devices UP to a better default, not to force a working
+ * bigger model DOWN to a smaller one. Auto-2B devices keep their 2B; only fresh
+ * devices get the 1.2B. (An explicit user choice is exempt from this rebind
+ * regardless — see hasExplicitModelChoice in self-heal.ts.)
  *
- * Bonsai used to sit here (the dev-era former default) but retired 2026-07-11 —
- * a bonsai-bound slot is now handled by the retirement migration in
- * lifecycle/self-heal.ts (RETIRED_MODEL_MIGRATIONS), which runs before this
- * former-default rebind, so it no longer needs a former-default entry.
+ * Bonsai used to sit here too (the dev-era former default) but retired 2026-07-11
+ * — a bonsai-bound slot is handled by RETIRED_MODEL_MIGRATIONS in
+ * lifecycle/self-heal.ts, which runs before this rebind.
  *
  * There is no eco-smart counterpart: no shipped code path has ever auto-bound the
  * eco-smart slot (setup and Settings both bind eco-fast), so there is no
  * system-written stale-smart-binding population to migrate.
  */
-export const FORMER_EVERYDAY_DEFAULT_IDS: ReadonlyArray<string> = [
-  'candidate/lfm2.5-1.2b-instruct-onnx',
-];
+export const FORMER_EVERYDAY_DEFAULT_IDS: ReadonlyArray<string> = [];
 
 /**
  * f16-less-but-WebGPU default (Track E Slice 4, 2026-06-30). On devices that run
@@ -167,8 +174,9 @@ const PREFERRED_MODEL_ID_BY_SLOT: Readonly<Record<Slot, string>> = {
 
 /**
  * The device-appropriate preferred pick for a slot: the best-tier model THIS
- * device can actually run. The primary is the slot's f16 pick (Qwen3.5-2B); when
- * the device can't run it (no shader-f16, low memory, …) we fall back to the
+ * device can actually run. The primary is the slot's f16 pick (LFM2.5-1.2B for
+ * both slots today); when the device can't run it (no shader-f16, low memory, …)
+ * we fall back to the
  * f16-less default (Gemma 4) where assignable. The returned id is fed to
  * `promotePreferred`, which lifts it only if it survived the assignable +
  * admitted + slot + floor filters — so an unassignable fallback is a safe no-op
@@ -203,19 +211,36 @@ function promotePreferred<T extends { model: { id: string } }>(
 }
 
 /**
- * Instant-start Stage A pick (slice 2b): the SMALLEST model this device can
- * run for the slot — the fastest trustworthy path to a working chat, not the
- * best one. First-run setup leads with this so a fresh device is chatting in
- * about a minute; the consent-driven upgrade (lifecycle/upgrade.ts) then
- * offers the class-best pick as a background download.
+ * Starter download budget (GB). At or below this size, the class-best pick is
+ * itself a fast-enough first download to BE the starter; above it, Stage A steps
+ * down to a smaller rung so a fresh device still chats quickly. The 1.2B everyday
+ * default (0.76GB) fits; a larger class-best (e.g. Gemma 4 LiteRT, 1.87GB, on
+ * f16-less adapters) does not, so those devices still get a small instant-start
+ * rung instead of a multi-minute first download.
+ */
+export const STARTER_MAX_SIZE_GB = 1.0;
+
+/**
+ * Instant-start Stage A pick (slice 2b): the fastest trustworthy path to a
+ * working chat. First-run setup leads with this so a fresh device is chatting
+ * quickly; the consent-driven upgrade (lifecycle/upgrade.ts) then offers the
+ * eco-smart pick as a background download only when it differs.
+ *
+ * Model-ladder fix (2026-08-09): this used to return the SMALLEST offerable
+ * model, which on a capable device served LFM2.5-350M (0.28GB) — an EXTRACTION
+ * model wrong-type for chat that ALSO fails to load on WebGPU (GatherBlockQuantized).
+ * A broken, wrong-type first impression. Now the class-best pick (candidates[0],
+ * i.e. exactly what recommend() returns) is the starter when it is within
+ * STARTER_MAX_SIZE_GB — so a capable device's first chat runs on the good 1.2B
+ * default and Stage A converges with the class-best (no jarring mid-session swap).
+ * Only when the class-best is too big for a fast first download does it step down
+ * to the smallest offerable, preserving instant-start where the default is large.
  *
  * Reuses the full listCandidates filter chain (assignable + admitted +
- * slot-matched + confidence floor), so a starter can never be a model the
- * engine wouldn't offer — including models this device recently smoke-failed.
- * Among survivors the smallest download wins; ties keep fit-score order
- * (listCandidates is already score-sorted and the scan is strict-less-than).
- * Returns null when nothing survives; callers fall back to the class-best
- * pick, which throws NoAssignableModelError on the same empty set.
+ * slot-matched + confidence floor), so a starter can never be a model the engine
+ * wouldn't offer — including models this device recently smoke-failed. Returns
+ * null when nothing survives; callers fall back to the class-best pick, which
+ * throws NoAssignableModelError on the same empty set.
  */
 export function starterModelForSlot(
   slot: Slot,
@@ -225,6 +250,13 @@ export function starterModelForSlot(
 ): ModelConfig | null {
   const candidates = listCandidates(slot, profile, intent, options);
   if (candidates.length === 0) return null;
+  // candidates[0] is the class-best (promoted preferred / top fit score) — exactly
+  // what recommend() returns. When it's a fast enough download, it IS the starter,
+  // so the first impression is the good model rather than the smallest one.
+  const classBest = candidates[0]!.model;
+  if (classBest.sizeGB <= STARTER_MAX_SIZE_GB) return classBest;
+  // Class-best too big for instant-start — step down to the smallest offerable
+  // (ties keep fit-score order; the scan is strict-less-than).
   let smallest = candidates[0]!;
   for (const candidate of candidates) {
     if (candidate.model.sizeGB < smallest.model.sizeGB) smallest = candidate;
@@ -407,7 +439,7 @@ export function listCatalog(
 
   available.sort((a, b) => b.scoreTotal - a.scoreTotal);
   // The flat dialog list is slotless — the device-appropriate default keeps the
-  // top spot (it is what a fresh device gets): Qwen3.5-2B on f16-capable
+  // top spot (it is what a fresh device gets): LFM2.5-1.2B on f16-capable
   // hardware, Gemma 4 on f16-less-but-WebGPU adapters. Everything else ranks by
   // fit score. Using the eco-fast preference keeps the dialog's "Recommended"
   // tag consistent with the slot the setup path actually binds.

@@ -350,6 +350,33 @@ describe('planUpgradeOffer', () => {
     expect(await planUpgradeOffer({ ...base, recommendSmart: () => null })).toBeNull();
   });
 
+  it('never a downgrade-as-upgrade: no offer when the target is SMALLER than the current model', async () => {
+    // Model-ladder slot collapse (2026-08-09): eco-smart == the 1.2B everyday
+    // default. A legacy device still bound to the larger Qwen3.5-2B (1.4 GB) must
+    // NOT be offered the smaller 1.2B (0.76 GB) framed as "a stronger model".
+    // currentModelId is a REAL catalog id so the guard's getModel lookup resolves
+    // its size (the fake-id cases above skip the guard — getModel returns null).
+    const offer = await planUpgradeOffer({
+      ...base,
+      currentModelId: 'candidate/qwen3.5-2b-onnx',
+      recommendSmart: () =>
+        ({ id: 'candidate/lfm2.5-1.2b-instruct-onnx', sizeGB: 0.76, friendlyName: 'x' } as ModelConfig),
+    });
+    expect(offer).toBeNull();
+  });
+
+  it('still offers a genuine size-up (a small starter → a larger model)', async () => {
+    // The guard only suppresses down-sizes: a real 350M starter (0.28 GB) offered
+    // a 0.76 GB model is a legitimate up-size and still surfaces.
+    const offer = await planUpgradeOffer({
+      ...base,
+      currentModelId: 'candidate/lfm2.5-350m-onnx',
+      recommendSmart: () =>
+        ({ id: 'candidate/lfm2.5-1.2b-instruct-onnx', sizeGB: 0.76, friendlyName: 'x' } as ModelConfig),
+    });
+    expect(offer?.id).toBe('candidate/lfm2.5-1.2b-instruct-onnx');
+  });
+
   it('BEHAVIOR PIN — WebKit-mobile: the ladder activates the moment the recommendation moves; no mobile-aware policy gates it', async () => {
     // Today the upgrade ladder is dead on WebKit-mobile only because the
     // catalog carries a single WebKit model, so the eco-smart recommendation
