@@ -6,9 +6,9 @@ import { getDisplayInfo, resolveRunningModel } from '../display';
 import { getCatalog } from '../catalog/catalog';
 
 describe('getDisplayInfo', () => {
-  it('returns branded names for all 7 catalog models', () => {
+  it('returns branded names for all 8 catalog models', () => {
     const catalog = getCatalog();
-    expect(catalog.length).toBe(7);
+    expect(catalog.length).toBe(8);
 
     for (const model of catalog) {
       const info = getDisplayInfo(model.id, model);

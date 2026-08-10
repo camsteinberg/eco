@@ -141,6 +141,34 @@ export const FORMER_EVERYDAY_DEFAULT_IDS: ReadonlyArray<string> = [];
 export const PREFERRED_F16LESS_DEFAULT_MODEL_ID = 'candidate/gemma-4-e2b-litert';
 
 /**
+ * The f16-less-but-WebGPU eco-FAST pick (device-coverage, 2026-08-10). On adapters
+ * that run WebGPU but lack `shader-f16`, the everyday q4f16 1.2B default is
+ * unassignable, and the old fallback (Gemma 4) is 1.87GB — over the instant-start
+ * budget — so `starterModelForSlot` stepped the first download DOWN to the weak
+ * 350M. The plain-int4 build of the SAME 1.2B
+ * (`candidate/lfm2.5-1.2b-instruct-q4-onnx`, onnx-q4, 0.85GB) needs no shader-f16,
+ * loads on the f16-less WebGPU EP, and — being ≤ STARTER_MAX_SIZE_GB — is its OWN
+ * starter. So f16-less eco-fast gets the good 1.2B as its first impression,
+ * converging starter==recommend exactly as the 2026-08-09 fix did for f16-capable
+ * devices. Gemma 4 stays the f16-less eco-SMART (deeper) pick.
+ */
+export const PREFERRED_F16LESS_FAST_MODEL_ID = 'candidate/lfm2.5-1.2b-instruct-q4-onnx';
+
+/**
+ * Per-slot f16-less-but-WebGPU fallback: the best model such an adapter can run
+ * for each slot. eco-fast → the plain-int4 1.2B (its own instant-start rung);
+ * eco-smart → Gemma 4 (the deeper LiteRT pick). Layered in by
+ * `preferredModelIdForSlot` only when the slot's primary q4f16 pick can't run.
+ * Where the per-slot pick is ALSO unassignable (low-memory / WASM-only /
+ * non-Chromium) it never enters the ranked list, so preferring it is a safe no-op
+ * and natural fit-score ranking applies unchanged.
+ */
+const PREFERRED_F16LESS_MODEL_ID_BY_SLOT: Readonly<Record<Slot, string>> = {
+  'eco-fast': PREFERRED_F16LESS_FAST_MODEL_ID,
+  'eco-smart': PREFERRED_F16LESS_DEFAULT_MODEL_ID,
+};
+
+/**
  * The default instant-start floor: the smallest, f16-free starter rung most
  * devices fall back to. It is EXEMPT from the download-fail auto-demotion
  * (slice 3) — demoting the floor would leave a device with nothing offerable
@@ -176,19 +204,20 @@ const PREFERRED_MODEL_ID_BY_SLOT: Readonly<Record<Slot, string>> = {
  * The device-appropriate preferred pick for a slot: the best-tier model THIS
  * device can actually run. The primary is the slot's f16 pick (LFM2.5-1.2B for
  * both slots today); when the device can't run it (no shader-f16, low memory, …)
- * we fall back to the
- * f16-less default (Gemma 4) where assignable. The returned id is fed to
- * `promotePreferred`, which lifts it only if it survived the assignable +
- * admitted + slot + floor filters — so an unassignable fallback is a safe no-op
- * that yields to natural fit-score ranking (LFM2.5 / Qwen3-0.6B on smaller
- * devices). Layering here (not in fit scoring) keeps the preference explicit and
- * unit-testable rather than emergent from snappy-vs-balanced weighting.
+ * we fall back to the slot's f16-less pick where assignable — the plain-int4 1.2B
+ * for eco-fast, Gemma 4 for eco-smart (PREFERRED_F16LESS_MODEL_ID_BY_SLOT). The
+ * returned id is fed to `promotePreferred`, which lifts it only if it survived the
+ * assignable + admitted + slot + floor filters — so an unassignable fallback is a
+ * safe no-op that yields to natural fit-score ranking (LFM2.5 / Qwen3-0.6B on
+ * smaller devices). Layering here (not in fit scoring) keeps the preference
+ * explicit and unit-testable rather than emergent from snappy-vs-balanced weighting.
  */
 function preferredModelIdForSlot(slot: Slot, profile: DeviceProfile): string {
   const primary = PREFERRED_MODEL_ID_BY_SLOT[slot];
   if (isCatalogModelAssignable(primary, profile)) return primary;
-  if (isCatalogModelAssignable(PREFERRED_F16LESS_DEFAULT_MODEL_ID, profile)) {
-    return PREFERRED_F16LESS_DEFAULT_MODEL_ID;
+  const f16lessFallback = PREFERRED_F16LESS_MODEL_ID_BY_SLOT[slot];
+  if (isCatalogModelAssignable(f16lessFallback, profile)) {
+    return f16lessFallback;
   }
   return primary;
 }
