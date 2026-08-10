@@ -184,6 +184,20 @@ const LOOKUP_LEAD =
 const DENY_PATTERNS: readonly RegExp[] = [
   // Creative / imperative authoring — "write me a poem about Paris".
   /\b(?:write|compose|draft|poem|story|stories|song|essay|joke|jokes|rap|haiku|lyrics|make up|made up|invent|imagine|pretend|roleplay|role-play)\b/i,
+  // Editing / transforming the user's OWN text — "proofread this", "fix the
+  // grammar", "check it for mistakes". The turn SUPPLIES the text and asks for it
+  // to be corrected; nothing external is being asked, so a lookup adds nothing and
+  // (measured 2026-08-10) attaches a real citation to an edit — grounding
+  // "Edinburgh Castle" while proofreading a note that merely mentions it, with a
+  // false "I looked this up from a real source" claim on a task that needed no
+  // source. This is the editing sibling of the authoring deny above (write/compose/
+  // draft), and mirrors artifact-frame.ts's correction vocabulary. The bare verbs
+  // proofread/rewrite/reword/rephrase are self-evidently about the user's text;
+  // fix/correct/check/improve/polish require an editing OBJECT nearby so a factual
+  // "check the population of Tokyo" or "what mistakes did Napoleon make" still grounds.
+  /\b(?:proofread|rewrite|re-?write|reword|rephrase|retype)\b/i,
+  /\b(?:fix|correct|check|improve|polish|clean up|tidy up)\b[^.?!\n]{0,30}\b(?:spelling|grammar|typos?|punctuation|mistakes?|wording|phrasing|errors?)\b/i,
+  /\b(?:spelling|grammar|typos?|punctuation|wording|phrasing)\b[^.?!\n]{0,30}\b(?:fix|correct|check|improve|polish)\b/i,
   // Opinion / advice / recommendation — subjective, not fact-grounded.
   /\b(?:what do you think|do you think|your opinion|in your opinion|should i|is it worth|worth it|recommend|suggest|best (?:place|restaurant|book|movie|city|time|way))\b/i,
   // Comparison / preference phrasing ("better than", "X vs Y").

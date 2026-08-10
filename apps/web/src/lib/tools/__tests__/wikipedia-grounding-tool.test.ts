@@ -159,6 +159,60 @@ describe("wikipediaGroundingTool.match — false-positive guard (must abstain)",
 });
 
 // ---------------------------------------------------------------------------
+// match — editing/correction of the user's OWN text must abstain.
+//
+// The turn SUPPLIES text and asks for it to be proofread/rewritten/corrected;
+// nothing external is being requested. Before the editing deny-set, a correction
+// task whose text happened to mention a place and contain a question fired a real
+// Wikipedia lookup and stamped a "looked this up from a real source" claim onto an
+// edit (measured 2026-08-10 on the shipping default: proofreading a school note
+// that mentions "Edinburgh Castle" grounded the castle instead of fixing the
+// spelling). The editing sibling of the authoring deny above (write/compose/draft).
+// ---------------------------------------------------------------------------
+
+describe("wikipediaGroundingTool.match — editing the user's own text abstains", () => {
+  const editingTurns: string[] = [
+    // The exact 2026-08-10 reproduction (proofread + a mentioned place + a question).
+    "can you fix the spelling and grammar in this note to my sons school, keep my wording: We are so greatful the trip to Edinburgh Castle went well. When does the next payement need to be payed? Thankyou",
+    // Bare correction verbs are self-evidently about the user's text.
+    "proofread this: The capital of France is Paris and it is beautiful",
+    "rewrite this to sound more formal: I went to Berlin. When is the wall coming down?",
+    "reword this for me: I love the Eiffel Tower",
+    // fix/correct/check qualified by an editing object.
+    "check this for mistakes: I visited the Tower of London. Who built it?",
+    "correct the punctuation in this note about Mount Fuji",
+    "can you fix my grammar here, what is the population of Tokyo it says",
+  ];
+  for (const input of editingTurns) {
+    it(`abstains on "${input.slice(0, 60)}…"`, () => {
+      expect(match(input)).toBeNull();
+    });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// match — the editing deny-set stays PRECISE: a factual ask that merely contains
+// an editing-adjacent word still grounds. The bare fix/correct/check verbs only
+// deny when an editing OBJECT (spelling/grammar/typos/…) sits nearby.
+// ---------------------------------------------------------------------------
+
+describe("wikipediaGroundingTool.match — editing deny-set does not over-block facts", () => {
+  const stillGrounds: Array<{ input: string; entity: string }> = [
+    // "check" + a NON-editing object → a real lookup, unaffected.
+    { input: "check the population of Tokyo", entity: "Tokyo" },
+    // "mistakes" with no editing verb near it → a factual question, unaffected.
+    { input: "What mistakes did Napoleon make in Russia?", entity: "Napoleon" },
+    // "correct" as an adjective in a factual question → unaffected.
+    { input: "What is the correct capital of Australia?", entity: "Australia" },
+  ];
+  for (const { input, entity } of stillGrounds) {
+    it(`still grounds "${input}" → ${entity}`, () => {
+      expect(match(input)?.entity).toBe(entity);
+    });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // match — pasted content must never become a lookup subject.
 //
 // The guard corpus above is 30 short typed questions, which is the shape this tool
