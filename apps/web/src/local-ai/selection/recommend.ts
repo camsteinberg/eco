@@ -68,7 +68,8 @@ import { getMetrics, modelMatchesSlot, slotDefaultIntent } from './predicted-fit
  *
  * The 2B is NOT removed — it stays selectable via Settings ("Choose your own").
  * A genuinely-stronger DEEPER tier (LFM2-2.6B, which beats the 2B on reasoning/
- * knowledge at equal speed) is a separate catalog graduation, not wired here yet.
+ * knowledge at equal speed) graduated into the catalog on 2026-08-10 and is now
+ * the eco-smart pick (see PREFERRED_SMART_MODEL_ID below).
  *
  * If the 1.2B is incompatible with the current device, the device-appropriate
  * default applies (see `preferredModelIdForSlot`): on f16-less-but-WebGPU adapters
@@ -83,22 +84,24 @@ import { getMetrics, modelMatchesSlot, slotDefaultIntent } from './predicted-fit
 export const PREFERRED_DEFAULT_MODEL_ID = 'candidate/lfm2.5-1.2b-instruct-onnx';
 
 /**
- * Smart-slot pick. Collapsed onto the everyday default (LFM2.5-1.2B) as of the
- * 2026-08-09 model-ladder read: eco-fast and eco-smart resolve to the same model
- * on capable hardware. This is deliberate — it keeps the consent-driven upgrade
- * card (lifecycle/upgrade.ts offers `recommend('eco-smart')`) from auto-pushing a
- * DEEPER model onto a fresh device: the old both-slots-are-2B state had setup
- * chatting on a starter, then the card nagging toward the 2B; with both slots at
- * the 1.2B the card's target equals the bound model, so it never fires. The 1.2B
- * IS the everyday product; a bigger model is opt-in via Settings.
+ * Smart-slot pick — the graduated deeper tier. LFM2-2.6B graduated into the
+ * shipping catalog on 2026-08-10 (a by-eye read on real WebGPU found it beats the
+ * 2B on reasoning/history/code at equal speed; the rubric that had ranked the 2B
+ * higher cannot see answer quality). Pointing this constant at it re-splits the
+ * slots that the 2026-08-09 read had collapsed onto the 1.2B: eco-fast stays the
+ * fast everyday default (LFM2.5-1.2B) and eco-smart is the deeper opt-in, which the
+ * consent-driven upgrade card (lifecycle/upgrade.ts offers `recommend('eco-smart')`)
+ * now surfaces as a genuine "deeper" download.
  *
- * The two-slot architecture stays in place. When the measured deeper tier
- * (LFM2-2.6B — beats the 2B on reasoning/knowledge at equal speed) graduates into
- * the shipping catalog, pointing this constant at it re-splits the slots and the
- * upgrade card starts offering it as a genuine "deeper" download, with no other
- * change. Where the 1.2B is not assignable, the natural fit-score ranking applies.
+ * The card only ever carries a device UP: the size guard in `planUpgradeOffer`
+ * never offers a target that isn't a genuine step up in size, and the 1.2B everyday
+ * default (0.76GB) → the 2.6B (1.65GB) is a real up-size. A fresh device still
+ * chats on the 1.2B first; the deeper model is opt-in, never auto-pushed. Existing
+ * 2B users keep their 2B (it stays selectable via Settings). Where the 2.6B is not
+ * assignable (no shader-f16, low memory, non-Chromium), the slot falls back to the
+ * f16-less default or the natural fit-score ranking.
  */
-export const PREFERRED_SMART_MODEL_ID = 'candidate/lfm2.5-1.2b-instruct-onnx';
+export const PREFERRED_SMART_MODEL_ID = 'candidate/lfm2-2.6b-onnx';
 
 /**
  * Models that were once the everyday default and should yield to the CURRENT

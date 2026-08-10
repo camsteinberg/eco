@@ -174,6 +174,17 @@ const RULES: Readonly<Record<string, CompatibilityRule>> = Object.freeze({
     allowedBrowsers: ['chromium'] as const,
     warnIfMobile: true,
   },
+  // LFM2-2.6B — the graduated deeper/smart pick (model-ladder by-eye read
+  // 2026-08-10; beats the 2B on reasoning/history/code at equal speed). Same
+  // q4f16 shape and floor as the 1.2B/2B: WebGPU + shader-f16 (formatRequiresShaderF16
+  // → true, so it declines on f16-less adapters), an 8GB floor, Chromium-validated,
+  // with-warning on mobile.
+  'candidate/lfm2-2.6b-onnx': {
+    requireWebgpu: true,
+    minDeviceMemoryGB: 8,
+    allowedBrowsers: ['chromium'] as const,
+    warnIfMobile: true,
+  },
   // Gemma 4 E2B via LiteRT (the f16-less C2/C3 answer — model-offering overhaul
   // 2026-06-29). LiteRT is WebGPU-only and Chromium-only by construction
   // (runtime/litert-adapter.ts), so requireWebgpu + chromium. Crucially its

@@ -16,8 +16,10 @@
  * and chat-intent entries). Qwen3-1.7B remains here, parked as non-viable in Eco's
  * browser runtime; it stays in the lane for a future retry against an external-data
  * ONNX build. LFM2-2.6B was then added as the SMART-tier candidate (external-data
- * single causal-LM, same family as the fast default) to A/B against Phi-3 before a
- * potential smart-default graduation.
+ * single causal-LM, same family as the fast default) and — after a 2026-08-10
+ * by-eye read on real WebGPU reversed the rubric bake-off's verdict — GRADUATED
+ * into the shipping catalog as the deeper eco-smart pick (see its graduation note
+ * below, where the const used to live).
  *
  * Chat #7 M2 bake-off (2026-06-10): before graduating LFM2-2.6B, a model-sweep
  * research pass added three challengers so the smart-tier decision is a measured
@@ -27,7 +29,9 @@
  *     incumbent's 2/5, honesty 2/2 vs 0/2, depth 339 vs 283 words, parity
  *     speed) and GRADUATED into the shipping catalog as the eco-smart pick
  *     (catalog-data.json + artifact-metadata.json + PREFERRED_SMART_MODEL_ID
- *     in selection/recommend.ts). LFM2-2.6B stays here as the beaten incumbent.
+ *     in selection/recommend.ts). LFM2-2.6B was the beaten incumbent here until a
+ *     2026-08-10 by-eye read (the rubric can't see answer quality) reversed the
+ *     call and graduated it over the 2B as the deeper eco-smart pick.
  *   - Qwen3.5-4B (ONNX-OPT, text-only q4f16, ~2.82GB; multi-chunk decoder) —
  *     high-memory quality-tier candidate (leads all <10B on Intelligence Index;
  *     cleanest dim profile in the bake-off — the eventual Phi-3 replacement track).
@@ -206,43 +210,15 @@ const QWEN3_0_6B_Q4F16_SINGLE: ModelConfig = {
   },
 };
 
-// Smart-tier candidate (#4 Phase 2 follow-up): a higher-quality default for the
-// eco-smart slot. Single text causal-LM in external-data q4f16 (model_q4f16.onnx +
-// .onnx_data) — same family/format as the graduated LFM2.5-1.2B fast default, so it
-// dodges the single-file bad_alloc that killed Qwen3-1.7B. To be A/B'd vs Phi-3.
-const LFM2_2_6B: ModelConfig = {
-  id: 'candidate/lfm2-2.6b-onnx',
-  friendlyName: 'LFM2 2.6B',
-  vendor: 'Liquid AI',
-  sizeGB: 1.65,
-  runtime: 'transformers',
-  format: 'onnx-q4f16',
-  capabilities: {
-    intent: ['balanced', 'quality'],
-    tasks: ['chat', 'writing', 'reasoning', 'code'],
-    contextTokens: 4096,
-  },
-  bestFor:
-    'Smart-tier candidate: higher-quality reasoning, writing, and code on capable laptops.',
-  knownLimitation:
-    'Phase-2 smart-tier evaluation candidate — not yet validated on real Eco hardware.',
-  evidenceTier: 'predicted',
-  systemRoleSupport: 'merge-first-user',
-  artifact: {
-    hfId: 'onnx-community/LFM2-2.6B-ONNX',
-    revision: '9655cd41239618886d6ebf9b4ff20b892b295f78',
-    files: [
-      'onnx/model_q4f16.onnx',
-      'onnx/model_q4f16.onnx_data',
-      'chat_template.jinja',
-      'config.json',
-      'generation_config.json',
-      'special_tokens_map.json',
-      'tokenizer.json',
-      'tokenizer_config.json',
-    ],
-  },
-};
+// LFM2-2.6B GRADUATED (2026-08-10): the rubric-scored chat #7 bake-off had ranked
+// Qwen3.5-2B over it, but a by-eye read on real WebGPU (the rubric scored
+// reader-rejected output 1.00 — it cannot see answer quality) found LFM2-2.6B
+// clearly beats the 2B on reasoning, history, and code at equal speed. It moved to
+// the shipping catalog (catalog-data.json + catalog/artifact-metadata.json) as the
+// deeper/eco-smart pick (PREFERRED_SMART_MODEL_ID in selection/recommend.ts), with
+// a compatibility rule, a generation profile, and a chat-intent slice. Its lane
+// entry was removed — a model must never live in both sets, or the registry emits
+// duplicate proxy artifacts.
 
 // ─── Chat #7 M2 bake-off candidates (added 2026-06-10) ──────────────────────
 //
@@ -432,7 +408,6 @@ const MODELS: readonly ModelConfig[] = Object.freeze([
   Object.freeze(QWEN3_1_7B),
   Object.freeze(QWEN3_0_6B_Q4),
   Object.freeze(QWEN3_0_6B_Q4F16_SINGLE),
-  Object.freeze(LFM2_2_6B),
   Object.freeze(QWEN35_4B),
   Object.freeze(GEMMA4_E2B),
   Object.freeze(GEMMA4_E2B_QAT_Q4),
@@ -498,16 +473,6 @@ export const EVAL_CANDIDATE_ARTIFACT_METADATA: Readonly<
     'tokenizer.json': { sizeBytes: 9117040, oid: 'e7a95fce95bf5b0946d0ddb3f9d7caa030b7e850bbe92b0edb26bcf563e9f3d5' },
     'tokenizer_config.json': { sizeBytes: 9705, oid: '7ea8b974de6450e023f8e4977a8b7f30902cc3be' },
     'vocab.json': { sizeBytes: 2776833, oid: '4783fe10ac3adce15ac8f358ef5462739852c569' },
-  }),
-  'candidate/lfm2-2.6b-onnx': Object.freeze({
-    'onnx/model_q4f16.onnx': { sizeBytes: 322750, oid: 'd98c4f6cf16c142f928127c01be89b0199d7a0c8223c60a756bfde21afe33878' },
-    'onnx/model_q4f16.onnx_data': { sizeBytes: 1654910976, oid: '3dd89d13c6c716bba3fe196f9b6cd22abc51a1a476efb70a8c0151b14a5f8cfe' },
-    'chat_template.jinja': { sizeBytes: 1296, oid: '99f3593d02fff6c0ac1f3c1293d5e2d1fa182dc8' },
-    'config.json': { sizeBytes: 1757, oid: 'f71d662be57555ddc093ed57e47cbb7d752e895c' },
-    'generation_config.json': { sizeBytes: 137, oid: 'b946d67bd1acd2149dd19aeb17a21b76e910a3ff' },
-    'special_tokens_map.json': { sizeBytes: 434, oid: 'b28c8a1e9ecfa97dfc04bf0a5951183155ccc6d7' },
-    'tokenizer.json': { sizeBytes: 3296920, oid: '3a6e61ec569abcf53b2127bfd8996cd7c2f30eff' },
-    'tokenizer_config.json': { sizeBytes: 92936, oid: '6dbe82b868141e6d97d02a23bed9ae371f45daf3' },
   }),
   'candidate/qwen3.5-4b-onnx': Object.freeze({
     'onnx/decoder_model_merged_q4f16.onnx': { sizeBytes: 933554, oid: '8f159924389ced435ff445b9aaf1604d7de7756961299568f106990415bedcbb' },

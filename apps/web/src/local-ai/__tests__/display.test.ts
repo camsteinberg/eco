@@ -6,9 +6,9 @@ import { getDisplayInfo, resolveRunningModel } from '../display';
 import { getCatalog } from '../catalog/catalog';
 
 describe('getDisplayInfo', () => {
-  it('returns branded names for all 10 catalog models', () => {
+  it('returns branded names for all 11 catalog models', () => {
     const catalog = getCatalog();
-    expect(catalog.length).toBe(10);
+    expect(catalog.length).toBe(11);
 
     for (const model of catalog) {
       const info = getDisplayInfo(model.id, model);
@@ -73,6 +73,17 @@ describe('getDisplayInfo', () => {
     expect(info.friendlyName).toBe('Eco (Qwen)');
     expect(info.qualityPhrase).toBe('A larger model · longer, slower answers');
     expect(info.provenance).toBe('Alibaba · 1.4 GB');
+  });
+
+  it('maps LFM2 2.6B to Eco Deeper (Liquid) — the graduated deeper pick (2026-08-10)', () => {
+    const info = getDisplayInfo('candidate/lfm2-2.6b-onnx', {
+      friendlyName: 'LFM2 2.6B',
+      vendor: 'Liquid AI',
+      sizeGB: 1.65,
+    });
+    expect(info.friendlyName).toBe('Eco Deeper (Liquid)');
+    expect(info.qualityPhrase).toBe('A deeper model · stronger reasoning and code');
+    expect(info.provenance).toBe('Liquid AI · 1.6 GB');
   });
 
   it('maps Qwen2.5 0.5B to Eco Mobile (Qwen) — the WebKit-mobile pick', () => {

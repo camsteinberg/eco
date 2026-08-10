@@ -61,6 +61,16 @@
     "tokenizer.json": { "sizeBytes": 19226111, "oid": "89da80cc6689bef4d90cc1028249436975ffb0814618f1d93c65310e05801a9b" },
     "tokenizer_config.json": { "sizeBytes": 9161, "oid": "9e163a713bfafd0c747df5a74d6aad468ac0be51" }
   },
+  "candidate/lfm2-2.6b-onnx": {
+    "onnx/model_q4f16.onnx": { "sizeBytes": 322750, "oid": "d98c4f6cf16c142f928127c01be89b0199d7a0c8223c60a756bfde21afe33878" },
+    "onnx/model_q4f16.onnx_data": { "sizeBytes": 1654910976, "oid": "3dd89d13c6c716bba3fe196f9b6cd22abc51a1a476efb70a8c0151b14a5f8cfe" },
+    "chat_template.jinja": { "sizeBytes": 1296, "oid": "99f3593d02fff6c0ac1f3c1293d5e2d1fa182dc8" },
+    "config.json": { "sizeBytes": 1757, "oid": "f71d662be57555ddc093ed57e47cbb7d752e895c" },
+    "generation_config.json": { "sizeBytes": 137, "oid": "b946d67bd1acd2149dd19aeb17a21b76e910a3ff" },
+    "special_tokens_map.json": { "sizeBytes": 434, "oid": "b28c8a1e9ecfa97dfc04bf0a5951183155ccc6d7" },
+    "tokenizer.json": { "sizeBytes": 3296920, "oid": "3a6e61ec569abcf53b2127bfd8996cd7c2f30eff" },
+    "tokenizer_config.json": { "sizeBytes": 92936, "oid": "6dbe82b868141e6d97d02a23bed9ae371f45daf3" }
+  },
   "candidate/gemma-4-e2b-litert": {
     "gemma-4-E2B-it-web.litertlm": { "sizeBytes": 2008432640, "oid": "3a08e8d94e23b814ae5414469c370c503813949acb8ceaa17e4ebf8a35af35b5" }
   },

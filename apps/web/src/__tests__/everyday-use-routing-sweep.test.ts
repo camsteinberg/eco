@@ -699,6 +699,9 @@ const MODEL_MATRIX_TODAY: Readonly<Record<string, string>> = {
     "quick:512/0.32 explain:512/0.42 deep:512/0.6 code:512/0.2 writing:512/0.48 file:512/0.6 research:512/0.6",
   "candidate/smollm2-360m-instruct-onnx":
     "quick:512/0.32 explain:512/0.42 deep:512/0.6 code:512/0.2 writing:512/0.48 file:512/0.6 research:512/0.6",
+  // LFM2-2.6B — the graduated deeper/eco-smart pick (webgpu 2048 ceiling).
+  "candidate/lfm2-2.6b-onnx":
+    "quick:1024/0.2 explain:1536/0.3 deep:2048/0.3 code:2048/0.2 writing:1536/0.4 file:2048/0.3 research:2048/0.3",
 };
 
 describe("everyday-use sweep — today's routing, pinned exactly", () => {

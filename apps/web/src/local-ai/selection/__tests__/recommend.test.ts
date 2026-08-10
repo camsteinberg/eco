@@ -180,13 +180,14 @@ describe('recommend — per-slot preference', () => {
     expect(smart.capabilities.intent.some((i) => i === 'balanced' || i === 'quality')).toBe(true);
   });
 
-  it('eco-fast and eco-smart both resolve to the proven everyday default on 24 GB (post everyday-swap collapse)', () => {
+  it('eco-fast stays the fast default and eco-smart is the deeper graduated pick on 24 GB (slots re-split)', () => {
     const fast = recommend('eco-fast', PROFILE_24GB);
     const smart = recommend('eco-smart', PROFILE_24GB);
-    // Post-swap the everyday default IS the smart-tier model, so both slots
-    // promote Qwen3.5-2B. Smart stays a proven pick; fast still matches via its
-    // 'balanced' intent (Qwen declares balanced + quality, never quality-only).
-    expect(smart.evidenceTier).toBe('proven');
+    // The 2026-08-10 LFM2-2.6B graduation re-split the slots the 2026-08-09 read had
+    // collapsed onto the 1.2B: eco-smart is now the deeper 2.6B (a 'predicted' tier
+    // pending a second-machine by-eye validation), eco-fast stays the fast 1.2B.
+    expect(smart.id).toBe('candidate/lfm2-2.6b-onnx');
+    expect(smart.evidenceTier).toBe('predicted');
     expect(fast.capabilities.intent.includes('snappy') || fast.capabilities.intent.includes('balanced')).toBe(true);
   });
 });
@@ -203,24 +204,26 @@ describe('recommend — per-slot preferred picks', () => {
     expect(fast24.id).toBe('candidate/lfm2.5-1.2b-instruct-onnx');
   });
 
-  it('eco-smart resolves to LFM2.5-1.2B on compatible devices (collapsed onto the everyday default)', () => {
-    // The smart slot is collapsed onto the everyday default (1.2B) so the
-    // consent-driven upgrade card never auto-pushes a deeper model onto a fresh
-    // device. The slot stays distinct in code for when the measured deeper tier
-    // (LFM2-2.6B) graduates and PREFERRED_SMART_MODEL_ID moves.
+  it('eco-smart resolves to the deeper LFM2-2.6B on compatible devices (graduated 2026-08-10)', () => {
+    // The measured deeper tier (LFM2-2.6B) graduated and PREFERRED_SMART_MODEL_ID
+    // moved to it, re-splitting the slots the 2026-08-09 read had collapsed onto the
+    // 1.2B. The 2.6B carries an 8 GB floor, so it is the eco-smart pick on both the
+    // 8 GB and 24 GB profiles.
     const smart8 = recommend('eco-smart', PROFILE_8GB, 'quality');
     const smart24 = recommend('eco-smart', PROFILE_24GB, 'quality');
-    expect(smart8.id).toBe('candidate/lfm2.5-1.2b-instruct-onnx');
-    expect(smart24.id).toBe('candidate/lfm2.5-1.2b-instruct-onnx');
+    expect(smart8.id).toBe('candidate/lfm2-2.6b-onnx');
+    expect(smart24.id).toBe('candidate/lfm2-2.6b-onnx');
   });
 
-  it('both slots resolve to the SAME model on capable hardware (fast === smart === LFM2.5-1.2B)', () => {
-    // Both slots collapse onto LFM2.5-1.2B. They re-split when the deeper tier
-    // graduates and PREFERRED_SMART_MODEL_ID moves off the everyday default.
+  it('the two slots re-split on capable hardware (fast = LFM2.5-1.2B, smart = the deeper LFM2-2.6B)', () => {
+    // The slots collapsed onto the 1.2B on 2026-08-09; the 2026-08-10 LFM2-2.6B
+    // graduation re-split them. eco-fast is the fast everyday default; eco-smart is
+    // the deeper opt-in the upgrade card now offers as a genuine size-up.
     const fast = recommend('eco-fast', PROFILE_24GB);
     const smart = recommend('eco-smart', PROFILE_24GB);
     expect(fast.id).toBe('candidate/lfm2.5-1.2b-instruct-onnx');
-    expect(smart.id).toBe('candidate/lfm2.5-1.2b-instruct-onnx');
+    expect(smart.id).toBe('candidate/lfm2-2.6b-onnx');
+    expect(fast.id).not.toBe(smart.id);
   });
 });
 
@@ -360,9 +363,9 @@ describe('listCandidates', () => {
     }
   });
 
-  it('returns LFM2.5-1.2B first for eco-smart (collapsed onto the default), score order after', () => {
+  it('returns the deeper LFM2-2.6B first for eco-smart (preferred smart pick), score order after', () => {
     const ranked = listCandidates('eco-smart', PROFILE_24GB);
-    expect(ranked[0]!.model.id).toBe('candidate/lfm2.5-1.2b-instruct-onnx');
+    expect(ranked[0]!.model.id).toBe('candidate/lfm2-2.6b-onnx');
     for (let i = 2; i < ranked.length; i++) {
       expect(ranked[i - 1]!.score.total).toBeGreaterThanOrEqual(ranked[i]!.score.total);
     }
@@ -372,11 +375,12 @@ describe('listCandidates', () => {
   });
 
   it('falls back to natural ranking for eco-smart where the smart pick is unassignable', () => {
-    // Firefox/WASM: Qwen3.5-2B requires WebGPU → promotion is a no-op and the
-    // fit-score ranking decides (Qwen3-0.6B class).
+    // Firefox/WASM: the smart pick (LFM2-2.6B) requires WebGPU → promotion is a
+    // no-op and the fit-score ranking decides (Qwen3-0.6B class). The 2.6B is
+    // unassignable here, so it never surfaces.
     const ranked = listCandidates('eco-smart', PROFILE_FIREFOX);
     expect(ranked.length).toBeGreaterThan(0);
-    expect(ranked.map((c) => c.model.id)).not.toContain('candidate/qwen3.5-2b-onnx');
+    expect(ranked.map((c) => c.model.id)).not.toContain('candidate/lfm2-2.6b-onnx');
   });
 
   it('every returned candidate is assignable', () => {
@@ -716,11 +720,11 @@ describe('recommend — WebKit-mobile MLC entry is additive only', () => {
   });
 
   it('recommendations on served profiles are unchanged by the entry (spot-check known-good picks)', () => {
-    // LFM2.5-1.2B stays the everyday default on capable Chromium; SmolLM2-360M is the
-    // no-GPU (Firefox WASM) floor. If the MLC entry leaked into any of these, one of
-    // these ids would change.
+    // The 1.2B stays the eco-fast everyday default and the graduated 2.6B is the
+    // eco-smart pick on capable Chromium; SmolLM2-360M is the no-GPU (Firefox WASM)
+    // floor. If the MLC entry leaked into any of these, one of these ids would change.
     expect(recommend('eco-fast', PROFILE_24GB).id).toBe('candidate/lfm2.5-1.2b-instruct-onnx');
-    expect(recommend('eco-smart', PROFILE_24GB).id).toBe('candidate/lfm2.5-1.2b-instruct-onnx');
+    expect(recommend('eco-smart', PROFILE_24GB).id).toBe('candidate/lfm2-2.6b-onnx');
     expect(recommend('eco-fast', PROFILE_FIREFOX).id).toBe('candidate/smollm2-360m-instruct-onnx');
   });
 

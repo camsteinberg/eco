@@ -12,15 +12,15 @@ import {
 
 // Deliberately absent (graduated into the shipping catalog — catalog tests cover
 // them now): Qwen3.5-2B (chat #7 bake-off winner, 2026-06-11), gemma-4-e2b-litert
-// (f16-less C2/C3 answer, model-offering overhaul 2026-06-29), and the Qwen3-0.6B
-// external-data pair (candidate/qwen3-0.6b-q4f16-xd, graduated 2026-07-17 — it
-// became local/qwen3-0.6b's catalog artifact). The old single-file build stays
-// here as candidate/qwen3-0.6b-q4f16-single, the paired A/B baseline.
+// (f16-less C2/C3 answer, model-offering overhaul 2026-06-29), LFM2-2.6B (the deeper
+// eco-smart pick, by-eye graduation 2026-08-10), and the Qwen3-0.6B external-data
+// pair (candidate/qwen3-0.6b-q4f16-xd, graduated 2026-07-17 — it became
+// local/qwen3-0.6b's catalog artifact). The old single-file build stays here as
+// candidate/qwen3-0.6b-q4f16-single, the paired A/B baseline.
 const CANDIDATE_IDS = [
   "candidate/qwen3-1.7b-onnx",
   "candidate/qwen3-0.6b-q4",
   "candidate/qwen3-0.6b-q4f16-single",
-  "candidate/lfm2-2.6b-onnx",
   "candidate/qwen3.5-4b-onnx",
   "candidate/gemma-4-e2b-onnx",
   "candidate/gemma-4-e2b-qat-q4-onnx",
@@ -40,6 +40,11 @@ describe("eval-candidate lane (Phase 2 + chat #7 bake-off)", () => {
   it("the graduated Qwen3.5-2B is no longer a lane candidate (single source of truth)", () => {
     expect(getEvalCandidateModel("candidate/qwen3.5-2b-onnx")).toBeNull();
     expect(EVAL_CANDIDATE_ARTIFACT_METADATA["candidate/qwen3.5-2b-onnx"]).toBeUndefined();
+  });
+
+  it("the graduated LFM2-2.6B is no longer a lane candidate (deeper eco-smart pick, 2026-08-10)", () => {
+    expect(getEvalCandidateModel("candidate/lfm2-2.6b-onnx")).toBeNull();
+    expect(EVAL_CANDIDATE_ARTIFACT_METADATA["candidate/lfm2-2.6b-onnx"]).toBeUndefined();
   });
 
   it("the graduated Qwen3-0.6B external-data cell is no longer a lane candidate", () => {

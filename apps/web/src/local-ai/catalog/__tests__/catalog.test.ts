@@ -4,7 +4,7 @@
 /**
  * Phase C catalog tests.
  *
- * The v1.0 user-facing catalog is exactly 7 models. Every entry must carry the
+ * The v1.0 user-facing catalog is exactly 8 models. Every entry must carry the
  * full ModelConfig surface. These tests are the guard against silent drift in
  * the catalog data (especially: someone adding a model without going through the
  * design review that locks the catalog).
@@ -29,13 +29,14 @@ const V1_CATALOG_IDS = [
   'candidate/qwen2.5-0.5b-mlc',
   'candidate/qwen2.5-0.5b-instruct-onnx',
   'candidate/smollm2-360m-instruct-onnx',
+  'candidate/lfm2-2.6b-onnx',
 ] as const;
 
 const TECHNICAL_ID_PATTERN = /q4f16|q4f|q4_1|webllm|onnx|fp16|q8|q4\b|q2f16|bnb4|mlc/i;
 
 describe('local-ai catalog (Phase C)', () => {
-  it('ships exactly 10 models', () => {
-    expect(getCatalog()).toHaveLength(10);
+  it('ships exactly 11 models', () => {
+    expect(getCatalog()).toHaveLength(11);
   });
 
   it('ships the locked v1.0 catalog ids in source order', () => {
@@ -88,6 +89,9 @@ describe('local-ai catalog (Phase C)', () => {
       // set on the weak, memory-tight devices this floor serves.
       'candidate/qwen2.5-0.5b-instruct-onnx': 4096,
       'candidate/smollm2-360m-instruct-onnx': 4096,
+      // LFM2-2.6B graduated 2026-08-10 at the eval-lane's declared 4096 — no
+      // headroom run has yet earned a larger window (raising it needs one first).
+      'candidate/lfm2-2.6b-onnx': 4096,
     };
     for (const id of V1_CATALOG_IDS) {
       expect(getModel(id)!.capabilities.contextTokens, id).toBe(expected[id]);
@@ -114,6 +118,12 @@ describe('local-ai catalog (Phase C)', () => {
       'candidate/qwen3.5-2b-onnx': 'native',
       'candidate/qwen2.5-0.5b-instruct-onnx': 'native',
       'candidate/smollm2-360m-instruct-onnx': 'native',
+      // LFM2-2.6B graduated 2026-08-10. Its template natively extracts a leading
+      // system message (messages[0] role==system → renders <|im_start|>system),
+      // the same shape as its LFM2.5-1.2B sibling — audited against the pinned
+      // chat_template.jinja, so it is 'native', not the 'merge-first-user' the
+      // eval-lane draft carried.
+      'candidate/lfm2-2.6b-onnx': 'native',
     };
     for (const [id, strategy] of Object.entries(expected)) {
       expect(getModel(id)!.systemRoleSupport, id).toBe(strategy);
@@ -157,7 +167,7 @@ describe('local-ai catalog (Phase C)', () => {
     }).toThrow();
     // And the array itself is a copy — mutating it doesn't break the next reader.
     snapshot.length = 0;
-    expect(getCatalog()).toHaveLength(10);
+    expect(getCatalog()).toHaveLength(11);
   });
 
   // The catalog's artifact files must have corresponding entries in

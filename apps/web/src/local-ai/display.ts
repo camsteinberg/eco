@@ -54,6 +54,11 @@ const DISPLAY_MAP: Record<string, Omit<DisplayInfo, 'provenance'> & { provider: 
     qualityPhrase: 'A larger model · longer, slower answers',
     provider: 'Alibaba',
   },
+  'candidate/lfm2-2.6b-onnx': {
+    friendlyName: 'Eco Deeper (Liquid)',
+    qualityPhrase: 'A deeper model · stronger reasoning and code',
+    provider: 'Liquid AI',
+  },
   'local/qwen3-0.6b': {
     friendlyName: 'Eco Compact (Qwen)',
     qualityPhrase: 'Small + capable · good for limited devices',

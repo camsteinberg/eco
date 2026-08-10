@@ -4,7 +4,7 @@
 /**
  * Catalog — the v1.0 model list.
  *
- * Exactly 7 models ship in the user-facing catalog:
+ * Exactly 8 models ship in the user-facing catalog:
  *   1. local/phi3-mini-4k-q4f16    — Phi-3 Mini   (Chromium WebGPU ≥16GB, proven)
  *   2. local/qwen3-0.6b            — Qwen3       (universal small / Safari WASM, proven)
  *   3. candidate/lfm2.5-1.2b-instruct-onnx — LFM2.5 1.2B (capable-laptop, proven; DEFAULT)
@@ -18,6 +18,9 @@
  *   6. candidate/gemma-4-e2b-litert — Gemma 4    (LiteRT; f16-less-WebGPU default, proven)
  *   7. candidate/qwen2.5-0.5b-mlc  — Qwen2.5 0.5B (WebLLM/MLC; the WebKit-mobile pick,
  *                                    real-iPhone validated; iOS-only via requireWebKitMobile)
+ *   8. candidate/lfm2-2.6b-onnx    — LFM2 2.6B   (capable-laptop; the graduated DEEPER
+ *                                    eco-smart pick, 2026-08-10 — 'predicted' pending a
+ *                                    second-machine by-eye validation)
  *
  * SmolLM2 (WebLLM/MLC) was retired 2026-07-10 and Bonsai 2026-07-11 — see the
  * retirement migrations in lifecycle/self-heal.ts and CHANGES.md.
@@ -39,7 +42,7 @@ const MODELS_BY_ID: ReadonlyMap<string, ModelConfig> = new Map(
 );
 
 /**
- * Return the full v1.0 catalog (7 models). Order matches catalog-data.json,
+ * Return the full v1.0 catalog (8 models). Order matches catalog-data.json,
  * which is the canonical source of truth.
  */
 export function getCatalog(): ModelConfig[] {

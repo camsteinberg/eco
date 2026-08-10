@@ -367,9 +367,11 @@ const PROFILE_BY_MODEL_ID: Record<string, GenerationProfileSlice> = {
   // 2/2), and the Qwen3.5 family's own non-thinking rec narrows top_p to 0.8 —
   // QWEN35_GEN applies that tail-narrowing as the fix (see its in-code note).
   "candidate/qwen3.5-2b-onnx": QWEN35_GEN,
+  // Shipping deeper/eco-smart pick (graduated 2026-08-10). Shares the LFM2-family
+  // sampling with the 1.2B fast default (LFM25_1_2B_GEN).
+  "candidate/lfm2-2.6b-onnx": LFM25_1_2B_GEN,
   // Phase-2 eval candidates (dev-only lane; not in the shipping catalog).
   "candidate/qwen3-1.7b-onnx": QWEN_GEN,
-  "candidate/lfm2-2.6b-onnx": LFM25_1_2B_GEN,
   // Chat #7 M2 bake-off candidates (dev-only lane). The qwen3.5-4b shares the
   // Qwen3.5 family rec, so it rides the same QWEN35_GEN slice as the shipping 2B
   // (top_p 0.8 tail-narrowing). Gemma 4 gets its own vendor-anchored slice.
