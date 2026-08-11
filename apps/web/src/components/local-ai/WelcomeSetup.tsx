@@ -287,7 +287,7 @@ const VALUE_PILLARS: ReadonlyArray<{
 }> = [
   {
     title: 'Private',
-    body: 'Runs in your browser. Your conversations stay on your device.',
+    body: 'Your conversations stay on your device.',
     icon: (
       <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
         <path
@@ -298,14 +298,18 @@ const VALUE_PILLARS: ReadonlyArray<{
     ),
   },
   {
-    title: 'Decentralized',
-    body: 'No data center. Built for people-powered AI.',
+    title: 'On-device',
+    body: 'The model runs on your machine, not a server.',
     icon: (
       <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-        <circle cx="10" cy="4" r="2" fill="currentColor" />
-        <circle cx="4" cy="14" r="2" fill="currentColor" />
-        <circle cx="16" cy="14" r="2" fill="currentColor" />
-        <path d="M10 6L4 14M10 6l6 8M4 14h12" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+        <rect x="6" y="6" width="8" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.25" />
+        <rect x="8.75" y="8.75" width="2.5" height="2.5" rx="0.5" fill="currentColor" />
+        <path
+          d="M8.5 3v3M11.5 3v3M8.5 14v3M11.5 14v3M3 8.5h3M3 11.5h3M14 8.5h3M14 11.5h3"
+          stroke="currentColor"
+          strokeWidth="1.25"
+          strokeLinecap="round"
+        />
       </svg>
     ),
   },
