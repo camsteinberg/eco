@@ -170,6 +170,32 @@ describe('local-ai catalog (Phase C)', () => {
     }
   });
 
+  // generation_config.json is silently LOAD-BEARING for correct end-of-turn
+  // stopping on the transformers runtime. Transformers.js builds its
+  // EosTokenCriteria from generation_config.json's eos_token_id, which OVERRIDES
+  // config.json's, and the worker passes no eos override — so this file is the
+  // authoritative stop set. Audited against the pinned tokenizers 2026-08-11:
+  // for Phi-3 the turn-ender <|end|> (32007) and for Qwen3.5-2B the turn-ender
+  // <|im_end|> (248046) live ONLY in generation_config.json — config.json carries
+  // a scalar/omitted eos that does NOT include the turn-ender (Qwen3.5-2B's
+  // config.json has no eos_token_id at all). TJS loads generation_config.json
+  // NON-fatally, so if a catalog edit ever drops it from files[], EOS falls back
+  // to the wrong/absent config.json eos and the model runs to max_new_tokens
+  // every turn — a 100% stall for Qwen3.5-2B, which has no fallback. This guard
+  // makes the dependency explicit so it can't be removed by accident. (LiteRT /
+  // WebLLM models format prompts and stop in their own runtimes and never read
+  // this file, so the invariant is scoped to the transformers runtime.)
+  it('ships generation_config.json for every transformers-runtime model (EOS stop is load-bearing)', () => {
+    const transformersModels = getCatalog().filter((m) => m.runtime === 'transformers');
+    // Guard against a filter that silently matches nothing (e.g. a runtime rename).
+    expect(transformersModels.length).toBeGreaterThan(0);
+    for (const model of transformersModels) {
+      expect(model.artifact?.files, `${model.id}.artifact.files`).toContain(
+        'generation_config.json',
+      );
+    }
+  });
+
   it('exposes capabilities via the dedicated capabilities surface', () => {
     const phi3 = getModel('local/phi3-mini-4k-q4f16')!;
     const caps = getCapabilities(phi3);
