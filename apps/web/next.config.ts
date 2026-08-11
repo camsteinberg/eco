@@ -79,12 +79,13 @@ const nextConfig: NextConfig = {
     ]
   },
   async redirects() {
+    // Retired public routes: the contributor/developer/miner surfaces were
+    // reconned to the future desktop product and their pages removed. Old
+    // inbound links land on the browser chat product instead of a 404.
     return [
-      {
-        source: '/founding-miners',
-        destination: '/contributors',
-        permanent: true,
-      },
+      { source: '/founding-miners', destination: '/chat', permanent: true },
+      { source: '/contributors', destination: '/chat', permanent: true },
+      { source: '/developers', destination: '/chat', permanent: true },
     ]
   },
   async rewrites() {
