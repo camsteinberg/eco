@@ -24,7 +24,7 @@
       "knownLimitation": "Validated only on high-memory Chromium WebGPU; not yet proven on lower-memory or non-Chromium browsers.",
       "evidenceTier": "proven",
       "systemDirective": "Answer directly and satisfy every user constraint. Do not reveal hidden reasoning.",
-      "systemRoleSupport": "native",
+      "systemRoleSupport": "merge-first-user",
       "artifact": {
         "hfId": "microsoft/Phi-3-mini-4k-instruct-onnx-web",
         "revision": "80a2792f5bf861528ce9b449b3230f1bd3fdc759",

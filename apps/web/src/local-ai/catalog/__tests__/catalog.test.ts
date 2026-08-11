@@ -94,6 +94,32 @@ describe('local-ai catalog (Phase C)', () => {
     }
   });
 
+  // systemRoleSupport is the per-model strategy normalizeMessagesForTemplate
+  // applies before apply_chat_template; it must match what each model's real
+  // chat template actually supports. Audited against the pinned tokenizers
+  // 2026-08-11: Phi-3's onnx-web template renders ONLY user/assistant turns (no
+  // system branch and no else), so a system message under "native" is silently
+  // DROPPED — including Phi-3's own systemDirective. "merge-first-user" folds the
+  // system prompt into the first user turn so it reaches the model. Every other
+  // transformers-runtime model's template has a native system role (verified:
+  // the system content survives render). LiteRT/WebLLM models format prompts in
+  // their own runtimes and are out of this audit's scope.
+  it('pins the audited systemRoleSupport per transformers-runtime model', () => {
+    const expected: Record<string, string> = {
+      'local/phi3-mini-4k-q4f16': 'merge-first-user',
+      'local/qwen3-0.6b': 'native',
+      'candidate/lfm2.5-1.2b-instruct-onnx': 'native',
+      'candidate/lfm2.5-1.2b-instruct-q4-onnx': 'native',
+      'candidate/lfm2.5-350m-onnx': 'native',
+      'candidate/qwen3.5-2b-onnx': 'native',
+      'candidate/qwen2.5-0.5b-instruct-onnx': 'native',
+      'candidate/smollm2-360m-instruct-onnx': 'native',
+    };
+    for (const [id, strategy] of Object.entries(expected)) {
+      expect(getModel(id)!.systemRoleSupport, id).toBe(strategy);
+    }
+  });
+
   // Phase K invariant 10 (no technical IDs in user copy) starts to bite here —
   // the friendlyName + bestFor + knownLimitation are surfaced directly in UI.
   // Vendor strings are an exception (e.g., "MLC AI" is a real org name).

@@ -46,6 +46,7 @@ import {
 } from '../local-ai/runtime/output-filter';
 import {
   normalizeMessagesForTemplate,
+  tokenizeRenderedTemplate,
   type SystemRoleSupport,
 } from '../local-ai/runtime/chat-template-adapter';
 import type {
@@ -659,7 +660,12 @@ async function handleGenerate(msg: Extract<WorkerInbound, { type: 'generate' }>)
 
     // TJS v4 renamed `return_tensors` → `return_tensor`. The legacy worker
     // hasn't migrated yet; this is the right shape going forward.
-    const inputs = await tokenizer(inputText, { return_tensor: 'pt' });
+    //
+    // add_special_tokens:false (via tokenizeRenderedTemplate) is REQUIRED: the
+    // apply_chat_template render above already emits every special token, so the
+    // tokenizer's default add_special_tokens:true doubles the BOS on tokenizers
+    // that prepend one (LFM2.5's <|startoftext|>). See tokenizeRenderedTemplate.
+    const inputs = await tokenizeRenderedTemplate(tokenizer, inputText, { return_tensor: 'pt' });
     const inputIdsTensor = (inputs as {
       input_ids?: { data: ArrayLike<number | bigint>; dims?: number[] };
     }).input_ids;
