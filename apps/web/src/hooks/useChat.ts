@@ -1086,6 +1086,12 @@ export function useChat() {
           url: toolStep.citation.url,
           source: toolStep.citation.source,
           ...(toolStep.citation.asOf ? { asOf: toolStep.citation.asOf } : {}),
+          // Carry the confidence tier so the once-per-chat grounding notice can be
+          // gated on a "high"-confidence hit only (provenance honesty — the notice
+          // must not claim "isn't guesswork" for a fuzzy fulltext/low/followup hit).
+          ...(toolStep.citation.groundingConfidence
+            ? { groundingConfidence: toolStep.citation.groundingConfidence }
+            : {}),
         },
       ]);
     }

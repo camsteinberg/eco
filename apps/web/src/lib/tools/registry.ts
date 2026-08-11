@@ -39,6 +39,23 @@ export type EcoCitation = {
    * qualifier when present. Omitted when unknown. The date is itself a trust signal.
    */
   asOf?: string;
+  /**
+   * The grounding tool's own extraction-confidence tier for this hit.
+   *
+   * `"high"` = a cleanly-extracted entity (quoted / Title-Case span) whose resolved
+   * article title COVERED it (the coverage gate passed) — the answer is backed by an
+   * on-target source. The fuzzier tiers resolved an article by weaker signals:
+   * `"low"` (lowercase recovery), `"followup"` (a carried pronoun/elliptical
+   * subject), `"fulltext"` (a zero-entity keyword search — the path behind the
+   * "how do i get a red wine stain out" → `/wiki/Red` own-goal).
+   *
+   * This exists for one honesty decision: the host shows the "Eco looked this up, so
+   * this isn't guesswork" disclosure ONLY for `"high"`. On the fuzzy tiers a lookup
+   * genuinely happened (the chip still renders), but we cannot honestly claim the
+   * answer is reliably sourced, so the disclosure is suppressed. Omitted only on
+   * older-shaped / model-native args, which downstream treats as non-`"high"`.
+   */
+  groundingConfidence?: "high" | "low" | "followup" | "fulltext";
 };
 
 /**

@@ -1263,10 +1263,17 @@ function softDegradedResult(entity: string): EcoToolResult {
  *
  * Wikidata is reached ONLY when a property was requested AND the article exposes a
  * QID, strictly AFTER the Wikipedia call — never parallel.
+ *
+ * `tier` is the confidence of the path that produced this hit — `"high"` for the
+ * entity path's clean-extraction default, `"low"`/`"followup"` for its fuzzier
+ * entity paths, `"fulltext"` for the zero-entity keyword path. It is recorded on the
+ * citation so the host can gate the "isn't guesswork" disclosure on `"high"` alone
+ * (see {@link EcoCitation.groundingConfidence}); it does not change the found note.
  */
 async function buildFoundResult(
   wiki: Extract<WikipediaResult, { found: true }>,
   wikidataProperty: string | null,
+  tier: NonNullable<EcoCitation["groundingConfidence"]>,
   opts?: { signal?: AbortSignal },
 ): Promise<EcoToolResult> {
   let populationLine: string | null = null;
@@ -1295,6 +1302,7 @@ async function buildFoundResult(
     source: "Wikipedia",
     title: safeTitle,
     url: wiki.url,
+    groundingConfidence: tier,
     ...(asOf !== undefined ? { asOf } : {}),
   };
 
@@ -1369,7 +1377,10 @@ async function executeFulltextGrounding(
     signal: opts?.signal,
   });
   if (wiki.found) {
-    return buildFoundResult(wiki, args.wikidataProperty, opts);
+    // The zero-entity keyword path — a lookup did happen, but the article was
+    // resolved by the weakest signal, so it never earns the "isn't guesswork"
+    // disclosure (see EcoCitation.groundingConfidence).
+    return buildFoundResult(wiki, args.wikidataProperty, "fulltext", opts);
   }
   if (wiki.reason === "timeout" || wiki.reason === "network-error") {
     return softDegradedResult(args.entity);
@@ -1420,7 +1431,12 @@ async function executeGrounding(
       return hardDeclineResult(args.entity);
     }
 
-    return buildFoundResult(wiki, args.wikidataProperty, opts);
+    // The entity path passed the coverage gate. Its confidence tier ("high" by
+    // default for a clean quoted/Title-Case span, "low" for lowercase recovery,
+    // "followup" for a carried subject) rides onto the citation so only a "high"
+    // hit earns the "isn't guesswork" disclosure. Older-shaped args omit
+    // confidence — treat that as "high", matching GroundingArgs.confidence's default.
+    return buildFoundResult(wiki, args.wikidataProperty, args.confidence ?? "high", opts);
   }
 
   // not found — branch on WHY. no-match/disambiguation = "no source exists" (decline
