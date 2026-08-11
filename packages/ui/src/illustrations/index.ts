@@ -12,7 +12,6 @@ export { LeafDivider } from './LeafDivider.js';
 export { ForestClearing } from './ForestClearing.js';
 export { WiltedPlant } from './WiltedPlant.js';
 export { VineBorder } from './VineBorder.js';
-export { NetworkLeaves } from './NetworkLeaves.js';
 export { WateringCan } from './WateringCan.js';
 export { SunThroughCanopy } from './SunThroughCanopy.js';
 

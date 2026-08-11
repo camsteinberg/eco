@@ -37,7 +37,6 @@ export {
   ForestClearing,
   WiltedPlant,
   VineBorder,
-  NetworkLeaves,
   WateringCan,
   SunThroughCanopy,
   FernIllustration,

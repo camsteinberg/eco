@@ -35,12 +35,6 @@ vi.mock("next/font/google", () => ({
   JetBrains_Mono: () => ({ variable: "--font-mono" }),
 }));
 
-vi.mock("../components/public/RetiredRouteAuthGate", () => ({
-  RetiredRouteAuthGate: () => null,
-}));
-
-import DevelopersPage from "../../app/developers/page";
-import ContributorsPage from "../../app/contributors/page";
 import GlobalError from "../../app/global-error";
 import ImpactPage from "../../app/impact/page";
 import manifest from "../../app/manifest";
@@ -80,8 +74,6 @@ const ACTIVE_PRIVACY_COPY_FILES = [
   "app/privacy/page.tsx",
   "app/terms/page.tsx",
   "app/transparency/page.tsx",
-  "app/developers/page.tsx",
-  "app/contributors/page.tsx",
   "src/components/local-ai/SettingsEcoTab.tsx",
 ];
 
@@ -159,38 +151,6 @@ describe("public trust and coming-later surfaces", () => {
     expect(screen.queryByText("Download Eco")).not.toBeInTheDocument();
     expect(screen.queryByText("Developers")).not.toBeInTheDocument();
     expect(screen.queryByText("Governance")).not.toBeInTheDocument();
-  });
-
-  it("developers route becomes a coming-later surface with a clean return path", () => {
-    render(<DevelopersPage />);
-
-    expect(
-      screen.getByRole("heading", { name: /developer surfaces are coming later/i }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("link", { name: /start chatting in your browser/i }),
-    ).toHaveAttribute("href", "/");
-    expect(
-      screen.getByRole("link", { name: /view the source on github/i }),
-    ).toHaveAttribute("href", "https://github.com/camsteinberg/eco");
-
-    expect(screen.queryByText("Quickstart")).not.toBeInTheDocument();
-  });
-
-  it("contributors route becomes a coming-later surface without governance-era perks", () => {
-    render(<ContributorsPage />);
-
-    expect(
-      screen.getByRole("heading", { name: /contributor program is coming later/i }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("link", { name: /start chatting in your browser/i }),
-    ).toHaveAttribute("href", "/");
-    expect(
-      screen.getByRole("link", { name: /read the impact story/i }),
-    ).toHaveAttribute("href", "/impact");
-
-    expect(screen.queryByText("Governance weight")).not.toBeInTheDocument();
   });
 
   it("privacy page keeps impact, legal siblings, and chat home reachable", () => {
