@@ -9,7 +9,7 @@ describe("WhyEcoCard", () => {
   it("renders three quiet brand cues", () => {
     render(<WhyEcoCard />);
     expect(screen.getByText("Private")).toBeDefined();
-    expect(screen.getByText("Decentralized")).toBeDefined();
+    expect(screen.getByText("On-device")).toBeDefined();
     expect(screen.getByText("Waterless")).toBeDefined();
   });
 
@@ -19,7 +19,7 @@ describe("WhyEcoCard", () => {
       screen.getByText("Local chats stay in this browser")
     ).toBeDefined();
     expect(
-      screen.getByText("Built for people-powered AI")
+      screen.getByText("The model runs on your machine")
     ).toBeDefined();
     expect(
       screen.getByText("Designed to avoid data-center water waste")
@@ -38,7 +38,7 @@ describe("WhyEcoCard", () => {
     localStorage.clear();
     const { container } = render(<WhyEcoCard />);
     expect(container.textContent).toContain("Private");
-    expect(container.textContent).toContain("Decentralized");
+    expect(container.textContent).toContain("On-device");
     expect(container.textContent).toContain("Waterless");
   });
 });
