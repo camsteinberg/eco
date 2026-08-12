@@ -330,6 +330,37 @@
           "special_tokens_map.json"
         ]
       }
+    },
+    {
+      "id": "candidate/lfm2-2.6b-onnx",
+      "friendlyName": "LFM2 2.6B",
+      "vendor": "Liquid AI",
+      "sizeGB": 1.65,
+      "runtime": "transformers",
+      "format": "onnx-q4f16",
+      "capabilities": {
+        "intent": ["balanced", "quality"],
+        "tasks": ["chat", "writing", "reasoning", "code"],
+        "contextTokens": 4096
+      },
+      "bestFor": "Deeper reasoning, writing, and code on capable laptops — a larger model for a more careful, thorough answer than the everyday default.",
+      "knownLimitation": "Validated on high-memory Chromium WebGPU; a larger, slower download than the lighter Eco Fast model, and other browsers, low-memory devices, and a second machine are not yet proven.",
+      "evidenceTier": "predicted",
+      "systemRoleSupport": "native",
+      "artifact": {
+        "hfId": "onnx-community/LFM2-2.6B-ONNX",
+        "revision": "9655cd41239618886d6ebf9b4ff20b892b295f78",
+        "files": [
+          "onnx/model_q4f16.onnx",
+          "onnx/model_q4f16.onnx_data",
+          "chat_template.jinja",
+          "config.json",
+          "generation_config.json",
+          "special_tokens_map.json",
+          "tokenizer.json",
+          "tokenizer_config.json"
+        ]
+      }
     }
   ]
 }

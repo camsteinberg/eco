@@ -21,12 +21,13 @@ const V1_CATALOG_IDS = [
   "candidate/qwen2.5-0.5b-mlc",
   "candidate/qwen2.5-0.5b-instruct-onnx",
   "candidate/smollm2-360m-instruct-onnx",
+  "candidate/lfm2-2.6b-onnx",
 ] as const;
 
 describe("local model registry (v1 catalog)", () => {
-  it("contains exactly the 10 v1 catalog models", () => {
+  it("contains exactly the 11 v1 catalog models", () => {
     const entries = getLocalModelRegistryEntries();
-    expect(entries).toHaveLength(10);
+    expect(entries).toHaveLength(11);
     expect(entries.map((e) => e.modelId)).toEqual(
       expect.arrayContaining([...V1_CATALOG_IDS]),
     );
@@ -79,21 +80,21 @@ describe("local model registry (v1 catalog)", () => {
     expect(validationHfIds).toEqual(expect.arrayContaining(proxyHfIds));
     // Validation-allowed is strictly larger (the remaining eval candidates).
     expect(validationHfIds.length).toBeGreaterThan(proxyHfIds.length);
-    // Graduated candidates (LFM2.5-1.2B in #4 Phase 2, Qwen3.5-2B in chat #7)
-    // moved into the shipping catalog, so they are now proxy-allowed.
+    // Graduated candidates (LFM2.5-1.2B in #4 Phase 2, Qwen3.5-2B in chat #7, and
+    // the deeper LFM2-2.6B on 2026-08-10) moved into the shipping catalog, so they
+    // are now proxy-allowed.
     expect(proxyHfIds).toContain("LiquidAI/LFM2.5-1.2B-Instruct-ONNX");
     expect(proxyHfIds).toContain("onnx-community/Qwen3.5-2B-ONNX-OPT");
+    expect(proxyHfIds).toContain("onnx-community/LFM2-2.6B-ONNX");
     // The dev-only lane candidates are validation-allowed but NOT proxy-allowed:
-    // Qwen3-1.7B (parked non-viable), LFM2-2.6B (beaten smart-tier incumbent),
-    // Qwen3.5-4B (high-mem option), Gemma 4 E2B (eliminated). After the
-    // external-data graduation the OLD single-file Qwen3-0.6B repo
-    // (onnx-community/Qwen3-0.6B-ONNX) joined the lane too — it carries the q4
-    // load-peak cell and the retained single-file baseline, but the catalog now
-    // serves econetworkai/Qwen3-0.6B-ONNX-external-data instead.
+    // Qwen3-1.7B (parked non-viable), Qwen3.5-4B (high-mem option), Gemma 4 E2B
+    // (eliminated). After the external-data graduation the OLD single-file
+    // Qwen3-0.6B repo (onnx-community/Qwen3-0.6B-ONNX) joined the lane too — it
+    // carries the q4 load-peak cell and the retained single-file baseline, but the
+    // catalog now serves econetworkai/Qwen3-0.6B-ONNX-external-data instead.
     for (const laneHfId of [
       "onnx-community/Qwen3-1.7B-ONNX",
       "onnx-community/Qwen3-0.6B-ONNX",
-      "onnx-community/LFM2-2.6B-ONNX",
       "onnx-community/Qwen3.5-4B-ONNX-OPT",
       "onnx-community/gemma-4-E2B-it-ONNX",
       "litert-community/gemma-4-E4B-it-litert-lm",
@@ -136,7 +137,7 @@ describe("local model registry (v1 catalog)", () => {
     expect(proxyFilesForXd).toContain("onnx/model_q4f16.onnx_data");
   });
 
-  it("centralizes reviewed artifact identity for the graduated Qwen3.5-2B smart pick", () => {
+  it("centralizes reviewed artifact identity for Qwen3.5-2B (now an opt-in larger model)", () => {
     const artifact = getLocalModelRegistryArtifact("candidate/qwen3.5-2b-onnx");
     expect(artifact).toMatchObject({
       hfId: "onnx-community/Qwen3.5-2B-ONNX-OPT",

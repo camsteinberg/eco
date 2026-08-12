@@ -149,6 +149,17 @@ const CHAT_INTENT_MODEL_DATA: Record<string, ChatIntentModelSlice> = {
     qualityTier: "smart",
     maxNewTokens: { webgpu: 2048 },
   },
+  // Shipping deeper/eco-smart pick (LFM2-2.6B, graduated 2026-08-10 — beats the 2B
+  // on reasoning/history/code at equal speed). 2048 webgpu ceiling to match the
+  // deeper tier it replaces: depth is what it graduated FOR, and the legacy
+  // smart-tier 1024 would flatten the designed deep/code budgets and make "Expand"
+  // (canDeepen) a no-op. The lfm2 family is in the union.
+  "candidate/lfm2-2.6b-onnx": {
+    id: "candidate/lfm2-2.6b-onnx",
+    family: "lfm2",
+    qualityTier: "smart",
+    maxNewTokens: { webgpu: 2048 },
+  },
   // ─── Lab / validation-harness models (not in v1 catalog) ─────────────
   // These entries exist so allowValidationModel: true resolves generation
   // profiles during benchmark and eval harness runs. Their family strings
@@ -202,13 +213,6 @@ const CHAT_INTENT_MODEL_DATA: Record<string, ChatIntentModelSlice> = {
         writing: { topP: 0.92 },
       },
     },
-  },
-  // Smart-tier eval candidate (#4 Phase 2 follow-up); lfm2 family is in the union.
-  "candidate/lfm2-2.6b-onnx": {
-    id: "candidate/lfm2-2.6b-onnx",
-    family: "lfm2",
-    qualityTier: "smart",
-    maxNewTokens: { webgpu: 1024 },
   },
   // ─── Chat #7 M2 bake-off candidates (2026-06-10, dev-only lane) ───────
   // The gemma4 family is outside the v1 LocalModelFamily union, so that entry

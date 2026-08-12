@@ -269,6 +269,7 @@ describe('device/compatibility — WebGPU adapter without shader-f16', () => {
   // them (and never burns a multi-minute download on a model that can't run).
   const f16Models = [
     'candidate/qwen3.5-2b-onnx',
+    'candidate/lfm2-2.6b-onnx',
     'candidate/lfm2.5-1.2b-instruct-onnx',
     'local/phi3-mini-4k-q4f16',
     'local/qwen3-0.6b',
@@ -338,7 +339,7 @@ describe('device/compatibility — unclassifiable browser (unknown UA)', () => {
   });
 
   it('does NOT open premium models to unknown UAs (they stay chromium-only)', () => {
-    for (const id of ['candidate/qwen3.5-2b-onnx', 'candidate/lfm2.5-1.2b-instruct-onnx', 'local/phi3-mini-4k-q4f16', 'candidate/gemma-4-e2b-litert']) {
+    for (const id of ['candidate/qwen3.5-2b-onnx', 'candidate/lfm2-2.6b-onnx', 'candidate/lfm2.5-1.2b-instruct-onnx', 'local/phi3-mini-4k-q4f16', 'candidate/gemma-4-e2b-litert']) {
       expect(isAssignable(model(id), PROFILES.unknownWebgpu), `${id} must stay chromium-only`).toBe(false);
     }
   });
