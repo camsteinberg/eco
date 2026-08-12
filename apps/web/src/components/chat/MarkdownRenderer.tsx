@@ -168,6 +168,27 @@ function renderCellBreaks(children: React.ReactNode): React.ReactNode {
 }
 
 // ---------------------------------------------------------------------------
+// Code text extraction
+//
+// When syntax highlighting is active (rehype-highlight — which runs on every
+// finalized message and any closed fence), a fenced code block's `children`
+// are an array of highlight <span> element nodes, not a plain string.
+// `String(children)` on that array yields "[object Object],…", mangling the
+// code. Reconstruct the raw source by walking the node tree and concatenating
+// its text leaves in order — whitespace- and punctuation-exact.
+// ---------------------------------------------------------------------------
+
+function extractText(node: React.ReactNode): string {
+  if (typeof node === "string") return node;
+  if (typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(extractText).join("");
+  if (isValidElement(node)) {
+    return extractText((node.props as { children?: React.ReactNode }).children);
+  }
+  return "";
+}
+
+// ---------------------------------------------------------------------------
 // Static components (used when NOT streaming, or for reduced motion)
 // ---------------------------------------------------------------------------
 
@@ -186,7 +207,7 @@ const staticComponents: Components = {
   pre: ({ children }) => <>{children}</>,
   code: ({ className, children, ...props }) => {
     const match = /language-(\S+)/.exec(className ?? "");
-    const codeString = String(children).replace(/\n$/, "");
+    const codeString = extractText(children).replace(/\n$/, "");
 
     if (match) {
       const lang = match[1] ?? "text";

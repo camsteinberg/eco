@@ -118,6 +118,21 @@ describe('MarkdownRenderer', () => {
     expect(screen.getByRole('button', { name: /copy/i })).toBeInTheDocument()
   })
 
+  it('renders the exact code source in a highlighted fenced block, not [object Object]', () => {
+    // Regression: with syntax highlighting active (rehype-highlight, which runs
+    // on every finalized message), the code block's `children` become an array
+    // of highlight <span> element nodes. `String(children)` then produced
+    // "[object Object],[object Object],…", mangling every finished code block on
+    // all models since launch. The renderer must reconstruct the real source.
+    const source = 'const x = [...new Set(arr)].sort((a, b) => b - a);'
+    const md = '```javascript\n' + source + '\n```'
+    const { container } = render(<MarkdownRenderer content={md} />)
+    const code = container.querySelector('pre code')
+    expect(code).not.toBeNull()
+    expect(code!.textContent).toBe(source)
+    expect(container).not.toHaveTextContent('[object Object]')
+  })
+
   it('renders unordered lists', () => {
     const md = "- Item A\n- Item B\n- Item C"
     render(<MarkdownRenderer content={md} />)
