@@ -184,10 +184,11 @@ describe('recommend — per-slot preference', () => {
     const fast = recommend('eco-fast', PROFILE_24GB);
     const smart = recommend('eco-smart', PROFILE_24GB);
     // The 2026-08-10 LFM2-2.6B graduation re-split the slots the 2026-08-09 read had
-    // collapsed onto the 1.2B: eco-smart is now the deeper 2.6B (a 'predicted' tier
-    // pending a second-machine by-eye validation), eco-fast stays the fast 1.2B.
+    // collapsed onto the 1.2B: eco-smart is the deeper 2.6B, eco-fast stays the fast
+    // 1.2B. The 2.6B graduated from 'predicted' to 'proven' on 2026-08-12 after a
+    // real-eyes by-eye judged it decisively better than the 1.2B and the 2B.
     expect(smart.id).toBe('candidate/lfm2-2.6b-onnx');
-    expect(smart.evidenceTier).toBe('predicted');
+    expect(smart.evidenceTier).toBe('proven');
     expect(fast.capabilities.intent.includes('snappy') || fast.capabilities.intent.includes('balanced')).toBe(true);
   });
 });
