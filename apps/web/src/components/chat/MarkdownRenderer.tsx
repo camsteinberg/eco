@@ -188,6 +188,27 @@ function extractText(node: React.ReactNode): string {
   return "";
 }
 
+// Strip a single trailing newline from the (possibly highlighted) code node
+// tree. rehype-highlight preserves the fenced block's trailing "\n"; rendering
+// that verbatim would leave a blank final line in the <pre> — and would make the
+// block's textContent no longer equal the exact source. Walks only the last leaf
+// so the highlight spans stay intact.
+function trimTrailingNewline(node: React.ReactNode): React.ReactNode {
+  if (typeof node === "string") return node.replace(/\n$/, "");
+  if (Array.isArray(node)) {
+    if (node.length === 0) return node;
+    const lastIndex = node.length - 1;
+    const trimmedLast = trimTrailingNewline(node[lastIndex]);
+    return node.map((child, i) => (i === lastIndex ? trimmedLast : child));
+  }
+  if (isValidElement(node)) {
+    const kids = (node.props as { children?: React.ReactNode }).children;
+    if (kids === undefined) return node;
+    return cloneElement(node, undefined, trimTrailingNewline(kids));
+  }
+  return node;
+}
+
 // ---------------------------------------------------------------------------
 // Static components (used when NOT streaming, or for reduced motion)
 // ---------------------------------------------------------------------------
@@ -217,7 +238,11 @@ const staticComponents: Components = {
         return <ArtifactBlock code={codeString} type={artifactType} />;
       }
 
-      return <CodeBlock code={codeString} language={lang} />;
+      return (
+        <CodeBlock code={codeString} language={lang}>
+          {trimTrailingNewline(children)}
+        </CodeBlock>
+      );
     }
 
     return (

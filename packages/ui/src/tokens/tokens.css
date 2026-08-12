@@ -63,6 +63,17 @@
   --eco-code-link: #2d5a3d;
   --eco-code-link-decoration: #94c9a3;
 
+  /* Code syntax highlighting (highlight.js scopes → Greenhouse hues, on #ede7db) */
+  --eco-syntax-keyword: #b04a3a; /* terracotta — keywords, storage, selectors */
+  --eco-syntax-builtin: #2d5a3d; /* deep green — types, built-ins, classes */
+  --eco-syntax-string: #3d7a50; /* accent green — strings, regexp */
+  --eco-syntax-function: #3b6f99; /* sky — function/section titles, tag names */
+  --eco-syntax-number: #8a5e15; /* amber — numbers, literals */
+  --eco-syntax-comment: #857a68; /* muted — comments, quotes (italic) */
+  --eco-syntax-meta: #6b5e4f; /* earth — meta, symbols, tag punctuation */
+  --eco-syntax-addition: #137035; /* success green — diff additions */
+  --eco-syntax-deletion: #b04a3a; /* terracotta — diff deletions */
+
   /* Neutral (for components that used gray-*) */
   --eco-neutral-bg: #faf7f0;
   --eco-neutral-bg-muted: #f5f0e8;
@@ -211,6 +222,17 @@
   --eco-code-border: #333333;
   --eco-code-link: #7bc08e;
   --eco-code-link-decoration: #3a5a42;
+
+  /* Code syntax highlighting (on #2a2a2a) */
+  --eco-syntax-keyword: #e59a86; /* soft terracotta */
+  --eco-syntax-builtin: #7bc08e; /* brand green */
+  --eco-syntax-string: #94c9a3; /* accent green */
+  --eco-syntax-function: #7fb0d6; /* sky */
+  --eco-syntax-number: #d4a853; /* amber */
+  --eco-syntax-comment: #8f887b; /* muted (italic) */
+  --eco-syntax-meta: #a09888; /* earth */
+  --eco-syntax-addition: #4ade80; /* success green */
+  --eco-syntax-deletion: #e07060; /* coral */
 
   /* Neutral */
   --eco-neutral-bg: #252525;

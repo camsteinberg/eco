@@ -4,13 +4,21 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect } from "react";
+import type { ReactNode } from "react";
 
 type CodeBlockProps = {
   code: string;
   language: string;
+  /**
+   * Highlighted token nodes (rehype-highlight `hljs-*` spans) rendered for
+   * display so code shows real syntax colours. Falls back to the raw `code`
+   * string when highlighting hasn't run (e.g. an open fence mid-stream, or a
+   * direct caller). `code` is always the source of truth for copy.
+   */
+  children?: ReactNode;
 };
 
-export function CodeBlock({ code, language }: CodeBlockProps) {
+export function CodeBlock({ code, language, children }: CodeBlockProps) {
   const [copied, setCopied] = useState(false);
   const [wrap, setWrap] = useState(false);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
@@ -110,7 +118,7 @@ export function CodeBlock({ code, language }: CodeBlockProps) {
             wrap ? "whitespace-pre-wrap break-words" : "overflow-x-auto",
           ].join(" ")}
         >
-          <code>{code}</code>
+          <code className="eco-syntax">{children ?? code}</code>
         </pre>
       </div>
     </div>
