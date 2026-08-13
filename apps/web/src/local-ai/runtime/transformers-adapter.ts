@@ -342,6 +342,13 @@ export class TransformersAdapter implements RuntimeAdapter {
 
     const emit = options?.onLifecycleEvent;
     let firstTokenEmitted = false;
+    // Largest wall-clock gap between two consecutive streamed tokens, in ms —
+    // the #28 stall signature. Measured on the main-thread `now()` (performance
+    // clock) as worker token messages arrive; postMessage latency is sub-ms and
+    // negligible against a stall. `null` until a second token gives a first gap
+    // (the first token's latency is `firstTokenMs`, tracked separately).
+    let lastTokenAt: number | null = null;
+    let maxInterTokenGapMs: number | null = null;
 
     const generateId = this.options.generateId ?? defaultGenerateId;
     const generationId = generateId();
@@ -351,10 +358,15 @@ export class TransformersAdapter implements RuntimeAdapter {
     const onMessage = (event: MessageEvent<WorkerOutbound>): void => {
       const msg = event.data;
       if (msg.type === 'token' && msg.generationId === generationId) {
+        const tokenAt = now();
         if (!firstTokenEmitted) {
           firstTokenEmitted = true;
-          emit?.({ phase: 'first-token', at: now() });
+          emit?.({ phase: 'first-token', at: tokenAt });
+        } else if (lastTokenAt !== null) {
+          const gap = tokenAt - lastTokenAt;
+          if (maxInterTokenGapMs === null || gap > maxInterTokenGapMs) maxInterTokenGapMs = gap;
         }
+        lastTokenAt = tokenAt;
         controller.push({ kind: 'token', text: msg.text, seq: msg.seq });
         return;
       }
@@ -367,6 +379,7 @@ export class TransformersAdapter implements RuntimeAdapter {
           tokenizerName: msg.tokenizerName,
           kvReuse: msg.kvReuse,
           cjkSuppression: msg.cjkSuppression,
+          maxInterTokenGapMs,
         });
         controller.close();
         return;

@@ -51,7 +51,7 @@ import { isUpgradeInFlight } from "../local-ai/lifecycle/upgrade";
 import { MODEL_PREPARING_BUSY_MESSAGE, getActiveLocalHeavyWorkLease } from "../lib/local-heavy-work-owner";
 import { getActiveModel } from "../local-ai/runtime/lifecycle";
 import { createLocalAiLegacyInference } from "../local-ai/adapters/useChatLegacyShim";
-import { getLastUsage as getLocalAiLastUsage, getLastTemplateName as getLocalAiLastTemplateName } from "../local-ai/runtime/usage-store";
+import { getLastUsage as getLocalAiLastUsage, getLastTemplateName as getLocalAiLastTemplateName, ranToCapFromUsage } from "../local-ai/runtime/usage-store";
 import {
   TEMPLATE_MISSING_USER_MESSAGE,
   LOCAL_GENERATION_FALLBACK_MESSAGE,
@@ -1346,6 +1346,10 @@ export function useChat() {
             ...(primaryUsage?.cjkSuppression != null
               ? { cjkSuppression: primaryUsage.cjkSuppression }
               : {}),
+            ...(primaryUsage?.maxInterTokenGapMs !== undefined
+              ? { maxInterTokenGapMs: primaryUsage.maxInterTokenGapMs }
+              : {}),
+            ranToCap: ranToCapFromUsage(primaryUsage),
           }));
 
           const repairSystemPrompt = [systemPrompt, repair.systemInstruction].join("\n\n");
@@ -1441,6 +1445,10 @@ export function useChat() {
         completionTokens: lastUsage?.completionTokens ?? 0,
         ...(lastUsage?.kvReuse != null ? { kvReuse: lastUsage.kvReuse } : {}),
         ...(lastUsage?.cjkSuppression != null ? { cjkSuppression: lastUsage.cjkSuppression } : {}),
+        ...(lastUsage?.maxInterTokenGapMs !== undefined
+          ? { maxInterTokenGapMs: lastUsage.maxInterTokenGapMs }
+          : {}),
+        ranToCap: ranToCapFromUsage(lastUsage),
       }));
 
       // Only play the received sound when the turn wasn't user-stopped.

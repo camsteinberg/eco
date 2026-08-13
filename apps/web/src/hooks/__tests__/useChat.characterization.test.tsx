@@ -125,9 +125,16 @@ const shared = vi.hoisted(() => {
       systemPromptHash?: string;
       samplingProfile?: Record<string, unknown>;
       events?: Array<{ at: number; phase: string }>;
+      ranToCap?: boolean;
+      maxInterTokenGapMs?: number | null;
     }>,
     lastUsage: null as
-      | { promptTokens?: number; completionTokens?: number; maxTokens?: number }
+      | {
+          promptTokens?: number;
+          completionTokens?: number;
+          maxTokens?: number;
+          maxInterTokenGapMs?: number | null;
+        }
       | null,
     lastTemplateName: null as string | null,
     contextSafetyCalls: [] as Array<{
@@ -254,6 +261,13 @@ vi.mock("../../local-ai/runtime/usage-store", () => ({
   setLastTemplateName: (n: string | null) => {
     shared.lastTemplateName = n;
   },
+  // Faithful copy of the real helper (the receipt build calls it; without it the
+  // build closure throws and recordGenerationReceiptAsync silently drops the row).
+  ranToCapFromUsage: (u: { completionTokens?: number; maxTokens?: number } | null | undefined) =>
+    u?.completionTokens != null
+    && u.maxTokens != null
+    && u.maxTokens > 0
+    && u.completionTokens >= u.maxTokens,
 }));
 
 // ─── Receipt seam ──────────────────────────────────────────────────────────
@@ -269,6 +283,8 @@ type CapturedReceipt = {
   systemPromptHash?: string;
   samplingProfile?: Record<string, unknown>;
   events?: Array<{ at: number; phase: string }>;
+  ranToCap?: boolean;
+  maxInterTokenGapMs?: number | null;
 };
 
 vi.mock("../../local-ai/lifecycle/generation-receipt", () => ({
@@ -634,6 +650,39 @@ describe("useChat — normal on-device stream (sendMessage)", () => {
       topK: expect.any(Number),
       repetitionPenalty: expect.any(Number),
     });
+  });
+
+  it("records the #28 stall signals (ranToCap + maxInterTokenGapMs) on the completion receipt", async () => {
+    // Usage says the generation exhausted its budget (completionTokens >= maxTokens)
+    // and the adapter measured a large inter-token gap — the stall fingerprint.
+    setScripts([{ kind: "tokens", tokens: ["a", "b"] }]);
+    setLastUsage({ promptTokens: 7, completionTokens: 512, maxTokens: 512, maxInterTokenGapMs: 1800 });
+
+    const { result } = renderHook(() => useChat());
+    await act(async () => {
+      await result.current.sendMessage("hi");
+    });
+    await flushReceiptRecording();
+
+    const complete = recordedReceipts.find((r) => r.status === "complete");
+    expect(complete?.ranToCap).toBe(true);
+    expect(complete?.maxInterTokenGapMs).toBe(1800);
+  });
+
+  it("records ranToCap false and no gap when the generation stopped naturally", async () => {
+    setScripts([{ kind: "tokens", tokens: ["a", "b"] }]);
+    setLastUsage({ promptTokens: 7, completionTokens: 2, maxTokens: 512 });
+
+    const { result } = renderHook(() => useChat());
+    await act(async () => {
+      await result.current.sendMessage("hi");
+    });
+    await flushReceiptRecording();
+
+    const complete = recordedReceipts.find((r) => r.status === "complete");
+    expect(complete?.ranToCap).toBe(false);
+    // No maxInterTokenGapMs in usage → the field is omitted from the receipt.
+    expect(complete?.maxInterTokenGapMs).toBeUndefined();
   });
 
   it("records exactly one receipt, roled 'primary', when no repair runs", async () => {

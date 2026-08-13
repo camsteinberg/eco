@@ -456,6 +456,7 @@ export function EvalHarnessPanel() {
           { EVERYDAY_USE_PROBES },
           { EVERYDAY_CONVERSATION_PROBES },
           { CAPABILITY_PROBE_PROBES },
+          { CONVERSATION_INTEGRITY_PROBES },
         ] = await Promise.all([
           import('../../../src/local-ai/eval/prompts'),
           import('../../../src/local-ai/eval/shape-probes'),
@@ -463,6 +464,7 @@ export function EvalHarnessPanel() {
           import('../../../src/local-ai/eval/everyday-probes'),
           import('../../../src/local-ai/eval/everyday-conversation-probes'),
           import('../../../src/local-ai/eval/capability-probe'),
+          import('../../../src/local-ai/eval/conversation-integrity-probe'),
         ]);
         return [
           ...EVAL_PROMPTS,
@@ -473,6 +475,10 @@ export function EvalHarnessPanel() {
           // (and its `cap-*` prompt ids) resolve; it joins the run as extraPrompts
           // below, staying out of the harness's default checked-in pool.
           ...CAPABILITY_PROBE_PROBES,
+          // The conversation-integrity (#27 leak) probes ride the same way so
+          // `eco-eval-categories=conversation-integrity` and their `ci-*` ids
+          // resolve; they carry history, so they must join as extraPrompts below.
+          ...CONVERSATION_INTEGRITY_PROBES,
           // Both everyday sets are derived from their corpora, so neither is in
           // the harness's checked-in pool — they are named here so
           // `eco-eval-categories=everyday-use` / `=everyday-conversation` and
@@ -538,16 +544,19 @@ export function EvalHarnessPanel() {
           { EVERYDAY_USE_PROBES },
           { EVERYDAY_CONVERSATION_PROBES },
           { CAPABILITY_PROBE_PROBES },
+          { CONVERSATION_INTEGRITY_PROBES },
         ] = await Promise.all([
           import('../../../src/local-ai/eval/everyday-probes'),
           import('../../../src/local-ai/eval/everyday-conversation-probes'),
           import('../../../src/local-ai/eval/capability-probe'),
+          import('../../../src/local-ai/eval/conversation-integrity-probe'),
         ]);
         const wanted = new Set(promptIds);
         derivedExtraProbes = [
           ...EVERYDAY_USE_PROBES,
           ...EVERYDAY_CONVERSATION_PROBES,
           ...CAPABILITY_PROBE_PROBES,
+          ...CONVERSATION_INTEGRITY_PROBES,
         ].filter((p) => wanted.has(p.id));
       }
       const extraPrompts = [...tangentProbes, ...derivedExtraProbes];

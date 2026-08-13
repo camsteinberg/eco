@@ -130,6 +130,11 @@ vi.mock("../../local-ai/runtime/usage-store", () => ({
   setLastTemplateName: (n: string | null) => {
     shared.lastTemplateName = n;
   },
+  ranToCapFromUsage: (u: { completionTokens?: number; maxTokens?: number } | null | undefined) =>
+    u?.completionTokens != null
+    && u.maxTokens != null
+    && u.maxTokens > 0
+    && u.completionTokens >= u.maxTokens,
 }));
 
 vi.mock("../../local-ai/lifecycle/generation-receipt", () => ({

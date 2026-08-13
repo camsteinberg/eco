@@ -89,7 +89,7 @@ export type GenerateOptions = {
 
 export type TokenEvent =
   | { kind: 'token'; text: string; seq?: number }
-  | { kind: 'done'; promptTokens?: number; completionTokens?: number; tokenizerName?: string; kvReuse?: KvReuseTelemetry; cjkSuppression?: CjkSuppressionTelemetry }
+  | { kind: 'done'; promptTokens?: number; completionTokens?: number; tokenizerName?: string; kvReuse?: KvReuseTelemetry; cjkSuppression?: CjkSuppressionTelemetry; maxInterTokenGapMs?: number | null }
   | { kind: 'error'; reason: string; code?: AdapterErrorCode };
 
 export type AdapterErrorCode =

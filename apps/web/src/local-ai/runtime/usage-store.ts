@@ -44,6 +44,13 @@ export type LocalAiUsage = {
    * guard active on this turn, and why not?" is answerable from diagnostics.
    */
   cjkSuppression?: CjkSuppressionTelemetry;
+  /**
+   * Largest gap between two consecutive streamed tokens, in ms (transformers
+   * path; `null` when fewer than two tokens streamed). The #28 stall signature:
+   * a large value with `completionTokens` at the cap is a decode stall filling
+   * the budget, not a slow-but-steady generation. Threaded into the receipt.
+   */
+  maxInterTokenGapMs?: number | null;
 };
 
 let lastUsage: LocalAiUsage | null = null;
@@ -61,6 +68,23 @@ export function setLastUsage(usage: LocalAiUsage | null): void {
 
 export function getLastUsage(): LocalAiUsage | null {
   return lastUsage;
+}
+
+/**
+ * Did a generation stop by exhausting its token budget rather than emitting a
+ * stop token? Exact `completionTokens >= maxTokens`, deliberately matching the
+ * eval harness's `hitTokenCap` so a live receipt and a harness result read the
+ * #28 "ran to cap" signal identically. Stricter than the truncation-UI heuristic
+ * (`possiblyTruncated`, 0.95 * maxTokens). Returns false when either count is
+ * unknown or the cap is non-positive.
+ */
+export function ranToCapFromUsage(usage: LocalAiUsage | null | undefined): boolean {
+  return (
+    usage?.completionTokens != null
+    && usage.maxTokens != null
+    && usage.maxTokens > 0
+    && usage.completionTokens >= usage.maxTokens
+  );
 }
 
 export function setLastTemplateName(name: string | null): void {
