@@ -74,6 +74,7 @@ import { saveEvalRun } from './storage';
 import { EVAL_PROMPTS } from './prompts';
 import { FELT_PROBES } from './felt-probes';
 import { SHAPE_PROBES, SHAPE_RESEARCH_ARMS } from './shape-probes';
+import { CONTEXT_STRESS_PROBES } from './context-stress-probes';
 import type {
   EvalEverydayArmId,
   EvalMessageTopology,
@@ -356,10 +357,12 @@ function runtimeAdapterFor(model: ModelConfig): EvalRuntimeAdapter {
 
 /**
  * Pick the prompt specs to run from the fixed ∪ shape ∪ felt (∪ research arms
- * ∪ extra) pool, preserving pool order. The answer-shape probes are part of
- * the permanent bar (like felt probes); the research arms join only when
- * explicitly requested. Extras are deduped by id — the checked-in spec always
- * wins a collision.
+ * ∪ context-stress ∪ extra) pool, preserving pool order. The answer-shape
+ * probes are part of the permanent bar (like felt probes); the research arms
+ * and the diagnostic context-stress headroom probes join only when explicitly
+ * requested (`includeResearchArms`, off by default), so a full run's default
+ * set and its fingerprint stay unchanged. Extras are deduped by id — the
+ * checked-in spec always wins a collision.
  */
 function selectPrompts(
   promptIds?: string[],
@@ -370,7 +373,7 @@ function selectPrompts(
     ...EVAL_PROMPTS,
     ...SHAPE_PROBES,
     ...FELT_PROBES,
-    ...(includeResearchArms ? SHAPE_RESEARCH_ARMS : []),
+    ...(includeResearchArms ? [...SHAPE_RESEARCH_ARMS, ...CONTEXT_STRESS_PROBES] : []),
   ];
   const seen = new Set(pool.map((p) => p.id));
   for (const spec of extraPrompts ?? []) {
