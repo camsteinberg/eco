@@ -6,16 +6,19 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ProgressEvent } from '../../local-ai/download/progress';
 import type { ModelConfig } from '../../local-ai/types';
+import type { FirstRunChoiceOffer } from '../../local-ai/selection/first-run-choices';
 
 /**
  * Setup state machine the WelcomeSetup component renders against.
  *
  * Status values map 1:1 to vision §1:
- *   - 'initializing'  : we don't know yet what state the device is in
- *   - 'below-floor'   : isBelowFloor() = true, render BelowFloorScreen
- *   - 'setting-up'    : downloading/smoke in progress, render botanical animation
- *   - 'ready'         : a model is loaded and smoke-passed, transition to chat
- *   - 'error'         : setup failed after retries, render SetupErrorState
+ *   - 'initializing'    : we don't know yet what state the device is in
+ *   - 'below-floor'     : isBelowFloor() = true, render BelowFloorScreen
+ *   - 'awaiting-choice' : fresh device, waiting on the user's first-run model
+ *                         pick, render WelcomeCard from `choiceOffer`
+ *   - 'setting-up'      : downloading/smoke in progress, render botanical animation
+ *   - 'ready'           : a model is loaded and smoke-passed, transition to chat
+ *   - 'error'           : setup failed after retries, render SetupErrorState
  *
  * The hook is a controlled state container — it does NOT call the
  * download/smoke pipeline itself. Consumers compose those calls via the
@@ -25,6 +28,7 @@ import type { ModelConfig } from '../../local-ai/types';
 export type EcoSetupStatus =
   | 'initializing'
   | 'below-floor'
+  | 'awaiting-choice'
   | 'setting-up'
   | 'ready'
   | 'error';
@@ -56,6 +60,9 @@ export type EcoSetupState = {
    * download / reconcile flip) rather than recommending fresh — WelcomeSetup
    * softens its copy to "finishing your download". */
   resuming: boolean;
+  /** The first-run model offer to render on the welcome card. Non-null only
+   * while status === 'awaiting-choice'. */
+  choiceOffer: FirstRunChoiceOffer | null;
 };
 
 export type EcoSetupActions = {
@@ -76,6 +83,13 @@ export type EcoSetupActions = {
   markFindingFit(): void;
   /** Called when start() resumes a bound-but-unfinished pick. */
   markResuming(): void;
+  /** Called when the runner offers the first-run model choice — renders the
+   * welcome card from the given offer. */
+  presentChoice(offer: FirstRunChoiceOffer): void;
+  /** Called the instant the user commits their choice, before the first
+   * download event, so the card is replaced by the setup surface without a
+   * flash of the card. */
+  markSetupStarting(): void;
 };
 
 export type UseEcoSetupReturn = EcoSetupState & {
@@ -101,6 +115,7 @@ const INITIAL_STATE: EcoSetupState = {
   errorExhausted: false,
   errorTriedModelCount: 0,
   resuming: false,
+  choiceOffer: null,
 };
 
 export function useEcoSetup(): UseEcoSetupReturn {
@@ -189,9 +204,24 @@ export function useEcoSetup(): UseEcoSetupReturn {
     setState((s) => ({ ...s, resuming: true }));
   }, []);
 
+  const presentChoice = useCallback((offer: FirstRunChoiceOffer) => {
+    setState((s) => ({ ...s, status: 'awaiting-choice', choiceOffer: offer }));
+  }, []);
+
+  const markSetupStarting = useCallback(() => {
+    setState((s) => ({
+      ...s,
+      status: 'setting-up',
+      phase: 'downloading',
+      percent: 0,
+      etaSeconds: 90,
+      choiceOffer: null,
+    }));
+  }, []);
+
   const actions = useMemo<EcoSetupActions>(
-    () => ({ onProgressEvent, setBelowFloor, setReady, setError, reset, markPriorAttemptFailed, markFindingFit, markResuming }),
-    [onProgressEvent, setBelowFloor, setReady, setError, reset, markPriorAttemptFailed, markFindingFit, markResuming],
+    () => ({ onProgressEvent, setBelowFloor, setReady, setError, reset, markPriorAttemptFailed, markFindingFit, markResuming, presentChoice, markSetupStarting }),
+    [onProgressEvent, setBelowFloor, setReady, setError, reset, markPriorAttemptFailed, markFindingFit, markResuming, presentChoice, markSetupStarting],
   );
 
   return { ...state, actions };
