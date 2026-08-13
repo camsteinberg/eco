@@ -629,6 +629,65 @@ button:disabled,
   color: var(--eco-text);
 }
 
+/* ── Code syntax highlighting — highlight.js scopes → Greenhouse hues ─────────
+   rehype-highlight emits `hljs-*` classes on token spans inside finalized fenced
+   code blocks. CodeBlock tags its <code> with `.eco-syntax`; these rules map each
+   scope to a per-theme token (tokens.css). A restrained five-hue palette so code
+   reads as part of the Eco world, not a foreign editor theme. Uncoloured scopes
+   (variables, params, punctuation, operators) inherit the block's body colour on
+   purpose. ── */
+.eco-syntax .hljs-keyword,
+.eco-syntax .hljs-selector-tag,
+.eco-syntax .hljs-selector-id,
+.eco-syntax .hljs-selector-class {
+  color: var(--eco-syntax-keyword);
+}
+.eco-syntax .hljs-built_in,
+.eco-syntax .hljs-type,
+.eco-syntax .hljs-class {
+  color: var(--eco-syntax-builtin);
+}
+.eco-syntax .hljs-string,
+.eco-syntax .hljs-regexp,
+.eco-syntax .hljs-char {
+  color: var(--eco-syntax-string);
+}
+.eco-syntax .hljs-title,
+.eco-syntax .hljs-section,
+.eco-syntax .hljs-name {
+  color: var(--eco-syntax-function);
+}
+.eco-syntax .hljs-number,
+.eco-syntax .hljs-literal {
+  color: var(--eco-syntax-number);
+}
+.eco-syntax .hljs-comment,
+.eco-syntax .hljs-quote {
+  color: var(--eco-syntax-comment);
+  font-style: italic;
+}
+.eco-syntax .hljs-meta,
+.eco-syntax .hljs-symbol,
+.eco-syntax .hljs-bullet,
+.eco-syntax .hljs-tag {
+  color: var(--eco-syntax-meta);
+}
+.eco-syntax .hljs-addition {
+  color: var(--eco-syntax-addition);
+}
+.eco-syntax .hljs-deletion {
+  color: var(--eco-syntax-deletion);
+}
+.eco-syntax .hljs-emphasis {
+  font-style: italic;
+}
+.eco-syntax .hljs-strong {
+  font-weight: 600;
+}
+.eco-syntax .hljs-link {
+  text-decoration: underline;
+}
+
 /* ── Search: scroll-to-message highlight ────────────────── */
 
 .message-highlight {

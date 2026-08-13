@@ -133,6 +133,22 @@ describe('MarkdownRenderer', () => {
     expect(container).not.toHaveTextContent('[object Object]')
   })
 
+  it('renders live syntax-highlight spans on a finalized fenced block', () => {
+    // Guard for the launch-era defect where rehype-highlight ran but its output
+    // was discarded (the code was flattened to a plain string), so code showed
+    // as flat monospace and the highlight compute was wasted. The <code> must
+    // carry the .eco-syntax scope class and the token spans must survive.
+    const md = '```javascript\nconst x = 1;\n```'
+    const { container } = render(<MarkdownRenderer content={md} />)
+    const code = container.querySelector('pre code')
+    expect(code).not.toBeNull()
+    expect(code!.classList.contains('eco-syntax')).toBe(true)
+    // `const` is a keyword span — highlighting is alive, not thrown away.
+    expect(container.querySelector('.hljs-keyword')).not.toBeNull()
+    // …and the exact source is still preserved (no trailing blank line).
+    expect(code!.textContent).toBe('const x = 1;')
+  })
+
   it('renders unordered lists', () => {
     const md = "- Item A\n- Item B\n- Item C"
     render(<MarkdownRenderer content={md} />)
