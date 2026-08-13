@@ -455,18 +455,24 @@ export function EvalHarnessPanel() {
           { FELT_PROBES },
           { EVERYDAY_USE_PROBES },
           { EVERYDAY_CONVERSATION_PROBES },
+          { CAPABILITY_PROBE_PROBES },
         ] = await Promise.all([
           import('../../../src/local-ai/eval/prompts'),
           import('../../../src/local-ai/eval/shape-probes'),
           import('../../../src/local-ai/eval/felt-probes'),
           import('../../../src/local-ai/eval/everyday-probes'),
           import('../../../src/local-ai/eval/everyday-conversation-probes'),
+          import('../../../src/local-ai/eval/capability-probe'),
         ]);
         return [
           ...EVAL_PROMPTS,
           ...SHAPE_PROBES,
           ...FELT_PROBES,
           ...(includeResearchArms ? SHAPE_RESEARCH_ARMS : []),
+          // The capability probe rides here so `eco-eval-categories=capability-probe`
+          // (and its `cap-*` prompt ids) resolve; it joins the run as extraPrompts
+          // below, staying out of the harness's default checked-in pool.
+          ...CAPABILITY_PROBE_PROBES,
           // Both everyday sets are derived from their corpora, so neither is in
           // the harness's checked-in pool — they are named here so
           // `eco-eval-categories=everyday-use` / `=everyday-conversation` and
@@ -526,18 +532,25 @@ export function EvalHarnessPanel() {
       // actually names one: a run that selected none carries exactly the
       // extras it carried before this existed. The conversation probes must
       // ride the same way or their `history` never reaches the harness.
-      let everydayProbes: EvalPromptSpec[] = [];
+      let derivedExtraProbes: EvalPromptSpec[] = [];
       if (promptIds && promptIds.length > 0) {
-        const [{ EVERYDAY_USE_PROBES }, { EVERYDAY_CONVERSATION_PROBES }] = await Promise.all([
+        const [
+          { EVERYDAY_USE_PROBES },
+          { EVERYDAY_CONVERSATION_PROBES },
+          { CAPABILITY_PROBE_PROBES },
+        ] = await Promise.all([
           import('../../../src/local-ai/eval/everyday-probes'),
           import('../../../src/local-ai/eval/everyday-conversation-probes'),
+          import('../../../src/local-ai/eval/capability-probe'),
         ]);
         const wanted = new Set(promptIds);
-        everydayProbes = [...EVERYDAY_USE_PROBES, ...EVERYDAY_CONVERSATION_PROBES].filter((p) =>
-          wanted.has(p.id),
-        );
+        derivedExtraProbes = [
+          ...EVERYDAY_USE_PROBES,
+          ...EVERYDAY_CONVERSATION_PROBES,
+          ...CAPABILITY_PROBE_PROBES,
+        ].filter((p) => wanted.has(p.id));
       }
-      const extraPrompts = [...tangentProbes, ...everydayProbes];
+      const extraPrompts = [...tangentProbes, ...derivedExtraProbes];
 
       await handleRun({
         modelIds: validIds,
