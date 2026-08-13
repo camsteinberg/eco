@@ -5,7 +5,8 @@
 
 import { useCallback, useEffect, useRef } from 'react';
 import { executeSetup } from '../../local-ai/lifecycle/setup-runner';
-import type { Slot } from '../../local-ai/types';
+import type { ModelConfig, Slot } from '../../local-ai/types';
+import type { FirstRunChoiceOffer } from '../../local-ai/selection/first-run-choices';
 import { useEcoSetup, type UseEcoSetupReturn } from './useEcoSetup';
 
 /**
@@ -31,12 +32,29 @@ export type UseLocalAiSetupOptions = {
 
 export type UseLocalAiSetupReturn = UseEcoSetupReturn & {
   start(): Promise<void>;
+  /** Commit the user's first-run model choice (by catalog id). Resolves the
+   * runner's pending choice request so the download begins with that model. */
+  choose(modelId: string): void;
 };
 
 export function useLocalAiSetup(options: UseLocalAiSetupOptions = {}): UseLocalAiSetupReturn {
   const slot: Slot = options.slot ?? 'eco-fast';
   const setup = useEcoSetup();
   const startedRef = useRef(false);
+  // Resolver for the in-flight first-run choice promise. Set when the runner
+  // asks for a choice; called by `choose()` when the user commits.
+  const choiceResolverRef = useRef<((model: ModelConfig) => void) | null>(null);
+
+  const presentChoice = setup.actions.presentChoice;
+  const requestChoice = useCallback(
+    (offer: FirstRunChoiceOffer): Promise<ModelConfig> => {
+      presentChoice(offer);
+      return new Promise<ModelConfig>((resolve) => {
+        choiceResolverRef.current = resolve;
+      });
+    },
+    [presentChoice],
+  );
 
   const start = useCallback(async (): Promise<void> => {
     if (startedRef.current) return;
@@ -51,9 +69,23 @@ export function useLocalAiSetup(options: UseLocalAiSetupOptions = {}): UseLocalA
         markFindingFit: setup.actions.markFindingFit,
         markResuming: setup.actions.markResuming,
       },
-      { slot, skipBootstrap: options.skipBootstrap },
+      { slot, skipBootstrap: options.skipBootstrap, requestChoice },
     );
-  }, [slot, setup.actions, options.skipBootstrap]);
+  }, [slot, setup.actions, options.skipBootstrap, requestChoice]);
+
+  const choiceOffer = setup.choiceOffer;
+  const markSetupStarting = setup.actions.markSetupStarting;
+  const choose = useCallback(
+    (modelId: string): void => {
+      const resolve = choiceResolverRef.current;
+      const model = choiceOffer?.models.find((m) => m.id === modelId);
+      if (!resolve || !model) return;
+      choiceResolverRef.current = null;
+      markSetupStarting();
+      resolve(model);
+    },
+    [choiceOffer, markSetupStarting],
+  );
 
   // Allow `reset()` from useEcoSetup to clear our latched startedRef.
   const reset = setup.actions.reset;
@@ -63,5 +95,5 @@ export function useLocalAiSetup(options: UseLocalAiSetupOptions = {}): UseLocalA
     }
   }, [setup.status, reset]);
 
-  return { ...setup, start };
+  return { ...setup, start, choose };
 }

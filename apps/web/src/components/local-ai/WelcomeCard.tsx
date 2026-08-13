@@ -70,7 +70,7 @@ export function WelcomeCard({
       aria-label="Welcome to Eco — choose your model"
     >
       <motion.div
-        className="grain-subtle relative w-full max-w-xl rounded-3xl px-7 py-8 sm:px-10 sm:py-10"
+        className="grain-subtle relative w-full max-w-xl rounded-3xl px-7 py-6 sm:px-10 sm:py-6"
         style={{
           background: 'var(--eco-surface-elevated)',
           border: '1px solid var(--eco-border)',
@@ -86,7 +86,7 @@ export function WelcomeCard({
         <div className="flex flex-col items-center text-center">
           <LeafMark />
           <h1
-            className="mt-4 text-3xl tracking-tight sm:text-4xl"
+            className="mt-2 text-3xl tracking-tight sm:text-4xl"
             style={{ fontFamily: 'var(--eco-font-display)', color: 'var(--eco-text)' }}
           >
             Welcome to Eco
@@ -98,7 +98,7 @@ export function WelcomeCard({
 
         {/* Mission + water story */}
         <p
-          className="mx-auto mt-5 max-w-md text-center text-[15px] leading-relaxed"
+          className="mx-auto mt-3 max-w-lg text-center text-[15px] leading-normal"
           style={{ color: 'var(--eco-text-secondary)' }}
         >
           Most AI runs in data centers. Your messages get sent there to be answered, and the
@@ -107,9 +107,9 @@ export function WelcomeCard({
         </p>
 
         {/* The signature: water comparison visual */}
-        <div className="mt-6">
+        <div className="mt-4">
           <WaterComparison />
-          <div className="mt-2 text-center">
+          <div className="mt-1.5 text-center">
             <a
               href={impactHref}
               className="text-xs font-medium underline decoration-[var(--eco-primary)]/40 underline-offset-2 transition-opacity hover:opacity-70"
@@ -121,7 +121,7 @@ export function WelcomeCard({
         </div>
 
         {/* Model choice */}
-        <div className="mt-8">
+        <div className="mt-5">
           <div className="text-center">
             <p className="text-sm font-semibold" style={{ color: 'var(--eco-text)' }}>
               {single ? 'Your model' : 'Pick the model that fits your device'}
@@ -132,7 +132,7 @@ export function WelcomeCard({
           </div>
 
           <div
-            className={`mt-4 grid gap-3 ${single ? 'grid-cols-1' : 'grid-cols-1 sm:grid-cols-2'}`}
+            className={`mt-3 grid gap-3 ${single ? 'grid-cols-1' : 'grid-cols-1 sm:grid-cols-2'}`}
             role={single ? undefined : 'radiogroup'}
             aria-label="Choose your model"
           >
@@ -153,7 +153,7 @@ export function WelcomeCard({
         <button
           type="button"
           onClick={() => selected && onChoose(selected.id)}
-          className="mt-7 flex min-h-12 w-full items-center justify-center gap-2 rounded-full px-6 text-base font-semibold transition-transform active:scale-[0.99]"
+          className="mt-4 flex min-h-12 w-full items-center justify-center gap-2 rounded-full px-6 text-base font-semibold transition-transform active:scale-[0.99]"
           style={{ background: 'var(--eco-primary)', color: 'var(--eco-on-primary)' }}
         >
           {single ? `Start with ${selected?.name ?? 'Eco'}` : `Start with ${selected?.name ?? ''}`}
@@ -184,7 +184,7 @@ function ModelChoiceTile({
       onClick={onSelect}
       role={selectable ? 'radio' : undefined}
       aria-checked={selectable ? selected : undefined}
-      className="relative flex flex-col rounded-2xl px-4 py-4 text-left transition-colors"
+      className="relative flex flex-col rounded-2xl px-4 py-3.5 text-left transition-colors"
       style={{
         background: selected ? 'var(--eco-primary-soft)' : 'var(--eco-surface)',
         border: `1.5px solid ${selected ? 'var(--eco-primary)' : 'var(--eco-border)'}`,
@@ -243,11 +243,11 @@ function Meter({ label, value }: { label: string; value: number }) {
 function LeafMark() {
   return (
     <span
-      className="flex h-12 w-12 items-center justify-center rounded-2xl"
+      className="flex h-10 w-10 items-center justify-center rounded-2xl"
       style={{ background: 'var(--eco-primary-soft)' }}
       aria-hidden="true"
     >
-      <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
         <path
           d="M12 3C12 3 5 8 5 14a7 7 0 0014 0c0-6-7-11-7-11Z"
           fill="var(--eco-primary)"
@@ -274,7 +274,7 @@ function LeafMark() {
 function WaterComparison() {
   return (
     <div
-      className="mx-auto w-full max-w-md rounded-2xl px-4 py-4"
+      className="mx-auto w-full max-w-md rounded-2xl px-4 py-3"
       style={{ background: 'var(--eco-surface)', border: '1px solid var(--eco-border-muted)' }}
     >
       <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">

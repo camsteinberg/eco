@@ -22,6 +22,7 @@ import { isBelowFloor } from '../device/below-floor';
 import { recommend } from '../index';
 import { nextInCascade } from '../selection/cascade';
 import { NoAssignableModelError, starterModelForSlot } from '../selection/recommend';
+import { deriveFirstRunChoices, type FirstRunChoiceOffer } from '../selection/first-run-choices';
 import { recordEvidence } from '../evidence/ledger';
 import { resolveSetupProfile } from '../device/profile';
 import { runSetupCascade, type AttemptResult } from './setup-cascade';
@@ -54,6 +55,10 @@ export type SetupSeams = {
   runAttempt: (slot: Slot, model: ModelConfig, onProgressEvent: (e: ProgressEvent) => void) => Promise<AttemptResult>;
   /** Stage A starter pick — smallest offerable model for the slot (null = none). */
   starterModelForSlot: (slot: Slot, profile: DeviceProfile) => ModelConfig | null;
+  /** First-run offer: the device-appropriate models to present on the welcome
+   *  card (1–2), plus which one is recommended. Domain-only; the UI maps them
+   *  to card copy. */
+  deriveFirstRunChoices: (slot: Slot, profile: DeviceProfile) => FirstRunChoiceOffer;
   /** True when the model is downloaded in whatever store its runtime serves
    *  from — Eco's own cache, or (for a `webllm` model) WebLLM's cache, into
    *  which the bridge stages and empties the Eco copy. */
@@ -70,6 +75,14 @@ export type SetupRunnerOptions = {
    * triage and real-browser journeys.
    */
   starterFirst?: boolean;
+  /**
+   * First-run choice bridge. When provided AND the slot is genuinely fresh
+   * (no bound model, not resuming, not below-floor), the runner offers the
+   * user a choice of model and awaits their pick, using it as the first pick
+   * (which bypasses starter-first — an explicit choice is never downgraded).
+   * Omitted (tests, non-first-run) → the runner auto-recommends as before.
+   */
+  requestChoice?: (offer: FirstRunChoiceOffer) => Promise<ModelConfig>;
   seams?: Partial<SetupSeams>;
 };
 
@@ -123,6 +136,24 @@ async function chooseFirstPick(
   const cached = await seams.isModelCached(classBest).catch(() => false);
   if (cached) return classBest;
   return seams.starterModelForSlot(slot, profile) ?? classBest;
+}
+
+/**
+ * Offer the first-run model choice and await the user's pick. Returns the chosen
+ * model, or null when there is nothing to choose (no offerable models) so the
+ * caller falls through to the normal auto-recommendation. `deriveFirstRunChoices`
+ * throwing `NoAssignableModelError` propagates — the executeSetup catch routes it
+ * to the honest below-floor surface, matching the auto-recommend path.
+ */
+async function requestFirstRunChoice(
+  slot: Slot,
+  profile: DeviceProfile,
+  seams: SetupSeams,
+  requestChoice: (offer: FirstRunChoiceOffer) => Promise<ModelConfig>,
+): Promise<ModelConfig | null> {
+  const offer = seams.deriveFirstRunChoices(slot, profile);
+  if (offer.models.length === 0) return null;
+  return requestChoice(offer);
 }
 
 /** Default real attempt: download → smoke, wired to the progress tracker. */
@@ -187,6 +218,7 @@ export const DEFAULT_SEAMS: SetupSeams = {
   recordEvidence,
   runAttempt: defaultRunAttempt,
   starterModelForSlot: (slot, profile) => starterModelForSlot(slot, profile),
+  deriveFirstRunChoices,
   isModelCached: (model) => isModelDownloaded(model),
 };
 
@@ -244,12 +276,24 @@ export async function executeSetup(
 
   let result;
   try {
+    // A fresh, unbound slot on a servable device: offer the user a model choice
+    // (the welcome card) and use their pick as the first rung. An explicit
+    // choice bypasses starter-first entirely — we never downgrade what the user
+    // deliberately selected. Only fires when a choice bridge is wired AND the
+    // slot has no prior binding ('empty'); resume/retry/ready paths skip it.
+    const chosenFirstPick =
+      !resumeModel && options.requestChoice && current.status === 'empty'
+        ? await requestFirstRunChoice(slot, profile, seams, options.requestChoice)
+        : null;
+
     // Stage A: resolve the ladder's first rung up front. A resumed bound pick
-    // takes precedence; otherwise the starter unless the class-best is already
-    // fully cached. The cascade's recommend seam then returns that precomputed
-    // pick — cache probing is async and the cascade's recommend contract is
-    // sync, so the choice has to happen out here.
-    const firstPick = resumeModel
+    // takes precedence, then an explicit user choice; otherwise the starter
+    // unless the class-best is already fully cached. The cascade's recommend
+    // seam then returns that precomputed pick — cache probing is async and the
+    // cascade's recommend contract is sync, so the choice has to happen out here.
+    const firstPick =
+      resumeModel
+      ?? chosenFirstPick
       ?? await chooseFirstPick(slot, profile, seams, resolveStarterFirst(options));
     result = await runSetupCascade({
       slot,

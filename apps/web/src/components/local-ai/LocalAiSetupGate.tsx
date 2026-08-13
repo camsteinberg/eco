@@ -12,6 +12,8 @@ import { isWebKitMobile } from '../../local-ai/device/compatibility';
 import type { BelowFloorReasonKind } from './BelowFloorScreen';
 import { useChatStore } from '../../stores/chatStore';
 import { WelcomeSetup } from './WelcomeSetup';
+import { WelcomeCard } from './WelcomeCard';
+import { toWelcomeChoices } from './welcome-choices';
 import { SetupErrorState } from './SetupErrorState';
 import { BelowFloorScreen } from './BelowFloorScreen';
 
@@ -84,6 +86,19 @@ export function LocalAiSetupGate({
           void setup.start();
         }}
         onTellUsMore={onTellUsMore ?? (() => undefined)}
+      />
+    );
+  }
+
+  if (setup.status === 'awaiting-choice' && setup.choiceOffer) {
+    // First run on a servable device: let the user pick their model before any
+    // download. The runner already ran below-floor detection, so we only reach
+    // here on a device that can serve at least one model.
+    return (
+      <WelcomeCard
+        choices={toWelcomeChoices(setup.choiceOffer.models)}
+        recommendedId={setup.choiceOffer.recommendedId}
+        onChoose={(id) => setup.choose(id)}
       />
     );
   }
