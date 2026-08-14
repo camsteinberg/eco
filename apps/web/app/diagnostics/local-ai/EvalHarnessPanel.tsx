@@ -457,6 +457,7 @@ export function EvalHarnessPanel() {
           { EVERYDAY_CONVERSATION_PROBES },
           { CAPABILITY_PROBE_PROBES },
           { CONVERSATION_INTEGRITY_PROBES },
+          { CONTEXT_STRESS_PROBES },
         ] = await Promise.all([
           import('../../../src/local-ai/eval/prompts'),
           import('../../../src/local-ai/eval/shape-probes'),
@@ -465,6 +466,7 @@ export function EvalHarnessPanel() {
           import('../../../src/local-ai/eval/everyday-conversation-probes'),
           import('../../../src/local-ai/eval/capability-probe'),
           import('../../../src/local-ai/eval/conversation-integrity-probe'),
+          import('../../../src/local-ai/eval/context-stress-probes'),
         ]);
         return [
           ...EVAL_PROMPTS,
@@ -479,6 +481,11 @@ export function EvalHarnessPanel() {
           // `eco-eval-categories=conversation-integrity` and their `ci-*` ids
           // resolve; they carry history, so they must join as extraPrompts below.
           ...CONVERSATION_INTEGRITY_PROBES,
+          // Mirror the harness's selectPrompts pool: the diagnostic context-
+          // stress headroom probes are reachable only under the research-arms
+          // gate, so `eco-eval-prompts=ctx-stress-…` (with eco-eval-arms=1)
+          // passes id-validation here and reaches the harness.
+          ...(includeResearchArms ? CONTEXT_STRESS_PROBES : []),
           // Both everyday sets are derived from their corpora, so neither is in
           // the harness's checked-in pool — they are named here so
           // `eco-eval-categories=everyday-use` / `=everyday-conversation` and
