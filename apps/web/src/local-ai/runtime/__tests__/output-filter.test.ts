@@ -10,6 +10,7 @@ import {
   createFilterChain,
   flushFilterChain,
   processThroughChain,
+  promptStartsInThinkBlock,
 } from '../output-filter';
 
 describe('ThinkTagFilter', () => {
@@ -168,6 +169,85 @@ describe('ThinkTagFilter — stray closing tags', () => {
   });
 });
 
+describe('ThinkTagFilter — seeded inside a think block (LFM2.5)', () => {
+  /**
+   * ★ THE LFM2.5 REPRODUCTION. LFM2.5's chat template ends EVERY generation
+   * prompt with `<|im_start|>assistant\n<think>` — an unmatched OPEN, no
+   * `enable_thinking` gate. With `skip_prompt`, that open is never streamed, so
+   * the model's OUTPUT begins as `<reasoning> </think> <answer>` with no opening
+   * tag of its own. Unseeded, the stray-close path emits the reasoning ahead of
+   * the `</think>` (the observed "The user wants… I should…" leak). Seeded, the
+   * reasoning up to the first `</think>` is discarded, leaving only the answer.
+   */
+  it('discards the prefilled reasoning up to the first </think>', () => {
+    const f = new ThinkTagFilter({ startInsideThink: true });
+    let out = f.process(
+      'The user wants the capital of France. I should answer directly.</think>\n\nParis.',
+    );
+    out += f.flush();
+    expect(out).toBe('Paris.');
+  });
+
+  it('strips seeded reasoning even when </think> is split across chunks', () => {
+    const f = new ThinkTagFilter({ startInsideThink: true });
+    let out = f.process('reasoning about it </');
+    out += f.process('think');
+    out += f.process('>Answer.');
+    out += f.flush();
+    expect(out).toBe('Answer.');
+  });
+
+  it('yields empty output when the seeded reasoning never closes (whole budget spent thinking)', () => {
+    const f = new ThinkTagFilter({ startInsideThink: true });
+    let out = f.process('still reasoning, ran out of tokens before answering');
+    out += f.flush();
+    expect(out).toBe('');
+  });
+
+  it('the seeded stream scores clean on the leak instrument', () => {
+    const f = new ThinkTagFilter({ startInsideThink: true });
+    let out = f.process('weigh the options here</think>\n\nThe answer is 42.');
+    out += f.flush();
+    expect(out).toBe('The answer is 42.');
+    expect(scoreThinkLeakage(out)).toBe(1);
+  });
+
+  it('WITHOUT seeding, the same stream leaks its reasoning — why the seed is load-bearing', () => {
+    // Documents the pre-fix behavior the seed exists to prevent: the bare
+    // </think> is a stray close, so everything before it is emitted verbatim.
+    const f = new ThinkTagFilter();
+    let out = f.process(
+      'The user wants the capital of France. I should answer directly.</think>\n\nParis.',
+    );
+    out += f.flush();
+    expect(out).toContain('The user wants the capital of France');
+  });
+});
+
+describe('promptStartsInThinkBlock', () => {
+  it('true for an LFM2.5-shaped prompt ending in an unmatched <think>', () => {
+    expect(
+      promptStartsInThinkBlock(
+        '<|im_start|>user\nhi<|im_end|>\n<|im_start|>assistant\n<think>',
+      ),
+    ).toBe(true);
+  });
+
+  it('false for a balanced empty block (Qwen non-thinking mode)', () => {
+    expect(
+      promptStartsInThinkBlock('<|im_start|>assistant\n<think>\n\n</think>\n\n'),
+    ).toBe(false);
+  });
+
+  it('false when there is no think block at all', () => {
+    expect(promptStartsInThinkBlock('<|im_start|>assistant\n')).toBe(false);
+  });
+
+  it('is case-insensitive, matching the filter', () => {
+    expect(promptStartsInThinkBlock('...<|im_start|>assistant\n<Think>')).toBe(true);
+  });
+});
+
 describe('DisclaimerFilter', () => {
   it('strips a canned AI disclaimer opening', () => {
     const f = new DisclaimerFilter();
@@ -248,5 +328,20 @@ describe('Filter chain', () => {
     const chain = createFilterChain([]);
     processThroughChain(chain, 'Here is the answer: ');
     expect(flushFilterChain(chain)).toBe('');
+  });
+
+  it('seeds the chain so a prefilled-open-think stream is stripped end to end', () => {
+    const chain = createFilterChain(['<|im_end|>'], { startInsideThink: true });
+    let out = '';
+    out += processThroughChain(chain, 'Reasoning: the user asked for a haiku. ');
+    out += processThroughChain(
+      chain,
+      "I'll write one.</think>\n\nSilent pond, still air.<|im_end|>",
+    );
+    out += flushFilterChain(chain);
+    expect(out).toContain('Silent pond, still air.');
+    expect(out).not.toContain('Reasoning:');
+    expect(out).not.toContain('</think>');
+    expect(out).not.toContain('<|im_end|>');
   });
 });
