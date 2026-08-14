@@ -85,6 +85,21 @@ export interface GenerationReceipt {
    */
   firstTokenMs?: number | null;
   /**
+   * Largest gap between two consecutive streamed tokens, in ms (transformers
+   * path; `null` when fewer than two tokens streamed, absent on runtimes that
+   * don't report it). The #28 stall signature: read alongside `ranToCap` — a
+   * large gap with `ranToCap: true` is a decode stall filling the token budget,
+   * distinct from a uniformly slow generation.
+   */
+  maxInterTokenGapMs?: number | null;
+  /**
+   * Whether generation stopped by exhausting its token budget
+   * (`completionTokens >= samplingProfile.maxTokens`) rather than emitting a
+   * stop token. Derived from usage — no new wire. A stall (#28) runs to the cap;
+   * a natural completion does not. Absent when the budget or count is unknown.
+   */
+  ranToCap?: boolean;
+  /**
    * Compact lifecycle breadcrumb trail for this turn — load + generation phases,
    * each `at` measured in ms from stream start. Timings and phase names only;
    * never message content.

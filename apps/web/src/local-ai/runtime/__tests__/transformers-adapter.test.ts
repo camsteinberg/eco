@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Bos Computing LLC
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CacheApiStorage, type CacheLike, type CacheStorageLike } from '../../download/storage';
 import type { ModelConfig } from '../../types';
 import { TransformersAdapter, getOnnxExternalDataChunks, type WorkerInbound, type WorkerLike, type WorkerOutbound } from '../transformers-adapter';
@@ -357,8 +357,38 @@ describe('TransformersAdapter — generate', () => {
     expect(events).toEqual([
       { kind: 'token', text: 'hello', seq: 1 },
       { kind: 'token', text: ' world', seq: 2 },
-      { kind: 'done', promptTokens: 2, completionTokens: 4, tokenizerName: undefined },
+      // Two tokens streamed, so one inter-token gap was measured (a real
+      // performance-clock delta — deterministic value covered by its own test).
+      { kind: 'done', promptTokens: 2, completionTokens: 4, tokenizerName: undefined, maxInterTokenGapMs: expect.any(Number) },
     ]);
+  });
+
+  it('reports the max inter-token gap on done (#28 stall signature)', async () => {
+    // Drive the adapter's performance clock so the gap is deterministic:
+    // token1@0, token2@10 (gap 10), token3@100 (gap 90 = max). With no
+    // onLifecycleEvent supplied, `now()` is called once per token and not on done.
+    const nowSpy = vi
+      .spyOn(performance, 'now')
+      .mockReturnValueOnce(0)
+      .mockReturnValueOnce(10)
+      .mockReturnValueOnce(100)
+      .mockReturnValue(100);
+    const events: import('../types').TokenEvent[] = [];
+    const collector = (async () => {
+      for await (const event of adapter.generate([{ role: 'user', content: 'hi' }])) {
+        events.push(event);
+      }
+    })();
+    await Promise.resolve();
+    await Promise.resolve();
+    worker.emit({ type: 'token', generationId: 'test-gen-id', text: 'a', seq: 1 });
+    worker.emit({ type: 'token', generationId: 'test-gen-id', text: 'b', seq: 2 });
+    worker.emit({ type: 'token', generationId: 'test-gen-id', text: 'c', seq: 3 });
+    worker.emit({ type: 'done', generationId: 'test-gen-id', completionTokens: 3 });
+    await collector;
+    const done = events.find((e) => e.kind === 'done');
+    expect(done?.kind === 'done' && done.maxInterTokenGapMs).toBe(90);
+    nowSpy.mockRestore();
   });
 
   it('passes kvReuse telemetry through on done', async () => {
@@ -390,7 +420,8 @@ describe('TransformersAdapter — generate', () => {
 
     await collector;
     expect(events).toEqual([
-      { kind: 'done', promptTokens: 9, completionTokens: 2, tokenizerName: undefined, kvReuse },
+      // No tokens streamed, so no inter-token gap exists → null.
+      { kind: 'done', promptTokens: 9, completionTokens: 2, tokenizerName: undefined, kvReuse, maxInterTokenGapMs: null },
     ]);
   });
 
@@ -422,7 +453,7 @@ describe('TransformersAdapter — generate', () => {
 
     await collector;
     expect(events).toEqual([
-      { kind: 'done', promptTokens: 9, completionTokens: 2, tokenizerName: undefined, cjkSuppression },
+      { kind: 'done', promptTokens: 9, completionTokens: 2, tokenizerName: undefined, cjkSuppression, maxInterTokenGapMs: null },
     ]);
   });
 

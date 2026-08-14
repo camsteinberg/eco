@@ -214,6 +214,40 @@ describe('createLocalAiLegacyInference', () => {
     });
   });
 
+  it('records maxInterTokenGapMs (the #28 stall signature) to the usage-store when done carries it', async () => {
+    mockGenerate.mockReturnValueOnce(
+      asyncIterable([
+        { kind: 'token', text: 'ok' },
+        { kind: 'done', promptTokens: 4, completionTokens: 1, maxInterTokenGapMs: 412 },
+      ]),
+    );
+
+    const shim = createLocalAiLegacyInference();
+    await readAll(
+      shim.generate([{ role: 'user', content: 'x' }], FAKE_MODEL.id, { max_new_tokens: 16 }),
+    );
+
+    expect(getLastUsage()).toEqual({
+      promptTokens: 4,
+      completionTokens: 1,
+      maxTokens: 16,
+      maxInterTokenGapMs: 412,
+    });
+  });
+
+  it('threads a null maxInterTokenGapMs through (fewer than two tokens streamed)', async () => {
+    mockGenerate.mockReturnValueOnce(
+      asyncIterable([{ kind: 'done', promptTokens: 4, completionTokens: 0, maxInterTokenGapMs: null }]),
+    );
+
+    const shim = createLocalAiLegacyInference();
+    await readAll(
+      shim.generate([{ role: 'user', content: 'x' }], FAKE_MODEL.id, { max_new_tokens: 16 }),
+    );
+
+    expect(getLastUsage()?.maxInterTokenGapMs).toBeNull();
+  });
+
   it('errors the stream with LocalInferenceStreamError when generate emits an error event', async () => {
     mockGenerate.mockReturnValueOnce(
       asyncIterable([

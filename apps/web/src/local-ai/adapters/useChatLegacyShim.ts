@@ -235,6 +235,9 @@ export function createLocalAiLegacyInference(): LocalAiLegacyInference {
                   ...(maxTokens != null ? { maxTokens } : {}),
                   ...(event.kvReuse != null ? { kvReuse: event.kvReuse } : {}),
                   ...(event.cjkSuppression != null ? { cjkSuppression: event.cjkSuppression } : {}),
+                  ...(event.maxInterTokenGapMs !== undefined
+                    ? { maxInterTokenGapMs: event.maxInterTokenGapMs }
+                    : {}),
                 });
                 setLastTemplateName(event.tokenizerName ?? null);
                 if (process.env.NODE_ENV !== 'production' && event.kvReuse != null) {

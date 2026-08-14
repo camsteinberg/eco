@@ -54,6 +54,14 @@ export type EvalCategory =
    * filtered to exactly the probe and scored by hand against the vetted key.
    */
   | 'capability-probe'
+  /**
+   * The conversation-integrity probe — the blind fixture for the #27 "nora leak"
+   * (local-ai/eval/conversation-integrity-probe.ts). A private detail planted in
+   * an earlier turn must NOT resurface in a message drafted to a third party. Its
+   * own category so a run can be scoped to it and the headline leak-rate
+   * (leak-rate.ts) computed from exactly this set, never diluted into a composite.
+   */
+  | 'conversation-integrity'
   | 'captured';
 
 /**
@@ -503,6 +511,19 @@ export type EvalPerf = {
   completionTokens: number;
   /** Produced >=1 token without error. */
   smokePass: boolean;
+  /**
+   * Largest gap between two consecutive streamed tokens, in ms (the #28 stall
+   * signature), as reported by the transformers adapter's `done` event. `null`
+   * when the runtime didn't report it or fewer than two tokens streamed. Optional
+   * because it is absent on `EvalRun`s persisted before this field existed.
+   */
+  maxInterTokenGapMs?: number | null;
+  /**
+   * Whether generation exhausted its token budget (`completionTokens >=`
+   * requested cap) rather than stopping naturally. A stall runs to the cap.
+   * Optional for the same persisted-run back-compat reason as above.
+   */
+  ranToCap?: boolean;
 };
 
 /** One scored prompt × model result. */

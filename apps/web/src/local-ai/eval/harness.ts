@@ -474,6 +474,8 @@ type StreamOutcome = {
   reportedCompletionTokens: number | null;
   tokenEventCount: number;
   ttftMs: number | null;
+  /** Adapter-reported max inter-token gap (ms), else null (#28 stall signature). */
+  maxInterTokenGapMs: number | null;
   endedCleanly: boolean;
   /** Error reason from an 'error' event or a timeout, else null. */
   error: string | null;
@@ -525,6 +527,7 @@ async function runStream(
   let reportedCompletionTokens: number | null = null;
   let tokenEventCount = 0;
   let ttftMs: number | null = null;
+  let maxInterTokenGapMs: number | null = null;
   let endedCleanly = false;
   let error: string | null = null;
 
@@ -538,6 +541,9 @@ async function runStream(
         if (typeof event.completionTokens === 'number') {
           reportedCompletionTokens = event.completionTokens;
         }
+        // The adapter measures the gap on its own performance clock (decode-
+        // faithful); read it straight off `done` rather than re-deriving here.
+        maxInterTokenGapMs = event.maxInterTokenGapMs ?? null;
         endedCleanly = true;
         break;
       } else {
@@ -571,6 +577,7 @@ async function runStream(
     reportedCompletionTokens,
     tokenEventCount,
     ttftMs,
+    maxInterTokenGapMs,
     endedCleanly,
     error,
     startMs,
@@ -627,6 +634,8 @@ function buildResult(
       totalMs,
       completionTokens,
       smokePass,
+      maxInterTokenGapMs: outcome.maxInterTokenGapMs,
+      ranToCap: hitTokenCap,
     },
     ...(spec.judge && spec.judge.length > 0 ? { judge: spec.judge } : {}),
     error: outcome.error,
@@ -820,7 +829,15 @@ function errorResult(
     output: '',
     generationOptions: {},
     scores: scoreResult(spec, { output: '', endedCleanly: false, hitTokenCap: false }),
-    perf: { ttftMs: null, tokensPerSec: null, totalMs: 0, completionTokens: 0, smokePass: false },
+    perf: {
+      ttftMs: null,
+      tokensPerSec: null,
+      totalMs: 0,
+      completionTokens: 0,
+      smokePass: false,
+      maxInterTokenGapMs: null,
+      ranToCap: false,
+    },
     ...(spec.judge && spec.judge.length > 0 ? { judge: spec.judge } : {}),
     error,
   };
