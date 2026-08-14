@@ -24,6 +24,7 @@ import {
   armRewritesSystemPrompt,
   getEverydayArm,
 } from '../../../../src/local-ai/eval/everyday-arms';
+import { CAPABILITY_PROBE_PROBES } from '../../../../src/local-ai/eval/capability-probe';
 import { EVERYDAY_USE_PROBES } from '../../../../src/local-ai/eval/everyday-probes';
 import type { EvalRunConfig } from '../../../../src/local-ai/eval/harness';
 import type {
@@ -183,6 +184,30 @@ describe('EvalHarnessPanel — everyday-use probes are reachable', () => {
     const config = await lastConfig();
     expect(config.promptIds).toEqual(['if4']);
     expect(config.extraPrompts).toBeUndefined();
+  });
+});
+
+const CAPABILITY_PROBE_IDS = CAPABILITY_PROBE_PROBES.map((p) => p.id);
+
+describe('EvalHarnessPanel — the capability probe is reachable', () => {
+  beforeEach(() => {
+    currentParams = new URLSearchParams();
+    savedRuns = [];
+    runEvalMock.mockClear();
+  });
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('runs exactly the 28-task capability probe for eco-eval-categories=capability-probe', async () => {
+    currentParams = url('eco-eval-categories=capability-probe');
+    render(<EvalHarnessPanel />);
+
+    const config = await lastConfig();
+    // Exactly the frozen 28, in spec order — the run I score against the key.
+    expect(config.promptIds).toEqual(CAPABILITY_PROBE_IDS);
+    // Derived set, not in the harness's default pool, so it must ride along.
+    expect(config.extraPrompts).toEqual([...CAPABILITY_PROBE_PROBES]);
   });
 });
 

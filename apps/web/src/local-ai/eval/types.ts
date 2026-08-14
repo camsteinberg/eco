@@ -47,6 +47,13 @@ export type EvalCategory =
    * not be averaged alongside them.
    */
   | 'everyday-conversation'
+  /**
+   * The capability probe — the 28-task blind everyday-task set derived at module
+   * load (local-ai/eval/capability-probe.ts), the runnable form of eco-notes
+   * `decisions/capability-probe-2026-08-12.md`. Its own category so a run can be
+   * filtered to exactly the probe and scored by hand against the vetted key.
+   */
+  | 'capability-probe'
   | 'captured';
 
 /**
