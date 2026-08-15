@@ -97,11 +97,41 @@ export type TaskIntent =
   | 'file'
   | 'research';
 
+// ─── Narrowed CODE_RE for the snapshot path ─────────────────────────────
+// Keep in sync with lib/chat-intent.ts CODE_RE. See that file for the
+// narrowing rationale and lib/__tests__/code-intent-routing.test.ts for
+// the corpus that pins it.
+//
+// ASSEMBLED WITH `+`, NOT TEMPLATE INTERPOLATION — same Turbopack caveat
+// as WRITING_RE in chat-intent.ts.
+const CODE_UNAMBIGUOUS_SNAPSHOT =
+  "stack trace|traceback|refactor|typescript|javascript|regexp?|regex|sql"
+  + "|segfault|null pointer|syntax error|runtime error|compil(?:e|er)"
+  + "|npm|yarn|pnpm|css|html"
+  + "|git (?:commit|rebase|merge|branch|push|clone|stash)";
+const CODE_AMBIGUOUS_SNAPSHOT =
+  "debug|bug|test|function|component|api|class|method|variable|array|loop|import|react|python|query|hook";
+const CODE_SIGNALS_SNAPSHOT =
+  "code|coding|script|program|error|exception|endpoint|repo|python|react";
+const CODE_RE_SNAPSHOT = new RegExp(
+  "```"
+  + "|\\b(?:" + CODE_UNAMBIGUOUS_SNAPSHOT + ")\\b"
+  + "|\\b(?:" + CODE_SIGNALS_SNAPSHOT + ")\\b[^.?!]{0,45}?\\b(?:" + CODE_AMBIGUOUS_SNAPSHOT + ")\\b"
+  + "|\\b(?:" + CODE_AMBIGUOUS_SNAPSHOT + ")\\b[^.?!]{0,45}?\\b(?:" + CODE_SIGNALS_SNAPSHOT + ")\\b",
+  "i",
+);
+
 /**
  * Infer the user's task intent from the prompt text. Pure function — no
  * side effects, no imports beyond what this file already has.
  *
  * Port of `inferLocalModelTaskIntent` from `lib/local-model-routing.ts`.
+ *
+ * ★ STALE DUPLICATE of `inferChatIntent` in `lib/chat-intent.ts`. The
+ * canonical cascade is there; this copy serves only the route-snapshot
+ * path. CODE_RE was narrowed identically (2026-08-15); RESEARCH_RE was
+ * retired (same date). The remaining DEEP_RE / WRITING_RE copies here
+ * are still the pre-narrowing versions — narrow them when next touched.
  */
 export function inferTaskIntent(input: {
   prompt: string;
@@ -109,11 +139,13 @@ export function inferTaskIntent(input: {
   researchMode?: boolean;
 }): TaskIntent {
   const text = input.prompt.trim();
-  if (input.researchMode || /\b(research|sources|cite|latest|current|news|202[5-9]|up-to-date)\b/i.test(text)) {
+  // RESEARCH_RE retired 2026-08-15 (see chat-intent.ts). Only the
+  // explicit opt-in flag survives; no production caller sets it true.
+  if (input.researchMode) {
     return 'research';
   }
   if (input.hasFiles || /<file\b/i.test(text)) return 'file';
-  if (/```|\b(debug|bug|stack trace|typescript|javascript|python|react|sql|function|component|api|test|refactor)\b/i.test(text)) {
+  if (CODE_RE_SNAPSHOT.test(text)) {
     return 'code';
   }
   if (/\b(long|detailed|full|complete|comprehensive|step[- ]by[- ]step|in depth|thorough|analyze|compare|evaluate|strategy|plan|tradeoffs|pros and cons|deep|architecture)\b/i.test(text)) {
