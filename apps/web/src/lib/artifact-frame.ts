@@ -10,13 +10,17 @@ import { askPrefix } from "./ask-text";
  * the family group chat:" or "The corrected version:" — after the hint and
  * the recap blocks.
  *
- * TWO PATTERN FAMILIES:
+ * THREE PATTERN FAMILIES:
  *   1. Correspondence — an author/send verb governing an artifact noun:
  *      "write the message to Dave", "can u resend it".
  *   2. Correction — a correction verb (fix, proofread, correct, rewrite) with
  *      a text-correction object (typos, spelling, grammar): "fix the typos",
  *      "proofread this before i send it". Frame: "The corrected [noun]:" or
  *      "The corrected version:" when no artifact noun is named.
+ *   3. Transform — a self-qualifying transform verb ("summarise this",
+ *      "shorten it") or "make <this|it> <more|less|sound> X" ("make this more
+ *      formal"): give the transformed text back, don't explain how. Frame:
+ *      "The summary:" for a summarise ask, "The rewritten version:" otherwise.
  *
  * ★ WHY A FRAME AND NOT AN INSTRUCTION. Measured (PR #113, n=10 per arm): two
  * different instruction clauses appended to exactly these asks both FAILED —
@@ -123,6 +127,47 @@ const CORRECTION_OBJECTS = new Set([
 
 /** How many words past the correction verb an object may sit. */
 const CORRECTION_OBJECT_WINDOW = 4;
+
+/**
+ * Verbs that name a TEXT-OUTPUT transform — "summarise this", "shorten it".
+ * Unlike the correction verbs these are NOT self-qualifying: "summarize" /
+ * "simplify" / "condense" can govern an external subject ("summarize what a vpn
+ * does"), so the scan additionally requires a reference to the user's own text
+ * (`hasTransformTarget`). Ambiguous transforms are left out on the anti-
+ * overfitting rule — "expand"/"lengthen" overlap the explain intent — and
+ * silence stays the fail-safe direction.
+ */
+const SELF_QUALIFYING_TRANSFORM_VERBS = new Set([
+  "shorten", "condense", "summarize", "summarise", "paraphrase",
+  "rephrase", "reword", "simplify", "tighten", "formalize", "formalise",
+]);
+
+/** The transform verbs whose output is named a summary, not a rewrite. */
+const SUMMARY_VERBS = new Set(["summarize", "summarise"]);
+
+/**
+ * The "make <this|it> <degree> X" rewrite pattern — "make this more formal",
+ * "make it less wordy", "make this sound professional". "make" alone is far too
+ * common to gate on ("make a study guide", "make spaghetti"): the demonstrative
+ * AND a degree word together are what mark it as a rewrite of existing text.
+ * A comparative like "make it shorter" is deliberately NOT covered — matching
+ * bare "-er" adjectives would fit the rule to labelled items, not the category.
+ */
+const MAKE_TARGETS = new Set(["this", "it"]);
+const MAKE_QUALIFIERS = new Set(["more", "less", "sound"]);
+
+/** How many words past the "this"/"it" a degree word may sit. */
+const MAKE_QUALIFIER_WINDOW = 2;
+
+/**
+ * References to the user's OWN text that a transform verb must govern —
+ * "summarise THIS", "reword IT". Without one, "summarize what a vpn does" is a
+ * knowledge ask that happens to use the verb, not a text transform.
+ */
+const TRANSFORM_TARGETS = new Set(["this", "it", "that", "these", "those"]);
+
+/** How many words past the transform verb its text reference may sit. */
+const TRANSFORM_TARGET_WINDOW = 3;
 
 /** How many word tokens back from the verb a request lead may sit. */
 const REQUEST_LEAD_WINDOW = 4;
@@ -287,6 +332,51 @@ function hasCorrectionObject(tokens: readonly Token[], verbIndex: number): boole
   return false;
 }
 
+/**
+ * Whether "make" at `index` is a command TO the assistant, not a "would make"
+ * inside a statement. "make" is common enough ("that would make this more
+ * complicated") that `isRequestShaped`'s any-lead-nearby test isn't tight
+ * enough: a rewrite ask has the assistant as the direct addressee — the verb
+ * opens the clause ("make this more formal"), or "you"/"please" governs it
+ * ("can you make it less wordy", "please make this formal").
+ */
+function makeIsDirected(tokens: readonly Token[], index: number): boolean {
+  const before = precedingWords(tokens, index);
+  if (before.every((word) => IMPERATIVE_LEAD_IN.has(word))) return true;
+  const nearest = before[0]!;
+  return nearest === "you" || nearest === "u" || nearest === "please" || nearest === "pls";
+}
+
+/**
+ * Whether "make" at `index` is a rewrite ask: a "this"/"it" governed by the
+ * verb, then a degree word (more/less/sound) within the window. This is what
+ * separates "make this more formal" from "make a study guide" and "make
+ * spaghetti" — all three are request-shaped "make", only the first rewrites
+ * existing text.
+ */
+function makeIsRewrite(tokens: readonly Token[], index: number): boolean {
+  const target = nextWord(tokens, index);
+  if (target === -1 || !MAKE_TARGETS.has(tokens[target]!.lower)) return false;
+  let cursor = target;
+  for (let seen = 0; seen < MAKE_QUALIFIER_WINDOW; seen++) {
+    cursor = nextWord(tokens, cursor);
+    if (cursor === -1) return false;
+    if (MAKE_QUALIFIERS.has(tokens[cursor]!.lower)) return true;
+  }
+  return false;
+}
+
+/** Whether a transform verb at `index` governs a reference to the user's text. */
+function hasTransformTarget(tokens: readonly Token[], index: number): boolean {
+  let cursor = index;
+  for (let seen = 0; seen < TRANSFORM_TARGET_WINDOW; seen++) {
+    cursor = nextWord(tokens, cursor);
+    if (cursor === -1) return false;
+    if (TRANSFORM_TARGETS.has(tokens[cursor]!.lower)) return true;
+  }
+  return false;
+}
+
 /** The first ARTIFACT_NOUN anywhere in the token stream. */
 function anyArtifactNoun(tokens: readonly Token[]): string {
   for (const token of tokens) {
@@ -305,14 +395,18 @@ function correctionFrame(noun: string): string {
   return `The corrected ${noun}:`;
 }
 
+const TRANSFORM_SUMMARY_FRAME = "The summary:";
+const TRANSFORM_REWRITE_FRAME = "The rewritten version:";
+
 /**
  * The frame for one turn, or "" — a pure function of the turn's own text.
  * Runs over `askPrefix`, so a pasted document can neither fire the gate nor
  * supply an audience.
  *
- * Two scans run in order (first match wins):
+ * Three scans run in order (first match wins):
  *   1. Correspondence — AUTHOR_VERB + ARTIFACT_NOUN → "The [noun]:" / "… to send to [audience]:"
  *   2. Correction — CORRECTION_VERB + CORRECTION_OBJECT → "The corrected [noun]:" / "The corrected version:"
+ *   3. Transform — SELF_QUALIFYING_TRANSFORM_VERB or "make <this|it> <degree>" → "The summary:" / "The rewritten version:"
  */
 export function buildArtifactFrame(turnText: string): string {
   const source = askPrefix(turnText);
@@ -372,6 +466,27 @@ export function buildArtifactFrame(turnText: string): string {
       if (!hasCorrectionObject(tokens, i)) continue;
       const noun = anyArtifactNoun(tokens);
       return correctionFrame(noun.length > 0 ? noun : "version");
+    }
+  }
+
+  // ── Scan 3: transform ─────────────────────────────────────────────────────
+  // "Do the transform, don't explain it" — the family `ask-text.ts` left for
+  // its own measurement. Runs after correspondence and correction so a write or
+  // repair ask keeps its own, more specific frame.
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i]!;
+    if (token.kind !== "word") continue;
+
+    if (SELF_QUALIFYING_TRANSFORM_VERBS.has(token.lower)) {
+      if (!isRequestShaped(tokens, i)) continue;
+      if (!hasTransformTarget(tokens, i)) continue;
+      return SUMMARY_VERBS.has(token.lower) ? TRANSFORM_SUMMARY_FRAME : TRANSFORM_REWRITE_FRAME;
+    }
+
+    if (token.lower === "make") {
+      if (!makeIsDirected(tokens, i)) continue;
+      if (!makeIsRewrite(tokens, i)) continue;
+      return TRANSFORM_REWRITE_FRAME;
     }
   }
 

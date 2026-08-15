@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { PASTED_TURN_MIN_CHARS, askPrefix, isTextRepairAsk } from "../ask-text";
+import { PASTED_TURN_MIN_CHARS, askPrefix, isTextRepairAsk, isTextTransformAsk } from "../ask-text";
 
 const PASTE = "x".repeat(PASTED_TURN_MIN_CHARS + 50);
 
@@ -80,6 +80,63 @@ describe("isTextRepairAsk — the user wants text back, not commentary", () => {
   it("reads only the ask, never the pasted subject", () => {
     // The paste mentions typos; the instruction does not ask for a repair.
     expect(isTextRepairAsk(`what does this mean\n\nplease fix the typos ${PASTE}`)).toBe(
+      false,
+    );
+  });
+});
+
+describe("isTextTransformAsk — the user wants the text back changed, not explained", () => {
+  it("matches both alternatives independently — the group is closed", () => {
+    // Self-qualifying transform verb alone.
+    expect(isTextTransformAsk("shorten this")).toBe(true);
+    // "make <this|it> <degree>" alone, no transform verb anywhere.
+    expect(isTextTransformAsk("make this more formal")).toBe(true);
+  });
+
+  it("fires on the self-qualifying transform verbs", () => {
+    for (const ask of [
+      "summarize this in one sentence",
+      "can you summarise it",
+      "condense this for me",
+      "paraphrase this paragraph",
+      "reword this so it flows",
+      "simplify this explanation",
+      "formalize this note",
+    ]) {
+      expect(isTextTransformAsk(ask), ask).toBe(true);
+    }
+  });
+
+  it("fires on 'make this/it more|less|sound X'", () => {
+    expect(isTextTransformAsk("make this more formal")).toBe(true);
+    expect(isTextTransformAsk("can you make it less wordy")).toBe(true);
+    expect(isTextTransformAsk("make this sound more professional")).toBe(true);
+  });
+
+  it("does NOT fire on 'make <a noun>' — a creation ask, not a rewrite", () => {
+    expect(isTextTransformAsk("make me a study guide for calc 1")).toBe(false);
+    expect(isTextTransformAsk("turn this into a grocery list")).toBe(false);
+  });
+
+  it("does not read the adverb 'simply' as the verb 'simplify'", () => {
+    expect(isTextTransformAsk("explain how a credit score works, simply")).toBe(false);
+  });
+
+  it("does NOT fire on the verb governing an external subject — no 'this'/'it'", () => {
+    // Knowledge/explain asks that merely use the verb; nothing to transform.
+    expect(isTextTransformAsk("summarize what a vpn does in one sentence")).toBe(false);
+    expect(isTextTransformAsk("simplify the equation for me")).toBe(false);
+    expect(isTextTransformAsk("can you summarize the french revolution")).toBe(false);
+  });
+
+  it("does not fire on a bare comparative — 'make it a bit shorter'", () => {
+    // "shorter" is not the verb "shorten"; no more/less/sound after "make it".
+    expect(isTextTransformAsk("can you make it a bit shorter")).toBe(false);
+  });
+
+  it("reads only the ask, never the pasted subject", () => {
+    // The paste asks to rephrase; the instruction does not.
+    expect(isTextTransformAsk(`what do you think of this\n\nplease rephrase it all ${PASTE}`)).toBe(
       false,
     );
   });

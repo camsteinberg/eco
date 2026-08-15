@@ -37,7 +37,7 @@ import {
   inferChatIntent,
 } from "../chat-intent";
 import { DEEP_RE, LONG_FORM_RE, inferAnswerShape } from "../answer-shape";
-import { isTextRepairAsk } from "../ask-text";
+import { isTextRepairAsk, isTextTransformAsk } from "../ask-text";
 import { PREFERRED_DEFAULT_MODEL_ID } from "../../local-ai/selection/recommend";
 import { REALISTIC_INPUTS } from "../../__tests__/fixtures/realistic-inputs";
 import { EVERYDAY_USE_CORPUS } from "../../__tests__/fixtures/everyday-use-corpus";
@@ -96,24 +96,34 @@ describe("writing intent — words demoted from bare tokens to governed nouns", 
   });
 });
 
-describe("writing intent — the narrowing is subtractive apart from one named widening", () => {
+describe("writing intent — the narrowing is subtractive apart from two named widenings", () => {
   /**
-   * ★ THE WIDENING, named as this block demanded it be named.
+   * ★ THE WIDENINGS, named as this block demanded any widening be named.
    *
    * This assertion read `toEqual([])` and was described as strictly
    * subtractive, with the note that a future widening "lands here as a named
    * string rather than as a silent behaviour change, and has to be justified on
-   * its own evidence". `isTextRepairAsk` (lib/ask-text.ts) is that widening, and
-   * this is the evidence: measured over two live batches on the shipping 2B,
-   * `deliversUnburied` averaged 0.42 across the turns routed `deep` and 0.91
-   * across those routed `writing`, and every one of these five was landing on
-   * `deep` — collecting "include concrete recommendations and tradeoffs" in
-   * reply to "fix my spelling".
+   * its own evidence". There are now two, each a sibling predicate in
+   * `lib/ask-text.ts`, each routing the ASK (not the paste) to `writing`:
    *
-   * All five are repair asks and nothing else is. That second property is the
-   * one worth guarding: the check below asserts not just that the list matches,
-   * but that every entry on it is a repair ask, so a widening that let
-   * something else through could not hide inside an updated list.
+   * 1. `isTextRepairAsk` — the original widening. Measured over two live
+   *    batches on the shipping 2B, `deliversUnburied` averaged 0.42 across the
+   *    turns routed `deep` and 0.91 across those routed `writing`, and every one
+   *    of these five was landing on `deep` — collecting "include concrete
+   *    recommendations and tradeoffs" in reply to "fix my spelling".
+   *
+   * 2. `isTextTransformAsk` — the transform family ("make this more formal",
+   *    "summarize this", "make it sound less passive aggressive"). Measured on
+   *    the shipping 1.2B (headed WebGPU, two batches): these fell through to
+   *    `explain` and the model followed the explain hint verbatim — "**Plain-
+   *    language explanation:** you want the message to sound…" — instead of
+   *    returning the rewrite. Routing them to `writing` removes the hint that
+   *    was causing the deferral.
+   *
+   * Each entry below is a repair ask OR a transform ask and nothing else. That
+   * property is the one worth guarding: the check asserts not just that the
+   * lists match, but that every entry is one or the other, so a widening that
+   * let a third category through could not hide inside an updated list.
    */
   const NEWLY_WRITING_REPAIR_ASKS: readonly string[] = [
     "fix the spelling and grammar but dont change my voice",
@@ -123,7 +133,14 @@ describe("writing intent — the narrowing is subtractive apart from one named w
     "can someone proofread this before i send it to my crew, just typos and grammar.",
   ];
 
-  it("routes nothing new to writing except text-repair asks", () => {
+  const NEWLY_WRITING_TRANSFORM_ASKS: readonly string[] = [
+    "can you summarize this? too long",
+    "can you make this less angry?",
+    "can u make this sound less passive aggressive",
+    "can you make this better but dont make it sound like ai",
+  ];
+
+  it("routes nothing new to writing except text-repair and text-transform asks", () => {
     const corpus: readonly string[] = [
       ...REALISTIC_INPUTS.map((sample) => sample.text),
       ...EVERYDAY_USE_CORPUS.map((item) => item.userInput),
@@ -135,17 +152,49 @@ describe("writing intent — the narrowing is subtractive apart from one named w
       (text) => inferChatIntent(text) === "writing" && !WRITING_RE_BEFORE_NARROWING.test(text),
     );
 
-    // Every newly-routed turn is a repair ask — no other category slipped in.
-    expect(newlyWriting.filter((text) => !isTextRepairAsk(text))).toEqual([]);
+    // Every newly-routed turn is a repair ask or a transform ask — no other
+    // category slipped in.
+    expect(
+      newlyWriting.filter((text) => !isTextRepairAsk(text) && !isTextTransformAsk(text)),
+    ).toEqual([]);
 
-    // And it is these five, identified by the instruction each one opens with.
-    expect(newlyWriting.length).toBe(NEWLY_WRITING_REPAIR_ASKS.length);
-    for (const fragment of NEWLY_WRITING_REPAIR_ASKS) {
+    // And it is exactly these nine, identified by the instruction each opens with.
+    const namedFragments = [...NEWLY_WRITING_REPAIR_ASKS, ...NEWLY_WRITING_TRANSFORM_ASKS];
+    expect(newlyWriting.length).toBe(namedFragments.length);
+    for (const fragment of namedFragments) {
       expect(
         newlyWriting.some((text) => text.includes(fragment)),
         `no newly-writing turn contains "${fragment}"`,
       ).toBe(true);
     }
+  });
+});
+
+describe("writing intent — the transform family routes to writing, not explain", () => {
+  // Each of these fell through the cascade to `explain` before the
+  // `isTextTransformAsk` widening; the explain hint then made the 1.2B lecture
+  // about the text instead of returning it transformed (measured, headed WebGPU).
+  it("routes 'make this more formal' to writing", () => {
+    expect(
+      inferChatIntent("make this more formal: 'hey can u send me that file whenever, no rush thx'"),
+    ).toBe("writing");
+  });
+
+  it("routes 'shorten this into a text message' to writing", () => {
+    expect(
+      inferChatIntent("shorten this into a text message: 'i am running about fifteen minutes late'"),
+    ).toBe("writing");
+  });
+
+  it("routes 'summarize this in one sentence' to writing", () => {
+    expect(
+      inferChatIntent("summarize this in one sentence: 'the museum closes early on friday'"),
+    ).toBe("writing");
+  });
+
+  it("does not pull a plain 'make <a noun>' creation ask into writing", () => {
+    expect(inferChatIntent("please make a study guide for calc 1")).not.toBe("writing");
+    expect(inferChatIntent("turn this into a grocery list: spaghetti for 4")).not.toBe("writing");
   });
 });
 
