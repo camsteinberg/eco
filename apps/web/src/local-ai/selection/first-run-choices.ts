@@ -17,8 +17,10 @@
  *
  * A device that can only run one model (mobile / WASM-only / low-memory) gets a
  * single option — the card shows it as "your model", not a false choice. The
- * recommended id is the deeper model when one is offered (capable desktops), and
- * the everyday model otherwise.
+ * PRESELECTED / "Recommended" id is always the everyday fast pick: a fresh device
+ * instant-starts on the small, quick download, and the deeper model stays a
+ * visible opt-in tile the user can choose deliberately. Preselecting the deeper
+ * model would defeat instant-start (FR-1).
  */
 
 import type { DeviceProfile, ModelConfig, Slot } from '../types';
@@ -51,7 +53,9 @@ export function deriveFirstRunChoices(slot: Slot, profile: DeviceProfile): First
     // No distinct deeper model this device can run — single-option offer.
   }
 
+  // recommendedId is always the everyday pick — the deeper model is offered as a
+  // visible tile but never auto-preselected, so instant-start is preserved (FR-1).
   return deeper
-    ? { models: [everyday, deeper], recommendedId: deeper.id }
+    ? { models: [everyday, deeper], recommendedId: everyday.id }
     : { models: [everyday], recommendedId: everyday.id };
 }

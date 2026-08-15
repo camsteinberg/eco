@@ -12,11 +12,36 @@ describe('getDisplayInfo', () => {
 
     for (const model of catalog) {
       const info = getDisplayInfo(model.id, model);
-      // Every catalog model should have a non-empty friendly name
-      expect(info.friendlyName).toBeTruthy();
+      // Every catalog model must have a BRANDED entry, not the raw-name fallback:
+      // a missing DISPLAY_MAP entry leaks the raw model name ("Qwen2.5 0.5B") and
+      // an empty qualityPhrase into primary UI, violating display.ts:9 / MC-4.
+      expect(info.friendlyName, model.id).toMatch(/^Eco /);
+      expect(info.qualityPhrase, model.id).toBeTruthy();
       // Provenance always includes the size
       expect(info.provenance).toContain('GB');
     }
+  });
+
+  it('maps Qwen2.5 0.5B (int8 CPU floor) to a branded name — not the raw model name (MC-4)', () => {
+    const info = getDisplayInfo('candidate/qwen2.5-0.5b-instruct-onnx', {
+      friendlyName: 'Qwen2.5 0.5B',
+      vendor: 'Alibaba',
+      sizeGB: 0.52,
+    });
+    expect(info.friendlyName).toBe('Eco Basic (Qwen)');
+    expect(info.qualityPhrase).toBeTruthy();
+    expect(info.provenance).toBe('Alibaba · 0.5 GB');
+  });
+
+  it('maps SmolLM2 360M (lightest int8 CPU floor) to a branded name — not the raw model name (MC-4)', () => {
+    const info = getDisplayInfo('candidate/smollm2-360m-instruct-onnx', {
+      friendlyName: 'SmolLM2 360M',
+      vendor: 'Hugging Face',
+      sizeGB: 0.37,
+    });
+    expect(info.friendlyName).toBe('Eco Tiny (SmolLM)');
+    expect(info.qualityPhrase).toBeTruthy();
+    expect(info.provenance).toBe('Hugging Face · 0.4 GB');
   });
 
   it('maps Phi-3 Mini to Eco Reasoning (Microsoft)', () => {

@@ -20,15 +20,19 @@ beforeEach(() => {
 });
 
 describe('deriveFirstRunChoices', () => {
-  it('offers the everyday + deeper models and recommends the deeper one (capable desktop)', () => {
+  it('offers the everyday + deeper models but preselects the everyday one for instant-start (capable desktop)', () => {
     mockRecommend.mockImplementation((slot: Slot) =>
       slot === 'eco-smart' ? model('deeper') : model('fast'),
     );
 
     const offer = deriveFirstRunChoices('eco-fast', PROFILE);
 
+    // Both are offered — the deeper model stays a visible opt-in tile...
     expect(offer.models.map((m) => m.id)).toEqual(['fast', 'deeper']);
-    expect(offer.recommendedId).toBe('deeper');
+    // ...but the PRESELECTED / "Recommended" default is the everyday fast model,
+    // so a fresh capable device instant-starts on the small download instead of
+    // auto-preselecting the ~1.65GB deeper model (FR-1).
+    expect(offer.recommendedId).toBe('fast');
   });
 
   it('collapses to a single option when the deeper pick is the same model', () => {

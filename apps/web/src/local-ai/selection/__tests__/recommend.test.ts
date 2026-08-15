@@ -445,8 +445,7 @@ describe('listCatalog', () => {
     }
   });
 
-  it('auto-hides models with a recent smoke-fail in the ledger', () => {
-    // Pre-seed the ledger with a smoke-fail for Phi-3 on this profile.
+  const seedPhi3SmokeFail = () =>
     localStorage.setItem(
       'eco-local-ai-ledger-v1',
       JSON.stringify([
@@ -459,34 +458,68 @@ describe('listCatalog', () => {
         },
       ]),
     );
-    const r = listCatalog(PROFILE_24GB);
-    const ids = r.available.map((e) => e.model.id);
-    expect(ids).not.toContain('local/phi3-mini-4k-q4f16');
+
+  it('keeps a single-smoke-fail model VISIBLE in manual Settings but hidden from auto-offer (FH-1)', () => {
+    seedPhi3SmokeFail();
+    // Manual Settings still shows it — re-selecting re-runs the smoke gate, so
+    // showing it IS the retry path. Hiding it for 30 days with no recourse was the
+    // FH-1 trap (asymmetric with downloads, which are already manual-exempt).
+    expect(listCatalog(PROFILE_24GB).available.map((e) => e.model.id)).toContain(
+      'local/phi3-mini-4k-q4f16',
+    );
+    // Auto-offer still excludes it — never auto-recommend a model that just failed.
+    expect(listCandidates('eco-smart', PROFILE_24GB).map((c) => c.model.id)).not.toContain(
+      'local/phi3-mini-4k-q4f16',
+    );
     localStorage.clear();
   });
 
-  it('keeps the currently-bound model visible even if it would otherwise be filtered out', () => {
-    // Pre-seed the ledger with a smoke-fail for Phi-3 on this profile.
-    localStorage.setItem(
-      'eco-local-ai-ledger-v1',
-      JSON.stringify([
-        {
-          modelId: 'local/phi3-mini-4k-q4f16',
-          profileKey: 'chromium|high-memory-laptop|webgpu',
-          outcome: 'smoke-fail',
-          recordedAt: new Date().toISOString(),
-          ledgerVersion: CURRENT_LEDGER_VERSION,
-        },
-      ]),
+  it('keeps the currently-bound model in auto-offer even with a recent smoke-fail', () => {
+    seedPhi3SmokeFail();
+    // Auto-offer hides a smoke-failed model...
+    expect(listCandidates('eco-smart', PROFILE_24GB).map((c) => c.model.id)).not.toContain(
+      'local/phi3-mini-4k-q4f16',
     );
-    // Without the exemption, Phi-3 would be filtered. With it, it stays visible.
-    const withoutExemption = listCatalog(PROFILE_24GB);
-    expect(withoutExemption.available.map((e) => e.model.id)).not.toContain('local/phi3-mini-4k-q4f16');
-    const withExemption = listCatalog(PROFILE_24GB, {
+    // ...unless it's the user's currently-bound pick — never silently drop it.
+    // (4-arg form: intent left as the slot default, options in the 4th position.)
+    const bound = listCandidates('eco-smart', PROFILE_24GB, undefined, {
       currentlyBoundModelId: 'local/phi3-mini-4k-q4f16',
     });
-    expect(withExemption.available.map((e) => e.model.id)).toContain('local/phi3-mini-4k-q4f16');
+    expect(bound.map((c) => c.model.id)).toContain('local/phi3-mini-4k-q4f16');
     localStorage.clear();
+  });
+});
+
+describe('recommend — sub-8GB WebGPU floor (FR-2)', () => {
+  const PROFILE_CHROMIUM_6GB_F16: DeviceProfile = {
+    browserClass: 'chromium',
+    webgpuSupport: 'webgpu',
+    deviceMemoryGB: 6,
+    isMobile: false,
+    webgpuShaderF16: true,
+    override: 'auto',
+  };
+
+  it('recommends the proven qwen3-0.6b (not the 350M extraction model) for eco-fast on a sub-8GB WebGPU device', () => {
+    // The 1.2B family needs 8GB; without a preferred floor, fit-ranking surfaced
+    // the 0.35B LFM2.5-350M (extraction-type, wrong for chat) as "Recommended" by
+    // a ~0.004 margin. FR-2 promotes the proven qwen3-0.6b chat floor instead.
+    expect(recommend('eco-fast', PROFILE_CHROMIUM_6GB_F16).id).toBe('local/qwen3-0.6b');
+    // The 350M stays offerable — just no longer the top "Recommended" pick.
+    expect(listCandidates('eco-fast', PROFILE_CHROMIUM_6GB_F16).map((c) => c.model.id)).toContain(
+      'candidate/lfm2.5-350m-onnx',
+    );
+  });
+
+  it('leaves safari/firefox WebGPU on the proven qwen3-0.6b (already correct — no regression)', () => {
+    const safari: DeviceProfile = {
+      browserClass: 'safari',
+      webgpuSupport: 'webgpu',
+      deviceMemoryGB: 16,
+      isMobile: false,
+      override: 'auto',
+    };
+    expect(recommend('eco-fast', safari).id).toBe('local/qwen3-0.6b');
   });
 });
 
