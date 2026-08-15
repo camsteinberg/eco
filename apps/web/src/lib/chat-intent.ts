@@ -352,11 +352,12 @@ function getCatalogIds(): Set<string> {
 // as WRITING_RE (see note at line 378).
 const CODE_UNAMBIGUOUS_TOKENS =
   "stack trace|traceback|refactor|typescript|javascript|regexp?|regex|sql"
-  + "|segfault|null pointer|syntax error|runtime error|compil(?:e|er)"
-  + "|npm|yarn|pnpm|css|html"
+  + "|segfault|null pointer|syntax error|runtime error"
+  + "|npm|pnpm|css|html"
   + "|git (?:commit|rebase|merge|branch|push|clone|stash)";
 const CODE_AMBIGUOUS_TOKENS =
-  "debug|bug|test|function|component|api|class|method|variable|array|loop|import|react|python|query|hook";
+  "debug|bug|test|function|component|api|class|method|variable|array|loop|import|react|python|query|hook"
+  + "|yarn|compil(?:e|er)";
 const CODE_CONTEXT_SIGNALS =
   "code|coding|script|program|error|exception|endpoint|repo|python|react";
 const CODE_RE = new RegExp(

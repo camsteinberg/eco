@@ -106,11 +106,12 @@ export type TaskIntent =
 // as WRITING_RE in chat-intent.ts.
 const CODE_UNAMBIGUOUS_SNAPSHOT =
   "stack trace|traceback|refactor|typescript|javascript|regexp?|regex|sql"
-  + "|segfault|null pointer|syntax error|runtime error|compil(?:e|er)"
-  + "|npm|yarn|pnpm|css|html"
+  + "|segfault|null pointer|syntax error|runtime error"
+  + "|npm|pnpm|css|html"
   + "|git (?:commit|rebase|merge|branch|push|clone|stash)";
 const CODE_AMBIGUOUS_SNAPSHOT =
-  "debug|bug|test|function|component|api|class|method|variable|array|loop|import|react|python|query|hook";
+  "debug|bug|test|function|component|api|class|method|variable|array|loop|import|react|python|query|hook"
+  + "|yarn|compil(?:e|er)";
 const CODE_SIGNALS_SNAPSHOT =
   "code|coding|script|program|error|exception|endpoint|repo|python|react";
 const CODE_RE_SNAPSHOT = new RegExp(

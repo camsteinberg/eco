@@ -40,6 +40,8 @@ describe("code intent — ordinary English that must not misroute", () => {
     "whats the best api for weather",
     "can you debug why my toddler wont sleep",
     "i need to test my patience",
+    "i need to buy yarn for knitting",
+    "can you compile a list of gift ideas for my mum",
   ])("does not route to code: %s", (text) => {
     expect(inferChatIntent(text)).not.toBe("code");
   });
@@ -111,7 +113,6 @@ describe("code intent — unambiguous tokens fire without a context signal", () 
     "what is a segfault",
     "i have a syntax error",
     "whats a runtime error",
-    "how do i compile this",
   ])("routes to code: %s", (text) => {
     expect(inferChatIntent(text)).toBe("code");
   });
@@ -133,6 +134,8 @@ describe("code intent — ambiguous tokens confirmed by code context signals", (
     ["write a component in react", "component + react"],
     ["how do i query the api endpoint", "query + endpoint"],
     ["what is a class in python", "class + python"],
+    ["run the yarn build script", "yarn + script"],
+    ["compile my code and show the errors", "compile + code"],
   ] as const)("routes to code: %s (%s)", (text, _signal) => {
     expect(inferChatIntent(text)).toBe("code");
   });
