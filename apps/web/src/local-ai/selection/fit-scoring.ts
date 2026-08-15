@@ -23,11 +23,17 @@
  *                 only models with proof reach scoring — trust is now a
  *                 tie-breaker, not a gate. Falls back to evidenceTier when
  *                 no confidence source is provided (back-compat).
+ *   - contextFit  the model's context/recall capability on merit — a bigger
+ *                 catalog context window scores higher, DECOUPLED from sizeGB
+ *                 (a small model with a long window still scores well). Wave 3
+ *                 scaffolding: computed and returned, but weighted 0 in every
+ *                 intent today, so it does not yet move any ranking. Wave 3b
+ *                 gives it weight once the per-VRAM context bands land.
  *
- * Intent weights (sum to 1.0):
- *   snappy   speed 0.45, quality 0.10, reliability 0.20, memoryFit 0.15, trust 0.10
- *   balanced speed 0.25, quality 0.25, reliability 0.20, memoryFit 0.10, trust 0.20
- *   quality  speed 0.10, quality 0.45, reliability 0.20, memoryFit 0.05, trust 0.20
+ * Intent weights (sum to 1.0; contextFit is 0 until Wave 3b):
+ *   snappy   speed 0.45, quality 0.10, reliability 0.20, memoryFit 0.15, trust 0.10, contextFit 0
+ *   balanced speed 0.25, quality 0.25, reliability 0.20, memoryFit 0.10, trust 0.20, contextFit 0
+ *   quality  speed 0.10, quality 0.45, reliability 0.20, memoryFit 0.05, trust 0.20, contextFit 0
  *
  * `scoreFit` is pure. It does not consult the ledger or the admission gate;
  * callers (recommend.ts) inject those via the optional `metrics`,
@@ -51,6 +57,7 @@ export type FitScore = {
   reliability: number;
   memoryFit: number;
   trust: number;
+  contextFit: number;
   total: number;
 };
 
@@ -60,19 +67,29 @@ export type IntentWeights = {
   reliability: number;
   memoryFit: number;
   trust: number;
+  contextFit: number;
 };
 
 export const INTENT_WEIGHTS: Readonly<Record<Intent, Readonly<IntentWeights>>> =
   Object.freeze({
-    snappy: { speed: 0.45, quality: 0.1, reliability: 0.2, memoryFit: 0.15, trust: 0.1 },
-    balanced: { speed: 0.25, quality: 0.25, reliability: 0.2, memoryFit: 0.1, trust: 0.2 },
-    quality: { speed: 0.1, quality: 0.45, reliability: 0.2, memoryFit: 0.05, trust: 0.2 },
+    snappy: { speed: 0.45, quality: 0.1, reliability: 0.2, memoryFit: 0.15, trust: 0.1, contextFit: 0 },
+    balanced: { speed: 0.25, quality: 0.25, reliability: 0.2, memoryFit: 0.1, trust: 0.2, contextFit: 0 },
+    quality: { speed: 0.1, quality: 0.45, reliability: 0.2, memoryFit: 0.05, trust: 0.2, contextFit: 0 },
   });
 
 const FAST_FIRST_TOKEN_MS = 250;
 const SLOW_FIRST_TOKEN_MS = 5000;
 const TARGET_TOKENS_PER_SEC = 30;
 const MEMORY_FIT_HEADROOM_RATIO = 0.5;
+/**
+ * Context/recall axis reference points (tokens). At or below the floor the axis
+ * scores 0; at or above the target it scores 1; linear between. Chosen so the
+ * shipping catalog spreads across the range (today's models cluster at 2-4k) and
+ * a longer-window model is rewarded on merit. Wave 3b tunes these alongside the
+ * per-VRAM bands; they bite nothing until contextFit carries weight.
+ */
+const CONTEXT_FLOOR_TOKENS = 2048;
+const CONTEXT_TARGET_TOKENS = 8192;
 
 export type ScoreFitInput = {
   model: ModelConfig;
@@ -101,13 +118,15 @@ export function scoreFit(input: ScoreFitInput): FitScore {
   const quality = clamp01(metrics.smokePassRate);
   const memoryFit = scoreMemoryFit(model, profile);
   const trust = scoreTrust(model, input.confidence);
+  const contextFit = scoreContextFit(model);
 
   const total =
     weights.speed * speed
     + weights.quality * quality
     + weights.reliability * reliability
     + weights.memoryFit * memoryFit
-    + weights.trust * trust;
+    + weights.trust * trust
+    + weights.contextFit * contextFit;
 
   return {
     speed,
@@ -115,6 +134,7 @@ export function scoreFit(input: ScoreFitInput): FitScore {
     reliability,
     memoryFit,
     trust,
+    contextFit,
     total: clamp01(total),
   };
 }
@@ -180,6 +200,25 @@ export function scoreTrust(model: ModelConfig, confidence?: ConfidenceSource | n
     default:
       return 0.2;
   }
+}
+
+/**
+ * Context/recall axis — the model's declared context window scored on merit,
+ * DECOUPLED from sizeGB (memoryFit already carries size; this axis must not
+ * double-count it). A model advertising a longer catalog `contextTokens` scores
+ * higher: 0 at/below CONTEXT_FLOOR_TOKENS, 1 at/above CONTEXT_TARGET_TOKENS,
+ * linear between. Pure in `model` alone — the DEVICE-adaptive part (how much of
+ * that window a given adapter can actually afford) lives in
+ * `resolveContextTokens`, not here.
+ *
+ * Wave 3 scaffolding: computed and returned by `scoreFit`, but weighted 0 in
+ * every intent (INTENT_WEIGHTS), so it moves no ranking until Wave 3b.
+ */
+export function scoreContextFit(model: ModelConfig): number {
+  const tokens = model.capabilities.contextTokens;
+  if (!Number.isFinite(tokens) || tokens <= CONTEXT_FLOOR_TOKENS) return 0;
+  if (tokens >= CONTEXT_TARGET_TOKENS) return 1;
+  return clamp01((tokens - CONTEXT_FLOOR_TOKENS) / (CONTEXT_TARGET_TOKENS - CONTEXT_FLOOR_TOKENS));
 }
 
 function invertedScale(value: number, lowGood: number, highBad: number): number {

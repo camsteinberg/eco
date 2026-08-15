@@ -430,6 +430,79 @@ describe('resolveSetupProfile — shader-f16 capability', () => {
   });
 });
 
+describe('resolveSetupProfile — maxBufferSize surfacing (Wave 3 scaffolding)', () => {
+  it('surfaces the adapter maxBufferSize onto webgpuMaxBufferBytes', async () => {
+    setUserAgent(CHROME_UA);
+    setGpu({
+      requestAdapter: async () => ({
+        features: new Set(['shader-f16']),
+        limits: { maxBufferSize: 2_147_483_648 },
+      }),
+    });
+
+    const profile = await resolveSetupProfile();
+
+    expect(profile.webgpuSupport).toBe('webgpu');
+    expect(profile.webgpuMaxBufferBytes).toBe(2_147_483_648);
+  });
+
+  it('leaves webgpuMaxBufferBytes undefined when the adapter reports no limit', async () => {
+    setUserAgent(CHROME_UA);
+    setGpu({ requestAdapter: async () => ({ features: new Set(['shader-f16']), limits: {} }) });
+
+    const profile = await resolveSetupProfile();
+
+    expect(profile.webgpuSupport).toBe('webgpu');
+    expect(profile.webgpuMaxBufferBytes).toBeUndefined();
+  });
+
+  it('leaves webgpuMaxBufferBytes undefined on a non-WebGPU (wasm-only) device', async () => {
+    setUserAgent(CHROME_UA);
+    setGpu({ requestAdapter: async () => null });
+    vi.spyOn(WebAssembly, 'validate').mockReturnValue(true);
+
+    const profile = await resolveSetupProfile();
+
+    expect(profile.webgpuSupport).toBe('wasm-only');
+    expect(profile.webgpuMaxBufferBytes).toBeUndefined();
+  });
+
+  it('?eco-force-max-buffer-size overrides the probed value (reproduce a small-buffer adapter anywhere)', async () => {
+    setUserAgent(CHROME_UA);
+    // Adapter reports a large ceiling, but the override wins so we can repro a
+    // constrained adapter on the Mac.
+    setGpu({
+      requestAdapter: async () => ({
+        features: new Set(['shader-f16']),
+        limits: { maxBufferSize: 4_000_000_000 },
+      }),
+    });
+    setSearch('?eco-force-max-buffer-size=134217728');
+
+    const profile = await resolveSetupProfile();
+
+    expect(profile.webgpuMaxBufferBytes).toBe(134_217_728);
+  });
+
+  it('the sync getDeviceProfile() reflects the probed maxBufferSize once the probe lands', async () => {
+    setUserAgent(CHROME_UA);
+    setGpu({
+      requestAdapter: async () => ({
+        features: new Set(['shader-f16']),
+        limits: { maxBufferSize: 1_500_000_000 },
+      }),
+    });
+
+    // Before the probe: sync surface has no probed ceiling.
+    expect(getDeviceProfile().webgpuMaxBufferBytes).toBeUndefined();
+
+    await resolveSetupProfile(); // runs + caches the adapter probe
+
+    // After: every sync surface reflects the real adapter ceiling.
+    expect(getDeviceProfile().webgpuMaxBufferBytes).toBe(1_500_000_000);
+  });
+});
+
 describe('readForcedWasm — ?eco-force-wasm override', () => {
   it('defaults to false with no param', () => {
     setSearch('?');

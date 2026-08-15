@@ -142,6 +142,42 @@ describe('device/compatibility — catalog coverage', () => {
   });
 });
 
+describe('device/compatibility — max-buffer gate (Wave 3 scaffolding, dormant)', () => {
+  // The gate is TIGHTENING-ONLY and DORMANT: it can only fire when a rule
+  // declares `minMaxBufferBytes` AND the profile carries a probed
+  // `webgpuMaxBufferBytes`. No catalog rule sets a floor today, so surfacing the
+  // probed ceiling onto the profile must not perturb ANY existing recommendation.
+  // (Wave 3b's first real floor lands with its own biting-path test.)
+  const model1p2b = () => model('candidate/lfm2.5-1.2b-instruct-onnx');
+
+  it('a probed maxBufferSize does not change assignability while no rule declares a floor', () => {
+    const baseline = isCompatible(model1p2b(), PROFILES.chromiumCapableLaptop);
+    const withTinyBuffer: DeviceProfile = {
+      ...PROFILES.chromiumCapableLaptop,
+      webgpuMaxBufferBytes: 1, // absurdly small — would fail any real floor
+    };
+    const withLargeBuffer: DeviceProfile = {
+      ...PROFILES.chromiumCapableLaptop,
+      webgpuMaxBufferBytes: 8_000_000_000,
+    };
+    expect(baseline).toBe('supported');
+    expect(isCompatible(model1p2b(), withTinyBuffer)).toBe(baseline);
+    expect(isCompatible(model1p2b(), withLargeBuffer)).toBe(baseline);
+  });
+
+  it('surfacing the ceiling leaves every catalog model assignable exactly as before', () => {
+    const withBuffer = (p: DeviceProfile): DeviceProfile => ({
+      ...p,
+      webgpuMaxBufferBytes: 128_000_000, // small, but no rule requires anything
+    });
+    for (const m of getCatalog()) {
+      for (const profile of Object.values(PROFILES)) {
+        expect(isAssignable(m, withBuffer(profile))).toBe(isAssignable(m, profile));
+      }
+    }
+  });
+});
+
 describe('device/compatibility — Phi-3 Mini (high-memory WebGPU)', () => {
   const phi3 = () => model('local/phi3-mini-4k-q4f16');
 
