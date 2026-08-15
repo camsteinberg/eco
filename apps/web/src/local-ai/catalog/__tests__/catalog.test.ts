@@ -4,7 +4,7 @@
 /**
  * Phase C catalog tests.
  *
- * The v1.0 user-facing catalog is exactly 8 models. Every entry must carry the
+ * The v1.0 user-facing catalog is exactly 11 models. Every entry must carry the
  * full ModelConfig surface. These tests are the guard against silent drift in
  * the catalog data (especially: someone adding a model without going through the
  * design review that locks the catalog).
@@ -17,6 +17,8 @@ import { describe, expect, it } from 'vitest';
 import { getCatalog, getModel } from '../catalog';
 import { getCapabilities } from '../capabilities';
 import artifactMetadata from '../artifact-metadata.json';
+import { isUsableSeedRecord, type RawReconciliationRecord } from '../../evidence/seed';
+import seedData from '../../evidence/data/v1-launch-manual-evidence.json';
 
 const V1_CATALOG_IDS = [
   'local/phi3-mini-4k-q4f16',
@@ -127,6 +129,66 @@ describe('local-ai catalog (Phase C)', () => {
     };
     for (const [id, strategy] of Object.entries(expected)) {
       expect(getModel(id)!.systemRoleSupport, id).toBe(strategy);
+    }
+  });
+
+  // evidenceTier is a truth claim, not decoration: 'proven' drives a higher
+  // predicted-tier smoke-pass (0.9 vs 0.7) and trust in scoring, and it tells the
+  // user this model was actually validated on hardware like theirs. The label must
+  // therefore match the shipped seed evidence. We pin the exact per-model tier so a
+  // silent flip is caught, and enforce the structural invariant that every 'proven'
+  // model is backed by >=1 usable seed row. This invariant would have caught
+  // lfm2-2.6b shipping 'proven' with zero seed rows (Wave-3 evidence-truth, TIER-1).
+  const EXPECTED_TIERS: Record<(typeof V1_CATALOG_IDS)[number], 'proven' | 'predicted' | 'experimental'> = {
+    'local/phi3-mini-4k-q4f16': 'proven',
+    'local/qwen3-0.6b': 'proven',
+    'candidate/lfm2.5-1.2b-instruct-onnx': 'proven',
+    'candidate/lfm2.5-1.2b-instruct-q4-onnx': 'predicted',
+    'candidate/lfm2.5-350m-onnx': 'predicted',
+    'candidate/qwen3.5-2b-onnx': 'proven',
+    'candidate/gemma-4-e2b-litert': 'predicted',
+    'candidate/qwen2.5-0.5b-mlc': 'predicted',
+    'candidate/qwen2.5-0.5b-instruct-onnx': 'predicted',
+    'candidate/smollm2-360m-instruct-onnx': 'predicted',
+    // Deeper eco-smart pick; 'predicted' pending a second-machine by-eye
+    // validation (it carries no seed row of its own — see the invariant below).
+    // promotePreferred still pins it as the eco-smart PICK regardless of tier.
+    'candidate/lfm2-2.6b-onnx': 'predicted',
+  };
+
+  // Models permitted to carry 'proven' without a backing seed row, each with a
+  // documented reason. Empty today: every 'proven' model is genuinely seed-backed.
+  // A future re-graduation of lfm2-2.6b to 'proven' must add either a real seed
+  // row or an explicit waiver entry here — not a silent label change.
+  const PROVEN_SEED_WAIVERS: Readonly<Record<string, string>> = {};
+
+  it('pins the per-model evidenceTier so the label cannot silently drift from the data', () => {
+    for (const id of V1_CATALOG_IDS) {
+      expect(getModel(id)!.evidenceTier, id).toBe(EXPECTED_TIERS[id]);
+    }
+  });
+
+  it("backs every 'proven' model with >=1 usable seed row (existence, not freshness) or a documented waiver", () => {
+    // Existence, NOT freshness: row recency is the 45-day-TTL concern owned by the
+    // seed-freshness test. A fresh-based check here would fire on every 'proven'
+    // model the moment the shipped seed ages past the TTL — a different failure.
+    const rows = (seedData.routingEvidenceReconciliation ?? []) as unknown as RawReconciliationRecord[];
+    const modelsWithUsableSeed = new Set(
+      rows
+        .filter((r) => typeof r.modelId === 'string' && isUsableSeedRecord(r))
+        .map((r) => r.modelId as string),
+    );
+    // Not vacuous: the seed data must actually back some models.
+    expect(modelsWithUsableSeed.size).toBeGreaterThan(0);
+
+    const provenModels = getCatalog().filter((m) => m.evidenceTier === 'proven');
+    expect(provenModels.length).toBeGreaterThan(0);
+    for (const model of provenModels) {
+      const backed = modelsWithUsableSeed.has(model.id) || model.id in PROVEN_SEED_WAIVERS;
+      expect(
+        backed,
+        `${model.id} is 'proven' but has no usable seed row and no documented PROVEN_SEED_WAIVERS entry`,
+      ).toBe(true);
     }
   });
 

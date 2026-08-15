@@ -185,10 +185,14 @@ describe('recommend — per-slot preference', () => {
     const smart = recommend('eco-smart', PROFILE_24GB);
     // The 2026-08-10 LFM2-2.6B graduation re-split the slots the 2026-08-09 read had
     // collapsed onto the 1.2B: eco-smart is the deeper 2.6B, eco-fast stays the fast
-    // 1.2B. The 2.6B graduated from 'predicted' to 'proven' on 2026-08-12 after a
-    // real-eyes by-eye judged it decisively better than the 1.2B and the 2B.
+    // 1.2B. A by-eye read judged it decisively better than the 1.2B and 2B, but that
+    // is NOT a hardware benchmark — it ships zero seed rows, so 'proven' overclaimed.
+    // Wave-3 evidence-truth (TIER-1) flipped it to 'predicted', the honest label
+    // pending a second-machine benchmark. The eco-smart PICK is unchanged: it is the
+    // hardcoded PREFERRED_SMART_MODEL_ID that promotePreferred pins to the top of the
+    // slot regardless of tier — the flip only lowers its (unused-here) quality axis.
     expect(smart.id).toBe('candidate/lfm2-2.6b-onnx');
-    expect(smart.evidenceTier).toBe('proven');
+    expect(smart.evidenceTier).toBe('predicted');
     expect(fast.capabilities.intent.includes('snappy') || fast.capabilities.intent.includes('balanced')).toBe(true);
   });
 });
