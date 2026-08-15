@@ -63,6 +63,7 @@ import {
   type CjkTokenScan,
 } from '../local-ai/runtime/cjk-suppression';
 import { classifyGenerationError } from './classify-generation-error';
+import { singleFlightRejection } from './single-flight';
 import { ortWasmPaths, clampThreads, type OrtArtifact } from '../local-ai/runtime/ort-artifact';
 
 // ─── Local self typing ─────────────────────────────────────────────────────
@@ -580,6 +581,19 @@ async function handleGenerate(msg: Extract<WorkerInbound, { type: 'generate' }>)
       code: 'init-failed',
       message: 'Worker is not loaded',
     });
+    return;
+  }
+
+  // RT-2 single-flight guard. `abortFlag` is non-null for exactly the lifetime
+  // of an in-flight generation (set just below, cleared in the finally). The
+  // async message dispatcher can pick up a 2nd 'generate' while the first is
+  // parked on `await model.generate(...)`; letting it run would clobber
+  // `abortFlag` (so the first generation could no longer be aborted) and race
+  // the shared KV-cache globals — silent context corruption. The adapter is a
+  // singleton and never intends two at once, so reject the newcomer.
+  const rejection = singleFlightRejection(abortFlag, msg.generationId);
+  if (rejection) {
+    post(rejection);
     return;
   }
 

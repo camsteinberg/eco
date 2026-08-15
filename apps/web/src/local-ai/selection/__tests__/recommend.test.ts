@@ -494,6 +494,43 @@ describe('listCatalog', () => {
   });
 });
 
+describe('listCatalog — bound-but-unassignable model stays switchable (FH-2)', () => {
+  // A device probed AFTER binding: webgpuShaderF16 flips to false, which makes
+  // every q4f16 build unassignable (formatRequiresShaderF16 gate). The user's
+  // bound q4f16 1.2B must NOT vanish from the manual Switch list — otherwise
+  // there is no path to switch away from a model the device can no longer run.
+  const PROFILE_NO_SHADER_F16: DeviceProfile = {
+    browserClass: 'chromium',
+    webgpuSupport: 'webgpu',
+    deviceMemoryGB: 16,
+    isMobile: false,
+    override: 'auto',
+    webgpuShaderF16: false,
+  };
+  const BOUND_Q4F16 = 'candidate/lfm2.5-1.2b-instruct-onnx'; // q4f16 → unassignable here
+
+  it('keeps the bound model in the Switch list even when it is no longer assignable', () => {
+    // Guard the premise: this model really is unassignable on this profile.
+    expect(isAssignable(getModel(BOUND_Q4F16)!, PROFILE_NO_SHADER_F16)).toBe(false);
+    const ids = listCatalog(PROFILE_NO_SHADER_F16, { currentlyBoundModelId: BOUND_Q4F16 })
+      .available.map((e) => e.model.id);
+    expect(ids).toContain(BOUND_Q4F16);
+  });
+
+  it('still excludes the same unassignable model when it is NOT the bound one', () => {
+    const ids = listCatalog(PROFILE_NO_SHADER_F16, { currentlyBoundModelId: null })
+      .available.map((e) => e.model.id);
+    expect(ids).not.toContain(BOUND_Q4F16);
+  });
+
+  it('auto-offer (listCandidates) never surfaces the unassignable model, even when bound', () => {
+    const ids = listCandidates('eco-fast', PROFILE_NO_SHADER_F16, undefined, {
+      currentlyBoundModelId: BOUND_Q4F16,
+    }).map((c) => c.model.id);
+    expect(ids).not.toContain(BOUND_Q4F16);
+  });
+});
+
 describe('recommend — sub-8GB WebGPU floor (FR-2)', () => {
   const PROFILE_CHROMIUM_6GB_F16: DeviceProfile = {
     browserClass: 'chromium',

@@ -497,7 +497,15 @@ export function listCatalog(
   const available: AvailableModel[] = [];
 
   for (const model of getCatalog()) {
-    if (!isAssignable(model, profile)) {
+    // FH-2: the user's currently-bound model stays visible in the manual Switch
+    // list even if a later device re-probe (e.g. shader-f16=false, or a
+    // populated max-buffer gate) made it unassignable — otherwise it vanishes
+    // with no path to switch away. applyConfidenceFloor already carries the
+    // isBound exemption for the admission/failure checks; the auto-offer path
+    // (listCandidates) keeps the unconditional hard-filter and never surfaces
+    // an unrunnable model.
+    const isBoundModel = options.currentlyBoundModelId === model.id;
+    if (!isAssignable(model, profile) && !isBoundModel) {
       continue; // unsupported devices: hard exclude
     }
     const admission = admit(model, profile);

@@ -489,6 +489,55 @@ describe('load timeout / cancellation', () => {
   });
 });
 
+// ─── Load-failure cleanup (RT-1) ─────────────────────────────────────────────
+//
+// A load that rejects never reaches `state.activeAdapter = adapter`, so the
+// lifecycle loses its only reference to the adapter. Its worker (potentially
+// multi-GB) must be unloaded on the failure path or it is orphaned forever.
+
+describe('load failure cleanup (RT-1)', () => {
+  it('unloads the adapter when the load fails, so no worker is orphaned', async () => {
+    const adapter = new FakeAdapter();
+    adapter.failOnLoad = new AdapterError('init failed', 'init-failed', false);
+    setAdapterFactory(() => adapter);
+
+    // Current code: unloadCalls stays 0 (worker orphaned). After the fix: 1.
+    await expect(loadModel(MODEL_A)).rejects.toBeInstanceOf(AdapterError);
+
+    expect(adapter.unloadCalls).toBe(1);
+    expect(getActiveAdapter()).toBeNull();
+    expect(getActiveModel()).toBeNull();
+  });
+
+  it('unloads the adapter when a cooperating load is aborted (the RT-1 scenario)', async () => {
+    const adapter = new FakeAdapter();
+    let notifyListenerRegistered: () => void;
+    const listenerRegistered = new Promise<void>((resolve) => {
+      notifyListenerRegistered = resolve;
+    });
+    // Models TransformersAdapter: rejects with 'aborted' when the signal fires,
+    // but does NOT terminate its own worker — the lifecycle must do the cleanup.
+    adapter.load = (_model: ModelConfig, options?: import('../types').LoadOptions) =>
+      new Promise<void>((_resolve, reject) => {
+        options?.signal?.addEventListener('abort', () => {
+          reject(new AdapterError('load aborted', 'aborted', true));
+        }, { once: true });
+        notifyListenerRegistered();
+      });
+    setAdapterFactory(() => adapter);
+
+    const controller = new AbortController();
+    const pending = loadModel(MODEL_A, { signal: controller.signal });
+    await listenerRegistered;
+    controller.abort();
+
+    await expect(pending).rejects.toMatchObject({ code: 'aborted' });
+    expect(adapter.unloadCalls).toBe(1);
+    expect(getActiveAdapter()).toBeNull();
+    expect(getActiveModel()).toBeNull();
+  });
+});
+
 // ─── Lock ──────────────────────────────────────────────────────────────────
 
 describe('lock serialization', () => {

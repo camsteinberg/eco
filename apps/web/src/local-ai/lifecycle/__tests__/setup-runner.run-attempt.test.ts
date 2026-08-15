@@ -157,6 +157,58 @@ describe('DEFAULT_SEAMS.runAttempt — download vs load/smoke phase classificati
   });
 });
 
+// ─── Stall / TTFB watchdog (RT-4) ────────────────────────────────────────────
+//
+// Before RT-4 a wedged first-run download hung setup forever: no abort signal
+// was passed, the stall timer only armed after the first byte, and the stall
+// event was swallowed. These pin that a stall now aborts the fetch and the
+// cascade sees a retryable 'download' phase. On pre-fix code the mocked download
+// never receives a signal to abort, so runAttempt never settles — the test
+// times out (RED); with the fix it resolves to phase 'download' (GREEN).
+
+describe('DEFAULT_SEAMS.runAttempt — stall / TTFB watchdog (RT-4)', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  // A download that never resolves on its own and only settles when its abort
+  // signal fires. `report` optionally emits one progress chunk (mid-stream case).
+  const hangingDownloadUntilAbort = (report?: (tracker: ProgressTracker) => void) =>
+    vi.mocked(downloadModel).mockImplementation(((_model: ModelConfig, opts?: { tracker?: ProgressTracker; signal?: AbortSignal }) =>
+      new Promise((_resolve, reject) => {
+        if (report && opts?.tracker) report(opts.tracker);
+        opts?.signal?.addEventListener('abort', () => reject(new Error('download aborted')), { once: true });
+      })) as unknown as typeof downloadModel);
+
+  it('aborts a TTFB hang (no bytes ever) and classifies it as phase "download"', async () => {
+    vi.useFakeTimers();
+    hangingDownloadUntilAbort(); // never reports progress at all
+
+    const resultPromise = DEFAULT_SEAMS.runAttempt(SLOT, MODEL, vi.fn());
+    // Advance past the 30s early-stall window; startDownload armed the timer.
+    await vi.advanceTimersByTimeAsync(31_000);
+    const result = await resultPromise;
+
+    expect(result).toMatchObject({ ok: false, phase: 'download' });
+    expect(runSmoke).not.toHaveBeenCalled();
+  });
+
+  it('aborts a mid-stream wedge (bytes then silence) and classifies it as phase "download"', async () => {
+    vi.useFakeTimers();
+    hangingDownloadUntilAbort((tracker) => tracker.reportDownloadProgress(50_000, 1_000_000));
+
+    const resultPromise = DEFAULT_SEAMS.runAttempt(SLOT, MODEL, vi.fn());
+    await vi.advanceTimersByTimeAsync(31_000);
+    const result = await resultPromise;
+
+    expect(result).toMatchObject({ ok: false, phase: 'download' });
+    expect(runSmoke).not.toHaveBeenCalled();
+  });
+});
+
 describe('DEFAULT_SEAMS.runAttempt — progress-listener cleanup (finally semantics)', () => {
   let unsubscribeSpy: ReturnType<typeof vi.fn>;
 
@@ -205,7 +257,9 @@ describe('DEFAULT_SEAMS.runAttempt — progress-listener cleanup (finally semant
 
     await DEFAULT_SEAMS.runAttempt(SLOT, MODEL, vi.fn());
 
-    expect(unsubscribeSpy).toHaveBeenCalledTimes(1);
+    // Two listeners now: the RT-4 stall→abort subscriber and the progress
+    // forwarder. Both must be released on every exit path.
+    expect(unsubscribeSpy).toHaveBeenCalledTimes(2);
   });
 
   it('still unsubscribes if a progress handler throws (this is why it is a finally)', async () => {
@@ -215,6 +269,7 @@ describe('DEFAULT_SEAMS.runAttempt — progress-listener cleanup (finally semant
     });
 
     await expect(DEFAULT_SEAMS.runAttempt(SLOT, MODEL, throwingHandler)).rejects.toThrow('handler boom');
-    expect(unsubscribeSpy).toHaveBeenCalledTimes(1);
+    // Both listeners (stall→abort + progress) released even when a handler throws.
+    expect(unsubscribeSpy).toHaveBeenCalledTimes(2);
   });
 });

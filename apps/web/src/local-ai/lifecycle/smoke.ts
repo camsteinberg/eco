@@ -299,6 +299,11 @@ export async function runSmoke(
 
   let firstTokenAt: number | null = null;
   let tokensReceived = 0;
+  // Post-filter tokens carrying at least one non-whitespace character. A smoke
+  // passes only if the user would have seen *something* — a reply that is
+  // entirely think-block (all filtered) or pure whitespace is a failure, not a
+  // pass (HON-5).
+  let visibleTextTokens = 0;
   let workerCompletionTokens = 0;
   let errorReason: string | null = null;
   let caughtError: unknown = null;
@@ -412,6 +417,7 @@ export async function runSmoke(
           pushDiagEvent('first-token');
         }
         tokensReceived++;
+        if (event.text.trim().length > 0) visibleTextTokens++;
         if (tokensReceived >= SMOKE_MAX_TOKENS) {
           internal.abort();
           break;
@@ -442,29 +448,31 @@ export async function runSmoke(
 
   const durationMs = now() - startedAt;
 
-  // Determine outcome.
+  // Determine outcome (HON-5).
   //
-  // A smoke passes if EITHER:
-  //   (a) At least one visible token reached the main thread (the normal case), OR
-  //   (b) The worker reported completionTokens > 0 but all visible output was
-  //       consumed by the output filter chain (think-tag stripping, stop
-  //       sequences, disclaimer removal). This happens with reasoning models
-  //       like Qwen3 that emit <think>…</think> blocks — the model ran
-  //       successfully and produced output, it's just not user-visible.
+  // A smoke passes only when the user would have seen real output: at least one
+  // post-filter token carried a non-whitespace character. A reply that is
+  // entirely a <think> block (all consumed by the filter chain) or pure
+  // whitespace produced no usable answer, so it FAILS — even though the worker's
+  // completionTokens is > 0.
   //
-  // In case (b) we still record passed:true with firstTokenMs=0 because we
-  // can't measure first-token latency when no token event reached us.
-  const hasVisibleTokens = firstTokenAt !== null;
-  const hasFilteredTokens = workerCompletionTokens > 0 && tokensReceived === 0;
-  const generationSucceeded = (hasVisibleTokens || hasFilteredTokens) && !errorReason;
+  // We used to pass the fully-filtered case as a courtesy to reasoning models,
+  // but a correctly-working reasoning model emits its visible answer AFTER the
+  // <think> block; that answer survives filtering and lands here as a visible
+  // token, so the normal path already covers it. Only a think-ONLY reply hits
+  // the blank case — and a model that says nothing the user can see is not a
+  // passing model, latent today but Sev1/2 the day a think-prefill model graduates.
+  const hasVisibleTokens = visibleTextTokens > 0;
+  const generationSucceeded = hasVisibleTokens && !errorReason;
 
   let result: SmokeResult;
   if (generationSucceeded) {
     result = {
       passed: true,
+      // hasVisibleTokens ⇒ firstTokenAt is set, so this is a real measurement.
       firstTokenMs: firstTokenAt !== null ? firstTokenAt - startedAt : 0,
       durationMs,
-      tokensReceived: tokensReceived > 0 ? tokensReceived : workerCompletionTokens,
+      tokensReceived,
     };
   } else if (internal.signal.aborted && externalSignal?.aborted) {
     result = { passed: false, reason: 'Smoke cancelled', durationMs };
