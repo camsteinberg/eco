@@ -1374,8 +1374,8 @@ describe("useChat — dispatch readiness guards", () => {
     expect(assistant.status).toBe("error");
     expect(assistant.inferenceMethod).toBe("local");
     // The user-facing safety reason is surfaced both on the message and globally.
-    expect(assistant.errorMessage).toContain("shorter context");
-    expect(useChatStore.getState().error).toContain("shorter context");
+    expect(assistant.errorMessage).toContain("grown past");
+    expect(useChatStore.getState().error).toContain("grown past");
   });
 });
 
