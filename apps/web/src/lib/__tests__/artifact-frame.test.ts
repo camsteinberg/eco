@@ -88,7 +88,9 @@ describe("buildArtifactFrame — the gate's own rules", () => {
   });
 
   it('does not read "the email" as the verb email', () => {
-    expect(buildArtifactFrame("ok back to the email — can you summarise it")).toBe("");
+    // A silent tail keeps this a pure Scan-1 check — "summarise it" would now
+    // legitimately fire the transform scan (pinned in its own block below).
+    expect(buildArtifactFrame("ok back to the email — remind me what we agreed")).toBe("");
   });
 
   it('does not frame plain "send it" — a turn can ask ABOUT sending', () => {
@@ -198,6 +200,87 @@ describe("buildArtifactFrame — correction verbs", () => {
     expect(buildArtifactFrame("can you rewrite the email to dave")).toBe(
       "The corrected email:",
     );
+  });
+});
+
+describe("buildArtifactFrame — transform verbs (Scan 3)", () => {
+  // The probe family this scan was added for: "do the transform, don't explain".
+  it("frames 'summarize this in one sentence' as a summary", () => {
+    expect(
+      buildArtifactFrame(
+        "summarize this in one sentence: 'The museum will close early on Friday.'",
+      ),
+    ).toBe("The summary:");
+  });
+
+  it("frames the 'make this more formal' rewrite (d3)", () => {
+    expect(
+      buildArtifactFrame(
+        "make this more formal: 'hey can u send me that file whenever, no rush thx'",
+      ),
+    ).toBe("The rewritten version:");
+  });
+
+  it("frames 'shorten this into a text message' as a rewrite (d4)", () => {
+    expect(
+      buildArtifactFrame(
+        "shorten this into a text message: 'I wanted to let you know I am running late'",
+      ),
+    ).toBe("The rewritten version:");
+  });
+
+  it("fires on a request-lead transform: 'can you summarise it'", () => {
+    expect(buildArtifactFrame("can you summarise it")).toBe("The summary:");
+  });
+
+  it("frames 'make it less wordy' the same way", () => {
+    expect(buildArtifactFrame("can you make it less wordy")).toBe("The rewritten version:");
+  });
+
+  it("frames 'make this sound more professional'", () => {
+    expect(buildArtifactFrame("make this sound more professional")).toBe(
+      "The rewritten version:",
+    );
+  });
+
+  // ── The category boundaries (silence is the fail-safe direction) ──
+  it("does NOT frame 'make a study guide' — a noun, not a rewrite of this/it (a1)", () => {
+    expect(buildArtifactFrame("please make a study guide for calc 1")).toBe("");
+  });
+
+  it("does NOT frame 'turn this into a grocery list' — not a self-qualifying transform (a5)", () => {
+    expect(
+      buildArtifactFrame("turn this into a grocery list: spaghetti bolognese for 4"),
+    ).toBe("");
+  });
+
+  it("does NOT frame 'make it a bit shorter' — a comparative, deliberately uncovered", () => {
+    expect(buildArtifactFrame("thats good but can you make it a bit shorter")).toBe("");
+  });
+
+  it("does not read the adverb 'simply' as the verb 'simplify'", () => {
+    expect(buildArtifactFrame("explain how a credit score works, simply")).toBe("");
+  });
+
+  it("stays silent on a statement's 'would make it more X' — not directed at us", () => {
+    expect(buildArtifactFrame("honestly that would just make it more work for everyone")).toBe(
+      "",
+    );
+  });
+
+  it("does NOT fire on a concept summary — 'summarize the quarterly figures'", () => {
+    // No reference to the user's own text; this asks about external figures.
+    expect(buildArtifactFrame("please summarize the quarterly figures for the board")).toBe("");
+  });
+
+  it("fires on the instruction paragraph, not the pasted body it points at", () => {
+    const turn = "please summarize this for the board\n\n" + "A".repeat(800);
+    expect(buildArtifactFrame(turn)).toBe("The summary:");
+  });
+
+  it("does not fire when a transform verb sits only in the pasted body", () => {
+    const turn = "what do you think of this\n\n" + "please rephrase it all. ".repeat(40);
+    expect(buildArtifactFrame(turn)).toBe("");
   });
 });
 

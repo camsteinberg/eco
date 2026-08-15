@@ -40,13 +40,19 @@ const PINNED_INTENTS: Readonly<Record<string, string>> = {
   // what a frightening letter says, not handed a rewritten letter.
   "health-hospital-letter": "explain",
 
-  // ★ KNOWN MISSES, pinned deliberately so they cannot be quietly "fixed" by
-  // widening the repair vocabulary to fit them. All three are repair asks
-  // phrased as "make this <different>", which needs the paste to resolve
-  // "this" — a separate family, to be measured on its own rather than folded
-  // in here. If one of these starts passing, something widened the rule.
-  "school-essay-not-ai": "explain", // "make this better"
-  "work-email-tone-fix": "explain", // "make this sound less passive aggressive"
+  // ★ THE "make this <different>" FAMILY, now handled. The note here used to
+  // pin these as `explain` known-misses "to be measured on its own rather than
+  // folded in" — and warned "if one of these starts passing, something widened
+  // the rule". That measurement is done: on the shipping 1.2B (headed WebGPU,
+  // two batches) routing a transform ask to `explain` made it follow the
+  // explain hint and lecture instead of returning the rewrite. `isTextTransformAsk`
+  // (lib/ask-text.ts) is the deliberate widening, so these route `writing`.
+  "school-essay-not-ai": "writing", // "make this better … dont make it sound like ai"
+  "work-email-tone-fix": "writing", // "make this sound less passive aggressive"
+
+  // ★ REMAINING KNOWN MISS, still pinned so the vocabulary can't quietly grow to
+  // fit it: "knock the spelling errors out of it" is a repair ask no repair OR
+  // transform verb covers, so it still lands on explain.
   "proofread-memorial-tribute": "explain", // "knock the spelling errors out of it"
 };
 

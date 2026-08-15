@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Bos Computing LLC
 
 import { getCatalog } from "../local-ai/catalog/catalog";
-import { instructionParagraph, isTextRepairAsk } from "./ask-text";
+import { instructionParagraph, isTextRepairAsk, isTextTransformAsk } from "./ask-text";
 import {
   DEEP_RE,
   LONG_FORM_RE,
@@ -461,6 +461,12 @@ export function inferChatIntent(content: string, options?: InferChatIntentOption
   if (options?.hasFiles || /<file\b/i.test(raw)) return "file";
   if (CODE_RE.test(text)) return "code";
   if (isTextRepairAsk(raw)) return "writing";
+  // A transform ask ("make this more formal", "shorten this", "summarise it")
+  // wants the text back changed, not an essay about it — tested ahead of the
+  // depth words so a stray "detailed"/"full" can't steal it into `deep`, and
+  // ahead of the shape fallback that otherwise lands it on `explain` (measured:
+  // the 1.2B then follows the explain hint and lectures instead of transforms).
+  if (isTextTransformAsk(raw)) return "writing";
   if (LONG_FORM_RE.test(text)) return "deep";
   if (DEEP_RE.test(text)) return "deep";
   if (WRITING_RE.test(text)) return "writing";

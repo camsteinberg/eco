@@ -478,14 +478,18 @@ const KNOWN_GAPS: ReadonlyMap<GapKey, { mechanism: GapMechanism; intent: ChatInt
     // real-model A/B settled that the ban could come off. Deleted rather than
     // relaxed, per this file's rule. `faithful-reproduction` now has no pinned
     // gaps at all, so every item that needs it is live above.
-    ["no-elaboration-hint/work-email-tone-fix", { mechanism: "explain-default-middle", intent: "explain" }],
-    ["direct-budget/work-email-tone-fix", { mechanism: "explain-default-middle", intent: "explain" }],
+    // work-email-tone-fix and school-essay-not-ai moved explain → writing (the
+    // transform widening, isTextTransformAsk). Their `no-elaboration-hint` gap
+    // CLOSED — the writing hint is "avoid filler", not "develop the details" —
+    // so those two entries are deleted, not relaxed. `direct-budget` still fails:
+    // writing's budget is the same 1536 middle as explain's, so the gap now sits
+    // under `writing-budget-is-middle` instead of `explain-default-middle`.
+    ["direct-budget/work-email-tone-fix", { mechanism: "writing-budget-is-middle", intent: "writing" }],
     ["no-elaboration-hint/work-followup-shorter", { mechanism: "explain-default-middle", intent: "explain" }],
     ["direct-budget/work-followup-shorter", { mechanism: "explain-default-middle", intent: "explain" }],
     ["direct-budget/rewrite-03", { mechanism: "writing-budget-is-middle", intent: "writing" }],
     ["direct-budget/sw-15", { mechanism: "writing-budget-is-middle", intent: "writing" }],
-    ["no-elaboration-hint/school-essay-not-ai", { mechanism: "explain-default-middle", intent: "explain" }],
-    ["direct-budget/school-essay-not-ai", { mechanism: "explain-default-middle", intent: "explain" }],
+    ["direct-budget/school-essay-not-ai", { mechanism: "writing-budget-is-middle", intent: "writing" }],
     ["direct-budget/work-sick-text", { mechanism: "brevity-misses-the-budget", intent: "explain" }],
     ["direct-budget/draft-01", { mechanism: "writing-budget-is-middle", intent: "writing" }],
     ["direct-budget/admin-gym-cancellation", { mechanism: "writing-budget-is-middle", intent: "writing" }],
@@ -587,11 +591,16 @@ const KNOWN_GAPS: ReadonlyMap<GapKey, { mechanism: GapMechanism; intent: ChatInt
 const ROUTING_TODAY: Readonly<
   Record<string, { intent: ChatIntent; maxTokens: number; temperature: number; hint: string }>
 > = {
-  "work-email-tone-fix": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
+  // Transform ask ("make this sound less passive aggressive") — routes `writing`
+  // now (isTextTransformAsk), not `explain`. Measured: on the 1.2B the explain
+  // hint made it lecture instead of returning the rewrite.
+  "work-email-tone-fix": { intent: "writing", maxTokens: 1536, temperature: 0.4, hint: "Match the requested format and tone; avoid filler." },
   "work-followup-shorter": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
   "rewrite-03": { intent: "writing", maxTokens: 1536, temperature: 0.4, hint: "Match the requested format and tone; avoid filler." },
   "sw-15": { intent: "writing", maxTokens: 1536, temperature: 0.4, hint: "Match the requested format and tone; avoid filler." },
-  "school-essay-not-ai": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
+  // Transform ask ("make this better … dont make it sound like ai") — routes
+  // `writing` now via the "make it sound" arm of isTextTransformAsk.
+  "school-essay-not-ai": { intent: "writing", maxTokens: 1536, temperature: 0.4, hint: "Match the requested format and tone; avoid filler." },
   "work-sick-text": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "" },
   "draft-01": { intent: "writing", maxTokens: 1536, temperature: 0.4, hint: "Match the requested format and tone; avoid filler." },
   "admin-gym-cancellation": { intent: "writing", maxTokens: 1536, temperature: 0.4, hint: "Match the requested format and tone; avoid filler." },
@@ -637,13 +646,13 @@ const ROUTING_TODAY: Readonly<
   // `writing`).
   //
   // The cascade now classifies the INSTRUCTION rather than the paste, and reads
-  // a repair ask as a writing ask, so seven reach `writing`. Two do not, and
-  // that is deliberate rather than an oversight: `memorial-tribute` ("knock the
-  // spelling errors out of it") and `school-essay-not-ai` ("make this better")
-  // are repair asks phrased as "make this <different>", a family that needs the
-  // paste to resolve "this". Widening the repair vocabulary until they passed
-  // would be fitting the rule to the labelled items instead of to the category.
-  // See lib/ask-text.ts.
+  // a repair ask as a writing ask, so eight reach `writing` — including
+  // `school-essay-not-ai` ("make this better … dont make it sound like ai"),
+  // which the transform widening (isTextTransformAsk) now routes. One does not,
+  // deliberately: `memorial-tribute` ("knock the spelling errors out of it") is
+  // a repair ask no repair OR transform verb covers, so it stays `explain`.
+  // Widening the vocabulary until it passed would be fitting the rule to the
+  // labelled item instead of to the category. See lib/ask-text.ts.
   //
   // `marketplace-ad` still carries no hint at all — she typed "keep it short" —
   // but now takes the 1536 writing ceiling rather than 2048.

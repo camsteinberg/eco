@@ -141,3 +141,50 @@ const TEXT_REPAIR_RE = new RegExp(
 export function isTextRepairAsk(text: string): boolean {
   return TEXT_REPAIR_RE.test(instructionParagraph(text));
 }
+
+/**
+ * Verbs that name a TEXT-OUTPUT transform on their own — "summarise this",
+ * "shorten it", "make this more formal". Sibling to the repair family: the
+ * user wants their text back changed, not an essay about it. This is the
+ * category the intent cascade routes to `writing` (so the `explain` hint —
+ * "develop the details… reasons, examples, practical implications" — cannot
+ * fire and make a small model lecture instead of transform) AND the category
+ * `artifact-frame.ts` Scan 3 frames; keep the verb set in sync with that scan.
+ *
+ * ★ WHY THIS EXISTS. Measured on the shipping 1.2B (headed WebGPU, 2 batches):
+ * "make this more formal" and "shorten this into a text message" both fell
+ * through the cascade to `explain`, and the model followed the explain hint
+ * verbatim — "**Plain-language explanation:** you want the message to sound…"
+ * — instead of returning the rewrite. The frame alone did not override it; the
+ * misroute did. summarize escaped only because "in one sentence" suppressed the
+ * hint. Routing the whole family to `writing` is the fix.
+ *
+ * ★ A LITERAL regex, not `new RegExp(<assembled string>)`. The two assembled
+ * patterns above each carry a scar from Turbopack folding their pieces at build
+ * (WRITING_RE dropped `)\b`, TEXT_REPAIR_RE dropped a group close). A regex
+ * literal is compiled from source and cannot be corrupted that way.
+ *
+ * ★ BOTH ARMS REQUIRE A REFERENCE TO THE USER'S OWN TEXT (this|it|that|these|
+ * those) near the verb. Without it "summarize what a vpn does in one sentence"
+ * and "simplify the equation" — knowledge/explain asks that merely use the verb
+ * on an external subject — would misroute. The transform family is "give me MY
+ * text back, changed", and that "this"/"it" is what marks it.
+ *
+ * The "make (this|it) … (more|less|sound)" arm intentionally does NOT gate on
+ * the assistant being the addressee the way the frame's `makeIsDirected` does:
+ * a stray statement ("that would make it more work") misrouting to `writing`
+ * only swaps a benign "match the format" hint and fires no frame, so silence is
+ * not needed here — over-inclusion is harmless.
+ */
+const TEXT_TRANSFORM_RE =
+  /\b(?:shorten|condense|summari[sz]e|paraphrase|rephrase|reword|simplify|tighten|formali[sz]e)\b[^.?!]{0,12}?\b(?:this|it|that|these|those)\b|\bmake (?:this|it)\b[^.?!]{0,16}?\b(?:more|less|sound)\b/i;
+
+/**
+ * Whether the ask wants the user's text handed back transformed — shortened,
+ * summarised, reworded, made more formal — rather than explained. Reads the
+ * ASK ONLY (`instructionParagraph`), so a pasted document that merely discusses
+ * one of these verbs cannot fire it, exactly like `isTextRepairAsk`.
+ */
+export function isTextTransformAsk(text: string): boolean {
+  return TEXT_TRANSFORM_RE.test(instructionParagraph(text));
+}
