@@ -59,15 +59,6 @@ function ChatPageInner() {
 export function ChatPageClient() {
   return (
     <LocalAiSetupGate
-      onBelowFloorSignup={async (email) => {
-        if (typeof window !== "undefined") {
-          const subject = encodeURIComponent("Eco interest");
-          const body = encodeURIComponent(
-            `Email: ${email}\n\nReach out when Eco supports this device.`,
-          );
-          window.location.href = `mailto:hello@econetwork.ai?subject=${subject}&body=${body}`;
-        }
-      }}
       onTellUsMore={() => {
         // Without this prop the gate's default is a silent no-op — the
         // "Tell us more" button did nothing in prod. Route to the
