@@ -754,6 +754,24 @@ describe("wikipediaGroundingTool.execute — found WITH population", () => {
     expect(result.display).toBe("Source: Wikipedia — Paris");
   });
 
+  it("answers only the asked fact and falls back to memory when the source lacks it (measured regression fix)", async () => {
+    // Measured 2026-08-16 on the real 1.2B (grounding A/B before/after): the old
+    // note told the model to "prefer these facts over your own memory", which
+    // caused CONFIDENT regressions when the truncated extract did not contain the
+    // asked fact. Grounding the general "Switzerland" article (geography, no "Bern"
+    // in the first 4 sentences) flipped a correct memory answer (Bern) to a wrong
+    // one (Zurich, the largest city). The note now instructs answering ONLY the
+    // asked fact, never substituting a nearby one, and falling back to the model's
+    // own knowledge when the source doesn't contain the answer.
+    const result = await execute({ entity: "Paris", wikidataProperty: "P1082" });
+    expect(result.ok).toBe(true);
+    // The harmful "prefer the source over your own memory" pull is gone.
+    expect(result.forModel).not.toContain("prefer");
+    // The replacement guardrails are present.
+    expect(result.forModel).toContain("only what was asked");
+    expect(result.forModel).toContain("rely on your own knowledge");
+  });
+
   it("calls Wikidata exactly once with the qid + property", async () => {
     await execute({ entity: "Paris", wikidataProperty: "P1082" });
     expect(mockStatement).toHaveBeenCalledTimes(1);

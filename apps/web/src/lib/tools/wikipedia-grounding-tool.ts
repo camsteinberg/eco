@@ -1065,7 +1065,7 @@ function buildFoundNote(
     FENCE_OPEN,
     ...dataLines,
     FENCE_CLOSE,
-    "Answer in your own voice using these facts, and prefer them over your own memory. The app already shows the user a source link, so write plain prose with no source mentions and no URLs. If these facts don't answer the question, say you don't have a reliable source rather than guessing.",
+    "Answer the user's specific question in your own voice, using the facts above when they state the answer. Answer only what was asked — do not substitute a different or nearby fact from the source (for example, a founding date when the user asked for a launch date, or the largest city when they asked for the capital). If the facts above do not contain the specific answer the user asked for, rely on your own knowledge rather than guessing from unrelated details in the source; only say you're unsure if you genuinely don't know. The app already shows the user a source link, so write plain prose with no source mentions and no URLs.",
   ].join("\n");
 }
 
