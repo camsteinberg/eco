@@ -30,6 +30,7 @@ vi.mock("../../lib/settings-db", () => ({
 import {
   canUseExternalLookups,
   isExternalLookupExplicitlyOff,
+  MAX_CUSTOM_INSTRUCTIONS_LENGTH,
   useSettingsStore,
 } from "../settingsStore";
 
@@ -167,6 +168,29 @@ describe("useSettingsStore.loadFromDB", () => {
     expect(useSettingsStore.getState().customInstructions).toBe("");
     expect(db.delete).toHaveBeenCalledWith("settings", "custom-instructions");
     expect(db.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("clamps an over-long persisted custom-instructions value on load (HON-3)", async () => {
+    const overLong = "y".repeat(MAX_CUSTOM_INSTRUCTIONS_LENGTH + 800);
+    const db = makeFakeDb();
+    db.get.mockImplementation(async (_store: string, key: string) => {
+      if (key === "custom-instructions") {
+        return { ciphertext: `enc:${overLong}`, nonce: "nonce" };
+      }
+      return undefined;
+    });
+    openSettingsDB.mockResolvedValue(db);
+
+    await useSettingsStore.getState().loadFromDB();
+
+    // A value that pre-dates the cap (or was written straight to IndexedDB) is
+    // truncated on load, so it can never reach the prompt over-length.
+    expect(useSettingsStore.getState().customInstructions).toBe(
+      "y".repeat(MAX_CUSTOM_INSTRUCTIONS_LENGTH),
+    );
+    expect(useSettingsStore.getState().customInstructions.length).toBe(
+      MAX_CUSTOM_INSTRUCTIONS_LENGTH,
+    );
   });
 
   it("marks the store as loaded but keeps browser-direct lookups fail-closed if IndexedDB open fails", async () => {
@@ -346,6 +370,23 @@ describe("useSettingsStore writes", () => {
       nonce: "nonce",
     });
     expect(db.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("clamps an over-long custom-instructions value at the store boundary on write (HON-3)", async () => {
+    const db = makeFakeDb();
+    openSettingsDB.mockResolvedValue(db);
+
+    const clamped = "x".repeat(MAX_CUSTOM_INSTRUCTIONS_LENGTH);
+    useSettingsStore.getState().setCustomInstructions(
+      "x".repeat(MAX_CUSTOM_INSTRUCTIONS_LENGTH + 500),
+    );
+    await flushAsyncWork();
+
+    // Both the in-memory state and the encrypted DB write are capped, so an
+    // over-long value can't reach the prompt even if the editor's maxLength is
+    // bypassed.
+    expect(useSettingsStore.getState().customInstructions).toBe(clamped);
+    expect(encryptSetting).toHaveBeenCalledWith(clamped);
   });
 
   it("flips and persists showTechnicalDetails under a stable key", async () => {

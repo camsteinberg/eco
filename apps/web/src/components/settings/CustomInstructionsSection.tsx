@@ -4,10 +4,9 @@
 "use client"
 
 import { useState, useRef, useCallback, useEffect } from 'react'
-import { useSettingsStore } from '../../stores/settingsStore'
+import { useSettingsStore, MAX_CUSTOM_INSTRUCTIONS_LENGTH } from '../../stores/settingsStore'
 import { SettingsSection } from './SettingsSection'
 
-const MAX_INSTRUCTIONS_LENGTH = 1500
 const DEBOUNCE_MS = 500
 
 type CustomInstructionsSectionProps = {
@@ -41,7 +40,7 @@ export function CustomInstructionsSection({ hairline = true }: CustomInstruction
 
   const handleChange = useCallback(
     (value: string) => {
-      const clamped = value.slice(0, MAX_INSTRUCTIONS_LENGTH)
+      const clamped = value.slice(0, MAX_CUSTOM_INSTRUCTIONS_LENGTH)
       setLocalText(clamped)
 
       if (debounceRef.current) clearTimeout(debounceRef.current)
@@ -63,12 +62,12 @@ export function CustomInstructionsSection({ hairline = true }: CustomInstruction
         onChange={(e) => handleChange(e.target.value)}
         placeholder="e.g., I prefer concise answers. I work as a frontend developer using TypeScript…"
         rows={5}
-        maxLength={MAX_INSTRUCTIONS_LENGTH}
+        maxLength={MAX_CUSTOM_INSTRUCTIONS_LENGTH}
         className="w-full resize-y rounded-xl border border-[var(--eco-border)] bg-[var(--eco-surface-elevated)] px-4 py-3 text-sm text-[var(--eco-text)] placeholder:text-[var(--eco-text-secondary)]/60 transition-all duration-150 ease focus:border-[var(--eco-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--eco-primary)]/20"
         aria-label="Custom instructions"
       />
       <div className="mt-1 text-right text-xs text-[var(--eco-text-secondary)]">
-        {localText.length} / {MAX_INSTRUCTIONS_LENGTH}
+        {localText.length} / {MAX_CUSTOM_INSTRUCTIONS_LENGTH}
       </div>
     </SettingsSection>
   )

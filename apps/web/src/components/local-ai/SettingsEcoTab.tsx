@@ -133,7 +133,7 @@ export function SettingsEcoTab({
 
       <SettingsSection
         title="Private by design"
-        description="Eco runs the AI entirely in your browser — your prompts and replies are never sent to Eco's servers. The only things that leave your device are the one-time model download and, when web lookups are on (below), the search terms from your question — which go straight to the source, never to us. Read the full story on the privacy and transparency pages."
+        description="Eco runs the AI entirely in your browser — your prompts and replies are never sent to Eco's servers. For a chat, the only things that leave your device are the one-time model download and, when web lookups are on (below), the search terms from your question — which go straight to the source, never to us. Signing in uses a normal account session, kept separate from your chats. Read the full story on the privacy and transparency pages."
       >
         <span className="inline-flex items-center gap-2 text-sm font-medium text-[var(--eco-primary)]">
           <svg

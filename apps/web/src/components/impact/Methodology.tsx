@@ -7,19 +7,29 @@ import { useScrollReveal } from '../../hooks/useScrollReveal'
 
 const methodologyItems = [
   {
-    term: 'Water savings per query',
+    term: 'Water saved per query',
     definition:
       'Each AI query to a traditional data center is estimated to use about 250\u2009mL of cooling water\u200A\u2014\u200Athe midpoint of the 200\u2013300\u2009mL range identified by researchers at the University of California, Riverside for GPT-4 class models. When the model runs on your own device, that query never reaches a data center and so avoids this evaporative-cooling footprint. Your device still consumes electricity and may warm up under ordinary hardware cooling.',
   },
   {
-    term: 'What this figure is',
+    term: 'Energy saved per query',
     definition:
-      'A published research estimate, not a measurement of your usage. Eco keeps no per-query telemetry, so the number above describes the data-center footprint a typical cloud query would carry\u200A\u2014\u200Anot a count of queries you\u2019ve run.',
+      'Running the model on your device avoids the data-center GPU inference a cloud query would use. Following Luccioni et al. (2023)\u200A\u2014\u200Aabout 0.005\u2009kWh per data-center query versus roughly 0.003\u2009kWh for local inference\u200A\u2014\u200Awe credit a conservative 0.002\u2009kWh saved per query. Like the water figure, it is a published-research estimate, not a measurement of your hardware.',
   },
   {
-    term: 'What we don\u2019t count',
+    term: 'CO2 avoided per query',
     definition:
-      'We don\u2019t claim carbon offsets. We don\u2019t publish a precise per-query energy saving\u200A\u2014\u200Athere are too many variables in consumer hardware configurations to make an honest figure. We report only the water estimate, clearly labeled as an estimate.',
+      'From the energy above and the US average grid carbon intensity (EPA eGRID 2024, about 0.42\u2009kg CO2 per kWh) with a typical data-center PUE of about 1.2, we estimate roughly 1.26\u2009g of CO2 avoided per query. It is an estimate, not a measurement\u200A\u2014\u200Aand we make no carbon-offset claim.',
+  },
+  {
+    term: 'What these figures are',
+    definition:
+      'Published research estimates, not measurements of your usage. Eco keeps no per-query telemetry and nothing about your queries leaves your device; the totals you see apply these per-query estimates to a count Eco keeps only on your device.',
+  },
+  {
+    term: 'What we don\u2019t claim',
+    definition:
+      'We don\u2019t claim carbon offsets, and none of these numbers are measured from your own hardware\u200A\u2014\u200Aconsumer configurations vary too much for that. Every figure is a clearly labeled, deliberately conservative estimate.',
   },
 ]
 

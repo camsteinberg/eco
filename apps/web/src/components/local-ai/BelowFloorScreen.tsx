@@ -60,7 +60,7 @@ export type BelowFloorScreenProps = {
 function notifyCopy(reason: BelowFloorReasonKind): string {
   switch (reason) {
     case 'mobile':
-      return "Email us and we'll tell you when Eco comes to phones.";
+      return "Email us and we'll tell you when this device is supported.";
     case 'memory':
       return "Email us and we'll tell you when lighter models arrive.";
     case 'fallback':
@@ -107,7 +107,7 @@ export function BelowFloorScreen({ deviceLabel, reason = 'runtime' }: BelowFloor
           role="img"
           aria-label={
             reason === 'mobile'
-              ? 'A young seedling — Eco works today on your computer, coming to phones.'
+              ? 'A young seedling — Eco runs on iPhone and iPad, just not this one yet.'
               : 'A young seedling — Eco is coming to your device.'
           }
         >
@@ -119,7 +119,7 @@ export function BelowFloorScreen({ deviceLabel, reason = 'runtime' }: BelowFloor
         <p className="text-base leading-relaxed" style={{ color: 'var(--eco-text)' }}>
           {reason === 'mobile' ? (
             <>
-              Eco&apos;s AI runs entirely on your device — nothing goes to a server. Phones don&apos;t have the memory for that yet. Your computer does: open Eco there and it just works.
+              Eco&apos;s AI runs entirely on your device — nothing goes to a server. Eco does run on iPhone and iPad; it just can&apos;t run on this one yet, and updating to the latest iOS is the most likely fix. In the meantime, it works on your computer today.
             </>
           ) : reason === 'memory' ? (
             <>
