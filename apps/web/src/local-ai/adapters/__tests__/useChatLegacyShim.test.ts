@@ -27,9 +27,9 @@ import type { ModelConfig } from '../../types';
 // ─── Fixtures ──────────────────────────────────────────────────────────────
 
 const FAKE_MODEL: ModelConfig = {
-  id: 'local/phi3-mini-4k-q4f16',
-  friendlyName: 'Phi-3 Mini',
-  vendor: 'Microsoft',
+  id: 'local/qwen3-0.6b',
+  friendlyName: 'Qwen3',
+  vendor: 'Alibaba',
   sizeGB: 2.1,
   runtime: 'transformers',
   context: 4096,
@@ -287,7 +287,7 @@ describe('createLocalAiLegacyInference', () => {
   it('surfaces cooldown-active from loadModel as LOCAL_MODEL_COOLDOWN', async () => {
     mockLoad.mockRejectedValueOnce(
       new AdapterError(
-        'Phi-3 Mini cooling down after a recent crash (240s left).',
+        'Qwen3 cooling down after a recent crash (240s left).',
         'cooldown-active',
         true,
       ),

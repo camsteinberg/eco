@@ -21,7 +21,7 @@ function makeReceipt(overrides: Partial<GenerationReceipt> = {}): GenerationRece
   return {
     generationId: overrides.generationId ?? `gen-${Math.random().toString(36).slice(2, 8)}`,
     generationRole: 'primary',
-    modelId: 'local/phi3-mini-4k-q4f16',
+    modelId: 'local/qwen3-0.6b',
     timestamp: Date.now(),
     templateName: null,
     systemPromptHash: 'abcd1234',

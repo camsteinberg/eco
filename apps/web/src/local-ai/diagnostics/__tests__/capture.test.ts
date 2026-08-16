@@ -24,7 +24,7 @@ function makeDiagnostic(overrides?: Partial<LocalAiDiagnostic>): LocalAiDiagnost
   return {
     schemaVersion: 2,
     recordedAt: new Date().toISOString(),
-    modelId: 'local/phi3-mini-4k-q4f16',
+    modelId: 'local/qwen3-0.6b',
     profileKey: 'chromium|high-memory-laptop|webgpu',
     runtimeAdapter: 'transformers',
     resolvedBackend: 'webgpu',
@@ -65,7 +65,7 @@ describe('recordDiagnostic + loadDiagnostics', () => {
     recordDiagnostic(entry);
     const loaded = loadDiagnostics();
     expect(loaded).toHaveLength(1);
-    expect(loaded[0]!.modelId).toBe('local/phi3-mini-4k-q4f16');
+    expect(loaded[0]!.modelId).toBe('local/qwen3-0.6b');
     expect(loaded[0]!.outcome).toBe('smoke-fail');
     expect(loaded[0]!.schemaVersion).toBe(2);
   });

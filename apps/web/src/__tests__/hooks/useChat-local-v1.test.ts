@@ -34,8 +34,8 @@ vi.mock('../../local-ai/bootstrap', () => ({
 
 vi.mock('../../local-ai/catalog/catalog', () => ({
   getModel: (id: string): ModelConfig | null =>
-    id === 'local/phi3-mini-4k-q4f16'
-      ? ({ id, friendlyName: 'Phi-3 Mini' } as unknown as ModelConfig)
+    id === 'local/qwen3-0.6b'
+      ? ({ id, friendlyName: 'Qwen3' } as unknown as ModelConfig)
       : null,
 }));
 
@@ -72,12 +72,12 @@ describe('Stage 5a wiring — readiness branch', () => {
   it('builds a readiness failure with friendly model name when slot is preparing', () => {
     const preparingSlot: SlotState = {
       slot: 'eco-smart',
-      modelId: 'local/phi3-mini-4k-q4f16',
-      model: { id: 'local/phi3-mini-4k-q4f16', friendlyName: 'Phi-3 Mini' } as unknown as ModelConfig,
+      modelId: 'local/qwen3-0.6b',
+      model: { id: 'local/qwen3-0.6b', friendlyName: 'Qwen3' } as unknown as ModelConfig,
       status: 'preparing',
     };
     const failure = buildLocalReadinessFailureV2({ slot: preparingSlot });
-    expect(failure.modelName).toBe('Phi-3 Mini');
+    expect(failure.modelName).toBe('Qwen3');
     expect(failure.readinessStatus).toBe('partial');
     expect(failure.slotId).toBe('eco-smart');
   });
@@ -92,7 +92,7 @@ describe('Stage 5a wiring — shim composition', () => {
 
     const stream = shim.generate(
       [{ role: 'user', content: 'hi' }],
-      'local/phi3-mini-4k-q4f16',
+      'local/qwen3-0.6b',
       { max_new_tokens: 32 },
     );
 
@@ -120,7 +120,7 @@ describe('Stage 5a wiring — shim composition', () => {
 
     const stream = shim.generate(
       [{ role: 'user', content: 'x' }],
-      'local/phi3-mini-4k-q4f16',
+      'local/qwen3-0.6b',
       { max_new_tokens: 64 },
     );
     const reader = stream.getReader();

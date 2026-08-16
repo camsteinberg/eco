@@ -94,7 +94,7 @@ function requestKey(input: RequestInfo | URL): string {
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-const MODEL = 'local/phi3-mini-4k-q4f16';
+const MODEL = 'local/qwen3-0.6b';
 
 function chunkedTransferResponse(payload: Uint8Array): Response {
   // Mimic a CDN that strips content-length on chunked transfer: the headers
@@ -122,11 +122,11 @@ describe('CacheApiStorage.put — Eco-Cache-Size header', () => {
   it('writes Eco-Cache-Size on every put, even when source response lacks content-length', async () => {
     const payload = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]);
     await storage.put(
-      { modelId: MODEL, url: 'https://cdn/phi3/model.onnx' },
+      { modelId: MODEL, url: 'https://cdn/qwen3/model.onnx' },
       chunkedTransferResponse(payload),
     );
 
-    const entry = await storage.get({ modelId: MODEL, url: 'https://cdn/phi3/model.onnx' });
+    const entry = await storage.get({ modelId: MODEL, url: 'https://cdn/qwen3/model.onnx' });
     expect(entry).not.toBeNull();
     expect(entry!.sizeBytes).toBe(8);
     expect(entry!.response.headers.get(ECO_CACHE_SIZE_HEADER)).toBe('8');
@@ -138,11 +138,11 @@ describe('CacheApiStorage.put — Eco-Cache-Size header', () => {
       headers: { 'content-length': '9999' }, // wrong on purpose
     });
     await storage.put(
-      { modelId: MODEL, url: 'https://cdn/phi3/model.onnx' },
+      { modelId: MODEL, url: 'https://cdn/qwen3/model.onnx' },
       lyingResponse,
     );
 
-    const entry = await storage.get({ modelId: MODEL, url: 'https://cdn/phi3/model.onnx' });
+    const entry = await storage.get({ modelId: MODEL, url: 'https://cdn/qwen3/model.onnx' });
     expect(entry!.sizeBytes).toBe(4);
   });
 });
@@ -171,12 +171,12 @@ describe('CacheApiStorage.putStreamed — streams a known-size body without mate
   it('stamps Eco-Cache-Size with the vouched size and stores the streamed bytes', async () => {
     const payload = new Uint8Array([3, 1, 4, 1, 5, 9, 2, 6]);
     await storage.putStreamed(
-      { modelId: MODEL, url: 'https://cdn/phi3/model.onnx' },
+      { modelId: MODEL, url: 'https://cdn/qwen3/model.onnx' },
       streamOf(payload),
       payload.byteLength,
     );
 
-    const entry = await storage.get({ modelId: MODEL, url: 'https://cdn/phi3/model.onnx' });
+    const entry = await storage.get({ modelId: MODEL, url: 'https://cdn/qwen3/model.onnx' });
     expect(entry).not.toBeNull();
     // The size is the caller's vouched figure, stamped verbatim (never read
     // from the body — that materialization is exactly what putStreamed avoids).
@@ -192,13 +192,13 @@ describe('CacheApiStorage.putStreamed — streams a known-size body without mate
     // rather than measuring the body — verify() reads exactly what was stamped.
     const payload = new Uint8Array([1, 2, 3, 4]);
     await storage.putStreamed(
-      { modelId: MODEL, url: 'https://cdn/phi3/model.onnx' },
+      { modelId: MODEL, url: 'https://cdn/qwen3/model.onnx' },
       streamOf(payload),
       99,
     );
-    const entry = await storage.get({ modelId: MODEL, url: 'https://cdn/phi3/model.onnx' });
+    const entry = await storage.get({ modelId: MODEL, url: 'https://cdn/qwen3/model.onnx' });
     expect(entry!.sizeBytes).toBe(99);
-    expect(await storage.verify({ modelId: MODEL, url: 'https://cdn/phi3/model.onnx' }, 99)).toBe(true);
+    expect(await storage.verify({ modelId: MODEL, url: 'https://cdn/qwen3/model.onnx' }, 99)).toBe(true);
   });
 });
 
@@ -209,7 +209,7 @@ describe('CacheApiStorage.finalizeParts — parts-native terminal storage', () =
     storage = new CacheApiStorage(new MemoryCacheStorage());
   });
 
-  const IDENTITY = 'https://cdn/phi3/model.onnx_data';
+  const IDENTITY = 'https://cdn/qwen3/model.onnx_data';
   const chunks = [
     new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]),
     new Uint8Array([9, 10, 11, 12, 13, 14, 15, 16]),
@@ -281,11 +281,11 @@ describe('CacheApiStorage.finalizeParts — parts-native terminal storage', () =
 
   it('leaves plain whole-file entries unaffected — not parts-native, body round-trips', async () => {
     await storage.put(
-      { modelId: MODEL, url: 'https://cdn/phi3/config.json' },
+      { modelId: MODEL, url: 'https://cdn/qwen3/config.json' },
       new Response(new Uint8Array([9, 9, 9])),
     );
-    expect(await storage.isPartsNative({ modelId: MODEL, url: 'https://cdn/phi3/config.json' })).toBe(false);
-    const entry = await storage.get({ modelId: MODEL, url: 'https://cdn/phi3/config.json' });
+    expect(await storage.isPartsNative({ modelId: MODEL, url: 'https://cdn/qwen3/config.json' })).toBe(false);
+    const entry = await storage.get({ modelId: MODEL, url: 'https://cdn/qwen3/config.json' });
     expect(entry!.sizeBytes).toBe(3);
     expect([...new Uint8Array(await entry!.response.arrayBuffer())]).toEqual([9, 9, 9]);
   });
@@ -300,7 +300,7 @@ describe('CacheApiStorage.verifyIntact — existence + intactness, not byte-equa
     storage = new CacheApiStorage(cacheStorage);
   });
 
-  const IDENTITY = 'https://cdn/phi3/model.onnx_data';
+  const IDENTITY = 'https://cdn/qwen3/model.onnx_data';
   const chunks = [
     new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]),
     new Uint8Array([9, 10, 11, 12, 13, 14, 15, 16]),
@@ -320,19 +320,19 @@ describe('CacheApiStorage.verifyIntact — existence + intactness, not byte-equa
   }
 
   it('is true for a whole-file entry regardless of the stored size', async () => {
-    await storage.put({ modelId: MODEL, url: 'https://cdn/phi3/model.onnx' }, new Response(new Uint8Array(42)));
+    await storage.put({ modelId: MODEL, url: 'https://cdn/qwen3/model.onnx' }, new Response(new Uint8Array(42)));
     // Any expected size would do — verifyIntact never compares against one.
-    expect(await storage.verifyIntact!({ modelId: MODEL, url: 'https://cdn/phi3/model.onnx' })).toBe(true);
+    expect(await storage.verifyIntact!({ modelId: MODEL, url: 'https://cdn/qwen3/model.onnx' })).toBe(true);
   });
 
   it('is false for a missing entry', async () => {
-    expect(await storage.verifyIntact!({ modelId: MODEL, url: 'https://cdn/phi3/absent.onnx' })).toBe(false);
+    expect(await storage.verifyIntact!({ modelId: MODEL, url: 'https://cdn/qwen3/absent.onnx' })).toBe(false);
   });
 
   it('is false for a legacy entry with no Eco-Cache-Size stamp', async () => {
     const cache = await cacheStorage.open('eco-local-ai-' + MODEL.replace(/[^a-zA-Z0-9._-]/g, '_'));
-    await cache.put('https://cdn/phi3/legacy.onnx', new Response(new Uint8Array(5)));
-    expect(await storage.verifyIntact!({ modelId: MODEL, url: 'https://cdn/phi3/legacy.onnx' })).toBe(false);
+    await cache.put('https://cdn/qwen3/legacy.onnx', new Response(new Uint8Array(5)));
+    expect(await storage.verifyIntact!({ modelId: MODEL, url: 'https://cdn/qwen3/legacy.onnx' })).toBe(false);
   });
 
   it('is true for a parts-native manifest when every listed part is present', async () => {
@@ -359,43 +359,43 @@ describe('CacheApiStorage.verify — Eco-Cache-Size only, no content-length fall
   });
 
   it('returns true when Eco-Cache-Size matches expected', async () => {
-    await storage.put({ modelId: MODEL, url: 'https://cdn/phi3/model.onnx' }, new Response(new Uint8Array(5)));
+    await storage.put({ modelId: MODEL, url: 'https://cdn/qwen3/model.onnx' }, new Response(new Uint8Array(5)));
     expect(
-      await storage.verify({ modelId: MODEL, url: 'https://cdn/phi3/model.onnx' }, 5),
+      await storage.verify({ modelId: MODEL, url: 'https://cdn/qwen3/model.onnx' }, 5),
     ).toBe(true);
   });
 
   it('returns false when Eco-Cache-Size mismatches expected (but does NOT delete)', async () => {
-    await storage.put({ modelId: MODEL, url: 'https://cdn/phi3/model.onnx' }, new Response(new Uint8Array(5)));
+    await storage.put({ modelId: MODEL, url: 'https://cdn/qwen3/model.onnx' }, new Response(new Uint8Array(5)));
     expect(
-      await storage.verify({ modelId: MODEL, url: 'https://cdn/phi3/model.onnx' }, 9),
+      await storage.verify({ modelId: MODEL, url: 'https://cdn/qwen3/model.onnx' }, 9),
     ).toBe(false);
     // Entry must still exist.
-    expect(await storage.has({ modelId: MODEL, url: 'https://cdn/phi3/model.onnx' })).toBe(true);
+    expect(await storage.has({ modelId: MODEL, url: 'https://cdn/qwen3/model.onnx' })).toBe(true);
   });
 
   it('returns false when Eco-Cache-Size is missing entirely (legacy untagged entry)', async () => {
     // Manually inject a cache entry without the Eco-Cache-Size header to
     // simulate an entry written by an older client.
     const cache = await cacheStorage.open('eco-local-ai-' + MODEL.replace(/[^a-zA-Z0-9._-]/g, '_'));
-    await cache.put('https://cdn/phi3/legacy.onnx', new Response(new Uint8Array(5)));
+    await cache.put('https://cdn/qwen3/legacy.onnx', new Response(new Uint8Array(5)));
 
     expect(
-      await storage.verify({ modelId: MODEL, url: 'https://cdn/phi3/legacy.onnx' }, 5),
+      await storage.verify({ modelId: MODEL, url: 'https://cdn/qwen3/legacy.onnx' }, 5),
     ).toBe(false);
     // Entry still survives — verify never deletes.
-    expect(await storage.has({ modelId: MODEL, url: 'https://cdn/phi3/legacy.onnx' })).toBe(true);
+    expect(await storage.has({ modelId: MODEL, url: 'https://cdn/qwen3/legacy.onnx' })).toBe(true);
   });
 
   it('IGNORES content-length even when Eco-Cache-Size is absent (no fallback)', async () => {
     const cache = await cacheStorage.open('eco-local-ai-' + MODEL.replace(/[^a-zA-Z0-9._-]/g, '_'));
     await cache.put(
-      'https://cdn/phi3/legacy.onnx',
+      'https://cdn/qwen3/legacy.onnx',
       new Response(new Uint8Array(5), { headers: { 'content-length': '5' } }),
     );
     // content-length is right but Eco-Cache-Size is missing → verify is false.
     expect(
-      await storage.verify({ modelId: MODEL, url: 'https://cdn/phi3/legacy.onnx' }, 5),
+      await storage.verify({ modelId: MODEL, url: 'https://cdn/qwen3/legacy.onnx' }, 5),
     ).toBe(false);
   });
 });
@@ -404,9 +404,9 @@ describe('CacheApiStorage.verify — Eco-Cache-Size only, no content-length fall
 
 describe('countCached — decoupled from delete (Invariant 7)', () => {
   const files: FileSpec[] = [
-    { url: 'https://cdn/phi3/a.onnx', sizeBytes: 100 },
-    { url: 'https://cdn/phi3/b.onnx', sizeBytes: 200 },
-    { url: 'https://cdn/phi3/c.onnx', sizeBytes: 300 },
+    { url: 'https://cdn/qwen3/a.onnx', sizeBytes: 100 },
+    { url: 'https://cdn/qwen3/b.onnx', sizeBytes: 200 },
+    { url: 'https://cdn/qwen3/c.onnx', sizeBytes: 300 },
   ];
 
   let storage: CacheApiStorage;
@@ -460,26 +460,26 @@ describe('Bug #4 regression', () => {
     const payload = new Uint8Array(8192);
 
     await storage.put(
-      { modelId: MODEL, url: 'https://cdn/phi3/model.onnx' },
+      { modelId: MODEL, url: 'https://cdn/qwen3/model.onnx' },
       chunkedTransferResponse(payload),
     );
 
     const verified = await storage.verify(
-      { modelId: MODEL, url: 'https://cdn/phi3/model.onnx' },
+      { modelId: MODEL, url: 'https://cdn/qwen3/model.onnx' },
       8192,
     );
     expect(verified).toBe(true);
 
     const count = await countCached(storage, MODEL, [
-      { url: 'https://cdn/phi3/model.onnx', sizeBytes: 8192 },
+      { url: 'https://cdn/qwen3/model.onnx', sizeBytes: 8192 },
     ]);
     expect(count).toBe(1);
 
     // Most importantly: the entry survives count, even if count had been called repeatedly.
     await countCached(storage, MODEL, [
-      { url: 'https://cdn/phi3/model.onnx', sizeBytes: 8192 },
+      { url: 'https://cdn/qwen3/model.onnx', sizeBytes: 8192 },
     ]);
-    expect(await storage.has({ modelId: MODEL, url: 'https://cdn/phi3/model.onnx' })).toBe(true);
+    expect(await storage.has({ modelId: MODEL, url: 'https://cdn/qwen3/model.onnx' })).toBe(true);
   });
 });
 
@@ -626,10 +626,10 @@ describe('OpfsStorage — contract smoke (in-memory fake)', () => {
     const root = new MemoryOpfsRoot();
     const storage = new OpfsStorage(root);
     await storage.put(
-      { modelId: MODEL, url: 'https://cdn/phi3/model.onnx' },
+      { modelId: MODEL, url: 'https://cdn/qwen3/model.onnx' },
       new Response(new Uint8Array(42)),
     );
-    const entry = await storage.get({ modelId: MODEL, url: 'https://cdn/phi3/model.onnx' });
+    const entry = await storage.get({ modelId: MODEL, url: 'https://cdn/qwen3/model.onnx' });
     expect(entry?.sizeBytes).toBe(42);
   });
 
@@ -637,11 +637,11 @@ describe('OpfsStorage — contract smoke (in-memory fake)', () => {
     const root = new MemoryOpfsRoot();
     const storage = new OpfsStorage(root);
     await storage.put(
-      { modelId: MODEL, url: 'https://cdn/phi3/model.onnx' },
+      { modelId: MODEL, url: 'https://cdn/qwen3/model.onnx' },
       chunkedTransferResponse(new Uint8Array(128)),
     );
     expect(
-      await storage.verify({ modelId: MODEL, url: 'https://cdn/phi3/model.onnx' }, 128),
+      await storage.verify({ modelId: MODEL, url: 'https://cdn/qwen3/model.onnx' }, 128),
     ).toBe(true);
   });
 

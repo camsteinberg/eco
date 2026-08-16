@@ -686,8 +686,6 @@ const ROUTING_TODAY: Readonly<
  *     like. Anything that touches it changes what those users get.
  */
 const MODEL_MATRIX_TODAY: Readonly<Record<string, string>> = {
-  "local/phi3-mini-4k-q4f16":
-    "quick:1024/0.2 explain:1024/0.38 deep:1024/0.45 code:1024/0.18 writing:1024/0.44 file:1024/0.45 research:1024/0.45",
   "local/qwen3-0.6b":
     "quick:512/0.32 explain:512/0.42 deep:512/0.6 code:512/0.2 writing:512/0.48 file:512/0.6 research:512/0.6",
   "candidate/lfm2.5-1.2b-instruct-onnx":
@@ -934,7 +932,6 @@ describe("everyday-use sweep — the instrument", () => {
           .size === 1,
     );
     expect(flatBudgetAxis).toEqual([
-      "local/phi3-mini-4k-q4f16",
       "local/qwen3-0.6b",
       "candidate/lfm2.5-350m-onnx",
       // The no-GPU int8 floor models: flat 512 budget across every intent (CPU-EP cap).

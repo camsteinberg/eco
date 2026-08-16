@@ -14,7 +14,7 @@ const POPULATED: StorageBreakdown = {
   ecoTotalBytes: 2 * ONE_GB,
   measured: true,
   models: [
-    { id: 'local/phi3-mini-4k-q4f16', friendlyName: 'Phi-3 Mini', vendor: 'Microsoft', sizeBytes: 1.4 * ONE_GB },
+    { id: 'candidate/lfm2.5-1.2b-instruct-onnx', friendlyName: 'LFM2.5 1.2B', vendor: 'Liquid AI', sizeBytes: 0.76 * ONE_GB },
     { id: 'local/qwen3-0.6b', friendlyName: 'Qwen3 0.6B', vendor: 'Hugging Face', sizeBytes: 0.6 * ONE_GB },
   ],
 };
@@ -47,12 +47,12 @@ describe('LocalAiStoragePanel — populated state', () => {
         onClearModel={async () => undefined}
       />,
     );
-    expect(screen.getByText('Phi-3 Mini')).toBeInTheDocument();
+    expect(screen.getByText('LFM2.5 1.2B')).toBeInTheDocument();
     expect(screen.getByText('Qwen3 0.6B')).toBeInTheDocument();
 
-    const phiCard = screen.getByTestId('storage-model-card-local/phi3-mini-4k-q4f16');
-    expect(phiCard).toHaveTextContent(/Made by Microsoft/);
-    expect(phiCard).toHaveTextContent(/1\.4 GB/);
+    const lfmCard = screen.getByTestId('storage-model-card-candidate/lfm2.5-1.2b-instruct-onnx');
+    expect(lfmCard).toHaveTextContent(/Made by Liquid AI/);
+    expect(lfmCard).toHaveTextContent(/778 MB/);
 
     const bonsaiCard = screen.getByTestId('storage-model-card-local/qwen3-0.6b');
     expect(bonsaiCard).toHaveTextContent(/Made by Hugging Face/);
@@ -81,10 +81,10 @@ describe('LocalAiStoragePanel — populated state', () => {
         onClearModel={clear}
       />,
     );
-    fireEvent.click(screen.getByLabelText(/Remove Phi-3 Mini from this device/i));
+    fireEvent.click(screen.getByLabelText(/Remove LFM2.5 1.2B from this device/i));
     expect(clear).not.toHaveBeenCalled();
     expect(
-      screen.getByRole('button', { name: /Confirm removing Phi-3 Mini/i }),
+      screen.getByRole('button', { name: /Confirm removing LFM2.5 1.2B/i }),
     ).toBeInTheDocument();
   });
 
@@ -97,11 +97,11 @@ describe('LocalAiStoragePanel — populated state', () => {
         onClearModel={clear}
       />,
     );
-    fireEvent.click(screen.getByLabelText(/Remove Phi-3 Mini from this device/i));
+    fireEvent.click(screen.getByLabelText(/Remove LFM2.5 1.2B from this device/i));
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /Confirm removing Phi-3 Mini/i }));
+      fireEvent.click(screen.getByRole('button', { name: /Confirm removing LFM2.5 1.2B/i }));
     });
-    expect(clear).toHaveBeenCalledWith('local/phi3-mini-4k-q4f16');
+    expect(clear).toHaveBeenCalledWith('candidate/lfm2.5-1.2b-instruct-onnx');
   });
 
   it('Cancel dismisses the confirm step without clearing', () => {
@@ -113,11 +113,11 @@ describe('LocalAiStoragePanel — populated state', () => {
         onClearModel={clear}
       />,
     );
-    fireEvent.click(screen.getByLabelText(/Remove Phi-3 Mini from this device/i));
+    fireEvent.click(screen.getByLabelText(/Remove LFM2.5 1.2B from this device/i));
     fireEvent.click(screen.getByRole('button', { name: /^Cancel$/i }));
     expect(clear).not.toHaveBeenCalled();
     expect(
-      screen.queryByRole('button', { name: /Confirm removing Phi-3 Mini/i }),
+      screen.queryByRole('button', { name: /Confirm removing LFM2.5 1.2B/i }),
     ).toBeNull();
   });
 });

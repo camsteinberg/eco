@@ -103,7 +103,7 @@ describe("eval-candidate lane (Phase 2 + chat #7 bake-off)", () => {
     expect(getEvalCandidateModel("candidate/qwen3-1.7b-onnx")?.id).toBe(
       "candidate/qwen3-1.7b-onnx",
     );
-    expect(getEvalCandidateModel("local/phi3-mini-4k-q4f16")).toBeNull();
+    expect(getEvalCandidateModel("local/qwen3-0.6b")).toBeNull();
     expect(getEvalCandidateModel("nonexistent")).toBeNull();
   });
 

@@ -78,7 +78,6 @@ describe("chat intent quality helpers", () => {
     // than that base rather than tighter (see local-model-generation-profiles.ts).
     for (const modelId of [
       "local/qwen3-0.6b",
-      "local/phi3-mini-4k-q4f16",
       "candidate/qwen3.5-2b-onnx",
       "candidate/lfm2.5-1.2b-instruct-onnx",
     ]) {
@@ -105,7 +104,7 @@ describe("chat intent quality helpers", () => {
   });
 
   it("returns empty string for quick intent (no scaffolding to leak)", () => {
-    expect(buildTurnQualityInstruction("quick", true, "local/phi3-mini-4k-q4f16")).toBe("");
+    expect(buildTurnQualityInstruction("quick", true, "local/qwen3-0.6b")).toBe("");
   });
 
   it("returns a working-code hint for code intent regardless of model", () => {

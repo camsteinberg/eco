@@ -132,7 +132,7 @@ describe('cascadePath — Finding E: WASM cascade never attempts CPU-EP-unloadab
 
 describe('nextInCascade — synthetic failed model not in catalog', () => {
   it('still returns a real catalog model when the failed argument is exotic', () => {
-    const exotic = { ...getModel('local/phi3-mini-4k-q4f16')!, id: 'lab/exotic' };
+    const exotic = { ...getModel('candidate/lfm2.5-1.2b-instruct-onnx')!, id: 'lab/exotic' };
     const next = nextInCascade(exotic, 'eco-fast', PROFILE_24GB);
     expect(next).not.toBeNull();
   });
@@ -197,23 +197,23 @@ describe('nextInCascade — confidence floor enforcement', () => {
 describe('nextInCascade — repeat-failure telemetry', () => {
   it('does not log on the first call for a given failed.id', () => {
     const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => undefined);
-    const failed = getModel('local/phi3-mini-4k-q4f16')!;
+    const failed = getModel('candidate/lfm2.5-1.2b-instruct-onnx')!;
     nextInCascade(failed, 'eco-fast', PROFILE_24GB);
     expect(debugSpy).not.toHaveBeenCalled();
   });
 
   it('logs once via console.debug when called twice with the same failed.id', () => {
     const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => undefined);
-    const failed = getModel('local/phi3-mini-4k-q4f16')!;
+    const failed = getModel('candidate/lfm2.5-1.2b-instruct-onnx')!;
     nextInCascade(failed, 'eco-fast', PROFILE_24GB);
     nextInCascade(failed, 'eco-fast', PROFILE_24GB);
     expect(debugSpy).toHaveBeenCalledTimes(1);
-    expect(debugSpy.mock.calls[0]?.[0]).toContain('called twice for failed.id=local/phi3-mini-4k-q4f16');
+    expect(debugSpy.mock.calls[0]?.[0]).toContain('called twice for failed.id=candidate/lfm2.5-1.2b-instruct-onnx');
   });
 
   it('keeps cascade selection correct regardless of telemetry state', () => {
     vi.spyOn(console, 'debug').mockImplementation(() => undefined);
-    const failed = getModel('local/phi3-mini-4k-q4f16')!;
+    const failed = getModel('candidate/lfm2.5-1.2b-instruct-onnx')!;
     const first = nextInCascade(failed, 'eco-fast', PROFILE_24GB);
     const second = nextInCascade(failed, 'eco-fast', PROFILE_24GB);
     expect(first?.id).toBe(second?.id);

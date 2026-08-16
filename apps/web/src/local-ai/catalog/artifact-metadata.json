@@ -1,15 +1,4 @@
 {
-  "local/phi3-mini-4k-q4f16": {
-    "onnx/model_q4f16.onnx": { "sizeBytes": 838080425, "oid": "e726f1c300be9714987ebf7cb047afcb002f6ce9a28af1771d05d5d1d4eeaf48" },
-    "onnx/model_q4f16.onnx_data": { "sizeBytes": 1454211072, "oid": "62eb6a6870961b0039732d574779e44a7de42e26c04ca1433759728d644cc00f" },
-    "added_tokens.json": { "sizeBytes": 306, "oid": "178968dec606c790aa335e9142f6afec37288470" },
-    "config.json": { "sizeBytes": 952, "oid": "b6034ce5bc14f51bb0a3abc2f1cc163b7c4fc47e" },
-    "generation_config.json": { "sizeBytes": 183, "oid": "54257143e1ab2be4134004a4a6bc69cfe347fdb6" },
-    "special_tokens_map.json": { "sizeBytes": 597, "oid": "3c1d52c6e188d1ffec8cfd250e947ad7d0f52d7d" },
-    "tokenizer.json": { "sizeBytes": 1937870, "oid": "fb71fd1a9dd9a1ab438959c3afdeaea4ba1c809a" },
-    "tokenizer.model": { "sizeBytes": 499723, "oid": "9e556afd44213b6bd1be2b850ebbbd98f5481437a8021afaf58ee7fb1818d347" },
-    "tokenizer_config.json": { "sizeBytes": 3299, "oid": "d57e94ca8011c3f8baccf36c54e941e949016349" }
-  },
   "local/qwen3-0.6b": {
     "onnx/model_q4f16.onnx": { "sizeBytes": 328247, "oid": "c4bb4067156a97c57bc92d945f538dfc7db92153835e9c1f00e598b848f66411" },
     "onnx/model_q4f16.onnx_data": { "sizeBytes": 569493504, "oid": "1ec7609fa8fbec10c830c440087acddfba3d8d5204d457cb8061b732e3a137d8" },

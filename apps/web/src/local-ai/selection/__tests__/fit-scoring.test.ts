@@ -85,13 +85,13 @@ describe('scoreMemoryFit', () => {
 
   it('returns neutral 0.6 when memory is unknown', () => {
     const unknown: DeviceProfile = { ...PROFILE_24GB, deviceMemoryGB: 0 };
-    expect(scoreMemoryFit(model('local/phi3-mini-4k-q4f16'), unknown)).toBeCloseTo(0.6, 2);
+    expect(scoreMemoryFit(model('local/qwen3-0.6b'), unknown)).toBeCloseTo(0.6, 2);
   });
 });
 
 describe('scoreTrust', () => {
   it('falls back to evidenceTier when no confidence provided: proven=1, predicted=0.6, experimental=0.2', () => {
-    const proven: ModelConfig = { ...model('local/phi3-mini-4k-q4f16') };
+    const proven: ModelConfig = { ...model('local/qwen3-0.6b') };
     const predicted: ModelConfig = { ...model('candidate/lfm2.5-350m-onnx') };
     const experimental: ModelConfig = {
       ...proven,
@@ -112,7 +112,7 @@ describe('scoreTrust', () => {
   });
 
   it('confidence=null falls back to evidenceTier', () => {
-    const proven: ModelConfig = { ...model('local/phi3-mini-4k-q4f16') };
+    const proven: ModelConfig = { ...model('local/qwen3-0.6b') };
     expect(scoreTrust(proven, null)).toBe(1);
     expect(scoreTrust(proven, undefined)).toBe(1);
   });
@@ -177,7 +177,7 @@ describe('scoreFit — intent shifts the winner', () => {
       reliability: 1,
     });
     const slow = scoreFit({
-      model: model('local/phi3-mini-4k-q4f16'),
+      model: model('local/qwen3-0.6b'),
       profile: PROFILE_24GB,
       intent: 'snappy',
       metrics: { firstTokenMs: 1500, tokensPerSec: 10, smokePassRate: 1 },
@@ -195,7 +195,7 @@ describe('scoreFit — intent shifts the winner', () => {
       reliability: 1,
     });
     const careful = scoreFit({
-      model: model('local/phi3-mini-4k-q4f16'),
+      model: model('local/qwen3-0.6b'),
       profile: PROFILE_24GB,
       intent: 'quality',
       metrics: { firstTokenMs: 1500, tokensPerSec: 10, smokePassRate: 1 },

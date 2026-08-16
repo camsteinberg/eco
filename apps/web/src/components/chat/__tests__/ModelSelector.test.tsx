@@ -78,9 +78,9 @@ describe("ModelSelector (composer)", () => {
 
     const listbox = getListbox();
     const options = within(listbox).getAllByRole("option");
-    // Exactly the 11 catalog models — one option per catalog entry.
+    // Exactly the 10 catalog models — one option per catalog entry.
     expect(options).toHaveLength(getCatalog().length);
-    expect(options).toHaveLength(11);
+    expect(options).toHaveLength(10);
 
     // Branded friendly names are surfaced; no "Eco Network" / network copy.
     expect(within(listbox).getByText("Eco (Qwen)")).toBeInTheDocument();
@@ -107,8 +107,8 @@ describe("ModelSelector (composer)", () => {
     const options = within(listbox).getAllByRole("option");
     expect(options).toHaveLength(1);
     expect(within(listbox).getByText("Eco Capable (Gemma)")).toBeInTheDocument();
-    // The f16-only models (e.g. Phi-3) are not offered on this device.
-    expect(within(listbox).queryByText("Eco Reasoning (Microsoft)")).not.toBeInTheDocument();
+    // The f16 models (e.g. the everyday default) are not offered on this device.
+    expect(within(listbox).queryByText("Eco Fast (Liquid)")).not.toBeInTheDocument();
   });
 
   it("marks the recommended (Qwen3.5) model", async () => {
@@ -130,10 +130,10 @@ describe("ModelSelector (composer)", () => {
     render(<ModelSelector variant="composer" />);
 
     await user.click(screen.getByTestId("model-selector"));
-    await user.click(screen.getByText("Eco Reasoning (Microsoft)"));
+    await user.click(screen.getByText("Eco Compact (Qwen)"));
 
     expect(mockSetSelectedModel).toHaveBeenCalledWith(
-      "local/phi3-mini-4k-q4f16",
+      "local/qwen3-0.6b",
       { explicit: true },
     );
   });

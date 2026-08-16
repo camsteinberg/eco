@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Bos Computing LLC
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { getLocalModelSystemPromptSuffix } from '../system-prompt';
+import * as catalog from '../../catalog/catalog';
 
 // ---------------------------------------------------------------------------
 // Per-model formatting suffix
@@ -11,10 +12,20 @@ import { getLocalModelSystemPromptSuffix } from '../system-prompt';
 describe('getLocalModelSystemPromptSuffix', () => {
   // -- Models WITH catalog systemDirective return it --
 
-  it('returns systemDirective for Phi-3 Mini', () => {
-    const suffix = getLocalModelSystemPromptSuffix('local/phi3-mini-4k-q4f16');
-    expect(suffix).not.toBeNull();
-    expect(suffix).toContain('Answer directly');
+  // Phi-3 (retired 2026-08-15, MC-2) was the only catalog model with a
+  // systemDirective; the passthrough still ships, so keep it under test with a
+  // synthetic directive-bearing model rather than a live catalog id.
+  it('returns the catalog systemDirective when a model has one', () => {
+    const spy = vi
+      .spyOn(catalog, 'getModel')
+      .mockReturnValue({ systemDirective: 'Answer directly.' } as unknown as ReturnType<typeof catalog.getModel>);
+    try {
+      const suffix = getLocalModelSystemPromptSuffix('synthetic/directive-model');
+      expect(suffix).not.toBeNull();
+      expect(suffix).toContain('Answer directly');
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   // -- Models WITHOUT catalog systemDirective return null --
@@ -35,7 +46,7 @@ describe('getLocalModelSystemPromptSuffix', () => {
 
   it('does NOT contain "numbered lists" for any catalog model (FORMAT_NUDGE removed)', () => {
     const ids = [
-      'local/phi3-mini-4k-q4f16',
+      'candidate/lfm2.5-1.2b-instruct-onnx',
       'local/qwen3-0.6b',
       'local/qwen3-0.6b',
       'candidate/lfm2.5-350m-onnx',

@@ -27,27 +27,6 @@ function modelSlice(
   };
 }
 
-// ─── Phi-3 Mini ──────────────────────────────────────────────────────────
-
-describe("Phi-3 Mini generation profile", () => {
-  const phi3 = modelSlice("local/phi3-mini-4k-q4f16", "phi");
-
-  it("inherits default context budget for the quick intent (no per-model override)", () => {
-    const budget = getLocalModelContextBudget(phi3, "quick");
-    expect(budget).toBe(1024);
-  });
-
-  it("uses repetition_penalty >= 1.1 at the base level", () => {
-    const defaults = getLocalModelGenerationDefaults(phi3);
-    expect(defaults.repetitionPenalty).toBeGreaterThanOrEqual(1.1);
-  });
-
-  it("uses repetition_penalty >= 1.1 for the quick intent", () => {
-    const defaults = getLocalModelGenerationDefaults(phi3, "quick");
-    expect(defaults.repetitionPenalty).toBeGreaterThanOrEqual(1.1);
-  });
-});
-
 // ─── Bonsai q4 ───────────────────────────────────────────────────────────
 
 describe("Bonsai 1.7B q4 generation profile", () => {
@@ -336,7 +315,6 @@ describe("isCjkSuppressionEnabled", () => {
     "candidate/lfm2.5-1.2b-instruct-onnx", // fast / low-memory fallback — must never pay the scan
     "candidate/lfm2.5-350m-onnx",
     "local/bonsai-1.7b-q1",
-    "local/phi3-mini-4k-q4f16",
     "local/qwen3-0.6b", // qwen3 gen: shared vocab risk but NO measured leak — needs its own gated run
     "candidate/qwen3-1.7b-onnx",
     "candidate/lfm2-2.6b-onnx",

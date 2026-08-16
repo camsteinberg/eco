@@ -8,14 +8,14 @@ import { useSettingsStore } from '../../../stores/settingsStore';
 import type { ModelConfig } from '../../../local-ai/types';
 
 const MODEL: ModelConfig = {
-  id: 'local/phi3-mini-4k-q4f16',
-  friendlyName: 'Phi-3 Mini',
-  vendor: 'Microsoft',
-  sizeGB: 2.14,
+  id: 'local/qwen3-0.6b',
+  friendlyName: 'Qwen3',
+  vendor: 'Alibaba',
+  sizeGB: 0.57,
   runtime: 'transformers',
   format: 'onnx-q4f16',
-  capabilities: { intent: ['balanced'], tasks: ['chat'], contextTokens: 4096 },
-  bestFor: 'conversation, writing, light reasoning',
+  capabilities: { intent: ['snappy', 'balanced'], tasks: ['chat', 'writing', 'reasoning'], contextTokens: 4096 },
+  bestFor: 'Quick chat, short explanations, lightweight writing',
   knownLimitation: 'k',
   evidenceTier: 'proven',
 };
@@ -48,12 +48,12 @@ describe('SettingsEcoTab — default state', () => {
         onClearCache={async () => undefined}
       />,
     );
-    // Display-mapped names for Phi-3 Mini (id: local/phi3-mini-4k-q4f16)
-    expect(screen.getByText('Eco Reasoning (Microsoft)')).toBeInTheDocument();
-    expect(screen.getByText('Strongest at math and code')).toBeInTheDocument();
+    // Display-mapped names for Qwen3 (id: local/qwen3-0.6b)
+    expect(screen.getByText('Eco Compact (Qwen)')).toBeInTheDocument();
+    expect(screen.getByText('Small + capable · good for limited devices')).toBeInTheDocument();
     // Provenance (vendor · size) is a technical detail — hidden until the
     // user opts into technical details (C-08).
-    expect(screen.queryByText(/Microsoft.*2\.1 GB/)).toBeNull();
+    expect(screen.queryByText(/Alibaba.*0\.6 GB/)).toBeNull();
   });
 
   it('reveals the mono provenance line when showTechnicalDetails is on', () => {
@@ -66,7 +66,7 @@ describe('SettingsEcoTab — default state', () => {
         onClearCache={async () => undefined}
       />,
     );
-    expect(screen.getByText(/Microsoft.*2\.1 GB/)).toBeInTheDocument();
+    expect(screen.getByText(/Alibaba.*0\.6 GB/)).toBeInTheDocument();
   });
 
   it('does NOT show the technical model id by default', () => {
@@ -389,7 +389,7 @@ describe('SettingsEcoTab — clear cache confirm/cancel', () => {
       />,
     );
     fireEvent.click(screen.getByRole('button', { name: /clear cache/i }));
-    // Display-mapped name for Phi-3 Mini; estimated time: Math.round(2.14 * 45) = 96 seconds
-    expect(screen.getByText(/re-download Eco Reasoning \(Microsoft\).*96 seconds/)).toBeInTheDocument();
+    // Display-mapped name for Qwen3; estimated time: Math.round(0.57 * 45) = 26 seconds
+    expect(screen.getByText(/re-download Eco Compact \(Qwen\).*26 seconds/)).toBeInTheDocument();
   });
 });

@@ -207,7 +207,7 @@ function byteArr(...bytes: number[]): Uint8Array {
 
 // ─── Test fixtures ─────────────────────────────────────────────────────────
 
-const MODEL_ID = 'local/phi3-mini-4k-q4f16';
+const MODEL_ID = 'local/qwen3-0.6b';
 
 /**
  * Zeroes the transient-retry backoff for tests that drive a retry path. What a
@@ -1109,9 +1109,9 @@ describe('downloadByPlan — transient retry', () => {
 describe('downloadModel — resolver DI', () => {
   const model: ModelConfig = {
     id: MODEL_ID,
-    friendlyName: 'Phi-3 Mini',
-    vendor: 'Microsoft',
-    sizeGB: 2.14,
+    friendlyName: 'Qwen3',
+    vendor: 'Alibaba',
+    sizeGB: 0.57,
     runtime: 'transformers',
     format: 'onnx-q4f16',
     capabilities: { intent: ['balanced'], tasks: ['chat'], contextTokens: 4096 },

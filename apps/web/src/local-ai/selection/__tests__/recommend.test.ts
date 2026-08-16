@@ -409,22 +409,35 @@ describe('listCatalog', () => {
     expect(ids.size).toBe(r.available.length);
   });
 
-  it('surfaces phi3 benchmark proof on Chromium 24 GB', () => {
-    // phi3's seed row is dated 2026-05-13; pin the clock to the snapshot's
-    // generation date so the row stays inside its 45-day freshness TTL and the
+  it('surfaces LFM2.5-1.2B benchmark proof on Chromium 24 GB', () => {
+    // The LFM2.5-1.2B high-memory benchmark seed is dated 2026-06-19; pin the clock
+    // to that date so the row stays inside its 45-day freshness TTL and the
     // benchmark-confidence path is exercised deterministically (otherwise this
     // assertion rots once the row ages past the window).
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-06-19T00:00:00.000Z'));
     const r = listCatalog(PROFILE_24GB);
-    const phi3 = r.available.find((entry) => entry.model.id === 'local/phi3-mini-4k-q4f16');
-    expect(phi3?.confidence).toBe('benchmark');
+    const entry = r.available.find((e) => e.model.id === 'candidate/lfm2.5-1.2b-instruct-onnx');
+    expect(entry?.confidence).toBe('benchmark');
   });
 
   it('omits unsupported models entirely on Firefox', () => {
     const r = listCatalog(PROFILE_FIREFOX);
     const allIds = r.available.map((entry) => entry.model.id);
-    expect(allIds).not.toContain('local/phi3-mini-4k-q4f16');
+    // qwen3.5-2b is a chromium-only WebGPU model — unsupported on Firefox.
+    expect(allIds).not.toContain('candidate/qwen3.5-2b-onnx');
+  });
+
+  it('never surfaces or binds the retired Phi-3 (MC-2), even as a currently-bound id', () => {
+    const RETIRED = 'local/phi3-mini-4k-q4f16';
+    expect(listCatalog(PROFILE_24GB).available.map((e) => e.model.id)).not.toContain(RETIRED);
+    // Even the currently-bound escape hatch (which retains a smoke-failed pick)
+    // must not resurrect a model that no longer exists in the catalog.
+    expect(
+      listCandidates('eco-smart', PROFILE_24GB, undefined, { currentlyBoundModelId: RETIRED }).map(
+        (c) => c.model.id,
+      ),
+    ).not.toContain(RETIRED);
   });
 
   it('returns shape with an empty available array for below-floor profiles', () => {
@@ -449,12 +462,12 @@ describe('listCatalog', () => {
     }
   });
 
-  const seedPhi3SmokeFail = () =>
+  const seedSmartSmokeFail = () =>
     localStorage.setItem(
       'eco-local-ai-ledger-v1',
       JSON.stringify([
         {
-          modelId: 'local/phi3-mini-4k-q4f16',
+          modelId: 'candidate/qwen3.5-2b-onnx',
           profileKey: 'chromium|high-memory-laptop|webgpu',
           outcome: 'smoke-fail',
           recordedAt: new Date().toISOString(),
@@ -464,32 +477,32 @@ describe('listCatalog', () => {
     );
 
   it('keeps a single-smoke-fail model VISIBLE in manual Settings but hidden from auto-offer (FH-1)', () => {
-    seedPhi3SmokeFail();
+    seedSmartSmokeFail();
     // Manual Settings still shows it — re-selecting re-runs the smoke gate, so
     // showing it IS the retry path. Hiding it for 30 days with no recourse was the
     // FH-1 trap (asymmetric with downloads, which are already manual-exempt).
     expect(listCatalog(PROFILE_24GB).available.map((e) => e.model.id)).toContain(
-      'local/phi3-mini-4k-q4f16',
+      'candidate/qwen3.5-2b-onnx',
     );
     // Auto-offer still excludes it — never auto-recommend a model that just failed.
     expect(listCandidates('eco-smart', PROFILE_24GB).map((c) => c.model.id)).not.toContain(
-      'local/phi3-mini-4k-q4f16',
+      'candidate/qwen3.5-2b-onnx',
     );
     localStorage.clear();
   });
 
   it('keeps the currently-bound model in auto-offer even with a recent smoke-fail', () => {
-    seedPhi3SmokeFail();
+    seedSmartSmokeFail();
     // Auto-offer hides a smoke-failed model...
     expect(listCandidates('eco-smart', PROFILE_24GB).map((c) => c.model.id)).not.toContain(
-      'local/phi3-mini-4k-q4f16',
+      'candidate/qwen3.5-2b-onnx',
     );
     // ...unless it's the user's currently-bound pick — never silently drop it.
     // (4-arg form: intent left as the slot default, options in the 4th position.)
     const bound = listCandidates('eco-smart', PROFILE_24GB, undefined, {
-      currentlyBoundModelId: 'local/phi3-mini-4k-q4f16',
+      currentlyBoundModelId: 'candidate/qwen3.5-2b-onnx',
     });
-    expect(bound.map((c) => c.model.id)).toContain('local/phi3-mini-4k-q4f16');
+    expect(bound.map((c) => c.model.id)).toContain('candidate/qwen3.5-2b-onnx');
     localStorage.clear();
   });
 });

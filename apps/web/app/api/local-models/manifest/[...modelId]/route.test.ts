@@ -12,14 +12,14 @@ function manifestRequest(modelIdSegments: string[]): Parameters<typeof GET> {
 }
 
 describe("GET /api/local-models/manifest/[...modelId]", () => {
-  it("returns 200 with correct shape for local/phi3-mini-4k-q4f16", async () => {
-    const response = await GET(...manifestRequest(["local", "phi3-mini-4k-q4f16"]));
+  it("returns 200 with correct shape for local/qwen3-0.6b", async () => {
+    const response = await GET(...manifestRequest(["local", "qwen3-0.6b"]));
     expect(response.status).toBe(200);
 
     const body = await response.json();
-    expect(body.modelId).toBe("local/phi3-mini-4k-q4f16");
-    expect(body.hfId).toBe("microsoft/Phi-3-mini-4k-instruct-onnx-web");
-    expect(body.revision).toBe("80a2792f5bf861528ce9b449b3230f1bd3fdc759");
+    expect(body.modelId).toBe("local/qwen3-0.6b");
+    expect(body.hfId).toBe("econetworkai/Qwen3-0.6B-ONNX-external-data");
+    expect(body.revision).toBe("e059eaaf660ff62dbc8adcd1057488aa3ad0f5f9");
     expect(body.files.length).toBeGreaterThan(0);
 
     for (const file of body.files) {

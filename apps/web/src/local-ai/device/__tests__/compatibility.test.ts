@@ -7,9 +7,9 @@
  * Tests:
  *   - Every v1.0 catalog model has a compatibility rule (no silent drift if
  *     someone adds a sixth model without updating the table).
- *   - Hardware floor enforced (≥16 GB for Phi-3, ≥8 GB for Bonsai,
+ *   - Hardware floor enforced (≥8 GB for the premium WebGPU models,
  *     ≥4 GB for Qwen3, ≥3 GB for LFM2.5).
- *   - WebGPU floor enforced (Phi-3 / Bonsai require WebGPU).
+ *   - WebGPU floor enforced (the premium models require WebGPU).
  *   - Browser-engine floor enforced (only Chromium for WebGPU-required models).
  *   - `with-warning` for mobile form factor on desktop-targeted models.
  *   - `isAssignable` agrees with `isCompatible !== 'unsupported'`.
@@ -178,29 +178,6 @@ describe('device/compatibility — max-buffer gate (Wave 3 scaffolding, dormant)
   });
 });
 
-describe('device/compatibility — Phi-3 Mini (high-memory WebGPU)', () => {
-  const phi3 = () => model('local/phi3-mini-4k-q4f16');
-
-  it('supported on Chromium WebGPU ≥16 GB', () => {
-    expect(isCompatible(phi3(), PROFILES.chromiumHighMem)).toBe('supported');
-    expect(isAssignable(phi3(), PROFILES.chromiumHighMem)).toBe(true);
-  });
-
-  it('unsupported on Chromium WebGPU 8 GB (below 16 GB floor)', () => {
-    expect(isCompatible(phi3(), PROFILES.chromiumCapableLaptop)).toBe('unsupported');
-    expect(isAssignable(phi3(), PROFILES.chromiumCapableLaptop)).toBe(false);
-  });
-
-  it('unsupported on Chromium WASM-only (requires WebGPU)', () => {
-    expect(isCompatible(phi3(), PROFILES.chromiumWasmOnly)).toBe('unsupported');
-  });
-
-  it('unsupported on Safari and Firefox', () => {
-    expect(isCompatible(phi3(), PROFILES.safariDesktop)).toBe('unsupported');
-    expect(isCompatible(phi3(), PROFILES.firefoxDesktop)).toBe('unsupported');
-  });
-});
-
 describe('device/compatibility — Qwen3 (universal small)', () => {
   const qwen = () => model('local/qwen3-0.6b');
 
@@ -307,7 +284,6 @@ describe('device/compatibility — WebGPU adapter without shader-f16', () => {
     'candidate/qwen3.5-2b-onnx',
     'candidate/lfm2-2.6b-onnx',
     'candidate/lfm2.5-1.2b-instruct-onnx',
-    'local/phi3-mini-4k-q4f16',
     'local/qwen3-0.6b',
   ] as const;
 
@@ -336,7 +312,6 @@ describe('device/compatibility — WebGPU adapter without shader-f16', () => {
     // chromiumHighMem has no webgpuShaderF16 field — the synchronous profile and
     // every existing caller must behave exactly as before this gate existed.
     expect(isCompatible(model('candidate/qwen3.5-2b-onnx'), PROFILES.chromiumHighMem)).toBe('supported');
-    expect(isCompatible(model('local/phi3-mini-4k-q4f16'), PROFILES.chromiumHighMem)).toBe('supported');
   });
 
   it('does NOT fire for f16 models on a WASM-only profile (WASM EP runs f16)', () => {
@@ -375,7 +350,7 @@ describe('device/compatibility — unclassifiable browser (unknown UA)', () => {
   });
 
   it('does NOT open premium models to unknown UAs (they stay chromium-only)', () => {
-    for (const id of ['candidate/qwen3.5-2b-onnx', 'candidate/lfm2-2.6b-onnx', 'candidate/lfm2.5-1.2b-instruct-onnx', 'local/phi3-mini-4k-q4f16', 'candidate/gemma-4-e2b-litert']) {
+    for (const id of ['candidate/qwen3.5-2b-onnx', 'candidate/lfm2-2.6b-onnx', 'candidate/lfm2.5-1.2b-instruct-onnx', 'candidate/gemma-4-e2b-litert']) {
       expect(isAssignable(model(id), PROFILES.unknownWebgpu), `${id} must stay chromium-only`).toBe(false);
     }
   });

@@ -65,11 +65,11 @@ describe('Slot read/write basics', () => {
   });
 
   it('setSlot writes the id and a preparing status by default', () => {
-    setSlot('eco-fast', 'local/phi3-mini-4k-q4f16');
+    setSlot('eco-fast', 'local/qwen3-0.6b');
     const s = getSlot('eco-fast');
-    expect(s.modelId).toBe('local/phi3-mini-4k-q4f16');
+    expect(s.modelId).toBe('local/qwen3-0.6b');
     expect(s.status).toBe('preparing');
-    expect(s.model?.friendlyName).toBe('Phi-3 Mini');
+    expect(s.model?.friendlyName).toBe('Qwen3');
   });
 
   it('setSlot with null clears the slot', () => {
@@ -80,18 +80,18 @@ describe('Slot read/write basics', () => {
   });
 
   it('setSlot accepts a ModelConfig directly', () => {
-    setSlot('eco-fast', { id: 'local/phi3-mini-4k-q4f16' } as unknown as Parameters<typeof setSlot>[1]);
-    expect(getSlot('eco-fast').modelId).toBe('local/phi3-mini-4k-q4f16');
+    setSlot('eco-fast', { id: 'local/qwen3-0.6b' } as unknown as Parameters<typeof setSlot>[1]);
+    expect(getSlot('eco-fast').modelId).toBe('local/qwen3-0.6b');
   });
 
   it('setSlotStatus updates only the status', () => {
-    setSlot('eco-fast', 'local/phi3-mini-4k-q4f16');
+    setSlot('eco-fast', 'local/qwen3-0.6b');
     setSlotStatus('eco-fast', 'ready');
     expect(getSlot('eco-fast').status).toBe('ready');
   });
 
   it('binding a DIFFERENT id over a ready slot flips it to preparing (phantom-pick fix)', () => {
-    setSlot('eco-fast', 'local/phi3-mini-4k-q4f16');
+    setSlot('eco-fast', 'candidate/lfm2.5-1.2b-instruct-onnx');
     setSlotStatus('eco-fast', 'ready');
     // Re-bind to a different model — its bytes are unverified, so the slot must
     // not stay 'ready' (that is the interrupted-download phantom pick).
@@ -102,20 +102,20 @@ describe('Slot read/write basics', () => {
   });
 
   it('re-binding the SAME id preserves the status', () => {
-    setSlot('eco-fast', 'local/phi3-mini-4k-q4f16');
+    setSlot('eco-fast', 'local/qwen3-0.6b');
     setSlotStatus('eco-fast', 'ready');
-    setSlot('eco-fast', 'local/phi3-mini-4k-q4f16');
+    setSlot('eco-fast', 'local/qwen3-0.6b');
     expect(getSlot('eco-fast').status).toBe('ready');
   });
 
   it('an empty slot still defaults to preparing on first bind', () => {
     expect(getSlot('eco-fast').status).toBe('empty');
-    setSlot('eco-fast', 'local/phi3-mini-4k-q4f16');
+    setSlot('eco-fast', 'local/qwen3-0.6b');
     expect(getSlot('eco-fast').status).toBe('preparing');
   });
 
   it('setSlot(null) clears both the id and status keys', () => {
-    setSlot('eco-fast', 'local/phi3-mini-4k-q4f16');
+    setSlot('eco-fast', 'local/qwen3-0.6b');
     setSlotStatus('eco-fast', 'ready');
     setSlot('eco-fast', null);
     expect(storage.getItem('eco-local-ai-slot-eco-fast')).toBeNull();
@@ -123,7 +123,7 @@ describe('Slot read/write basics', () => {
   });
 
   it('clearSlot is equivalent to setSlot(slot, null)', () => {
-    setSlot('eco-fast', 'local/phi3-mini-4k-q4f16');
+    setSlot('eco-fast', 'local/qwen3-0.6b');
     clearSlot('eco-fast');
     expect(getSlot('eco-fast').modelId).toBeNull();
   });
@@ -176,14 +176,14 @@ describe('Slot read/write basics', () => {
 
 describe('getAllSlots', () => {
   it('returns state for every slot id', () => {
-    setSlot('eco-fast', 'local/phi3-mini-4k-q4f16');
+    setSlot('eco-fast', 'local/qwen3-0.6b');
     const all = getAllSlots();
-    expect(all['eco-fast'].modelId).toBe('local/phi3-mini-4k-q4f16');
+    expect(all['eco-fast'].modelId).toBe('local/qwen3-0.6b');
     expect(all['eco-smart'].modelId).toBeNull();
   });
 
   it('clearAllSlots empties every slot', () => {
-    setSlot('eco-fast', 'local/phi3-mini-4k-q4f16');
+    setSlot('eco-fast', 'local/qwen3-0.6b');
     setSlot('eco-smart', 'local/qwen3-0.6b');
     clearAllSlots();
     for (const slot of SLOTS) {
@@ -194,14 +194,14 @@ describe('getAllSlots', () => {
 
 describe('Legacy key migration', () => {
   it('reads legacy "eco-model-slot-*" keys and promotes to the new key on read', () => {
-    storage.setItem('eco-model-slot-eco-fast', 'local/phi3-mini-4k-q4f16');
+    storage.setItem('eco-model-slot-eco-fast', 'local/qwen3-0.6b');
     // Before promotion: new key is empty.
     expect(storage.getItem('eco-local-ai-slot-eco-fast')).toBeNull();
 
     const s = getSlot('eco-fast');
-    expect(s.modelId).toBe('local/phi3-mini-4k-q4f16');
+    expect(s.modelId).toBe('local/qwen3-0.6b');
     // After: new key is populated.
-    expect(storage.getItem('eco-local-ai-slot-eco-fast')).toBe('local/phi3-mini-4k-q4f16');
+    expect(storage.getItem('eco-local-ai-slot-eco-fast')).toBe('local/qwen3-0.6b');
   });
 
   it('reads legacy "eco-slot-*" keys with same behavior', () => {
@@ -211,9 +211,9 @@ describe('Legacy key migration', () => {
   });
 
   it('prefers the new key when both new and legacy are present', () => {
-    storage.setItem('eco-local-ai-slot-eco-fast', 'local/phi3-mini-4k-q4f16');
+    storage.setItem('eco-local-ai-slot-eco-fast', 'candidate/lfm2.5-1.2b-instruct-onnx');
     storage.setItem('eco-model-slot-eco-fast', 'local/qwen3-0.6b');
-    expect(getSlot('eco-fast').modelId).toBe('local/phi3-mini-4k-q4f16');
+    expect(getSlot('eco-fast').modelId).toBe('candidate/lfm2.5-1.2b-instruct-onnx');
   });
 
   it('legacy prefixes are exposed for self-heal', () => {
@@ -226,8 +226,8 @@ describe('subscribe', () => {
   it('notifies on setSlot', () => {
     const events: string[] = [];
     const unsub = subscribe((slot, state) => events.push(`${slot}:${state.modelId ?? 'null'}`));
-    setSlot('eco-fast', 'local/phi3-mini-4k-q4f16');
-    expect(events).toEqual(['eco-fast:local/phi3-mini-4k-q4f16']);
+    setSlot('eco-fast', 'local/qwen3-0.6b');
+    expect(events).toEqual(['eco-fast:local/qwen3-0.6b']);
     unsub();
   });
 
@@ -240,7 +240,7 @@ describe('subscribe', () => {
   });
 
   it('notifies with the flipped status when a re-bind changes the model', () => {
-    setSlot('eco-fast', 'local/phi3-mini-4k-q4f16');
+    setSlot('eco-fast', 'candidate/lfm2.5-1.2b-instruct-onnx');
     setSlotStatus('eco-fast', 'ready');
     const statuses: string[] = [];
     const unsub = subscribe((_slot, state) => statuses.push(state.status));

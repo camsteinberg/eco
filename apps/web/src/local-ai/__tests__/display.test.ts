@@ -6,9 +6,9 @@ import { getDisplayInfo, resolveRunningModel } from '../display';
 import { getCatalog } from '../catalog/catalog';
 
 describe('getDisplayInfo', () => {
-  it('returns branded names for all 11 catalog models', () => {
+  it('returns branded names for all 10 catalog models', () => {
     const catalog = getCatalog();
-    expect(catalog.length).toBe(11);
+    expect(catalog.length).toBe(10);
 
     for (const model of catalog) {
       const info = getDisplayInfo(model.id, model);
@@ -43,18 +43,6 @@ describe('getDisplayInfo', () => {
     expect(info.qualityPhrase).toBeTruthy();
     expect(info.provenance).toBe('Hugging Face · 0.4 GB');
   });
-
-  it('maps Phi-3 Mini to Eco Reasoning (Microsoft)', () => {
-    const info = getDisplayInfo('local/phi3-mini-4k-q4f16', {
-      friendlyName: 'Phi-3 Mini',
-      vendor: 'Microsoft',
-      sizeGB: 2.14,
-    });
-    expect(info.friendlyName).toBe('Eco Reasoning (Microsoft)');
-    expect(info.qualityPhrase).toBe('Strongest at math and code');
-    expect(info.provenance).toBe('Microsoft · 2.1 GB');
-  });
-
 
   it('maps Qwen3 to Eco Compact (Qwen)', () => {
     const info = getDisplayInfo('local/qwen3-0.6b', {

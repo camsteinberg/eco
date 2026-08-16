@@ -69,7 +69,7 @@ describe('predictMetrics', () => {
   });
 
   it('predicts higher smokePassRate for proven evidenceTier than predicted', () => {
-    const proven = predictMetrics(getModel('local/phi3-mini-4k-q4f16')!, PROFILE_CHROMIUM_24GB);
+    const proven = predictMetrics(getModel('local/qwen3-0.6b')!, PROFILE_CHROMIUM_24GB);
     const predicted = predictMetrics(getModel('candidate/lfm2.5-350m-onnx')!, PROFILE_CHROMIUM_24GB);
     expect(proven.smokePassRate).toBeGreaterThan(predicted.smokePassRate);
   });
@@ -87,15 +87,15 @@ describe('getMetrics — seed first, predicted fallback', () => {
   });
 
   it('returns seed values for a (model × profile) with seed proof', () => {
-    // phi3's seed row is dated 2026-05-13; pin the clock to the snapshot's
-    // generation date so the row stays inside its 45-day freshness TTL. Without
-    // this, the assertion silently rots once the row ages out of the window and
-    // getMetrics correctly falls back to predicted values — a wall-clock
-    // dependency masquerading as a logic test.
+    // The LFM2.5-1.2B high-memory benchmark seed is dated 2026-06-19; pin the clock
+    // to that date so the row stays inside its 45-day freshness TTL. Without this,
+    // the assertion silently rots once the row ages out of the window and getMetrics
+    // correctly falls back to predicted values — a wall-clock dependency
+    // masquerading as a logic test.
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-06-19T00:00:00.000Z'));
-    const seedMetrics = getMetrics(getModel('local/phi3-mini-4k-q4f16')!, PROFILE_CHROMIUM_24GB);
-    // Seed evidence for phi3 has firstTokenMs around 228 ms; predicted would
+    const seedMetrics = getMetrics(getModel('candidate/lfm2.5-1.2b-instruct-onnx')!, PROFILE_CHROMIUM_24GB);
+    // Seed evidence for this model has firstTokenMs around 290 ms; predicted would
     // be in the 1000+ ms range.
     expect(seedMetrics.firstTokenMs).toBeLessThan(500);
   });
@@ -115,7 +115,6 @@ describe('modelMatchesSlot', () => {
   });
 
   it('eco-smart prefers balanced/quality intents', () => {
-    expect(modelMatchesSlot(getModel('local/phi3-mini-4k-q4f16')!, 'eco-smart')).toBe(true);
     expect(modelMatchesSlot(getModel('candidate/qwen3.5-2b-onnx')!, 'eco-smart')).toBe(true);
     expect(modelMatchesSlot(getModel('local/qwen3-0.6b')!, 'eco-smart')).toBe(true);
     expect(modelMatchesSlot(getModel('candidate/gemma-4-e2b-litert')!, 'eco-smart')).toBe(true);

@@ -49,8 +49,8 @@ describe('resolveSelectedModelId', () => {
   });
 
   it('resolves a slot to its bound model id', () => {
-    setSlot('eco-fast', 'local/phi3-mini-4k-q4f16');
-    expect(resolveSelectedModelId('eco-fast')).toBe('local/phi3-mini-4k-q4f16');
+    setSlot('eco-fast', 'local/qwen3-0.6b');
+    expect(resolveSelectedModelId('eco-fast')).toBe('local/qwen3-0.6b');
   });
 
   it('falls back to the choice when the slot has no bound model', () => {

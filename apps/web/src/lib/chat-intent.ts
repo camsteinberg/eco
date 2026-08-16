@@ -106,12 +106,6 @@ const CHAT_INTENT_MODEL_DATA: Record<string, ChatIntentModelSlice> = {
       },
     },
   } as unknown as ChatIntentModelSlice,
-  "local/phi3-mini-4k-q4f16": {
-    id: "local/phi3-mini-4k-q4f16",
-    family: "phi",
-    qualityTier: "smart",
-    maxNewTokens: { webgpu: 1024 },
-  },
   "candidate/lfm2.5-1.2b-instruct-onnx": {
     id: "candidate/lfm2.5-1.2b-instruct-onnx",
     family: "lfm2",
