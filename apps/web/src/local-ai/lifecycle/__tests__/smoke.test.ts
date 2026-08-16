@@ -23,10 +23,10 @@ vi.mock('../../runtime/webllm-cache-bridge', () => ({
 }));
 
 const MODEL: ModelConfig = {
-  id: 'local/phi3-mini-4k-q4f16',
-  friendlyName: 'Phi-3 Mini',
-  vendor: 'Microsoft',
-  sizeGB: 2.14,
+  id: 'local/qwen3-0.6b',
+  friendlyName: 'Qwen3',
+  vendor: 'Alibaba',
+  sizeGB: 0.57,
   runtime: 'transformers',
   format: 'onnx-q4f16',
   capabilities: { intent: ['balanced'], tasks: ['chat'], contextTokens: 4096 },
@@ -48,7 +48,7 @@ function stubCachesWithFiles(): void {
   const fakeCaches = {
     has: async () => true,
     open: async () => fakeCache,
-    keys: async () => ['eco-local-ai-local_phi3-mini-4k-q4f16'],
+    keys: async () => ['eco-local-ai-local_qwen3-0.6b'],
     delete: async () => true,
   };
   vi.stubGlobal('caches', fakeCaches);
@@ -457,7 +457,7 @@ describe('runSmoke — diagnostic capture', () => {
     expect(entries).toHaveLength(1);
     const entry = entries[0]!;
     expect(entry.outcome).toBe('smoke-pass');
-    expect(entry.modelId).toBe('local/phi3-mini-4k-q4f16');
+    expect(entry.modelId).toBe('local/qwen3-0.6b');
     expect(entry.schemaVersion).toBe(2);
     expect(entry.runtimeAdapter).toBe('transformers');
     expect(entry.tokensReceived).toBeGreaterThanOrEqual(1);
@@ -580,7 +580,7 @@ describe('runSmoke — diagnostic capture', () => {
     expect(entries).toHaveLength(1);
     const entry = entries[0]!;
     expect(entry.outcome).toBe('smoke-fail');
-    expect(entry.modelId).toBe('local/phi3-mini-4k-q4f16');
+    expect(entry.modelId).toBe('local/qwen3-0.6b');
     expect(entry.error?.message).toMatch(/no smoke generation function/i);
     expect(entry.events.length).toBeGreaterThanOrEqual(1);
     expect(entry.webgpu).toBeDefined();
@@ -624,7 +624,7 @@ describe('runSmoke — diagnostic capture', () => {
   });
 });
 
-// ─── Empty cache early exit (Phi-3 download orchestration) ───────────────
+// ─── Empty cache early exit (download orchestration) ─────────────────────
 
 describe('runSmoke — empty cache early exit', () => {
   beforeEach(() => {
@@ -894,7 +894,7 @@ describe('runSmoke — cache file name capture', () => {
     vi.stubGlobal('caches', {
       has: async () => true,
       open: async () => fakeCache,
-      keys: async () => ['eco-local-ai-local_phi3-mini-4k-q4f16'],
+      keys: async () => ['eco-local-ai-local_qwen3-0.6b'],
       delete: async () => true,
     });
 
@@ -933,7 +933,7 @@ describe('runSmoke — cache file name capture', () => {
     vi.stubGlobal('caches', {
       has: async () => true,
       open: async () => fakeCache,
-      keys: async () => ['eco-local-ai-local_phi3-mini-4k-q4f16'],
+      keys: async () => ['eco-local-ai-local_qwen3-0.6b'],
       delete: async () => true,
     });
 

@@ -4,7 +4,7 @@
 /**
  * Phase C catalog tests.
  *
- * The v1.0 user-facing catalog is exactly 11 models. Every entry must carry the
+ * The v1.0 user-facing catalog is exactly 10 models. Every entry must carry the
  * full ModelConfig surface. These tests are the guard against silent drift in
  * the catalog data (especially: someone adding a model without going through the
  * design review that locks the catalog).
@@ -21,7 +21,6 @@ import { isUsableSeedRecord, type RawReconciliationRecord } from '../../evidence
 import seedData from '../../evidence/data/v1-launch-manual-evidence.json';
 
 const V1_CATALOG_IDS = [
-  'local/phi3-mini-4k-q4f16',
   'local/qwen3-0.6b',
   'candidate/lfm2.5-1.2b-instruct-onnx',
   'candidate/lfm2.5-1.2b-instruct-q4-onnx',
@@ -37,8 +36,8 @@ const V1_CATALOG_IDS = [
 const TECHNICAL_ID_PATTERN = /q4f16|q4f|q4_1|webllm|onnx|fp16|q8|q4\b|q2f16|bnb4|mlc/i;
 
 describe('local-ai catalog (Phase C)', () => {
-  it('ships exactly 11 models', () => {
-    expect(getCatalog()).toHaveLength(11);
+  it('ships exactly 10 models', () => {
+    expect(getCatalog()).toHaveLength(10);
   });
 
   it('ships the locked v1.0 catalog ids in source order', () => {
@@ -65,12 +64,10 @@ describe('local-ai catalog (Phase C)', () => {
   // Context windows are per-model MEASURED values, not defaults: 8192 requires
   // real-WebGPU memory-headroom evidence for that exact model (LFM2.5-1.2B +
   // Qwen3.5-2B verified 2026-06-12; both are hybrid-attention = small KV).
-  // The rest stay 4096 deliberately — Phi-3 is natively 4k, and the
-  // small/legacy models haven't earned a measurement. Raising any value here
-  // means a fresh headroom run first.
+  // The rest stay 4096 deliberately — the small/legacy models haven't earned a
+  // measurement. Raising any value here means a fresh headroom run first.
   it('pins the measured per-model context windows', () => {
     const expected: Record<(typeof V1_CATALOG_IDS)[number], number> = {
-      'local/phi3-mini-4k-q4f16': 4096,
       'local/qwen3-0.6b': 4096,
       'candidate/lfm2.5-1.2b-instruct-onnx': 8192,
       // The f16-less plain-int4 build of the same 1.2B — same measured 8192 window.
@@ -103,16 +100,14 @@ describe('local-ai catalog (Phase C)', () => {
   // systemRoleSupport is the per-model strategy normalizeMessagesForTemplate
   // applies before apply_chat_template; it must match what each model's real
   // chat template actually supports. Audited against the pinned tokenizers
-  // 2026-08-11: Phi-3's onnx-web template renders ONLY user/assistant turns (no
-  // system branch and no else), so a system message under "native" is silently
-  // DROPPED — including Phi-3's own systemDirective. "merge-first-user" folds the
-  // system prompt into the first user turn so it reaches the model. Every other
-  // transformers-runtime model's template has a native system role (verified:
-  // the system content survives render). LiteRT/WebLLM models format prompts in
+  // 2026-08-11: every shipping transformers-runtime model's template has a
+  // native system role (verified: the system content survives render), so each
+  // carries "native". (Phi-3 was the sole "merge-first-user" model — its onnx-web
+  // template rendered only user/assistant turns, silently dropping system content
+  // — and was retired 2026-08-15, MC-2.) LiteRT/WebLLM models format prompts in
   // their own runtimes and are out of this audit's scope.
   it('pins the audited systemRoleSupport per transformers-runtime model', () => {
     const expected: Record<string, string> = {
-      'local/phi3-mini-4k-q4f16': 'merge-first-user',
       'local/qwen3-0.6b': 'native',
       'candidate/lfm2.5-1.2b-instruct-onnx': 'native',
       'candidate/lfm2.5-1.2b-instruct-q4-onnx': 'native',
@@ -140,7 +135,6 @@ describe('local-ai catalog (Phase C)', () => {
   // model is backed by >=1 usable seed row. This invariant would have caught
   // lfm2-2.6b shipping 'proven' with zero seed rows (Wave-3 evidence-truth, TIER-1).
   const EXPECTED_TIERS: Record<(typeof V1_CATALOG_IDS)[number], 'proven' | 'predicted' | 'experimental'> = {
-    'local/phi3-mini-4k-q4f16': 'proven',
     'local/qwen3-0.6b': 'proven',
     'candidate/lfm2.5-1.2b-instruct-onnx': 'proven',
     'candidate/lfm2.5-1.2b-instruct-q4-onnx': 'predicted',
@@ -220,6 +214,22 @@ describe('local-ai catalog (Phase C)', () => {
     expect(getModel('candidate/bitnet-b158')).toBeNull();
   });
 
+  // MC-2 (2026-08-15): Phi-3 Mini was retired — never-reachable dead wiring (its
+  // 16GB-memory + Chromium-only compatibility rule can never be met, because
+  // navigator.deviceMemory is spec-clamped to <=8GB on Chromium and absent on the
+  // non-Chromium browsers the rule already excluded). This guard proves the
+  // catalog, its artifact metadata, and the proxy-facing HF repo are all clear so
+  // it can never silently return.
+  it('has retired Phi-3 Mini (MC-2) — absent from the catalog and its artifact metadata', () => {
+    const RETIRED_ID = 'local/phi3-mini-4k-q4f16';
+    expect(getModel(RETIRED_ID)).toBeNull();
+    expect(getCatalog().some((m) => m.id === RETIRED_ID)).toBe(false);
+    expect(RETIRED_ID in (artifactMetadata as Record<string, unknown>)).toBe(false);
+    expect(
+      getCatalog().some((m) => m.artifact?.hfId === 'microsoft/Phi-3-mini-4k-instruct-onnx-web'),
+    ).toBe(false);
+  });
+
   it('returns a frozen catalog snapshot — callers cannot mutate the source', () => {
     const snapshot = getCatalog();
     const original = snapshot[0]!;
@@ -229,7 +239,7 @@ describe('local-ai catalog (Phase C)', () => {
     }).toThrow();
     // And the array itself is a copy — mutating it doesn't break the next reader.
     snapshot.length = 0;
-    expect(getCatalog()).toHaveLength(11);
+    expect(getCatalog()).toHaveLength(10);
   });
 
   // The catalog's artifact files must have corresponding entries in
@@ -273,8 +283,8 @@ describe('local-ai catalog (Phase C)', () => {
   // EosTokenCriteria from generation_config.json's eos_token_id, which OVERRIDES
   // config.json's, and the worker passes no eos override — so this file is the
   // authoritative stop set. Audited against the pinned tokenizers 2026-08-11:
-  // for Phi-3 the turn-ender <|end|> (32007) and for Qwen3.5-2B the turn-ender
-  // <|im_end|> (248046) live ONLY in generation_config.json — config.json carries
+  // for Qwen3.5-2B the turn-ender <|im_end|> (248046) lives ONLY in
+  // generation_config.json — config.json carries
   // a scalar/omitted eos that does NOT include the turn-ender (Qwen3.5-2B's
   // config.json has no eos_token_id at all). TJS loads generation_config.json
   // NON-fatally, so if a catalog edit ever drops it from files[], EOS falls back
@@ -295,14 +305,14 @@ describe('local-ai catalog (Phase C)', () => {
   });
 
   it('exposes capabilities via the dedicated capabilities surface', () => {
-    const phi3 = getModel('local/phi3-mini-4k-q4f16')!;
-    const caps = getCapabilities(phi3);
-    expect(caps.intent).toEqual(phi3.capabilities.intent);
-    expect(caps.tasks).toEqual(phi3.capabilities.tasks);
-    expect(caps.contextTokens).toBe(phi3.capabilities.contextTokens);
+    const model = getModel('local/qwen3-0.6b')!;
+    const caps = getCapabilities(model);
+    expect(caps.intent).toEqual(model.capabilities.intent);
+    expect(caps.tasks).toEqual(model.capabilities.tasks);
+    expect(caps.contextTokens).toBe(model.capabilities.contextTokens);
 
     // capabilities returns copies — caller mutation doesn't poison the catalog.
     caps.intent.push('quality');
-    expect(getCapabilities(phi3).intent).toEqual(phi3.capabilities.intent);
+    expect(getCapabilities(model).intent).toEqual(model.capabilities.intent);
   });
 });

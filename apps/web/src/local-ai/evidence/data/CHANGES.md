@@ -43,6 +43,19 @@ are `calculated` in the shipped JSON; treat it as a historical record. Freshness
 is now enforced by the production read path (`loadSeedEvidence` per-row TTL) and
 its test, not by this table.
 
+**2026-08-15 — Phi-3 Mini (`local/phi3-mini-4k-q4f16`) retired.** The
+`routingEvidenceReconciliation` entry was removed from
+`v1-launch-manual-evidence.json`. Phi-3 was never reachable on any production
+device: its compatibility rule required ≥16 GB device memory AND Chromium, but
+`navigator.deviceMemory` is spec-clamped to ≤8 GB on Chromium and absent on the
+non-Chromium browsers the rule already excluded — so it never cleared the floor
+and no client ever bound or downloaded it. Unlike the SmolLM2/Bonsai
+retirements, no boot migration is needed (there is no orphaned per-device state
+to purge). The catalog row, artifact metadata, the intent/display/compatibility
+wiring, and the `phi` generation-profile family were removed in the same change.
+The historical benchmark line below is kept as a record of the row that existed
+before removal.
+
 ## Runtime Seed Benchmark Records (real hardware measurements)
 
 Refresh correction (2026-06-19 Gemma catalogue closeout): the checked runtime

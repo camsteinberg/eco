@@ -113,7 +113,7 @@ export type RenderedTemplateTokenizer = (
  * `[<|startoftext|>, <|startoftext|>, <|im_start|>, …]` (BOS doubled); with
  * `false` the token ids equal the canonical `apply_chat_template({ tokenize:
  * true })` sequence exactly, for EVERY shipping transformers-runtime model
- * (the two LFM2.5 builds drop the duplicate; Qwen2.5/Qwen3/Qwen3.5, Phi-3, and
+ * (the two LFM2.5 builds drop the duplicate; Qwen2.5/Qwen3/Qwen3.5 and
  * SmolLM2 are byte-identical — their BOS, when present, comes from the template
  * literal, not a re-added special token). WebLLM (MLC) and LiteRT runtimes do
  * their own prompt formatting and never reach this path.

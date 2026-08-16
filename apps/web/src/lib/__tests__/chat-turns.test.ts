@@ -17,9 +17,9 @@ import { buildLocalReadinessFailureV2, findAutoRetryTarget } from '../chat-turns
 import type { SlotState } from '../../local-ai/lifecycle/slots';
 import type { ModelConfig } from '../../local-ai/types';
 
-const PHI3_FRIENDLY: ModelConfig = {
-  id: 'local/phi3-mini-4k-q4f16',
-  friendlyName: 'Phi-3 Mini',
+const QWEN3_FRIENDLY: ModelConfig = {
+  id: 'local/qwen3-0.6b',
+  friendlyName: 'Qwen3',
 } as unknown as ModelConfig;
 
 function slot(overrides: Partial<SlotState>): SlotState {
@@ -35,7 +35,7 @@ function slot(overrides: Partial<SlotState>): SlotState {
 describe('buildLocalReadinessFailureV2', () => {
   it('maps preparing status to partial readiness', () => {
     const result = buildLocalReadinessFailureV2({
-      slot: slot({ status: 'preparing', model: PHI3_FRIENDLY, modelId: PHI3_FRIENDLY.id }),
+      slot: slot({ status: 'preparing', model: QWEN3_FRIENDLY, modelId: QWEN3_FRIENDLY.id }),
     });
     expect(result.readinessStatus).toBe('partial');
     expect(result.message).toMatch(/still preparing/i);
@@ -43,7 +43,7 @@ describe('buildLocalReadinessFailureV2', () => {
 
   it('maps error status to downloaded-needs-test readiness', () => {
     const result = buildLocalReadinessFailureV2({
-      slot: slot({ status: 'error', model: PHI3_FRIENDLY, modelId: PHI3_FRIENDLY.id }),
+      slot: slot({ status: 'error', model: QWEN3_FRIENDLY, modelId: QWEN3_FRIENDLY.id }),
     });
     expect(result.readinessStatus).toBe('downloaded-needs-test');
     expect(result.message).toMatch(/Re-run setup/i);
@@ -66,9 +66,9 @@ describe('buildLocalReadinessFailureV2', () => {
 
   it('renders modelName from friendlyName, never a technical id', () => {
     const result = buildLocalReadinessFailureV2({
-      slot: slot({ model: PHI3_FRIENDLY, modelId: PHI3_FRIENDLY.id, status: 'preparing' }),
+      slot: slot({ model: QWEN3_FRIENDLY, modelId: QWEN3_FRIENDLY.id, status: 'preparing' }),
     });
-    expect(result.modelName).toBe('Phi-3 Mini');
+    expect(result.modelName).toBe('Qwen3');
     expect(result.modelName).not.toContain('q4f16');
     expect(result.modelName).not.toContain('local/');
   });

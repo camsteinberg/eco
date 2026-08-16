@@ -40,7 +40,7 @@ function key(req: RequestInfo | URL): string {
   return req.url;
 }
 
-const MODEL_ID = 'local/phi3-mini-4k-q4f16';
+const MODEL_ID = 'local/qwen3-0.6b';
 
 let storage: CacheApiStorage;
 

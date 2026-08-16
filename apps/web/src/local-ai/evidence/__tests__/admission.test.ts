@@ -86,33 +86,6 @@ function model(id: string) {
   return m;
 }
 
-describe('admit — Phi-3 Mini (proven on high-memory Chromium)', () => {
-  const phi3 = () => model('local/phi3-mini-4k-q4f16');
-
-  it('allowed on Chromium 24 GB (seed proof present)', () => {
-    // phi3's preserved seed row (2026-05-13) must be inside its 45-day TTL for
-    // this proof-present assertion; pin the clock to the snapshot date.
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-06-19T00:00:00.000Z'));
-    const r = admit(phi3(), PROFILES.chromiumHighMem);
-    expect(r.decision).toBe('allowed');
-    expect(r.reason).toBe('proven-on-this-profile');
-    expect(r.hasSeedProof).toBe(true);
-  });
-
-  it('denied on Chromium 8 GB (compat floor 16 GB)', () => {
-    const r = admit(phi3(), PROFILES.chromiumCapableLaptop);
-    expect(r.decision).toBe('denied');
-    expect(r.reason).toBe('incompatible-device');
-  });
-
-  it('denied on Firefox (compat allowed-browsers Chromium-only)', () => {
-    const r = admit(phi3(), PROFILES.firefoxWasm);
-    expect(r.decision).toBe('denied');
-    expect(r.reason).toBe('incompatible-device');
-  });
-});
-
 // LFM2.5-1.2B is proven only on the high-memory-laptop class (its sole seed
 // row), so it exercises the mirror of what Bonsai used to: proven-on-profile on
 // high-memory, proven-elsewhere on the compatible-but-unseeded capable-laptop,
@@ -300,13 +273,15 @@ describe('admit — runtime ledger override', () => {
   });
 
   it('seedProofSource distinguishes benchmark from calculated', () => {
-    // Both preserved seed rows (2026-05-13) must be inside their 45-day TTL.
+    // The high-memory LFM2.5-1.2B benchmark seed is dated 2026-06-19; the
+    // LFM2.5-350M high-memory row was backfilled as calculated (2026-05-18). Both
+    // must be inside their 45-day TTL, so pin the clock to the benchmark date.
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-06-19T00:00:00.000Z'));
-    const phi = model('local/phi3-mini-4k-q4f16');
+    const bench = model('candidate/lfm2.5-1.2b-instruct-onnx');
     const lfm = model('candidate/lfm2.5-350m-onnx');
-    expect(admit(phi, PROFILES.chromiumHighMem).seedProofSource).toBe('benchmark');
-    // LFM2.5 on high-memory was backfilled as calculated.
+    expect(admit(bench, PROFILES.chromiumHighMem).seedProofSource).toBe('benchmark');
+    // LFM2.5-350M on high-memory was backfilled as calculated.
     expect(admit(lfm, PROFILES.chromiumHighMem).seedProofSource).toBe('calculated');
   });
 });

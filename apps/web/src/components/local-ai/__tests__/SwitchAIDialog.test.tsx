@@ -11,14 +11,14 @@ import type {
   UseSwitchAIReturn,
 } from '../../../hooks/local-ai/useSwitchAI';
 
-const PHI3: ModelConfig = {
-  id: 'local/phi3-mini-4k-q4f16',
-  friendlyName: 'Phi-3 Mini',
-  vendor: 'Microsoft',
-  sizeGB: 2.14,
+const LFM2: ModelConfig = {
+  id: 'candidate/lfm2.5-1.2b-instruct-onnx',
+  friendlyName: 'LFM2.5 1.2B',
+  vendor: 'Liquid AI',
+  sizeGB: 0.76,
   runtime: 'transformers',
   format: 'onnx-q4f16',
-  capabilities: { intent: ['balanced'], tasks: ['chat'], contextTokens: 4096 },
+  capabilities: { intent: ['balanced'], tasks: ['chat'], contextTokens: 8192 },
   bestFor: 'conversation',
   knownLimitation: 'k',
   evidenceTier: 'proven',
@@ -52,11 +52,11 @@ const QWEN: ModelConfig = {
 
 function makeState(overrides: Partial<UseSwitchAIReturn> = {}): UseSwitchAIReturn {
   const choices: SwitchAIChoice[] = [
-    { model: PHI3, confidence: 'benchmark', isTop: true },
+    { model: LFM2, confidence: 'benchmark', isTop: true },
     { model: THIRD_MODEL, confidence: 'calculated', isTop: false },
   ];
   return {
-    recommendation: PHI3,
+    recommendation: LFM2,
     choices,
     selectedId: THIRD_MODEL.id,
     select: vi.fn(),
@@ -75,8 +75,8 @@ describe('SwitchAIDialog — single calm list', () => {
       <SwitchAIDialog open onClose={onClose} currentModel={THIRD_MODEL} state={state} />,
     );
     expect(screen.getByRole('radiogroup', { name: /available ais/i })).toBeInTheDocument();
-    // Display-mapped names (Phi-3 Mini -> Eco Reasoning, Qwen3 -> Eco Compact)
-    expect(screen.getByText('Eco Reasoning (Microsoft)')).toBeInTheDocument();
+    // Display-mapped names (LFM2.5 1.2B -> Eco Fast, Qwen3 -> Eco Compact)
+    expect(screen.getByText('Eco Fast (Liquid)')).toBeInTheDocument();
     expect(screen.getByText('Eco Compact (Qwen)')).toBeInTheDocument();
     expect(screen.getAllByRole('radio')).toHaveLength(2);
   });
@@ -98,7 +98,7 @@ describe('SwitchAIDialog — single calm list', () => {
       <SwitchAIDialog open onClose={onClose} currentModel={THIRD_MODEL} state={state} />,
     );
     const recommended = screen.getAllByText(/recommended for your device/i);
-    // One sublabel — on PHI3, the isTop:true entry.
+    // One sublabel — on LFM2 (isTop:true entry).
     expect(recommended.length).toBe(1);
     // No standalone pulsing "Recommended" pill copy.
     expect(screen.queryByText(/^recommended$/i)).toBeNull();
@@ -111,13 +111,13 @@ describe('SwitchAIDialog — single calm list', () => {
     render(
       <SwitchAIDialog open onClose={onClose} currentModel={THIRD_MODEL} state={state} />,
     );
-    fireEvent.click(screen.getByText('Eco Reasoning (Microsoft)'));
-    expect(select).toHaveBeenCalledWith(PHI3.id);
+    fireEvent.click(screen.getByText('Eco Fast (Liquid)'));
+    expect(select).toHaveBeenCalledWith(LFM2.id);
   });
 
   it('reflects the current selection via aria-checked', () => {
     const onClose = vi.fn();
-    const state = makeState({ selectedId: PHI3.id });
+    const state = makeState({ selectedId: LFM2.id });
     render(
       <SwitchAIDialog open onClose={onClose} currentModel={THIRD_MODEL} state={state} />,
     );
@@ -189,7 +189,7 @@ describe('SwitchAIDialog — failure flow with cascade suggestion', () => {
     }));
     const state = makeState({ commit });
     render(
-      <SwitchAIDialog open onClose={onClose} currentModel={PHI3} state={state} />,
+      <SwitchAIDialog open onClose={onClose} currentModel={LFM2} state={state} />,
     );
 
     // No warning gate any more — Save commits immediately.
@@ -213,7 +213,7 @@ describe('SwitchAIDialog — failure flow with cascade suggestion', () => {
     }));
     const state = makeState({ commit, commitWith });
     render(
-      <SwitchAIDialog open onClose={onClose} currentModel={PHI3} state={state} />,
+      <SwitchAIDialog open onClose={onClose} currentModel={LFM2} state={state} />,
     );
 
     await act(async () => {
@@ -237,7 +237,7 @@ describe('SwitchAIDialog — failure flow with cascade suggestion', () => {
     }));
     const state = makeState({ commit });
     render(
-      <SwitchAIDialog open onClose={onClose} currentModel={PHI3} state={state} />,
+      <SwitchAIDialog open onClose={onClose} currentModel={LFM2} state={state} />,
     );
 
     await act(async () => {
@@ -260,7 +260,7 @@ describe('SwitchAIDialog — failure flow with cascade suggestion', () => {
     }));
     const state = makeState({ commit });
     render(
-      <SwitchAIDialog open onClose={onClose} currentModel={PHI3} state={state} />,
+      <SwitchAIDialog open onClose={onClose} currentModel={LFM2} state={state} />,
     );
 
     await act(async () => {
@@ -284,7 +284,7 @@ describe('SwitchAIDialog — failure flow with cascade suggestion', () => {
     }));
     const state = makeState({ commit });
     render(
-      <SwitchAIDialog open onClose={onClose} currentModel={PHI3} state={state} />,
+      <SwitchAIDialog open onClose={onClose} currentModel={LFM2} state={state} />,
     );
 
     await act(async () => {
@@ -305,7 +305,7 @@ describe('SwitchAIDialog — failure flow with cascade suggestion', () => {
     }));
     const state = makeState({ commit });
     render(
-      <SwitchAIDialog open onClose={onClose} currentModel={PHI3} state={state} />,
+      <SwitchAIDialog open onClose={onClose} currentModel={LFM2} state={state} />,
     );
 
     await act(async () => {
@@ -335,7 +335,7 @@ describe('SwitchAIDialog — failure flow with cascade suggestion', () => {
     }));
     const state = makeState({ commit });
     render(
-      <SwitchAIDialog open onClose={onClose} currentModel={PHI3} state={state} />,
+      <SwitchAIDialog open onClose={onClose} currentModel={LFM2} state={state} />,
     );
 
     await act(async () => {
@@ -358,7 +358,7 @@ describe('SwitchAIDialog — failure flow with cascade suggestion', () => {
     }));
     const state = makeState({ commit });
     render(
-      <SwitchAIDialog open onClose={onClose} currentModel={PHI3} state={state} />,
+      <SwitchAIDialog open onClose={onClose} currentModel={LFM2} state={state} />,
     );
 
     await act(async () => {
@@ -384,7 +384,7 @@ describe('SwitchAIDialog — busy runtime (slice 2a)', () => {
       }));
       const state = makeState({ commit });
       render(
-        <SwitchAIDialog open onClose={onClose} currentModel={PHI3} state={state} />,
+        <SwitchAIDialog open onClose={onClose} currentModel={LFM2} state={state} />,
       );
 
       await act(async () => {
@@ -432,7 +432,7 @@ describe('SwitchAIDialog — transient-busy auto-retry (slice 3)', () => {
         .mockResolvedValueOnce({ success: true });
       const state = makeState({ commit });
       render(
-        <SwitchAIDialog open onClose={onClose} currentModel={PHI3} state={state} />,
+        <SwitchAIDialog open onClose={onClose} currentModel={LFM2} state={state} />,
       );
 
       await act(async () => {
@@ -463,7 +463,7 @@ describe('SwitchAIDialog — transient-busy auto-retry (slice 3)', () => {
       const commit = vi.fn<() => Promise<SwitchAIResult>>().mockResolvedValue(busyResult());
       const state = makeState({ commit });
       render(
-        <SwitchAIDialog open onClose={onClose} currentModel={PHI3} state={state} />,
+        <SwitchAIDialog open onClose={onClose} currentModel={LFM2} state={state} />,
       );
 
       await act(async () => {
@@ -503,7 +503,7 @@ describe('SwitchAIDialog — transient-busy auto-retry (slice 3)', () => {
       });
       const state = makeState({ commit });
       render(
-        <SwitchAIDialog open onClose={onClose} currentModel={PHI3} state={state} />,
+        <SwitchAIDialog open onClose={onClose} currentModel={LFM2} state={state} />,
       );
 
       await act(async () => {
@@ -530,7 +530,7 @@ describe('SwitchAIDialog — transient-busy auto-retry (slice 3)', () => {
       const commit = vi.fn<() => Promise<SwitchAIResult>>().mockResolvedValue(busyResult());
       const state = makeState({ commit });
       render(
-        <SwitchAIDialog open onClose={onClose} currentModel={PHI3} state={state} />,
+        <SwitchAIDialog open onClose={onClose} currentModel={LFM2} state={state} />,
       );
 
       await act(async () => {
@@ -562,7 +562,7 @@ describe('SwitchAIDialog — loading progress', () => {
       <SwitchAIDialog
         open
         onClose={onClose}
-        currentModel={PHI3}
+        currentModel={LFM2}
         state={state}
         loadProgress={0.3}
         loadPhase="downloading"
@@ -578,7 +578,7 @@ describe('SwitchAIDialog — loading progress', () => {
       <SwitchAIDialog
         open
         onClose={onClose}
-        currentModel={PHI3}
+        currentModel={LFM2}
         state={state}
         loadProgress={0.45}
         loadPhase="load-start"
@@ -596,7 +596,7 @@ describe('SwitchAIDialog — loading progress', () => {
       <SwitchAIDialog
         open
         onClose={onClose}
-        currentModel={PHI3}
+        currentModel={LFM2}
         state={state}
         loadProgress={0.45}
         loadPhase="load-start"
@@ -613,7 +613,7 @@ describe('SwitchAIDialog — loading progress', () => {
       <SwitchAIDialog
         open
         onClose={onClose}
-        currentModel={PHI3}
+        currentModel={LFM2}
         state={state}
         loadProgress={0.3}
         loadPhase="load-start"
@@ -641,7 +641,7 @@ describe('SwitchAIDialog — loading progress', () => {
       <SwitchAIDialog
         open
         onClose={onClose}
-        currentModel={PHI3}
+        currentModel={LFM2}
         state={state}
         loadProgress={1}
         loadPhase="load-finish"
@@ -662,7 +662,7 @@ describe('SwitchAIDialog — success path closes the dialog', () => {
     const commit = vi.fn(async (): Promise<SwitchAIResult> => ({ success: true }));
     const state = makeState({ commit });
     render(
-      <SwitchAIDialog open onClose={onClose} currentModel={PHI3} state={state} />,
+      <SwitchAIDialog open onClose={onClose} currentModel={LFM2} state={state} />,
     );
 
     await act(async () => {

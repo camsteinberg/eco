@@ -486,7 +486,7 @@ describe('buildSnapshotFromEvalExport', () => {
       generatedAt: '2026-05-13T23:05:00.000Z',
       routingEvidenceReconciliation: [
         {
-          modelId: 'local/phi3-mini-4k-q4f16',
+          modelId: 'local/qwen3-0.6b',
           browserClass: 'chromium',
           deviceClass: 'high-memory-laptop',
           readiness: 'ready',
@@ -503,7 +503,7 @@ describe('buildSnapshotFromEvalExport', () => {
     const failedRun = run({
       results: [
         result({
-          modelId: 'local/phi3-mini-4k-q4f16',
+          modelId: 'local/qwen3-0.6b',
           error: 'load failed: Load aborted',
           perf: { ttftMs: null, tokensPerSec: null, totalMs: 1000, completionTokens: 0, smokePass: false },
         }),
@@ -518,7 +518,7 @@ describe('buildSnapshotFromEvalExport', () => {
 
     expect(snapshot.generatedAt).toBe(existing.generatedAt);
     expect(snapshot.routingEvidenceReconciliation).toHaveLength(1);
-    expect(snapshot.routingEvidenceReconciliation[0].modelId).toBe('local/phi3-mini-4k-q4f16');
+    expect(snapshot.routingEvidenceReconciliation[0].modelId).toBe('local/qwen3-0.6b');
   });
 
   it('drops unsafe preserved benchmark-like records when a fresh attempted group has no proof', () => {
@@ -527,7 +527,7 @@ describe('buildSnapshotFromEvalExport', () => {
       generatedAt: '2026-05-13T23:05:00.000Z',
       routingEvidenceReconciliation: [
         {
-          modelId: 'local/phi3-mini-4k-q4f16',
+          modelId: 'local/qwen3-0.6b',
           browserClass: 'chromium',
           deviceClass: 'high-memory-laptop',
           readiness: 'ready',
@@ -562,7 +562,7 @@ describe('buildSnapshotFromEvalExport', () => {
       },
       results: [
         result({
-          modelId: 'local/phi3-mini-4k-q4f16',
+          modelId: 'local/qwen3-0.6b',
           error: 'load failed: network error',
           perf: { ttftMs: null, tokensPerSec: null, totalMs: 1000, completionTokens: 0, smokePass: false },
         }),

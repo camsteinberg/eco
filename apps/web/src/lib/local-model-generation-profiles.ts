@@ -22,7 +22,7 @@ type LocalGenerationSamplingDefaults = {
 };
 
 type LocalModelFamily =
-  | 'qwen3' | 'qwen3_5' | 'bonsai' | 'phi' | 'lfm2';
+  | 'qwen3' | 'qwen3_5' | 'bonsai' | 'lfm2';
 
 type LocalModelIntentFit =
   | 'quick' | 'explain' | 'deep' | 'code' | 'writing' | 'file' | 'research';
@@ -221,25 +221,6 @@ const LFM25_1_2B_GEN: GenerationProfileSlice = {
   contextBudget: DEFAULT_CONTEXT_BUDGET,
 };
 
-const PHI3_MINI_GEN: GenerationProfileSlice = {
-  generationDefaults: {
-    // Phi-3 model card recommends temp 0.0 (greedy); we use 0.45 for chat variety.
-    // Bumped repetition_penalty from 1.04 → 1.1 to compensate for sampling divergence.
-    temperature: 0.45,
-    topP: 0.9,
-    repetitionPenalty: 1.1,
-    intentOverrides: {
-      quick: { temperature: 0.2, topP: 0.72, repetitionPenalty: 1.1 },
-      explain: { temperature: 0.38, topP: 0.88 },
-      writing: { temperature: 0.44, topP: 0.88, repetitionPenalty: 1.1 },
-      code: { temperature: 0.18, topP: 0.82 },
-    },
-  },
-  contextBudget: {
-    ...DEFAULT_CONTEXT_BUDGET,
-  },
-};
-
 function bonsaiGenerationProfile(quantization: "q1" | "q2" | "q4" | "q8"): GenerationProfileSlice {
   const q1 = quantization === "q1";
   const q8 = quantization === "q8";
@@ -296,7 +277,7 @@ const GEMMA4_GEN: GenerationProfileSlice = {
     // Gemma 4 generation_config.json ships temp 1.0 / top_k 64 / top_p 0.95.
     // Full temp 1.0 is too hot for Eco's intent-routed factual asks; we keep the
     // vendor's top_k/top_p anchors and scale temperature to the house intent
-    // pattern (cf. PHI3_MINI_GEN). NO noRepeatNgramSize — TJS bans n-grams
+    // pattern (cf. QWEN35_GEN). NO noRepeatNgramSize — TJS bans n-grams
     // across the prompt too (see LFM25_1_2B_GEN note / chat-experience audit).
     temperature: 0.6,
     topP: 0.95,
@@ -351,7 +332,6 @@ const PROFILE_BY_MODEL_ID: Record<string, GenerationProfileSlice> = {
   // Bonsai q4 retired from the catalog 2026-07-11; its profile lives on via
   // `bonsaiGenerationProfile` + `FAMILY_FALLBACK.bonsai` for the eval-lane
   // q1/q2/q8 dev seams (see chat-intent.ts), so no PROFILE_BY_MODEL_ID row.
-  "local/phi3-mini-4k-q4f16": PHI3_MINI_GEN,
   "local/qwen3-0.6b": QWEN_GEN,
   "candidate/lfm2.5-350m-onnx": LFM25_350M_GEN,
   // Fast / low-memory fallback: graduated from the eval lane into the catalog,
@@ -402,7 +382,6 @@ const PROFILE_BY_MODEL_ID: Record<string, GenerationProfileSlice> = {
 const FAMILY_FALLBACK: Record<LocalModelFamily, GenerationProfileSlice> = {
   qwen3: QWEN_GEN,
   qwen3_5: QWEN35_GEN,
-  phi: PHI3_MINI_GEN,
   lfm2: LFM25_350M_GEN,
   bonsai: bonsaiGenerationProfile("q4"),
 };

@@ -446,7 +446,7 @@ describe('phantom-pick regression (real slot store)', () => {
 
   it('binding the target pre-download flips the slot to preparing, not ready', async () => {
     setSlotStorage(new FakeSlotStorage());
-    const prev = getModel('local/phi3-mini-4k-q4f16')!;
+    const prev = getModel('candidate/lfm2.5-1.2b-instruct-onnx')!;
     realSetSlot('eco-fast', prev.id);
     realSetSlotStatus('eco-fast', 'ready');
     expect(getSlot('eco-fast').status).toBe('ready');

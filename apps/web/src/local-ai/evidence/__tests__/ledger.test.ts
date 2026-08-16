@@ -83,17 +83,17 @@ describe('profileKey', () => {
 describe('recordEvidence + readEvidence', () => {
   it('roundtrips a smoke-pass entry', () => {
     recordEvidence({
-      modelId: 'local/phi3-mini-4k-q4f16',
+      modelId: 'local/qwen3-0.6b',
       profile: PROFILE_24GB,
       outcome: 'smoke-pass',
       firstTokenMs: 250,
       tokensPerSec: 12.5,
     });
-    const entries = readEvidence('local/phi3-mini-4k-q4f16', PROFILE_24GB);
+    const entries = readEvidence('local/qwen3-0.6b', PROFILE_24GB);
     expect(entries).toHaveLength(1);
     const entry = entries[0]!;
     expect(entry).toMatchObject({
-      modelId: 'local/phi3-mini-4k-q4f16',
+      modelId: 'local/qwen3-0.6b',
       outcome: 'smoke-pass',
       firstTokenMs: 250,
       tokensPerSec: 12.5,
@@ -103,11 +103,11 @@ describe('recordEvidence + readEvidence', () => {
 
   it('scopes by profile — a record from one profile is not visible from another', () => {
     recordEvidence({
-      modelId: 'local/phi3-mini-4k-q4f16',
+      modelId: 'local/qwen3-0.6b',
       profile: PROFILE_24GB,
       outcome: 'smoke-pass',
     });
-    expect(readEvidence('local/phi3-mini-4k-q4f16', PROFILE_8GB)).toEqual([]);
+    expect(readEvidence('local/qwen3-0.6b', PROFILE_8GB)).toEqual([]);
   });
 });
 
@@ -188,7 +188,7 @@ describe('clearEvidence', () => {
 describe('ledger versioning', () => {
   it('stamps new entries with CURRENT_LEDGER_VERSION', () => {
     recordEvidence({
-      modelId: 'local/phi3-mini-4k-q4f16',
+      modelId: 'local/qwen3-0.6b',
       profile: PROFILE_24GB,
       outcome: 'smoke-pass',
     });
@@ -230,7 +230,7 @@ describe('v1 → v2 migration', () => {
       STORAGE_KEY,
       JSON.stringify([
         {
-          modelId: 'local/phi3-mini-4k-q4f16',
+          modelId: 'local/qwen3-0.6b',
           profileKey: legacyProfileKey(PROFILE_24GB),
           outcome: 'smoke-fail',
           recordedAt: new Date().toISOString(),
@@ -274,7 +274,7 @@ describe('v1 → v2 migration', () => {
     seedLegacyRows();
     // The device now reports shader-f16 = true; the migrated unknown row still matches.
     const probed: DeviceProfile = { ...PROFILE_24GB, webgpuShaderF16: true };
-    expect(hasRecentFailure('local/phi3-mini-4k-q4f16', probed)).toBe(true);
+    expect(hasRecentFailure('local/qwen3-0.6b', probed)).toBe(true);
     expect(hasRecentSuccess('local/qwen3-0.6b', { ...PROFILE_8GB, webgpuShaderF16: false })).toBe(true);
   });
 });

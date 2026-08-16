@@ -870,11 +870,11 @@ describe('runSelfHeal — smoke markers', () => {
   });
 
   it('keeps smoke markers for models assigned to a slot', async () => {
-    storage.setItem('eco-local-ai-slot-eco-fast', 'local/phi3-mini-4k-q4f16');
-    storage.setItem('eco-local-model-smoke-ready-v1:local/phi3-mini-4k-q4f16', '1');
+    storage.setItem('eco-local-ai-slot-eco-fast', 'local/qwen3-0.6b');
+    storage.setItem('eco-local-model-smoke-ready-v1:local/qwen3-0.6b', '1');
     const report = await runSelfHeal({ now: () => nowMs, storage });
     expect(report.staleSmokeMarkersCleared).toBe(0);
-    expect(storage.getItem('eco-local-model-smoke-ready-v1:local/phi3-mini-4k-q4f16')).not.toBeNull();
+    expect(storage.getItem('eco-local-model-smoke-ready-v1:local/qwen3-0.6b')).not.toBeNull();
   });
 });
 
@@ -886,7 +886,7 @@ describe('runSelfHeal — smoke markers', () => {
 
 describe('runSelfHeal — legacy migration', () => {
   it('counts the legacy → new slot key migrations triggered during heal', async () => {
-    storage.setItem('eco-model-slot-eco-fast', 'local/phi3-mini-4k-q4f16');
+    storage.setItem('eco-model-slot-eco-fast', 'local/qwen3-0.6b');
     storage.setItem('eco-slot-eco-smart', 'local/qwen3-0.6b');
     const report = await runSelfHeal({ now: () => nowMs, storage });
     // Both legacy keys triggered a migration via the slots.ts read path
@@ -914,7 +914,7 @@ describe('runSelfHeal — expired-lease sweep', () => {
 describe('repairModelCache', () => {
   it('removes files that fail verify and leaves valid ones alone', async () => {
     const cacheStorage = new CacheApiStorage(new MemoryCacheStorage());
-    const modelId = 'local/phi3-mini-4k-q4f16';
+    const modelId = 'local/qwen3-0.6b';
 
     await cacheStorage.put({ modelId, url: 'https://hf/good.bin' }, new Response(new Uint8Array(10)));
     await cacheStorage.put({ modelId, url: 'https://hf/bad.bin' }, new Response(new Uint8Array(7)));
@@ -937,7 +937,7 @@ describe('repairModelCache', () => {
     const cacheStorage = new CacheApiStorage(new MemoryCacheStorage());
     const removeSpy = vi.spyOn(cacheStorage, 'remove');
     const result = await repairModelCache(
-      'local/phi3-mini-4k-q4f16',
+      'local/qwen3-0.6b',
       [{ url: 'https://hf/missing.bin', sizeBytes: 5 }],
       { storage: cacheStorage },
     );
@@ -950,7 +950,7 @@ describe('repairModelCache', () => {
 // ─── reconcileReadySlots (boot wiring) ────────────────────────────────────
 
 describe('reconcileReadySlots', () => {
-  const MODEL_ID = 'local/phi3-mini-4k-q4f16';
+  const MODEL_ID = 'local/qwen3-0.6b';
   const PLAN = [
     { url: 'https://hf/config.json', sizeBytes: 100 },
     { url: 'https://hf/weights.bin', sizeBytes: 1_000 },
@@ -1331,7 +1331,7 @@ describe('reconcileReadySlots — webllm models verify against the engine cache'
 // never deletes, and skips anything it cannot verify.
 
 describe('reconcilePreparingSlots', () => {
-  const MODEL_ID = 'local/phi3-mini-4k-q4f16';
+  const MODEL_ID = 'local/qwen3-0.6b';
   const PLAN = [
     { url: 'https://hf/config.json', sizeBytes: 100 },
     { url: 'https://hf/weights.bin', sizeBytes: 1_000 },

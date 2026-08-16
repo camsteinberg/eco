@@ -23,9 +23,9 @@
  * flipping it back to 'preparing' so the current row reads "Currently
  * running" rather than "Setting up…".
  *
- * Note on model naming: the seeded slot model `local/phi3-mini-4k-q4f16`
+ * Note on model naming: the seeded slot model `local/qwen3-0.6b`
  * surfaces through the display layer (src/local-ai/display.ts) as its branded
- * friendly name "Eco Reasoning (Microsoft)", NOT the raw "Phi-3 Mini" — the
+ * friendly name "Eco Compact (Qwen)", NOT the raw "Qwen3" — the
  * primary UI never shows raw model names. Assertions use the shipped branded
  * name.
  */
@@ -77,11 +77,11 @@ const FORCED_DESKTOP_PROFILE =
   + '&eco-force-device-memory=16';
 
 /** The branded friendly name the seeded slot model displays as. */
-const CURRENT_MODEL_NAME = /Eco Reasoning/i;
+const CURRENT_MODEL_NAME = /Eco Compact/i;
 
 async function seedReadySlot(page: Page): Promise<void> {
   await page.addInitScript(() => {
-    window.localStorage.setItem('eco-local-ai-slot-eco-fast', 'local/phi3-mini-4k-q4f16');
+    window.localStorage.setItem('eco-local-ai-slot-eco-fast', 'local/qwen3-0.6b');
     window.localStorage.setItem('eco-local-ai-slot-status-eco-fast', 'ready');
     window.localStorage.setItem(
       'eco-onboarding',

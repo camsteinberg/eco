@@ -129,10 +129,11 @@ describe('coverage floor — every above-floor profile lands on at least one AI'
   }
 
   it('at least one profile surfaces a benchmark-sourced entry', () => {
-    // Pin the clock inside phi3's benchmark-seed freshness window (seed dated
-    // 2026-05-13, 45-day TTL). Its sibling in recommend.test.ts already does this;
-    // WITHOUT it this assertion rots the moment the seed ages out — it was in fact
-    // failing on the real 2026-08-09 clock, unseen because CI is billing-locked.
+    // Pin the clock inside a surviving benchmark-seed freshness window (the
+    // high-memory LFM2.5-1.2B / Qwen3.5-2B seeds are dated 2026-06-19, 45-day TTL).
+    // Its sibling in recommend.test.ts already does this; WITHOUT it this assertion
+    // rots the moment the seed ages out — it was in fact failing on the real
+    // 2026-08-09 clock, unseen because CI is billing-locked.
     // The preferred default is promoted to position 0 regardless of its confidence
     // source, so benchmark coverage is asserted across the whole surfaced list
     // rather than at index 0.

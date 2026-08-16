@@ -75,18 +75,18 @@ class FakeWorker implements WorkerLike {
 }
 
 const MODEL: ModelConfig = {
-  id: 'local/phi3-mini-4k-q4f16',
-  friendlyName: 'Phi-3 Mini',
-  vendor: 'Microsoft',
-  sizeGB: 2.14,
+  id: 'local/qwen3-0.6b',
+  friendlyName: 'Qwen3',
+  vendor: 'Alibaba',
+  sizeGB: 0.57,
   runtime: 'transformers',
   format: 'onnx-q4f16',
   capabilities: { intent: ['balanced'], tasks: ['chat'], contextTokens: 4096 },
   bestFor: 't', knownLimitation: 'k', evidenceTier: 'proven',
   artifact: {
-    hfId: 'microsoft/Phi-3-mini-4k-instruct-onnx-web',
-    revision: '80a2792f5bf861528ce9b449b3230f1bd3fdc759',
-    files: ['onnx/model_q4f16.onnx', 'config.json'],
+    hfId: 'econetworkai/Qwen3-0.6B-ONNX-external-data',
+    revision: 'e059eaaf660ff62dbc8adcd1057488aa3ad0f5f9',
+    files: ['onnx/model_q4f16.onnx', 'onnx/model_q4f16.onnx_data', 'added_tokens.json', 'chat_template.jinja', 'config.json', 'generation_config.json', 'merges.txt', 'special_tokens_map.json', 'tokenizer.json', 'tokenizer_config.json', 'vocab.json'],
   },
 };
 
@@ -233,8 +233,8 @@ describe('TransformersAdapter — load', () => {
     await Promise.resolve();
     const init = worker.inbox[0]!;
     if (init.type !== 'init') throw new Error('expected init');
-    expect(init.hfId).toBe('microsoft/Phi-3-mini-4k-instruct-onnx-web');
-    expect(init.modelId).toBe('local/phi3-mini-4k-q4f16');
+    expect(init.hfId).toBe('econetworkai/Qwen3-0.6B-ONNX-external-data');
+    expect(init.modelId).toBe('local/qwen3-0.6b');
     worker.emit({ type: 'ready', backend: 'webgpu' });
     await loadPromise;
   });
@@ -321,7 +321,7 @@ describe('TransformersAdapter — load', () => {
   });
 
   it('omits cjkSuppression on init for models without the profile flag', async () => {
-    // MODEL is Phi-3 — not opted in. The everyday default must never pay
+    // MODEL is Qwen3-0.6B — not opted in. The everyday default must never pay
     // the vocab scan.
     const loadPromise = adapter.load(MODEL);
     await Promise.resolve();
@@ -709,15 +709,8 @@ describe('TransformersAdapter — unload', () => {
 
 describe('getOnnxExternalDataChunks', () => {
   it('maps a single-chunk artifact to count 1, keyed by basename', () => {
-    const model: ModelConfig = {
-      ...MODEL,
-      artifact: {
-        hfId: 'microsoft/Phi-3-mini-4k-instruct-onnx-web',
-        revision: '80a2792f5bf861528ce9b449b3230f1bd3fdc759',
-        files: ['onnx/model_q4f16.onnx', 'onnx/model_q4f16.onnx_data', 'config.json'],
-      },
-    };
-    expect(getOnnxExternalDataChunks(model)).toEqual({ 'model_q4f16.onnx': 1 });
+    // MODEL's real artifact already has onnx_data; verify the count directly.
+    expect(getOnnxExternalDataChunks(MODEL)).toEqual({ 'model_q4f16.onnx': 1 });
   });
 
   it('counts multi-chunk data files and maps multi-session artifacts per file', () => {
@@ -769,7 +762,7 @@ describe('TransformersAdapter — revision propagation', () => {
     await Promise.resolve();
     const init = worker.inbox[0]!;
     if (init.type !== 'init') throw new Error('expected init');
-    expect(init.revision).toBe('80a2792f5bf861528ce9b449b3230f1bd3fdc759');
+    expect(init.revision).toBe('e059eaaf660ff62dbc8adcd1057488aa3ad0f5f9');
     worker.emit({ type: 'ready', backend: 'webgpu' });
     await loadPromise;
   });
@@ -809,15 +802,8 @@ describe('TransformersAdapter — revision propagation', () => {
 
 describe('TransformersAdapter — externalDataChunks propagation', () => {
   it('sends the per-file chunk map when artifact has .onnx_data files', async () => {
-    const phi3WithExtData: ModelConfig = {
-      ...MODEL,
-      artifact: {
-        hfId: 'microsoft/Phi-3-mini-4k-instruct-onnx-web',
-        revision: '80a2792f5bf861528ce9b449b3230f1bd3fdc759',
-        files: ['onnx/model_q4f16.onnx', 'onnx/model_q4f16.onnx_data', 'config.json'],
-      },
-    };
-    const loadPromise = adapter.load(phi3WithExtData);
+    // MODEL's real artifact includes onnx_data — use it directly.
+    const loadPromise = adapter.load(MODEL);
     await Promise.resolve();
     const init = worker.inbox[0]!;
     if (init.type !== 'init') throw new Error('expected init');
@@ -827,8 +813,16 @@ describe('TransformersAdapter — externalDataChunks propagation', () => {
   });
 
   it('omits externalDataChunks when artifact has no .onnx_data files', async () => {
-    // MODEL fixture has no .onnx_data files
-    const loadPromise = adapter.load(MODEL);
+    // Override MODEL's artifact to strip .onnx_data files for this assertion.
+    const noExtDataModel: ModelConfig = {
+      ...MODEL,
+      artifact: {
+        hfId: 'econetworkai/Qwen3-0.6B-ONNX-external-data',
+        revision: 'e059eaaf660ff62dbc8adcd1057488aa3ad0f5f9',
+        files: ['onnx/model_q4f16.onnx', 'config.json'],
+      },
+    };
+    const loadPromise = adapter.load(noExtDataModel);
     await Promise.resolve();
     const init = worker.inbox[0]!;
     if (init.type !== 'init') throw new Error('expected init');

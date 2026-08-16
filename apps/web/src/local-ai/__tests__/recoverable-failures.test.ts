@@ -51,8 +51,8 @@ import { getModel } from '../catalog/catalog';
 import type { ModelConfig } from '../types';
 
 const TEST_MODEL = (() => {
-  const model = getModel('local/phi3-mini-4k-q4f16');
-  if (!model) throw new Error('Test setup: phi3-mini missing from catalog');
+  const model = getModel('local/qwen3-0.6b');
+  if (!model) throw new Error('Test setup: qwen3-0.6b missing from catalog');
   return model;
 })();
 

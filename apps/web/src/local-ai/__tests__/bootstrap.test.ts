@@ -55,7 +55,7 @@ describe('bootstrapLocalAi', () => {
   it('produces a usable DownloadPlan from the catalog id', async () => {
     await bootstrapLocalAi({ skipSelfHeal: true });
     const { getModel } = await import('../catalog/catalog');
-    const model = getModel('local/phi3-mini-4k-q4f16')!;
+    const model = getModel('local/qwen3-0.6b')!;
     expect(model).not.toBeNull();
 
     // Re-import the resolver via a fresh seam to read it back.

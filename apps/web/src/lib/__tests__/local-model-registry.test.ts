@@ -11,7 +11,6 @@ import {
 } from "../local-model-registry";
 
 const V1_CATALOG_IDS = [
-  "local/phi3-mini-4k-q4f16",
   "local/qwen3-0.6b",
   "candidate/lfm2.5-1.2b-instruct-onnx",
   "candidate/lfm2.5-1.2b-instruct-q4-onnx",
@@ -25,9 +24,9 @@ const V1_CATALOG_IDS = [
 ] as const;
 
 describe("local model registry (v1 catalog)", () => {
-  it("contains exactly the 11 v1 catalog models", () => {
+  it("contains exactly the 10 v1 catalog models", () => {
     const entries = getLocalModelRegistryEntries();
-    expect(entries).toHaveLength(11);
+    expect(entries).toHaveLength(10);
     expect(entries.map((e) => e.modelId)).toEqual(
       expect.arrayContaining([...V1_CATALOG_IDS]),
     );
@@ -64,7 +63,6 @@ describe("local model registry (v1 catalog)", () => {
     expect(proxyArtifacts.map((a) => a.hfId)).toEqual(
       expect.arrayContaining([
         "econetworkai/Qwen3-0.6B-ONNX-external-data",
-        "microsoft/Phi-3-mini-4k-instruct-onnx-web",
         "LiquidAI/LFM2.5-1.2B-Instruct-ONNX",
         "onnx-community/LFM2.5-350M-ONNX",
         "onnx-community/Qwen3.5-2B-ONNX-OPT",
@@ -162,14 +160,8 @@ describe("local model registry (v1 catalog)", () => {
     expect(qwenArtifact!.files).toContain("onnx/model_q4f16.onnx_data");
   });
 
-  it("centralizes reviewed artifact identity for Phi3", () => {
-    const phi3Artifact = getLocalModelRegistryArtifact("local/phi3-mini-4k-q4f16");
-    expect(phi3Artifact).toMatchObject({
-      hfId: "microsoft/Phi-3-mini-4k-instruct-onnx-web",
-      revision: "80a2792f5bf861528ce9b449b3230f1bd3fdc759",
-    });
-    expect(phi3Artifact!.files).toContain("onnx/model_q4f16.onnx");
-    expect(phi3Artifact!.files).toContain("onnx/model_q4f16.onnx_data");
+  it("has retired Phi-3 from the registry (MC-2) — no artifact identity remains", () => {
+    expect(getLocalModelRegistryArtifact("local/phi3-mini-4k-q4f16")).toBeNull();
   });
 
   it("returns null artifact for unknown model ids", () => {

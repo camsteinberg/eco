@@ -98,7 +98,7 @@ describe('isSnapshotFresh', () => {
 
 describe('isFresh', () => {
   const synthetic = (generatedAt: string): SeedEvidence => ({
-    modelId: 'local/phi3-mini-4k-q4f16',
+    modelId: 'local/qwen3-0.6b',
     browserClass: 'chromium',
     deviceClass: 'high-memory-laptop',
     firstTokenMs: 228,
@@ -174,9 +174,10 @@ describe('isUsableSeedRecord', () => {
 });
 
 describe('loadSeedEvidence — profile-scoped query', () => {
-  it('returns Qwen3.5, LFM2.5, and phi-3 on Chromium WebGPU 24 GB (high-memory-laptop)', () => {
-    // The preserved phi3 + lfm2.5-350m rows (2026-05-13) must be inside their
-    // 45-day TTL; pin to the snapshot date so this set is evaluated as fresh.
+  it('returns Qwen3.5 and LFM2.5 seeds on Chromium WebGPU 24 GB (high-memory-laptop)', () => {
+    // The lfm2.5-350m row (observed 2026-05-18) and the 2026-06-19 benchmark rows
+    // must be inside their 45-day TTL; pin to the benchmark date so this set is
+    // evaluated as fresh.
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-06-19T00:00:00.000Z'));
     const evidence = loadSeedEvidence(profile({ deviceMemoryGB: 24 }));
@@ -186,7 +187,6 @@ describe('loadSeedEvidence — profile-scoped query', () => {
       'candidate/lfm2.5-1.2b-instruct-onnx',
       'candidate/lfm2.5-350m-onnx',
       'candidate/qwen3.5-2b-onnx',
-      'local/phi3-mini-4k-q4f16',
     ]);
   });
 
@@ -281,19 +281,20 @@ describe('loadSeedEvidence — profile-scoped query', () => {
   });
 
   it('populates benchmark fields when present on the record', () => {
-    // phi3's preserved seed row (2026-05-13) must be inside its 45-day TTL.
+    // The LFM2.5-1.2B high-memory benchmark seed is dated 2026-06-19; it must be
+    // inside its 45-day TTL, so pin the clock to that date.
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-06-19T00:00:00.000Z'));
-    const phi3 = loadSeedEvidenceForModel(
-      'local/phi3-mini-4k-q4f16',
+    const seed = loadSeedEvidenceForModel(
+      'candidate/lfm2.5-1.2b-instruct-onnx',
       profile({ deviceMemoryGB: 24 }),
     );
-    expect(phi3).not.toBeNull();
-    expect(phi3!.firstTokenMs).toBeTypeOf('number');
-    expect(phi3!.tokensPerSec).toBeTypeOf('number');
-    expect(phi3!.smokePassRate).toBeGreaterThanOrEqual(0);
-    expect(phi3!.smokePassRate).toBeLessThanOrEqual(1);
-    expect(phi3!.generatedAt).toBe('2026-05-13T19:30:06.982Z');
+    expect(seed).not.toBeNull();
+    expect(seed!.firstTokenMs).toBeTypeOf('number');
+    expect(seed!.tokensPerSec).toBeTypeOf('number');
+    expect(seed!.smokePassRate).toBeGreaterThanOrEqual(0);
+    expect(seed!.smokePassRate).toBeLessThanOrEqual(1);
+    expect(seed!.generatedAt).toBe('2026-06-19T00:00:00.000Z');
   });
 });
 

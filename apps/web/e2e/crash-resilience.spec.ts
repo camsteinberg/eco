@@ -79,10 +79,10 @@ const FORCED_DEVICE_PROFILE =
  */
 async function seedReadySlot(page: Page): Promise<void> {
   await page.addInitScript(() => {
-    // Phi-3 Mini is in the v1.0 catalog (catalog-data.json).
+    // Qwen3 0.6B is in the v1.0 catalog (catalog-data.json).
     window.localStorage.setItem(
       "eco-local-ai-slot-eco-fast",
-      "local/phi3-mini-4k-q4f16",
+      "local/qwen3-0.6b",
     );
     window.localStorage.setItem("eco-local-ai-slot-status-eco-fast", "ready");
     window.localStorage.setItem(

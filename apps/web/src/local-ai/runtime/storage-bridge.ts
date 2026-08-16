@@ -42,7 +42,7 @@ export type StorageBridgeOptions = {
 /**
  * Build a `customCache`-shaped object backed by the download `Storage`.
  *
- *   const bridge = createStorageBridge({ storage, modelId: 'local/phi3-mini-4k-q4f16' });
+ *   const bridge = createStorageBridge({ storage, modelId: 'local/qwen3-0.6b' });
  *   env.useCustomCache = true;
  *   env.customCache = bridge;
  */

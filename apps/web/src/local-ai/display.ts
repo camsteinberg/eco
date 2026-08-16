@@ -27,11 +27,6 @@ export type DisplayInfo = {
 };
 
 const DISPLAY_MAP: Record<string, Omit<DisplayInfo, 'provenance'> & { provider: string }> = {
-  'local/phi3-mini-4k-q4f16': {
-    friendlyName: 'Eco Reasoning (Microsoft)',
-    qualityPhrase: 'Strongest at math and code',
-    provider: 'Microsoft',
-  },
   'candidate/lfm2.5-1.2b-instruct-onnx': {
     friendlyName: 'Eco Fast (Liquid)',
     qualityPhrase: 'The everyday default · quick, clear answers',

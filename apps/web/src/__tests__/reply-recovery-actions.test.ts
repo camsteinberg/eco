@@ -204,7 +204,6 @@ function compact(resolved: Resolved): string {
  */
 const CONTROL_SAMPLING_TODAY: Readonly<Record<string, Readonly<Record<string, string>>>> = {
   continue: {
-    "local/phi3-mini-4k-q4f16": "quick:1024/0.2",
     "local/qwen3-0.6b": "quick:512/0.32",
     "candidate/lfm2.5-1.2b-instruct-onnx": "quick:1024/0.2",
     "candidate/lfm2.5-1.2b-instruct-q4-onnx": "quick:1024/0.2",
@@ -217,7 +216,6 @@ const CONTROL_SAMPLING_TODAY: Readonly<Record<string, Readonly<Record<string, st
     "candidate/lfm2-2.6b-onnx": "quick:1024/0.2",
   },
   shorter: {
-    "local/phi3-mini-4k-q4f16": "quick:1024/0.2",
     "local/qwen3-0.6b": "quick:512/0.32",
     "candidate/lfm2.5-1.2b-instruct-onnx": "quick:1024/0.2",
     "candidate/lfm2.5-1.2b-instruct-q4-onnx": "quick:1024/0.2",
@@ -230,7 +228,6 @@ const CONTROL_SAMPLING_TODAY: Readonly<Record<string, Readonly<Record<string, st
     "candidate/lfm2-2.6b-onnx": "quick:1024/0.2",
   },
   expand: {
-    "local/phi3-mini-4k-q4f16": "deep:1024/0.45",
     "local/qwen3-0.6b": "deep:512/0.6",
     "candidate/lfm2.5-1.2b-instruct-onnx": "deep:2048/0.3",
     "candidate/lfm2.5-1.2b-instruct-q4-onnx": "deep:2048/0.3",
@@ -243,7 +240,6 @@ const CONTROL_SAMPLING_TODAY: Readonly<Record<string, Readonly<Record<string, st
     "candidate/lfm2-2.6b-onnx": "deep:2048/0.3",
   },
   simplify: {
-    "local/phi3-mini-4k-q4f16": "quick:1024/0.2",
     "local/qwen3-0.6b": "quick:512/0.32",
     "candidate/lfm2.5-1.2b-instruct-onnx": "quick:1024/0.2",
     "candidate/lfm2.5-1.2b-instruct-q4-onnx": "quick:1024/0.2",
@@ -265,7 +261,6 @@ const CONTROL_SAMPLING_TODAY: Readonly<Record<string, Readonly<Record<string, st
 const TYPED_EQUIVALENT = "make it shorter";
 
 const TYPED_ROUTING_TODAY: Readonly<Record<string, string>> = {
-  "local/phi3-mini-4k-q4f16": "quick:1024/0.2",
   "local/qwen3-0.6b": "quick:512/0.32",
   "candidate/lfm2.5-1.2b-instruct-onnx": "quick:1024/0.2",
   "candidate/lfm2.5-1.2b-instruct-q4-onnx": "quick:1024/0.2",
@@ -290,7 +285,6 @@ const TYPED_ROUTING_TODAY: Readonly<Record<string, string>> = {
  * against one side or the other.
  */
 const DEEPENABLE_TODAY: Readonly<Record<string, boolean>> = {
-  "local/phi3-mini-4k-q4f16": false,
   "local/qwen3-0.6b": false,
   "candidate/lfm2.5-1.2b-instruct-onnx": true,
   "candidate/lfm2.5-1.2b-instruct-q4-onnx": true,

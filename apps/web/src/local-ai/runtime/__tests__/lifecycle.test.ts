@@ -21,17 +21,17 @@ import {
 import { AdapterError, type RuntimeAdapter } from '../types';
 
 const MODEL_A: ModelConfig = {
-  id: 'local/phi3-mini-4k-q4f16',
-  friendlyName: 'Phi-3 Mini',
-  vendor: 'Microsoft',
-  sizeGB: 2.14,
+  id: 'local/qwen3-0.6b',
+  friendlyName: 'Qwen3',
+  vendor: 'Alibaba',
+  sizeGB: 0.57,
   runtime: 'transformers',
   format: 'onnx-q4f16',
   capabilities: { intent: ['balanced'], tasks: ['chat'], contextTokens: 4096 },
   bestFor: 't', knownLimitation: 'k', evidenceTier: 'proven',
 };
 
-const MODEL_B: ModelConfig = { ...MODEL_A, id: 'local/qwen3-0.6b', friendlyName: 'Qwen3' };
+const MODEL_B: ModelConfig = { ...MODEL_A, id: 'candidate/lfm2.5-1.2b-instruct-onnx', friendlyName: 'LFM2.5 1.2B' };
 
 class FakeStorage implements KeyValueStorage {
   private map = new Map<string, string>();
