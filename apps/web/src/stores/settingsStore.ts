@@ -7,6 +7,14 @@ import { logger } from "../lib/logger";
 
 type SettingsDatabase = Awaited<ReturnType<typeof openSettingsDB>>;
 
+/**
+ * Hard cap on custom-instructions length. Enforced at the store boundary — both
+ * on write (`setCustomInstructions`) and on DB load (`loadFromDB`) — not only in
+ * the editor UI, so an over-long value can never reach the prompt regardless of
+ * how it got into storage (HON-3). The editor imports this same constant.
+ */
+export const MAX_CUSTOM_INSTRUCTIONS_LENGTH = 1500;
+
 type SettingsState = {
   customInstructions: string;
   hasLoaded: boolean;
@@ -130,9 +138,10 @@ export const useSettingsStore = create<SettingsState & SettingsActions>()(
     groundingNoticeSeen: false,
 
     setCustomInstructions(text: string) {
-      set({ customInstructions: text });
+      const clamped = text.slice(0, MAX_CUSTOM_INSTRUCTIONS_LENGTH);
+      set({ customInstructions: clamped });
       void safeSettingsWrite(async (db) => {
-        const encrypted = encryptSetting(text);
+        const encrypted = encryptSetting(clamped);
         await db.put("settings", {
           key: "custom-instructions",
           ciphertext: encrypted.ciphertext,
@@ -194,7 +203,7 @@ export const useSettingsStore = create<SettingsState & SettingsActions>()(
           "custom-instructions",
           "custom instructions",
           "",
-          (value) => value,
+          (value) => value.slice(0, MAX_CUSTOM_INSTRUCTIONS_LENGTH),
         );
         const soundsEnabled = await readSettingValue(
           db,

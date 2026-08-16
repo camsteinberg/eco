@@ -143,26 +143,30 @@ describe('BelowFloorScreen — mobile designed tier (handoff surface)', () => {
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
   };
 
-  it('tells the phone→computer story with the mobile-specific handoff promise', () => {
+  it('tells the honest iOS story: Eco runs on iPhone, just not this one yet (HON-4)', () => {
+    // Reconciled with diagnosis.ts: a below-floor iOS device is blocked by its own
+    // capability (usually an iOS version without WebGPU), NOT because "phones don't
+    // have the memory" — Eco ships a validated iPhone/iPad lane.
     delete (navigator as { share?: unknown }).share;
     render(<BelowFloorScreen reason="mobile" />);
 
-    expect(screen.getByText(/Phones don't have the memory for that yet/i)).toBeInTheDocument();
-    expect(screen.getByText(/Your computer does: open Eco there and it just works/i)).toBeInTheDocument();
+    expect(screen.getByText(/Eco does run on iPhone and iPad/i)).toBeInTheDocument();
     expect(
-      screen.getByText(/Email us and we'll tell you when Eco comes to phones\./i),
+      screen.getByText(/updating to the latest iOS is the most likely fix/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Email us and we'll tell you when this device is supported\./i),
     ).toBeInTheDocument();
   });
 
-  it('speaks one phone-timeline-honest voice: the illustration label agrees with the handoff promise', () => {
-    // The aria-label used to drift to a vaguer "coming to your device" promise
-    // that disagreed with the phone-timeline stance. On mobile it must carry the
-    // true stance: works today on your computer, coming to phones.
+  it('speaks one honest voice: the illustration label matches the iOS stance', () => {
+    // The aria-label must carry the same true stance as the body copy and
+    // diagnosis.ts — Eco runs on iPhone/iPad, this one just can't yet.
     delete (navigator as { share?: unknown }).share;
     render(<BelowFloorScreen reason="mobile" />);
 
     expect(
-      screen.getByRole('img', { name: /Eco works today on your computer, coming to phones\./i }),
+      screen.getByRole('img', { name: /Eco runs on iPhone and iPad, just not this one yet\./i }),
     ).toBeInTheDocument();
   });
 
