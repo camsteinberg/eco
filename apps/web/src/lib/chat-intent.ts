@@ -330,7 +330,43 @@ function getCatalogIds(): Set<string> {
 
 // ─── Intent inference ────────────────────────────────────────────────────
 
-const CODE_RE = /```|\b(debug|bug|stack trace|typescript|javascript|python|react|sql|function|component|api|test|refactor)\b/i;
+// CODE_RE, narrowed 2026-08-15. It was a bare-word list —
+// `debug|bug|stack trace|typescript|javascript|python|react|sql|function|
+// component|api|test|refactor` — half of which are ordinary English words.
+// "whats the function of the pancreas" was a coding task, "my dog has a
+// bug" was a coding task, "my son has a test at school tomorrow" was a
+// coding task.
+//
+// Three shapes, mirroring the WRITING_RE narrowing:
+//   1. a code fence — always code;
+//   2. tokens that are about code whatever follows them;
+//   3. an ambiguous code noun confirmed by a code context signal within the
+//      same clause: a code-domain word (code, coding, script, program,
+//      error, exception, endpoint, repo) or a programming language/framework
+//      name (python, react) that mutually confirms the ambiguous noun.
+// EVERY ambiguous arm requires a signal the previous regex did not need, so
+// this is a STRICT NARROWING of the old bare-word list. Pinned in
+// `lib/__tests__/code-intent-routing.test.ts`.
+//
+// ASSEMBLED WITH `+`, NOT TEMPLATE INTERPOLATION — same Turbopack caveat
+// as WRITING_RE (see note at line 378).
+const CODE_UNAMBIGUOUS_TOKENS =
+  "stack trace|traceback|refactor|typescript|javascript|regexp?|regex|sql"
+  + "|segfault|null pointer|syntax error|runtime error"
+  + "|npm|pnpm|css|html"
+  + "|git (?:commit|rebase|merge|branch|push|clone|stash)";
+const CODE_AMBIGUOUS_TOKENS =
+  "debug|bug|test|function|component|api|class|method|variable|array|loop|import|react|python|query|hook"
+  + "|yarn|compil(?:e|er)";
+const CODE_CONTEXT_SIGNALS =
+  "code|coding|script|program|error|exception|endpoint|repo|python|react";
+const CODE_RE = new RegExp(
+  "```"
+  + "|\\b(?:" + CODE_UNAMBIGUOUS_TOKENS + ")\\b"
+  + "|\\b(?:" + CODE_CONTEXT_SIGNALS + ")\\b[^.?!]{0,45}?\\b(?:" + CODE_AMBIGUOUS_TOKENS + ")\\b"
+  + "|\\b(?:" + CODE_AMBIGUOUS_TOKENS + ")\\b[^.?!]{0,45}?\\b(?:" + CODE_CONTEXT_SIGNALS + ")\\b",
+  "i",
+);
 
 // WRITING_RE, narrowed 2026-07-27. It was a list of bare words —
 // `write|rewrite|draft|tone|copy|email|essay|story|post|message|headline|
@@ -392,7 +428,13 @@ const WRITING_RE = new RegExp(
   "i",
 );
 
-const RESEARCH_RE = /\b(research|sources|cite|latest|current|news|202[5-9]|up-to-date)\b/i;
+// RESEARCH_RE was `/\b(research|sources|cite|latest|current|news|
+// 202[5-9]|up-to-date)\b/i` — retired 2026-08-15. Bare words like
+// "current", "latest", "news" claimed everyday asks on a model with no
+// web access. The cascade no longer tests it; only the explicit
+// `options.researchMode` flag (always false in production) survives.
+// Kept as a comment rather than a constant so the file compiles clean
+// and the history is findable.
 
 /**
  * Map an answer shape to the depth-family intent that delivers its treatment.
@@ -456,7 +498,14 @@ export function inferChatIntent(content: string, options?: InferChatIntentOption
   const raw = content.trim();
   const text = instructionParagraph(raw);
 
-  if (options?.researchMode || RESEARCH_RE.test(text)) return "research";
+  // RESEARCH_RE was retired 2026-08-15. Its only effect was temp 0.35 + a
+  // hedging hint ("cite sources only when you can back the claim") on a
+  // model with no sources. Bare words like "current", "latest", "news"
+  // claimed everyday asks — "whats the latest with my order" was getting
+  // the research treatment. The regex disjunct is gone; the
+  // options.researchMode flag is retained for the type contract but
+  // production callers all pass false (inferTurnIntent hard-codes it).
+  if (options?.researchMode) return "research";
   // The file test reads `raw`: askPrefix strips file blocks by design.
   if (options?.hasFiles || /<file\b/i.test(raw)) return "file";
   if (CODE_RE.test(text)) return "code";
