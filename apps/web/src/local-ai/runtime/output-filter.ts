@@ -78,9 +78,27 @@ function pendingTagPrefixLength(text: string): number {
  */
 export class ThinkTagFilter {
   private buffer = '';
-  private insideThink = false;
+  private insideThink: boolean;
   private justClosedThink = false;
   private startedVisibleText = false;
+
+  /**
+   * @param options.startInsideThink seed the machine ALREADY inside a reasoning
+   *   block. Some templates prefill an unmatched `<think>` OPEN into the
+   *   generation prompt — LFM2.5 ends every generation prompt with
+   *   `<|im_start|>assistant\n<think>` unconditionally (no `enable_thinking`
+   *   gate), so the model's output stream begins as
+   *   `<reasoning> </think> <answer>` with no opening tag of its own. Unseeded,
+   *   the machine would treat that `</think>` as a stray close and EMIT the
+   *   reasoning ahead of it (the "The user wants… I should…" leak). Seeded, the
+   *   reasoning up to the first `</think>` is discarded exactly as if the open
+   *   tag had been streamed. If the model never emits `</think>` (spent its
+   *   whole token budget thinking), `flush()` yields empty output — the honest
+   *   signal that no answer survived the budget.
+   */
+  constructor(options: { startInsideThink?: boolean } = {}) {
+    this.insideThink = options.startInsideThink ?? false;
+  }
 
   process(chunk: string): string {
     this.buffer += chunk;
@@ -158,6 +176,27 @@ export class ThinkTagFilter {
     this.startedVisibleText = false;
     return wasInsideThink ? '' : remaining;
   }
+}
+
+/**
+ * True when a rendered generation prompt leaves an unmatched `<think>` OPEN —
+ * i.e. the model will begin generating INSIDE a reasoning block, and its output
+ * stream starts with hidden chain-of-thought terminated by a lone `</think>`.
+ * LFM2.5's template does exactly this, unconditionally, on every turn.
+ *
+ * Callers seed `createFilterChain(stops, { startInsideThink: true })` from this
+ * so the reasoning is stripped rather than leaking as a stray-close prefix.
+ *
+ * Balanced prompts return false — no seeding, unchanged behavior. That covers
+ * models with no think block at all AND Qwen's non-thinking mode, whose prompt
+ * carries an EMPTY, already-CLOSED `<think>\n\n</think>` block (opens == closes).
+ * Computed once at load from the boot-time template smoke (fixed content, no
+ * user text), so a stray `<think>` inside a user message can never trip it.
+ */
+export function promptStartsInThinkBlock(renderedPrompt: string): boolean {
+  const opens = renderedPrompt.match(/<think>/gi)?.length ?? 0;
+  const closes = renderedPrompt.match(/<\/think>/gi)?.length ?? 0;
+  return opens > closes;
 }
 
 // ─── DisclaimerFilter ──────────────────────────────────────────────────────
@@ -308,9 +347,12 @@ export type FilterChain = {
   stop: StopSequenceFilter;
 };
 
-export function createFilterChain(stopSequences: string[] = []): FilterChain {
+export function createFilterChain(
+  stopSequences: string[] = [],
+  options: { startInsideThink?: boolean } = {},
+): FilterChain {
   return {
-    think: new ThinkTagFilter(),
+    think: new ThinkTagFilter({ startInsideThink: options.startInsideThink }),
     disclaimer: new DisclaimerFilter(),
     stop: new StopSequenceFilter(stopSequences),
   };

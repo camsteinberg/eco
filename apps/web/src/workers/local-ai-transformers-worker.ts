@@ -42,6 +42,7 @@ import {
   createFilterChain,
   flushFilterChain,
   processThroughChain,
+  promptStartsInThinkBlock,
   type FilterChain,
 } from '../local-ai/runtime/output-filter';
 import {
@@ -125,6 +126,13 @@ type LoadedModel = {
   backend: 'webgpu' | 'wasm';
   /** Per-model policy from init: gate CJK-token suppression per generation. */
   cjkSuppression: boolean;
+  /**
+   * True when this model's generation prompt prefills an unmatched `<think>`
+   * (LFM2.5), so the output stream begins inside a reasoning block. Detected
+   * once from the boot-time template smoke; seeds the per-generation
+   * ThinkTagFilter so the hidden reasoning is stripped, not leaked.
+   */
+  startsInThinkBlock: boolean;
 };
 
 let loaded: LoadedModel | null = null;
@@ -357,6 +365,9 @@ async function handleInit(msg: Extract<WorkerInbound, { type: 'init' }>): Promis
       });
       return;
     }
+    // Detected from the smoke render below (fixed content, no user text) and
+    // stored on `loaded` — see the flag's doc on LoadedModel.
+    let startsInThinkBlock = false;
     try {
       const smokeResult = templateFn.call(
         tokenizer,
@@ -376,6 +387,10 @@ async function handleInit(msg: Extract<WorkerInbound, { type: 'init' }>): Promis
         });
         return;
       }
+      // Does this template prefill an unmatched `<think>` into the generation
+      // prompt (LFM2.5)? If so the model streams reasoning before any opening
+      // tag; record it so generate() can seed the ThinkTagFilter and strip it.
+      startsInThinkBlock = promptStartsInThinkBlock(smokeResult);
     } catch (smokeErr) {
       const smokeMessage = smokeErr instanceof Error ? smokeErr.message : String(smokeErr);
       post({
@@ -438,6 +453,7 @@ async function handleInit(msg: Extract<WorkerInbound, { type: 'init' }>): Promis
       model,
       backend,
       cjkSuppression: msg.cjkSuppression === true,
+      startsInThinkBlock,
     };
     post({ type: 'ready', backend });
 
@@ -598,15 +614,21 @@ async function handleGenerate(msg: Extract<WorkerInbound, { type: 'generate' }>)
   }
 
   abortFlag = { aborted: false, generationId: msg.generationId };
-  const filters: FilterChain = createFilterChain([
-    '<|endoftext|>',
-    '<|im_end|>',
-    '<|end_of_turn|>',
-    '<|eot_id|>',
-    // Phi-3's turn-ender (token 32007) in text form. Harmless for other
-    // models — they never emit this literal string.
-    '<|end|>',
-  ]);
+  const filters: FilterChain = createFilterChain(
+    [
+      '<|endoftext|>',
+      '<|im_end|>',
+      '<|end_of_turn|>',
+      '<|eot_id|>',
+      // Phi-3's turn-ender (token 32007) in text form. Harmless for other
+      // models — they never emit this literal string.
+      '<|end|>',
+    ],
+    // LFM2.5 and kin begin generating inside a `<think>` block prefilled by
+    // the template; seed the filter so the leading reasoning is stripped
+    // rather than leaked ahead of the lone `</think>`.
+    { startInsideThink: loaded.startsInThinkBlock },
+  );
 
   let promptTokens = 0;
   let completionTokens = 0;
