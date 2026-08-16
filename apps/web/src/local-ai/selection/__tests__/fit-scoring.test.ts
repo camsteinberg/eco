@@ -17,7 +17,14 @@
 
 import { describe, expect, it } from 'vitest';
 import { getModel } from '../../catalog/catalog';
-import { INTENT_WEIGHTS, scoreFit, scoreMemoryFit, scoreSpeed, scoreTrust } from '../fit-scoring';
+import {
+  INTENT_WEIGHTS,
+  scoreContextFit,
+  scoreFit,
+  scoreMemoryFit,
+  scoreSpeed,
+  scoreTrust,
+} from '../fit-scoring';
 import type { DeviceProfile, ModelConfig } from '../../types';
 
 const PROFILE_24GB: DeviceProfile = {
@@ -37,9 +44,16 @@ function model(id: string): ModelConfig {
 describe('INTENT_WEIGHTS', () => {
   it.each(['snappy', 'balanced', 'quality'] as const)('weights for %s sum to 1', (intent) => {
     const w = INTENT_WEIGHTS[intent];
-    const sum = w.speed + w.quality + w.reliability + w.memoryFit + w.trust;
+    const sum = w.speed + w.quality + w.reliability + w.memoryFit + w.trust + w.contextFit;
     expect(sum).toBeCloseTo(1, 5);
   });
+
+  it.each(['snappy', 'balanced', 'quality'] as const)(
+    'contextFit carries no weight yet for %s (Wave 3 scaffolding is behavior-neutral)',
+    (intent) => {
+      expect(INTENT_WEIGHTS[intent].contextFit).toBe(0);
+    },
+  );
 });
 
 describe('scoreSpeed', () => {
@@ -101,6 +115,55 @@ describe('scoreTrust', () => {
     const proven: ModelConfig = { ...model('local/phi3-mini-4k-q4f16') };
     expect(scoreTrust(proven, null)).toBe(1);
     expect(scoreTrust(proven, undefined)).toBe(1);
+  });
+});
+
+describe('scoreContextFit', () => {
+  it('scores a longer catalog window higher (on merit)', () => {
+    // 8192-token window (at the target) beats a 4096 window beats a 2048 window (at the floor).
+    const long = scoreContextFit(model('candidate/lfm2.5-1.2b-instruct-onnx')); // ctx 8192
+    const mid = scoreContextFit(model('candidate/lfm2.5-350m-onnx')); // ctx 4096
+    const short = scoreContextFit(model('candidate/gemma-4-e2b-litert')); // ctx 2048
+    expect(long).toBeGreaterThan(mid);
+    expect(mid).toBeGreaterThan(short);
+  });
+
+  it('saturates: 1 at/above the target window, 0 at/below the floor', () => {
+    expect(scoreContextFit(model('candidate/lfm2.5-1.2b-instruct-onnx'))).toBe(1); // ctx 8192 = target
+    expect(scoreContextFit(model('candidate/gemma-4-e2b-litert'))).toBe(0); // ctx 2048 = floor
+  });
+
+  it('is decoupled from sizeGB — the largest model here scores lowest', () => {
+    // gemma-4-e2b-litert is the biggest catalog model (1.87 GB) yet has the
+    // SHORTEST window (2048 → 0); the 350M (0.28 GB) scores higher. Context
+    // capability, not size, drives this axis (memoryFit already carries size).
+    const biggestModel = scoreContextFit(model('candidate/gemma-4-e2b-litert'));
+    const tinyModel = scoreContextFit(model('candidate/lfm2.5-350m-onnx'));
+    expect(tinyModel).toBeGreaterThan(biggestModel);
+  });
+});
+
+describe('scoreFit — contextFit is behavior-neutral (Wave 3 scaffolding)', () => {
+  it('a nonzero contextFit does not move the total (weighted 0 today)', () => {
+    const m = model('candidate/lfm2.5-1.2b-instruct-onnx'); // ctx 8192 → contextFit 1
+    const score = scoreFit({
+      model: m,
+      profile: PROFILE_24GB,
+      intent: 'balanced',
+      metrics: { firstTokenMs: 400, tokensPerSec: 40, smokePassRate: 0.9 },
+      reliability: 1,
+    });
+    // contextFit is genuinely nonzero here...
+    expect(score.contextFit).toBe(1);
+    // ...but total is exactly the five weighted axes, no contextFit term.
+    const w = INTENT_WEIGHTS.balanced;
+    const fiveAxisTotal =
+      w.speed * score.speed
+      + w.quality * score.quality
+      + w.reliability * score.reliability
+      + w.memoryFit * score.memoryFit
+      + w.trust * score.trust;
+    expect(score.total).toBeCloseTo(fiveAxisTotal, 10);
   });
 });
 

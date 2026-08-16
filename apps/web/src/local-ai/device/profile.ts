@@ -32,6 +32,7 @@ const URL_PARAM_FORCE_BROWSER = 'eco-force-browser';
 const URL_PARAM_FORCE_PLATFORM = 'eco-force-platform';
 const URL_PARAM_FORCE_DEVICE_MEMORY = 'eco-force-device-memory';
 const URL_PARAM_FORCE_SHADER_F16 = 'eco-force-shader-f16';
+const URL_PARAM_FORCE_MAX_BUFFER = 'eco-force-max-buffer-size';
 const URL_PARAM_FORCE_WASM = 'eco-force-wasm';
 const URL_PARAM_FORCE_ORT_ARTIFACT = 'eco-force-ort-artifact';
 const URL_PARAM_FORCE_THREADS = 'eco-force-threads';
@@ -121,6 +122,7 @@ export function getDeviceProfile(): DeviceProfile {
       browserClass,
       webgpuSupport: probedCapability.support,
       webgpuShaderF16: probedCapability.shaderF16,
+      webgpuMaxBufferBytes: probedCapability.maxBufferBytes,
       deviceMemoryGB,
       isMobile,
       override,
@@ -254,6 +256,20 @@ function readForcedShaderF16(): boolean | null {
 }
 
 /**
+ * Forced ?eco-force-max-buffer-size=<bytes> override, or null when
+ * absent/invalid. Lets us reproduce a small-maxBufferSize adapter on any
+ * machine so the max-buffer compatibility gate (Wave 3 scaffolding) can be
+ * exercised on real hardware without the constrained device in hand. Only a
+ * finite, positive value is honored (a buffer ceiling is always > 0).
+ */
+function readForcedMaxBufferBytes(): number | null {
+  const v = readUrlParamsSafe().get(URL_PARAM_FORCE_MAX_BUFFER);
+  if (v == null) return null;
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/**
  * Forced ?eco-force-wasm override (bare flag, `=1`, `=on`, or `=true`) —
  * routes the Transformers.js runtime to the WASM/CPU execution provider even
  * when WebGPU exists. Diagnostics tooling for verifying the CPU path on any
@@ -354,11 +370,16 @@ function detectWebgpuSupport(): WebGPUSupport {
   return detectWasmTier();
 }
 
-/** WebGPU capability for the setup decision: tier + shader-f16 presence. */
+/** WebGPU capability for the setup decision: tier + shader-f16 presence + buffer ceiling. */
 type WebgpuCapability = {
   support: WebGPUSupport;
   /** Adapter exposes the `shader-f16` feature. Only meaningful when support is 'webgpu'. */
   shaderF16?: boolean;
+  /**
+   * Adapter `maxBufferSize` limit in bytes. Only meaningful when support is
+   * 'webgpu'; `undefined` when the adapter did not report it (or on WASM/none).
+   */
+  maxBufferBytes?: number;
 };
 
 /**
@@ -411,6 +432,7 @@ function deviceProfileEquals(a: DeviceProfile, b: DeviceProfile): boolean {
     && a.isMobile === b.isMobile
     && a.override === b.override
     && a.webgpuShaderF16 === b.webgpuShaderF16
+    && a.webgpuMaxBufferBytes === b.webgpuMaxBufferBytes
   );
 }
 
@@ -479,6 +501,7 @@ async function probeWebgpuCapability(): Promise<WebgpuCapability> {
 
   let support: WebGPUSupport;
   let shaderF16: boolean | undefined;
+  let maxBufferBytes: number | undefined;
 
   const forced = readForcedCapability();
   if (forced) {
@@ -499,6 +522,12 @@ async function probeWebgpuCapability(): Promise<WebgpuCapability> {
       } else if (adapter) {
         support = 'webgpu';
         shaderF16 = adapter.features.has('shader-f16');
+        // Capture the single-buffer ceiling from the SAME adapter we already
+        // hold for the shader-f16 check — the real hard cap on GPU allocation
+        // and, on WebKit, the only memory number the platform exposes. Wave 3
+        // scaffolding: surfaced onto the profile for the dormant max-buffer gate.
+        const reported = (adapter.limits as { maxBufferSize?: number } | undefined)?.maxBufferSize;
+        if (typeof reported === 'number' && reported > 0) maxBufferBytes = reported;
       } else {
         support = detectWasmTier();
       }
@@ -514,15 +543,21 @@ async function probeWebgpuCapability(): Promise<WebgpuCapability> {
   if (support === 'webgpu') {
     const forcedF16 = readForcedShaderF16();
     if (forcedF16 !== null) shaderF16 = forcedF16;
+    // ?eco-force-max-buffer-size lets us reproduce a small-buffer adapter
+    // anywhere (the Mac reports a large ceiling) — needed to exercise the
+    // max-buffer gate locally, mirroring the shader-f16 override above.
+    const forcedMaxBuffer = readForcedMaxBufferBytes();
+    if (forcedMaxBuffer !== null) maxBufferBytes = forcedMaxBuffer;
   } else {
     shaderF16 = undefined;
+    maxBufferBytes = undefined;
   }
 
   // Cache the verdict so the sync getDeviceProfile() (used by every UI surface)
   // can reflect the real adapter capability, not just the optimistic guess —
   // then notify reactive subscribers so the chat picker, the "Recommended" tag,
   // and the Settings dialog recompute the instant the verdict lands.
-  probedCapability = { support, shaderF16 };
+  probedCapability = { support, shaderF16, maxBufferBytes };
   notifyDeviceProfileChanged();
   return probedCapability;
 }
@@ -542,8 +577,13 @@ export async function resolveSetupProfile(): Promise<DeviceProfile> {
   if (typeof window === 'undefined' || typeof navigator === 'undefined') {
     return base;
   }
-  const { support, shaderF16 } = await probeWebgpuCapability();
-  return { ...base, webgpuSupport: support, webgpuShaderF16: shaderF16 };
+  const { support, shaderF16, maxBufferBytes } = await probeWebgpuCapability();
+  return {
+    ...base,
+    webgpuSupport: support,
+    webgpuShaderF16: shaderF16,
+    webgpuMaxBufferBytes: maxBufferBytes,
+  };
 }
 
 // ─── Diagnostic helpers (Invariant 5 safe) ───────────────────────────────

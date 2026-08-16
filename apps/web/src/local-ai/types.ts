@@ -34,6 +34,18 @@ export type DeviceProfile = {
    * `getDeviceProfile()` and every existing caller behave exactly as before.
    */
   webgpuShaderF16?: boolean;
+  /**
+   * The WebGPU adapter's `maxBufferSize` limit in bytes — the ceiling on any
+   * single GPU buffer allocation, and the real hard cap on what a model can
+   * physically allocate on the GPU. Only the setup path (`resolveSetupProfile`)
+   * probes and sets this; `undefined` means "not probed", so the synchronous
+   * `getDeviceProfile()` and every existing caller behave exactly as before. On
+   * WebKit this is the ONLY hard GPU-memory number the platform exposes
+   * (`deviceMemoryGB` is always 0 there). Consumed by the tightening-only
+   * max-buffer compatibility gate (Wave 3 scaffolding); no catalog model
+   * declares a floor yet, so today it changes no recommendation.
+   */
+  webgpuMaxBufferBytes?: number;
 };
 
 // ─── Intent ────────────────────────────────────────────────────────────────

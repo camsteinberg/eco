@@ -66,6 +66,17 @@ type CompatibilityRule = {
    */
   cpuEpIncompatible?: boolean;
   /**
+   * Minimum WebGPU `maxBufferSize` (bytes) the adapter must report for this
+   * model to be assignable — a real per-model ceiling on the largest single GPU
+   * allocation the build needs. Wave 3 scaffolding: the gate is TIGHTENING-ONLY
+   * and DORMANT. It bites only when BOTH the profile carries a probed
+   * `webgpuMaxBufferBytes` AND the rule declares a floor; no catalog rule sets
+   * one today, so it changes no recommendation. Optional; absent means "no
+   * max-buffer floor." An unprobed profile (`webgpuMaxBufferBytes === undefined`)
+   * is unaffected, so existing behavior is preserved exactly.
+   */
+  minMaxBufferBytes?: number;
+  /**
    * The inverse of the `shader-f16` gate below: this build is a plain-int4
    * (`onnx-q4`) variant published SPECIFICALLY to serve f16-less-but-WebGPU
    * adapters (older-Intel desktop / Adreno-Android), where its q4f16 sibling is
@@ -354,6 +365,20 @@ export function isCompatible(model: ModelConfig, profile: DeviceProfile): Compat
     profile.webgpuSupport === 'webgpu'
     && profile.webgpuShaderF16 === true
     && rule.requireNoShaderF16
+  ) {
+    return 'unsupported';
+  }
+
+  // WebGPU max-buffer floor (Wave 3 scaffolding — tightening only, dormant). A
+  // model whose largest single GPU allocation exceeds the adapter's probed
+  // `maxBufferSize` can never load on the WebGPU EP. The explicit `!== undefined`
+  // guards mean this bites ONLY when the profile carries a probed ceiling AND the
+  // rule declares a floor; no catalog rule sets `minMaxBufferBytes` yet, and an
+  // unprobed profile has no `webgpuMaxBufferBytes`, so today it changes nothing.
+  if (
+    rule.minMaxBufferBytes !== undefined
+    && profile.webgpuMaxBufferBytes !== undefined
+    && profile.webgpuMaxBufferBytes < rule.minMaxBufferBytes
   ) {
     return 'unsupported';
   }
