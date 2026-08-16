@@ -170,14 +170,28 @@ export function isTextRepairAsk(text: string): boolean {
  * on an external subject — would misroute. The transform family is "give me MY
  * text back, changed", and that "this"/"it" is what marks it.
  *
- * The "make (this|it) … (more|less|sound)" arm intentionally does NOT gate on
- * the assistant being the addressee the way the frame's `makeIsDirected` does:
- * a stray statement ("that would make it more work") misrouting to `writing`
- * only swaps a benign "match the format" hint and fires no frame, so silence is
- * not needed here — over-inclusion is harmless.
+ * The "make (this|it) … (more|less|sound|<comparative>)" arm intentionally does
+ * NOT gate on the assistant being the addressee the way the frame's
+ * `makeIsDirected` does: a stray statement ("that would make it more work")
+ * misrouting to `writing` only swaps a benign "match the format" hint and fires
+ * no frame, so silence is not needed here — over-inclusion is harmless.
+ *
+ * ★ TR-1 WIDENING (2026-08-16), measured before/after on the real 1.2B (headed
+ * WebGPU, transform-widening-probe.ts). PR #154 covered a first slice; the audit
+ * found the natural rest — bare-comparative "make this shorter/punchier", the
+ * verbs "tidy/polish/soften/translate this", and "bullet point this" — still
+ * routing to `explain`, whose lecture hint made the model EXPAND a "make it
+ * shorter" ask into a multi-section essay (0/6 Did-It) or leak "Plain-language
+ * explanation:" verbatim. Added those verbs + a curated set of PROSE
+ * comparatives (shorter/punchier/tighter/…). Deliberately excluded the
+ * explain-overlap comparatives "easier/clearer/simpler" and "better" (a bare
+ * "make it clearer" is as often "explain X more clearly" as "rewrite this"), and
+ * "clean" (unmeasured here, and "clean this room" is a real non-text sense).
+ * Keep this in sync with `artifact-frame.ts` Scan 3 (SELF_QUALIFYING_TRANSFORM_
+ * VERBS + MAKE_COMPARATIVES).
  */
 const TEXT_TRANSFORM_RE =
-  /\b(?:shorten|condense|summari[sz]e|paraphrase|rephrase|reword|simplify|tighten|formali[sz]e)\b[^.?!]{0,12}?\b(?:this|it|that|these|those)\b|\bmake (?:this|it)\b[^.?!]{0,16}?\b(?:more|less|sound)\b/i;
+  /\b(?:shorten|condense|summari[sz]e|paraphrase|rephrase|reword|simplify|tighten|formali[sz]e|tidy|polish|soften|translate|bullet[ -]?point)\b[^.?!]{0,12}?\b(?:this|it|that|these|those)\b|\bmake (?:this|it)\b[^.?!]{0,16}?\b(?:more|less|sound|shorter|punchier|tighter|snappier|crisper|wordier|bolder|leaner|softer|sharper)\b/i;
 
 /**
  * Whether the ask wants the user's text handed back transformed — shortened,

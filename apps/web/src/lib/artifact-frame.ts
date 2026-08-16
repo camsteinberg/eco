@@ -18,9 +18,12 @@ import { askPrefix } from "./ask-text";
  *      "proofread this before i send it". Frame: "The corrected [noun]:" or
  *      "The corrected version:" when no artifact noun is named.
  *   3. Transform — a self-qualifying transform verb ("summarise this",
- *      "shorten it") or "make <this|it> <more|less|sound> X" ("make this more
- *      formal"): give the transformed text back, don't explain how. Frame:
- *      "The summary:" for a summarise ask, "The rewritten version:" otherwise.
+ *      "shorten it", "tidy/polish/soften/translate this"), "bullet point this",
+ *      or "make <this|it> <more|less|sound|comparative> X" ("make this more
+ *      formal", "make this shorter"): give the transformed text back, don't
+ *      explain how. Frame: "The summary:" (summarise), "The translation:"
+ *      (translate), "As a bulleted list:" (bullet point), else "The rewritten
+ *      version:".
  *
  * ★ WHY A FRAME AND NOT AN INSTRUCTION. Measured (PR #113, n=10 per arm): two
  * different instruction clauses appended to exactly these asks both FAILED —
@@ -136,28 +139,51 @@ const CORRECTION_OBJECT_WINDOW = 4;
  * (`hasTransformTarget`). Ambiguous transforms are left out on the anti-
  * overfitting rule — "expand"/"lengthen" overlap the explain intent — and
  * silence stays the fail-safe direction.
+ *
+ * TR-1 widening (2026-08-16, measured on the real 1.2B): added tidy/polish/
+ * soften (rewrite), translate (its own frame), and the "bullet point" reformat
+ * below — the natural phrasings the audit found routing to `explain`. "clean"
+ * is intentionally out (unmeasured, and "clean this room" is a real non-text
+ * sense). Keep in sync with ask-text.ts TEXT_TRANSFORM_RE.
  */
 const SELF_QUALIFYING_TRANSFORM_VERBS = new Set([
   "shorten", "condense", "summarize", "summarise", "paraphrase",
   "rephrase", "reword", "simplify", "tighten", "formalize", "formalise",
+  "tidy", "polish", "soften", "translate",
 ]);
 
 /** The transform verbs whose output is named a summary, not a rewrite. */
 const SUMMARY_VERBS = new Set(["summarize", "summarise"]);
+
+/** Transform verbs whose output is a translation, not a same-language rewrite. */
+const TRANSLATE_VERBS = new Set(["translate"]);
 
 /**
  * The "make <this|it> <degree> X" rewrite pattern — "make this more formal",
  * "make it less wordy", "make this sound professional". "make" alone is far too
  * common to gate on ("make a study guide", "make spaghetti"): the demonstrative
  * AND a degree word together are what mark it as a rewrite of existing text.
- * A comparative like "make it shorter" is deliberately NOT covered — matching
- * bare "-er" adjectives would fit the rule to labelled items, not the category.
+ *
+ * TR-1 (2026-08-16): the bare comparative "make this shorter/punchier" — once
+ * deliberately excluded — IS now covered, but via a CURATED prose-comparative
+ * set (`MAKE_COMPARATIVES`), not a blanket "-er" match. A blanket rule would
+ * pull in "make it easier" (explain) and "make it bigger" (not text); the
+ * curated set is category-level (prose length/tone) and was measured to flip
+ * the 1.2B from lecturing to delivering. Keep in sync with ask-text.ts.
  */
 const MAKE_TARGETS = new Set(["this", "it"]);
 const MAKE_QUALIFIERS = new Set(["more", "less", "sound"]);
+const MAKE_COMPARATIVES = new Set([
+  "shorter", "punchier", "tighter", "snappier", "crisper",
+  "wordier", "bolder", "leaner", "softer", "sharper",
+]);
 
-/** How many words past the "this"/"it" a degree word may sit. */
-const MAKE_QUALIFIER_WINDOW = 2;
+/**
+ * How many words past the "this"/"it" a degree word may sit. 3 (was 2) so the
+ * frame matches the routing regex's tolerance for a filler like "make it a bit
+ * shorter" (this→a→bit→shorter), keeping the two predicates in sync.
+ */
+const MAKE_QUALIFIER_WINDOW = 3;
 
 /**
  * References to the user's OWN text that a transform verb must govern —
@@ -361,7 +387,8 @@ function makeIsRewrite(tokens: readonly Token[], index: number): boolean {
   for (let seen = 0; seen < MAKE_QUALIFIER_WINDOW; seen++) {
     cursor = nextWord(tokens, cursor);
     if (cursor === -1) return false;
-    if (MAKE_QUALIFIERS.has(tokens[cursor]!.lower)) return true;
+    const word = tokens[cursor]!.lower;
+    if (MAKE_QUALIFIERS.has(word) || MAKE_COMPARATIVES.has(word)) return true;
   }
   return false;
 }
@@ -397,6 +424,8 @@ function correctionFrame(noun: string): string {
 
 const TRANSFORM_SUMMARY_FRAME = "The summary:";
 const TRANSFORM_REWRITE_FRAME = "The rewritten version:";
+const TRANSFORM_TRANSLATION_FRAME = "The translation:";
+const TRANSFORM_LIST_FRAME = "As a bulleted list:";
 
 /**
  * The frame for one turn, or "" — a pure function of the turn's own text.
@@ -406,7 +435,10 @@ const TRANSFORM_REWRITE_FRAME = "The rewritten version:";
  * Three scans run in order (first match wins):
  *   1. Correspondence — AUTHOR_VERB + ARTIFACT_NOUN → "The [noun]:" / "… to send to [audience]:"
  *   2. Correction — CORRECTION_VERB + CORRECTION_OBJECT → "The corrected [noun]:" / "The corrected version:"
- *   3. Transform — SELF_QUALIFYING_TRANSFORM_VERB or "make <this|it> <degree>" → "The summary:" / "The rewritten version:"
+ *   3. Transform — SELF_QUALIFYING_TRANSFORM_VERB, "bullet point <this>", or
+ *      "make <this|it> <degree|comparative>" → "The summary:" (summarise),
+ *      "The translation:" (translate), "As a bulleted list:" (bullet point),
+ *      else "The rewritten version:"
  */
 export function buildArtifactFrame(turnText: string): string {
   const source = askPrefix(turnText);
@@ -480,7 +512,19 @@ export function buildArtifactFrame(turnText: string): string {
     if (SELF_QUALIFYING_TRANSFORM_VERBS.has(token.lower)) {
       if (!isRequestShaped(tokens, i)) continue;
       if (!hasTransformTarget(tokens, i)) continue;
-      return SUMMARY_VERBS.has(token.lower) ? TRANSFORM_SUMMARY_FRAME : TRANSFORM_REWRITE_FRAME;
+      if (SUMMARY_VERBS.has(token.lower)) return TRANSFORM_SUMMARY_FRAME;
+      if (TRANSLATE_VERBS.has(token.lower)) return TRANSFORM_TRANSLATION_FRAME;
+      return TRANSFORM_REWRITE_FRAME;
+    }
+
+    // "bullet point this" / "bullet-point this" — a reformat into a list.
+    if (token.lower === "bullet") {
+      const point = nextWord(tokens, i);
+      if (point !== -1 && tokens[point]!.lower === "point") {
+        if (isRequestShaped(tokens, i) && hasTransformTarget(tokens, point)) {
+          return TRANSFORM_LIST_FRAME;
+        }
+      }
     }
 
     if (token.lower === "make") {

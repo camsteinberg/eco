@@ -41,7 +41,12 @@ const EXPECTED_FRAMES: Readonly<Record<string, readonly string[]>> = {
     "",
     // "can you write the message i send to the family group chat."
     "The message to send to the family group chat:",
-    "",
+    // TR-1 (2026-08-16): "thats good but can you make it a bit shorter …" — a
+    // shorten-this follow-up. Before the widening this routed to explain and was
+    // lectured at; now the curated comparative fires the rewrite frame, exactly
+    // the intended fix. (Turn 6, "a bit warmer", stays silent — "warmer" is not
+    // in the curated set, and there is no "make" governing it.)
+    "The rewritten version:",
     "",
   ],
   // "right can you write the whole thing out as a proper list" — a list is not
@@ -254,8 +259,48 @@ describe("buildArtifactFrame — transform verbs (Scan 3)", () => {
     ).toBe("");
   });
 
-  it("does NOT frame 'make it a bit shorter' — a comparative, deliberately uncovered", () => {
-    expect(buildArtifactFrame("thats good but can you make it a bit shorter")).toBe("");
+  // ── TR-1 widening (2026-08-16, measured on the real 1.2B) ──
+  it("frames the new rewrite verbs — tidy / polish / soften", () => {
+    expect(buildArtifactFrame("tidy this up: 'so basically i went to the store'")).toBe(
+      "The rewritten version:",
+    );
+    expect(buildArtifactFrame("polish this: 'thanks, looks fine, lets go with it'")).toBe(
+      "The rewritten version:",
+    );
+    expect(buildArtifactFrame("soften this: 'send me the report today'")).toBe(
+      "The rewritten version:",
+    );
+  });
+
+  it("frames 'translate this' as a translation, not a same-language rewrite", () => {
+    expect(buildArtifactFrame("translate this to spanish: 'what time is the meeting'")).toBe(
+      "The translation:",
+    );
+  });
+
+  it("frames 'bullet point this' / 'bullet-point this' as a list", () => {
+    expect(buildArtifactFrame("bullet point this: 'book the hotel, rent a car'")).toBe(
+      "As a bulleted list:",
+    );
+    expect(buildArtifactFrame("bullet-point this: 'book the hotel, rent a car'")).toBe(
+      "As a bulleted list:",
+    );
+  });
+
+  it("NOW frames a curated prose comparative — 'make it a bit shorter' (TR-1)", () => {
+    expect(buildArtifactFrame("thats good but can you make it a bit shorter")).toBe(
+      "The rewritten version:",
+    );
+    expect(buildArtifactFrame("make this punchier: 'our app helps you track tasks'")).toBe(
+      "The rewritten version:",
+    );
+  });
+
+  it("still does NOT frame explain-overlap / non-prose comparatives, or unmeasured 'clean'", () => {
+    expect(buildArtifactFrame("make it easier for me to understand recursion")).toBe("");
+    expect(buildArtifactFrame("make it clearer")).toBe("");
+    expect(buildArtifactFrame("make it bigger")).toBe("");
+    expect(buildArtifactFrame("clean this up: 'so basically i went to the store'")).toBe("");
   });
 
   it("does not read the adverb 'simply' as the verb 'simplify'", () => {
