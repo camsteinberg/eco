@@ -225,6 +225,22 @@ const PREFERRED_WASM_FLOOR_MODEL_ID_BY_SLOT: Readonly<Record<Slot, string>> = {
 };
 
 /**
+ * WebGPU floor preference. On a WebGPU device that can't run the 8GB-floor 1.2B
+ * family (sub-8GB memory) yet isn't wasm-only, natural fit-ranking otherwise
+ * surfaces LFM2.5-350M — a 0.35GB extraction-type model wrong for chat — as the
+ * "Recommended" pick by a ~0.004 margin over the PROVEN qwen3-0.6b. Prefer the
+ * proven 0.6B chat floor instead (FR-2). Where qwen3-0.6b is itself unassignable
+ * (e.g. a shader-f16-less adapter, where only the 350M's onnx-q4 loads) this is a
+ * safe no-op and natural ranking applies — the 350M stays the honest only option.
+ */
+export const PREFERRED_WEBGPU_FLOOR_MODEL_ID = 'local/qwen3-0.6b';
+
+const PREFERRED_WEBGPU_FLOOR_MODEL_ID_BY_SLOT: Readonly<Record<Slot, string>> = {
+  'eco-fast': PREFERRED_WEBGPU_FLOOR_MODEL_ID,
+  'eco-smart': PREFERRED_WEBGPU_FLOOR_MODEL_ID,
+};
+
+/**
  * The device-appropriate preferred pick for a slot: the best-tier model THIS
  * device can actually run. The primary is the slot's f16 pick (LFM2.5-1.2B for
  * eco-fast, LFM2-2.6B for eco-smart today); when the device can't run it (no
@@ -252,6 +268,11 @@ function preferredModelIdForSlot(slot: Slot, profile: DeviceProfile): string {
     const wasmFloor = PREFERRED_WASM_FLOOR_MODEL_ID_BY_SLOT[slot];
     if (isCatalogModelAssignable(wasmFloor, profile)) return wasmFloor;
   }
+  // WebGPU floor (FR-2): a WebGPU (non-wasm) device that can't run the 1.2B family
+  // — prefer the proven qwen3-0.6b over the weak 350M that fit-ranking would
+  // otherwise surface as "Recommended". Unassignable → safe no-op.
+  const webgpuFloor = PREFERRED_WEBGPU_FLOOR_MODEL_ID_BY_SLOT[slot];
+  if (isCatalogModelAssignable(webgpuFloor, profile)) return webgpuFloor;
   return primary;
 }
 
@@ -484,8 +505,10 @@ export function listCatalog(
     const floor = applyConfidenceFloor(model, profile, admission, {
       currentlyBoundModelId: options.currentlyBoundModelId,
       // Manual Settings list: never hide a model for download failures — the
-      // user may always retry it by hand.
+      // user may always retry it by hand. Same for a single smoke-fail: hiding it
+      // for 30 days with no retry path is the FH-1 trap; re-selecting re-smokes it.
       demoteOnDownloadFail: false,
+      hideOnRecentFailure: false,
     });
     if (!floor.admit) continue;
 
@@ -535,6 +558,16 @@ type FloorOptions = {
    * clear on the next attempt.
    */
   demoteOnDownloadFail?: boolean;
+  /**
+   * Hide a model that has a recent smoke/generate FAILURE. Default true for the
+   * auto-offer engine (`listCandidates`/`recommend`/starter/upgrade) — don't
+   * auto-recommend something that just failed. FALSE for the manual Settings list
+   * (`listCatalog`): a single transient smoke-fail otherwise hides the model for
+   * the full 30-day window with no user retry path — asymmetric with downloads,
+   * which are already manual-exempt. Re-selecting it re-runs the smoke gate, so
+   * showing it IS the retry path (FH-1).
+   */
+  hideOnRecentFailure?: boolean;
 };
 type FloorOutcome =
   | { admit: true; confidence: AvailableConfidence }
@@ -548,7 +581,13 @@ function applyConfidenceFloor(
 ): FloorOutcome {
   const isBound = options.currentlyBoundModelId === model.id;
   if (admission.decision === 'denied' && !isBound) return { admit: false };
-  if (admission.recentFailureCount >= 1 && !isBound) return { admit: false };
+  if (
+    options.hideOnRecentFailure !== false
+    && admission.recentFailureCount >= 1
+    && !isBound
+  ) {
+    return { admit: false };
+  }
   // Auto-demote a model that keeps failing to DOWNLOAD (≥2 in 7d) from the
   // auto-offer surfaces — this kills the re-offer nag loop. Two carve-outs: the
   // currently-bound model (never lose the user's pick) and the starter floor
