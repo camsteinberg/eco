@@ -227,7 +227,8 @@ const PREFERRED_WASM_FLOOR_MODEL_ID_BY_SLOT: Readonly<Record<Slot, string>> = {
 /**
  * The device-appropriate preferred pick for a slot: the best-tier model THIS
  * device can actually run. The primary is the slot's f16 pick (LFM2.5-1.2B for
- * both slots today); when the device can't run it (no shader-f16, low memory, …)
+ * eco-fast, LFM2-2.6B for eco-smart today); when the device can't run it (no
+ * shader-f16, low memory, …)
  * we fall back to the slot's f16-less pick where assignable — the plain-int4 1.2B
  * for eco-fast, Gemma 4 for eco-smart (PREFERRED_F16LESS_MODEL_ID_BY_SLOT). The
  * returned id is fed to `promotePreferred`, which lifts it only if it survived the
@@ -289,7 +290,9 @@ export const STARTER_MAX_SIZE_GB = 1.0;
  *
  * Model-ladder fix (2026-08-09): this used to return the SMALLEST offerable
  * model, which on a capable device served LFM2.5-350M (0.28GB) — an EXTRACTION
- * model wrong-type for chat that ALSO fails to load on WebGPU (GatherBlockQuantized).
+ * model wrong-type for chat that ALSO can't load on wasm-only (CPU-EP) devices:
+ * its block-quantized embeddings emit GatherBlockQuantized, unimplemented on
+ * ort-web's CPU/WASM EP (it DOES run on the WebGPU EP — see compatibility.ts).
  * A broken, wrong-type first impression. Now the class-best pick (candidates[0],
  * i.e. exactly what recommend() returns) is the starter when it is within
  * STARTER_MAX_SIZE_GB — so a capable device's first chat runs on the good 1.2B

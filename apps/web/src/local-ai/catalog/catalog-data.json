@@ -345,7 +345,7 @@
       },
       "bestFor": "Deeper reasoning, writing, and code on capable laptops — a larger model for a more careful, thorough answer than the everyday default.",
       "knownLimitation": "Validated on high-memory Chromium WebGPU; a larger, slower download than the lighter Eco Fast model, and other browsers, low-memory devices, and a second machine are not yet proven.",
-      "evidenceTier": "proven",
+      "evidenceTier": "predicted",
       "systemRoleSupport": "native",
       "artifact": {
         "hfId": "onnx-community/LFM2-2.6B-ONNX",

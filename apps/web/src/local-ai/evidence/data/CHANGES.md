@@ -28,6 +28,21 @@ eval-lane `bonsai` generation profile and the `candidate/ternary-bonsai-1.7b-onn
 records are a DIFFERENT model and are left intact. The historical benchmark line
 below is kept as a record of the row that existed before removal.
 
+**2026-08-15 — Dead lab blocks + duplicate copy removed (Wave-3 evidence-truth).**
+The reader-less top-level blocks `finalLabDecision`, `launchReadiness`, and
+`modelStateMatrix` were stripped from `v1-launch-manual-evidence.json`:
+production reads only `routingEvidenceReconciliation` (plus `generatedAt` /
+`schemaVersion` provenance), so those blocks — and the retired-Bonsai ids nested
+inside them — were shipping to the client bundle with zero readers. The second,
+fully-unimported copy at `src/lib/data/v1-launch-manual-evidence.json` was
+deleted; there is now a SINGLE evidence file at `src/local-ai/evidence/data/`, so
+future refreshes touch one place rather than "both copies." No
+`routingEvidenceReconciliation` row was changed. NOTE: the per-row provenance
+table in this file predates several ships and labels some rows `benchmark` that
+are `calculated` in the shipped JSON; treat it as a historical record. Freshness
+is now enforced by the production read path (`loadSeedEvidence` per-row TTL) and
+its test, not by this table.
+
 ## Runtime Seed Benchmark Records (real hardware measurements)
 
 Refresh correction (2026-06-19 Gemma catalogue closeout): the checked runtime

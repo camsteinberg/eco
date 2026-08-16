@@ -32,6 +32,7 @@ import {
   type SeedEvidence,
 } from '../seed';
 import type { DeviceProfile } from '../../types';
+import seedSnapshot from '../data/v1-launch-manual-evidence.json';
 
 // Tracks the JSON snapshot's top-level `generatedAt` (the TTL-gate anchor read
 // by isSnapshotFresh). Bump this in lockstep whenever the snapshot is re-dated.
@@ -293,5 +294,24 @@ describe('loadSeedEvidence — profile-scoped query', () => {
     expect(phi3!.smokePassRate).toBeGreaterThanOrEqual(0);
     expect(phi3!.smokePassRate).toBeLessThanOrEqual(1);
     expect(phi3!.generatedAt).toBe('2026-05-13T19:30:06.982Z');
+  });
+});
+
+describe('shipped seed snapshot shape (dead-block strip guard)', () => {
+  // Production reads ONLY routingEvidenceReconciliation (+ generatedAt/schemaVersion
+  // provenance). The retired finalLabDecision / launchReadiness / modelStateMatrix
+  // blocks (and the reader-less Bonsai ids inside them) were stripped so they no
+  // longer ship in the client bundle. This pins the shape so they can't creep back.
+  it('ships only the keys production reads — no reader-less lab blocks', () => {
+    expect(Object.keys(seedSnapshot).sort()).toEqual([
+      'generatedAt',
+      'routingEvidenceReconciliation',
+      'schemaVersion',
+    ]);
+  });
+
+  it('carries no retired-Bonsai ids in the live reconciliation block', () => {
+    const rows = (seedSnapshot.routingEvidenceReconciliation ?? []) as unknown as RawReconciliationRecord[];
+    expect(rows.every((r) => !/bonsai/i.test(r.modelId ?? ''))).toBe(true);
   });
 });
