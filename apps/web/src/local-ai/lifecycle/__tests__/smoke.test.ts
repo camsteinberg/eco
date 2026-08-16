@@ -757,28 +757,41 @@ describe('runSmoke — webllm cache gate', () => {
 // ─── Filtered-only output (Qwen3 reasoning model) ────────────────────────
 
 describe('runSmoke — filtered output (reasoning model)', () => {
-  it('passes when worker reports completionTokens > 0 but no visible tokens reached main thread', async () => {
-    // Simulates a reasoning model like Qwen3 0.6B where ALL output is
-    // consumed by the ThinkTagFilter / StopSequenceFilter: the worker
-    // generates tokens internally (completionTokens > 0) but the output
-    // filter chain strips everything, so zero `token` events reach the
-    // main thread. The `done` event carries the worker's completionTokens.
+  it('FAILS when the worker reports completionTokens > 0 but no visible tokens reached main thread (HON-5)', async () => {
+    // A think-ONLY reply: the worker generated tokens internally
+    // (completionTokens > 0) but the output filter chain (ThinkTagFilter /
+    // StopSequenceFilter) consumed every one, so zero `token` events reach the
+    // main thread. Behavior change (HON-5): this used to pass with
+    // firstTokenMs=0; it now FAILS, because a model that emits nothing the user
+    // can see is not a passing model. A correctly-working reasoning model still
+    // passes via the normal path — its visible answer survives the <think> strip.
     const seam: SmokeGenerationFn = async function* (): AsyncIterable<TokenEvent> {
-      // No `token` events — simulates the filter chain eating everything.
-      // The `done` event reports that the worker DID produce tokens.
       yield { kind: 'done', completionTokens: 12, promptTokens: 5 };
     };
     const r = await runSmoke('eco-fast', MODEL, {
       generationFn: seam,
       skipDiagnostics: true,
     });
-    expect(r.passed).toBe(true);
-    if (r.passed) {
-      // tokensReceived should reflect the worker's count when no visible tokens
-      expect(r.tokensReceived).toBe(12);
-      // firstTokenMs is 0 since no token event was observed on the main thread
-      expect(r.firstTokenMs).toBe(0);
+    expect(r.passed).toBe(false);
+    if (!r.passed) {
+      expect(r.reason).toMatch(/no tokens/i);
     }
+  });
+
+  it('FAILS when every visible token is whitespace-only (HON-5)', async () => {
+    // The filter can leave behind pure whitespace (a trailing newline after a
+    // stripped block). firstTokenAt would be set, but there is no non-whitespace
+    // output — still a blank reply to the user, so it must fail.
+    const seam: SmokeGenerationFn = async function* (): AsyncIterable<TokenEvent> {
+      yield { kind: 'token', text: '\n' };
+      yield { kind: 'token', text: '  ' };
+      yield { kind: 'done', completionTokens: 8 };
+    };
+    const r = await runSmoke('eco-fast', MODEL, {
+      generationFn: seam,
+      skipDiagnostics: true,
+    });
+    expect(r.passed).toBe(false);
   });
 
   it('still fails when worker reports completionTokens=0 and no visible tokens', async () => {

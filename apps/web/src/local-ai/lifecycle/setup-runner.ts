@@ -163,18 +163,31 @@ async function defaultRunAttempt(
   onProgressEvent: (e: ProgressEvent) => void,
 ): Promise<AttemptResult> {
   const tracker = new ProgressTracker();
+  // RT-4: a download stall (a TTFB hang before the first byte, or a mid-stream
+  // wedge) aborts the in-flight fetch so the cascade can retry/demote instead of
+  // hanging setup forever. We gate on the download phase — `startSmoke()` cancels
+  // the download timer, but gating keeps a later smoke stall from tripping this.
+  // The abort surfaces as a DownloadAbortedError, which the catch below
+  // classifies as phase 'download' (a transient blip → retry-once, then demote).
+  const controller = new AbortController();
+  const unsubscribeStall = tracker.subscribe((event) => {
+    if (event.kind === 'stall' && event.phase === 'downloading') controller.abort();
+  });
   const unsubscribe = tracker.subscribe(onProgressEvent);
   try {
     try {
+      // Arm the stall timer before the first byte so a TTFB hang is caught even
+      // when no progress is ever reported (RT-4).
+      tracker.startDownload();
       // A `webllm` model routes through the cache bridge instead of the plain
       // downloader: it still runs Eco's zero-retention download, then pre-stages
       // the bytes in WebLLM's own cache so serving is a pure cache hit. Every
       // other runtime is unchanged. The bridge re-throws download errors as-is
       // (incl. InsufficientStorageError), so the classification below is uniform.
       if (model.runtime === 'webllm') {
-        await bridgeDownloadWebLLMModel(model, { tracker });
+        await bridgeDownloadWebLLMModel(model, { tracker, signal: controller.signal });
       } else {
-        await downloadModel(model, { tracker });
+        await downloadModel(model, { tracker, signal: controller.signal });
       }
     } catch (err) {
       const reason = err instanceof Error ? err.message : 'Download failed.';
@@ -202,6 +215,9 @@ async function defaultRunAttempt(
     tracker.error(result.reason);
     return { ok: false, phase: 'load-or-smoke', reason: result.reason };
   } finally {
+    // Cancel any still-pending stall timer's effect and drop the listeners.
+    controller.abort();
+    unsubscribeStall();
     unsubscribe();
   }
 }

@@ -132,6 +132,23 @@ describe('ProgressTracker — early-stall (download <99%)', () => {
     void tracker;
   });
 
+  it('startDownload() arms the early-stall timer before any bytes arrive (RT-4)', () => {
+    const { tracker, events, harness } = makeTracker();
+    // No reportDownloadProgress at all — a TTFB hang where the fetch never
+    // delivers a first byte. Without startDownload() the timer never arms and
+    // the stall is invisible forever.
+    tracker.startDownload();
+    harness.advance(30_000);
+
+    const stall = events.find((e) => e.kind === 'stall');
+    expect(stall).toBeDefined();
+    if (stall?.kind === 'stall') {
+      expect(stall.phase).toBe('downloading');
+      expect(stall.stall).toBe('early-stall');
+    }
+    void tracker;
+  });
+
   it('does not fire if forward progress occurs', () => {
     const { tracker, events, harness } = makeTracker();
     tracker.reportDownloadProgress(50, 100);

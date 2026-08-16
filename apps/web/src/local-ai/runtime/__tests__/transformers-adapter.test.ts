@@ -25,24 +25,52 @@ function k(r: RequestInfo | URL): string { if (typeof r === 'string') return r; 
 class FakeWorker implements WorkerLike {
   inbox: WorkerInbound[] = [];
   listeners: Array<(e: MessageEvent<WorkerOutbound>) => void> = [];
+  errorListeners: Array<(e: ErrorEvent) => void> = [];
+  messageErrorListeners: Array<(e: MessageEvent) => void> = [];
   terminated = false;
 
   postMessage(msg: WorkerInbound): void {
     this.inbox.push(msg);
   }
-  addEventListener(_: 'message', l: (e: MessageEvent<WorkerOutbound>) => void): void {
-    this.listeners.push(l);
+  addEventListener(type: 'message', l: (e: MessageEvent<WorkerOutbound>) => void): void;
+  addEventListener(type: 'error', l: (e: ErrorEvent) => void): void;
+  addEventListener(type: 'messageerror', l: (e: MessageEvent) => void): void;
+  addEventListener(
+    type: 'message' | 'error' | 'messageerror',
+    l: ((e: MessageEvent<WorkerOutbound>) => void) | ((e: ErrorEvent) => void) | ((e: MessageEvent) => void),
+  ): void {
+    if (type === 'message') this.listeners.push(l as (e: MessageEvent<WorkerOutbound>) => void);
+    else if (type === 'error') this.errorListeners.push(l as (e: ErrorEvent) => void);
+    else this.messageErrorListeners.push(l as (e: MessageEvent) => void);
   }
-  removeEventListener(_: 'message', l: (e: MessageEvent<WorkerOutbound>) => void): void {
-    const i = this.listeners.indexOf(l);
-    if (i >= 0) this.listeners.splice(i, 1);
+  removeEventListener(type: 'message', l: (e: MessageEvent<WorkerOutbound>) => void): void;
+  removeEventListener(type: 'error', l: (e: ErrorEvent) => void): void;
+  removeEventListener(type: 'messageerror', l: (e: MessageEvent) => void): void;
+  removeEventListener(
+    type: 'message' | 'error' | 'messageerror',
+    l: ((e: MessageEvent<WorkerOutbound>) => void) | ((e: ErrorEvent) => void) | ((e: MessageEvent) => void),
+  ): void {
+    const arr: Array<unknown> =
+      type === 'message' ? this.listeners : type === 'error' ? this.errorListeners : this.messageErrorListeners;
+    const i = arr.indexOf(l);
+    if (i >= 0) arr.splice(i, 1);
   }
   terminate(): void { this.terminated = true; }
 
-  /** Test helper: emit an event to all listeners. */
+  /** Test helper: emit a message event to all 'message' listeners. */
   emit(msg: WorkerOutbound): void {
     const event = { data: msg } as MessageEvent<WorkerOutbound>;
     for (const l of [...this.listeners]) l(event);
+  }
+  /** Test helper: fire a worker 'error' ErrorEvent (a silent crash — no {type:'error'} message). */
+  emitError(message: string): void {
+    const event = { message } as ErrorEvent;
+    for (const l of [...this.errorListeners]) l(event);
+  }
+  /** Test helper: fire a 'messageerror' event (a message that failed to deserialize). */
+  emitMessageError(): void {
+    const event = { data: null } as MessageEvent;
+    for (const l of [...this.messageErrorListeners]) l(event);
   }
 }
 
@@ -807,5 +835,159 @@ describe('TransformersAdapter — externalDataChunks propagation', () => {
     expect(init.externalDataChunks).toBeUndefined();
     worker.emit({ type: 'ready', backend: 'webgpu' });
     await loadPromise;
+  });
+});
+
+// ─── RT-3: worker-death surfacing + load/generation watchdogs ────────────────
+//
+// A worker can die WITHOUT posting {type:'error'} (a post-deploy chunk-404 on a
+// stale tab, a WASM SIGABRT, a lost GPU device). Before RT-3 the adapter only
+// listened to 'message', so those hung load/generation forever. It now also
+// listens to the worker 'error'/'messageerror' events and arms watchdog timers.
+
+describe('TransformersAdapter — worker-death surfacing (RT-3)', () => {
+  it('rejects the load when the worker fires an error event (no {type:error} message)', async () => {
+    const loadPromise = adapter.load(MODEL);
+    await Promise.resolve();
+    worker.emitError('ChunkLoadError: Loading chunk 42 failed');
+    await expect(loadPromise).rejects.toMatchObject({ code: 'init-failed', recoverable: true });
+  });
+
+  it('rejects the load when the worker fires a messageerror event', async () => {
+    const loadPromise = adapter.load(MODEL);
+    await Promise.resolve();
+    worker.emitMessageError();
+    await expect(loadPromise).rejects.toMatchObject({ code: 'init-failed' });
+  });
+
+  it('surfaces a mid-generation worker crash as an error event and ends the iterator', async () => {
+    const loadPromise = adapter.load(MODEL);
+    await Promise.resolve();
+    worker.emit({ type: 'ready', backend: 'webgpu' });
+    await loadPromise;
+
+    const events: import('../types').TokenEvent[] = [];
+    const collector = (async () => {
+      for await (const event of adapter.generate([{ role: 'user', content: 'hi' }])) {
+        events.push(event);
+      }
+    })();
+    await Promise.resolve();
+    await Promise.resolve();
+    worker.emitError('RuntimeError: memory access out of bounds');
+
+    await collector;
+    expect(events).toHaveLength(1);
+    expect(events[0]!.kind).toBe('error');
+    if (events[0]!.kind === 'error') expect(events[0]!.code).toBe('generation-failed');
+  });
+});
+
+describe('TransformersAdapter — watchdogs (RT-3)', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('rejects the load if the worker never responds within the stall window', async () => {
+    vi.useFakeTimers();
+    const a = new TransformersAdapter({
+      storage,
+      workerFactory: () => worker,
+      generateId: () => 'test-gen-id',
+      loadStallTimeoutMs: 1_000,
+    });
+    const loadPromise = a.load(MODEL); // init posted, but the worker stays silent
+    const rejection = expect(loadPromise).rejects.toMatchObject({ code: 'timeout' });
+    await vi.advanceTimersByTimeAsync(1_001);
+    await rejection;
+    await a.unload().catch(() => undefined);
+  });
+
+  it('does NOT reject a load that keeps reporting progress (a stall is lack of progress, not slowness)', async () => {
+    vi.useFakeTimers();
+    const a = new TransformersAdapter({
+      storage,
+      workerFactory: () => worker,
+      generateId: () => 'test-gen-id',
+      loadStallTimeoutMs: 1_000,
+    });
+    const loadPromise = a.load(MODEL);
+    // Progress every 600ms keeps re-arming the 1000ms window past the point a
+    // fixed deadline would have fired.
+    for (let i = 1; i <= 5; i++) {
+      await vi.advanceTimersByTimeAsync(600);
+      worker.emit({ type: 'progress', loaded: i * 100, total: 1_000 });
+    }
+    worker.emit({ type: 'ready', backend: 'webgpu' });
+    await expect(loadPromise).resolves.toBeUndefined();
+    await a.unload().catch(() => undefined);
+  });
+
+  it('ends generation with a timeout error when streaming stalls between tokens (the #28 net)', async () => {
+    vi.useFakeTimers();
+    const a = new TransformersAdapter({
+      storage,
+      workerFactory: () => worker,
+      generateId: () => 'test-gen-id',
+      firstTokenTimeoutMs: 5_000,
+      interTokenTimeoutMs: 1_000,
+    });
+    const loadPromise = a.load(MODEL);
+    await Promise.resolve();
+    worker.emit({ type: 'ready', backend: 'webgpu' });
+    await loadPromise;
+
+    const events: import('../types').TokenEvent[] = [];
+    const collector = (async () => {
+      for await (const event of a.generate([{ role: 'user', content: 'hi' }])) {
+        events.push(event);
+      }
+    })();
+    await Promise.resolve();
+    await Promise.resolve();
+    worker.emit({ type: 'token', generationId: 'test-gen-id', text: 'partial', seq: 1 });
+    // Then the stream wedges — the 1s inter-token watchdog fires.
+    await vi.advanceTimersByTimeAsync(1_001);
+
+    await collector;
+    const last = events[events.length - 1]!;
+    expect(last.kind).toBe('error');
+    if (last.kind === 'error') expect(last.code).toBe('timeout');
+    await a.unload().catch(() => undefined);
+  });
+
+  it('ends generation with a timeout error when the first token never arrives (generous prefill window)', async () => {
+    vi.useFakeTimers();
+    const a = new TransformersAdapter({
+      storage,
+      workerFactory: () => worker,
+      generateId: () => 'test-gen-id',
+      firstTokenTimeoutMs: 2_000,
+      interTokenTimeoutMs: 1_000,
+    });
+    const loadPromise = a.load(MODEL);
+    await Promise.resolve();
+    worker.emit({ type: 'ready', backend: 'webgpu' });
+    await loadPromise;
+
+    const events: import('../types').TokenEvent[] = [];
+    const collector = (async () => {
+      for await (const event of a.generate([{ role: 'user', content: 'hi' }])) {
+        events.push(event);
+      }
+    })();
+    await Promise.resolve();
+    await Promise.resolve();
+    // No token ever. The inter-token window (1s) must NOT fire early — only the
+    // first-token window (2s) governs before the first token.
+    await vi.advanceTimersByTimeAsync(1_500);
+    expect(events).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(600);
+
+    await collector;
+    expect(events).toHaveLength(1);
+    expect(events[0]!.kind).toBe('error');
+    if (events[0]!.kind === 'error') expect(events[0]!.code).toBe('timeout');
+    await a.unload().catch(() => undefined);
   });
 });

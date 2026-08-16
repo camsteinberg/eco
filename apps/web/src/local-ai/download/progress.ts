@@ -139,6 +139,22 @@ export class ProgressTracker {
   }
 
   /**
+   * Arm the download stall timer at the START of a download, before any bytes
+   * have arrived (RT-4). Without this the timer only arms on the first
+   * byte-motion report (see `reportDownloadProgress`), so a TTFB hang — where
+   * `reportDownloadProgress` is never called at all — is invisible to the stall
+   * detector forever and the download hangs with no recovery. The first real
+   * progress report re-arms the timer from that byte position; a cache-hit fast
+   * path that completes immediately is cancelled by `startSmoke()` before the
+   * window elapses. Idempotent — safe to call once at download start.
+   */
+  startDownload(): void {
+    if (this.destroyed) return;
+    if (this.currentPhase !== 'downloading') this.setPhase('downloading');
+    this.armDownloadStallTimer();
+  }
+
+  /**
    * Report download progress. Idempotent on `(loaded, total)` repeats — the
    * stall timer only re-arms when `loaded` moves. This matters because
    * fetch ReadableStreams can fire a final zero-delta read at the close of

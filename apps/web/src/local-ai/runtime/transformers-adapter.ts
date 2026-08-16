@@ -119,7 +119,15 @@ type ErrorCode = 'webgpu-unavailable' | 'oom' | 'device-lost' | 'init-failed' | 
 export type WorkerLike = {
   postMessage(message: WorkerInbound, transfer?: Transferable[]): void;
   addEventListener(type: 'message', listener: (event: MessageEvent<WorkerOutbound>) => void): void;
+  // RT-3: a worker can die WITHOUT posting a {type:'error'} message — a
+  // post-deploy chunk-404 on a stale tab, a WASM SIGABRT, a lost GPU device. The
+  // browser signals those via the 'error'/'messageerror' events, not 'message',
+  // so the adapter must listen to them or the load/generation hangs forever.
+  addEventListener(type: 'error', listener: (event: ErrorEvent) => void): void;
+  addEventListener(type: 'messageerror', listener: (event: MessageEvent) => void): void;
   removeEventListener(type: 'message', listener: (event: MessageEvent<WorkerOutbound>) => void): void;
+  removeEventListener(type: 'error', listener: (event: ErrorEvent) => void): void;
+  removeEventListener(type: 'messageerror', listener: (event: MessageEvent) => void): void;
   terminate(): void;
 };
 
@@ -184,6 +192,19 @@ export function shouldSkipModelProgressPreflight(model: ModelConfig): boolean {
 /** Error codes that represent permanent failures — retrying won't help. */
 const NON_RECOVERABLE_CODES: ReadonlySet<ErrorCode> = new Set(['init-failed', 'template-missing']);
 
+// ─── Watchdog windows (RT-3) ─────────────────────────────────────────────────
+// The worker can wedge silently. These backstops turn an infinite hang into a
+// prompt, recoverable error. They are deliberately generous — a false timeout on
+// a legitimate slow-but-progressing load is worse than no timeout — and are
+// overridable via TransformersAdapterOptions for tuning and deterministic tests.
+
+/** Reject a load that gets NO worker response at all within this window (covers a cold load of multi-GB weights on a slow device). */
+const DEFAULT_LOAD_STALL_TIMEOUT_MS = 120_000;
+/** Fail a generation if the FIRST token never arrives within this window. Prefill is compute-bound like load, so this is generous. */
+const DEFAULT_FIRST_TOKEN_TIMEOUT_MS = 120_000;
+/** Fail a generation if streaming stalls this long BETWEEN tokens — the #28 stall signature. Tighter than the first-token window by design. */
+const DEFAULT_INTER_TOKEN_TIMEOUT_MS = 30_000;
+
 // ─── Adapter ────────────────────────────────────────────────────────────────
 
 export type TransformersAdapterOptions = {
@@ -192,6 +213,12 @@ export type TransformersAdapterOptions = {
   workerFactory?: WorkerFactory;
   /** Override the random id generator. Tests pass deterministic ids. */
   generateId?: () => string;
+  /** Override the load-stall watchdog window (ms). Defaults to 120s (RT-3). */
+  loadStallTimeoutMs?: number;
+  /** Override the first-token watchdog window (ms). Defaults to 120s (RT-3). */
+  firstTokenTimeoutMs?: number;
+  /** Override the inter-token watchdog window (ms). Defaults to 30s (RT-3). */
+  interTokenTimeoutMs?: number;
 };
 
 /** Safe timestamp: performance.now() if available, else Date.now(). */
@@ -250,35 +277,99 @@ export class TransformersAdapter implements RuntimeAdapter {
 
     emit?.({ phase: 'load-start', at: now(), note: model.id });
 
+    const loadStallMs = this.options.loadStallTimeoutMs ?? DEFAULT_LOAD_STALL_TIMEOUT_MS;
+
     return new Promise<void>((resolve, reject) => {
       let settled = false;
+      let stallTimer: ReturnType<typeof setTimeout> | null = null;
+
+      const cleanup = (): void => {
+        if (stallTimer !== null) {
+          clearTimeout(stallTimer);
+          stallTimer = null;
+        }
+        this.worker?.removeEventListener('error', onWorkerError);
+        this.worker?.removeEventListener('messageerror', onWorkerMessageError);
+      };
+      const settleResolve = (): void => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve();
+      };
+      const settleReject = (err: AdapterError): void => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(err);
+      };
+      // RT-3 load-stall watchdog: a stall is a lack of PROGRESS, not slowness, so
+      // re-arm on each 'progress' message. Armed at load start so a TTFB hang
+      // (no progress and no 'ready' ever) is caught within the window instead of
+      // hanging setup forever.
+      const armStall = (): void => {
+        if (settled) return;
+        if (stallTimer !== null) clearTimeout(stallTimer);
+        stallTimer = setTimeout(() => {
+          emit?.({ phase: 'load-fail', at: now(), error: { message: 'load stalled', name: 'timeout' } });
+          settleReject(new AdapterError(
+            `Model load timed out after ${Math.round(loadStallMs / 1000)}s with no progress from the worker.`,
+            'timeout',
+            true,
+          ));
+        }, loadStallMs);
+      };
+
       const handler = (event: MessageEvent<WorkerOutbound>): void => {
         const msg = event.data;
         if (msg.type === 'ready') {
           this.currentBackend = msg.backend;
-          settled = true;
           emit?.({ phase: 'load-finish', at: now(), note: `backend=${msg.backend}` });
-          resolve();
+          settleResolve();
           return;
         }
-        if (msg.type === 'progress' && options?.onLoadProgress) {
-          const fraction = msg.total > 0 ? Math.max(0, Math.min(1, msg.loaded / msg.total)) : 0;
-          options.onLoadProgress(fraction);
+        if (msg.type === 'progress') {
+          armStall(); // forward motion — reset the stall window
+          if (options?.onLoadProgress) {
+            const fraction = msg.total > 0 ? Math.max(0, Math.min(1, msg.loaded / msg.total)) : 0;
+            options.onLoadProgress(fraction);
+          }
           return;
         }
         if (msg.type === 'error') {
-          settled = true;
           emit?.({
             phase: 'load-fail',
             at: now(),
             error: { message: msg.message, name: msg.code },
           });
-          reject(new AdapterError(msg.message, msg.code, !NON_RECOVERABLE_CODES.has(msg.code)));
+          settleReject(new AdapterError(msg.message, msg.code, !NON_RECOVERABLE_CODES.has(msg.code)));
         }
+      };
+
+      // RT-3: a worker that dies WITHOUT posting {type:'error'} (chunk-404 on a
+      // stale tab, WASM abort, device-lost) fires 'error'/'messageerror' instead
+      // of a 'message'. Without these listeners the load Promise never settles.
+      const onWorkerError = (event: ErrorEvent): void => {
+        emit?.({ phase: 'load-fail', at: now(), error: { message: event.message || 'worker crashed', name: 'worker-crash' } });
+        settleReject(new AdapterError(
+          `Worker crashed during load: ${event.message || 'unknown error'}`,
+          'init-failed',
+          true,
+        ));
+      };
+      const onWorkerMessageError = (): void => {
+        settleReject(new AdapterError(
+          'Worker message could not be deserialized during load.',
+          'init-failed',
+          true,
+        ));
       };
 
       this.workerListener = handler;
       this.worker!.addEventListener('message', handler);
+      this.worker!.addEventListener('error', onWorkerError);
+      this.worker!.addEventListener('messageerror', onWorkerMessageError);
+      armStall();
 
       // An externally-aborted load is NOT a crash: 'aborted' (unlike
       // 'init-failed') never records a crash cooldown. Misclassifying this
@@ -286,17 +377,17 @@ export class TransformersAdapter implements RuntimeAdapter {
       // cold load hit the smoke deadline (prod, 2026-06-09).
       if (options?.signal) {
         if (options.signal.aborted) {
-          if (!settled) reject(new AdapterError('Load aborted', 'aborted', true));
+          settleReject(new AdapterError('Load aborted', 'aborted', true));
           return;
         }
         options.signal.addEventListener('abort', () => {
-          if (!settled) reject(new AdapterError('Load aborted', 'aborted', true));
+          settleReject(new AdapterError('Load aborted', 'aborted', true));
         }, { once: true });
       }
 
       const hfId = model.artifact?.hfId;
       if (!hfId) {
-        reject(new AdapterError(
+        settleReject(new AdapterError(
           `Catalog model "${model.id}" is missing artifact.hfId — cannot resolve TJS model path. Fix catalog-data.json.`,
           'init-failed',
           false,
@@ -350,10 +441,40 @@ export class TransformersAdapter implements RuntimeAdapter {
     let lastTokenAt: number | null = null;
     let maxInterTokenGapMs: number | null = null;
 
+    const firstTokenMs = this.options.firstTokenTimeoutMs ?? DEFAULT_FIRST_TOKEN_TIMEOUT_MS;
+    const interTokenMs = this.options.interTokenTimeoutMs ?? DEFAULT_INTER_TOKEN_TIMEOUT_MS;
+
     const generateId = this.options.generateId ?? defaultGenerateId;
     const generationId = generateId();
     const controller = new AsyncGenerationController(generationId);
     this.currentGeneration = { id: generationId, controller };
+
+    // RT-3 generation watchdog. Armed at post time with the generous first-token
+    // window (prefill is compute-bound, like load), then re-armed with the
+    // tighter inter-token window on every token — a gap that long mid-stream is
+    // the #28 stall. On fire it surfaces a timeout error and ends the stream
+    // rather than hanging the chat forever. Cleared on done/error/abort/crash.
+    let watchdog: ReturnType<typeof setTimeout> | null = null;
+    const clearWatchdog = (): void => {
+      if (watchdog !== null) {
+        clearTimeout(watchdog);
+        watchdog = null;
+      }
+    };
+    const armWatchdog = (ms: number): void => {
+      clearWatchdog();
+      // Don't arm a watchdog for a generation that already ended (e.g. generate
+      // was called with an already-aborted signal) — it would fire into a closed
+      // controller as a no-op and just leak a pending timer.
+      if (controller.isClosed) return;
+      watchdog = setTimeout(() => {
+        watchdog = null;
+        const secs = Math.round(ms / 1000);
+        emit?.({ phase: 'generation-fail', at: now(), error: { message: `no token for ${secs}s`, name: 'timeout' } });
+        controller.push({ kind: 'error', reason: `Generation stalled: no token for ${secs}s.`, code: 'timeout' });
+        controller.close();
+      }, ms);
+    };
 
     const onMessage = (event: MessageEvent<WorkerOutbound>): void => {
       const msg = event.data;
@@ -367,10 +488,12 @@ export class TransformersAdapter implements RuntimeAdapter {
           if (maxInterTokenGapMs === null || gap > maxInterTokenGapMs) maxInterTokenGapMs = gap;
         }
         lastTokenAt = tokenAt;
+        armWatchdog(interTokenMs); // forward motion — reset to the tighter window
         controller.push({ kind: 'token', text: msg.text, seq: msg.seq });
         return;
       }
       if (msg.type === 'done' && msg.generationId === generationId) {
+        clearWatchdog();
         emit?.({ phase: 'generation-complete', at: now() });
         controller.push({
           kind: 'done',
@@ -385,6 +508,7 @@ export class TransformersAdapter implements RuntimeAdapter {
         return;
       }
       if (msg.type === 'error' && (msg.generationId === generationId || msg.generationId === undefined)) {
+        clearWatchdog();
         emit?.({
           phase: 'generation-fail',
           at: now(),
@@ -395,9 +519,26 @@ export class TransformersAdapter implements RuntimeAdapter {
       }
     };
 
+    // RT-3: surface a silent worker death mid-generation (chunk-404, WASM abort,
+    // device-lost) instead of hanging on the async iterator forever.
+    const onWorkerError = (event: ErrorEvent): void => {
+      clearWatchdog();
+      emit?.({ phase: 'generation-fail', at: now(), error: { message: event.message || 'worker crashed', name: 'worker-crash' } });
+      controller.push({ kind: 'error', reason: `Worker crashed during generation: ${event.message || 'unknown error'}`, code: 'generation-failed' });
+      controller.close();
+    };
+    const onWorkerMessageError = (): void => {
+      clearWatchdog();
+      controller.push({ kind: 'error', reason: 'Worker message could not be deserialized during generation.', code: 'generation-failed' });
+      controller.close();
+    };
+
     this.worker.addEventListener('message', onMessage);
+    this.worker.addEventListener('error', onWorkerError);
+    this.worker.addEventListener('messageerror', onWorkerMessageError);
 
     const onAbort = (): void => {
+      clearWatchdog();
       this.worker?.postMessage({ type: 'abort', generationId });
       controller.push({ kind: 'error', reason: 'Generation aborted', code: 'aborted' });
       controller.close();
@@ -421,13 +562,17 @@ export class TransformersAdapter implements RuntimeAdapter {
       options: workerOptions,
       systemRoleStrategy: this.currentModel?.systemRoleSupport ?? 'native',
     });
+    armWatchdog(firstTokenMs); // start the first-token window as soon as generate is posted
 
     try {
       for await (const event of controller.iterate()) {
         yield event;
       }
     } finally {
+      clearWatchdog();
       this.worker?.removeEventListener('message', onMessage);
+      this.worker?.removeEventListener('error', onWorkerError);
+      this.worker?.removeEventListener('messageerror', onWorkerMessageError);
       this.currentGeneration = null;
     }
   }
@@ -477,6 +622,10 @@ class AsyncGenerationController {
 
   constructor(id: string) {
     this.id = id;
+  }
+
+  get isClosed(): boolean {
+    return this.closed;
   }
 
   push(event: TokenEvent): void {

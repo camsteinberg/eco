@@ -158,10 +158,12 @@ export function useEcoSetup(): UseEcoSetupReturn {
           // setError() solely when the whole fallback ladder is exhausted.
         }
       } else if (event.kind === 'stall') {
-        // Early-stall and smoke-timeout escalate to error after the
-        // download layer's own retry path has been exhausted. The
-        // download pipeline itself emits a phase=error event when it
-        // gives up; this branch is informational only.
+        // Stall handling is now wired at the runAttempt layer (RT-4): a download
+        // stall aborts the in-flight fetch, which rejects as a
+        // DownloadAbortedError and is re-emitted as the phase=error event handled
+        // above (informational; executeSetup owns terminal status). This branch
+        // is the stall *notification* that arrives just before that terminal
+        // error — no UI state change is needed here.
       }
       return next;
     });

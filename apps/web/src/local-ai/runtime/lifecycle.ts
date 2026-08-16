@@ -209,8 +209,14 @@ export async function loadModel(
 
     const adapter = adapterFactory(model);
     const loadPromise = adapter.load(model, options);
+    // Set only on the forced-timeout path, where cleanup is DEFERRED to late
+    // fulfillment (the non-cooperating load is still in flight). RT-1's eager
+    // unload below must not fire there — unloading now can't dispose an engine
+    // that materializes afterward, and doing so would race the deferred handler.
+    let deferredCleanupRegistered = false;
     try {
       await raceLoadAgainstSignal(loadPromise, options?.signal, () => {
+        deferredCleanupRegistered = true;
         // The forced timeout won: this loadModel has already rejected and is
         // about to drop its reference to `adapter`. A non-cooperating load
         // (LiteRT's Engine.create, which cannot be cancelled) can still
@@ -231,6 +237,14 @@ export async function loadModel(
       const code = errorCode(err);
       if (COOLDOWN_TRIGGER_CODES.has(code)) {
         recordCooldown(model.id, code);
+      }
+      // RT-1: a failed or aborted load never reaches `state.activeAdapter =
+      // adapter` below, so the lifecycle drops its only reference to this
+      // adapter. Terminate its worker here (best-effort) so a multi-GB partial
+      // load is not orphaned. Skipped on the forced-timeout path, which owns its
+      // own deferred cleanup (see above).
+      if (!deferredCleanupRegistered) {
+        await adapter.unload().catch(() => undefined);
       }
       throw err;
     }
