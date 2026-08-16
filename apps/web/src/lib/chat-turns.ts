@@ -116,10 +116,10 @@ export function buildLocalReadinessFailureV2({
 
   const message =
     slot.status === "preparing"
-      ? `${slotLabel} is still preparing. Finish setup in Settings → Models before sending this locally.`
+      ? `${slotLabel} is still preparing. Finish setup in Settings → Eco before sending this locally.`
       : slot.status === "error"
-        ? `${slotLabel} hit a snag during its last readiness check. Re-run setup in Settings → Models to recover.`
-        : `${slotLabel} needs one-time setup before Eco can answer locally. Settings → Models can download it and run the readiness check.`;
+        ? `${slotLabel} hit a snag during its last readiness check. Re-run setup in Settings → Eco to recover.`
+        : `${slotLabel} needs one-time setup before Eco can answer locally. Settings → Eco can download it and run the readiness check.`;
 
   return {
     message,

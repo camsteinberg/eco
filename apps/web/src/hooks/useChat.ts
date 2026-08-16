@@ -746,7 +746,7 @@ export function useChat() {
         const slotLabel = 'Eco';
         writeDispatchError(
           assistantId,
-          `${slotLabel} needs setup before it can run on this device. Go to Settings → Models to set it up.`,
+          `${slotLabel} needs setup before it can run on this device. Go to Settings → Eco to set it up.`,
           {
             localReadiness: {
               kind: "prepare-local-model",
@@ -787,7 +787,7 @@ export function useChat() {
     if (!isLocalAiModel(model)) {
       writeDispatchError(
         assistantId,
-        "This model runs in the cloud, which Eco no longer supports. Choose an on-device model in Settings → Models to keep chatting.",
+        "This model runs in the cloud, which Eco no longer supports. Choose an on-device model in Settings → Eco to keep chatting.",
       );
       return { ok: false };
     }

@@ -9,7 +9,7 @@
  */
 
 export const TEMPLATE_MISSING_USER_MESSAGE =
-  "This model's chat template is missing or broken. Open Settings → Models to re-download it, or pick a different model.";
+  "This model's chat template is missing or broken. Open Settings → Eco to re-download it, or pick a different model.";
 
 /**
  * Warm fallback for on-device generation failures that don't match a dedicated,

@@ -66,7 +66,7 @@ describe('Stage 5a wiring — readiness branch', () => {
     expect(failure.slotId).toBe('eco-fast');
     expect(failure.slotLabel).toBe('Eco');
     expect(failure.readinessStatus).toBe('not-downloaded');
-    expect(failure.message).toMatch(/Settings → Models/);
+    expect(failure.message).toMatch(/Settings → Eco/);
   });
 
   it('builds a readiness failure with friendly model name when slot is preparing', () => {

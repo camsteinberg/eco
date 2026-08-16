@@ -27,7 +27,11 @@ export type StreamPhase =
   | "loading"
   | "thinking"
   | "generating"
-  | "tool-executing";
+  | "tool-executing"
+  // A web lookup (grounding) is running: the device is fetching from a source.
+  // Distinct from "tool-executing" (the on-device calculator/date/unit tools) so
+  // the UI can name the web honestly instead of the generic "Working with tools".
+  | "looking-up";
 
 export type LocalModelReadinessAction = {
   kind: "prepare-local-model";
