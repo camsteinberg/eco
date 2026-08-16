@@ -257,20 +257,28 @@ const CONTROL_SAMPLING_TODAY: Readonly<Record<string, Readonly<Record<string, st
  * The same request typed by a PERSON, in their own words, as the control arm.
  * Pinned so `no longer costs more to press shorter than to type it` cannot be
  * "held" by making a person's own words route worse.
+ *
+ * ★ TR-1 (2026-08-16): "make it shorter" now routes to `writing`, not `quick`.
+ * The transform-widening sweep (ask-text.ts) added the prose comparatives, so a
+ * person's shorten ask lands on the register that returns the rewritten text
+ * (measured on the real 1.2B: 0/6 → 6/6 did-it). The `writing` budget is >= the
+ * `quick` budget on every catalog model (verified), so pressing the terse
+ * `quick` button still never costs MORE than typing — which is the property
+ * `no longer costs more to press shorter than to type it` actually guards.
  */
 const TYPED_EQUIVALENT = "make it shorter";
 
 const TYPED_ROUTING_TODAY: Readonly<Record<string, string>> = {
-  "local/qwen3-0.6b": "quick:512/0.32",
-  "candidate/lfm2.5-1.2b-instruct-onnx": "quick:1024/0.2",
-  "candidate/lfm2.5-1.2b-instruct-q4-onnx": "quick:1024/0.2",
-  "candidate/lfm2.5-350m-onnx": "quick:384/0.25",
-  "candidate/qwen3.5-2b-onnx": "quick:1024/0.32",
-  "candidate/gemma-4-e2b-litert": "quick:256/0.18",
-  "candidate/qwen2.5-0.5b-mlc": "quick:1024/0.45",
-  "candidate/qwen2.5-0.5b-instruct-onnx": "quick:512/0.32",
-  "candidate/smollm2-360m-instruct-onnx": "quick:512/0.32",
-  "candidate/lfm2-2.6b-onnx": "quick:1024/0.2",
+  "local/qwen3-0.6b": "writing:512/0.48",
+  "candidate/lfm2.5-1.2b-instruct-onnx": "writing:1536/0.4",
+  "candidate/lfm2.5-1.2b-instruct-q4-onnx": "writing:1536/0.4",
+  "candidate/lfm2.5-350m-onnx": "writing:384/0.38",
+  "candidate/qwen3.5-2b-onnx": "writing:1536/0.48",
+  "candidate/gemma-4-e2b-litert": "writing:1024/0.45",
+  "candidate/qwen2.5-0.5b-mlc": "writing:1536/0.75",
+  "candidate/qwen2.5-0.5b-instruct-onnx": "writing:512/0.48",
+  "candidate/smollm2-360m-instruct-onnx": "writing:512/0.48",
+  "candidate/lfm2-2.6b-onnx": "writing:1536/0.4",
 };
 
 /**
@@ -615,17 +623,21 @@ describe("reply recovery — what the fix changed", () => {
     //
     // The button used to route `explain` while a person's own words routed
     // `quick` — a hotter sampler on all seven models and, on the four with
-    // headroom, a bigger ceiling too. Forcing the intent removes the gap
-    // entirely rather than narrowing it.
+    // headroom, a bigger ceiling too. Forcing the intent removes that gap.
     //
-    // ★ CHEAPEST SATISFYING CHANGE: raise the TYPED side to match the pressed
-    // side. `routes the typed equivalent unchanged` pins all seven typed values
-    // at `quick` and fails on it.
+    // ★ TR-1 (2026-08-16) then moved the TYPED side: "make it shorter" routes to
+    // `writing`, so the two are no longer byte-identical. The property this test
+    // guards is not equality, it is that PRESSING never costs MORE than typing —
+    // and it does not: the forced `quick` budget is <= the `writing` budget on
+    // every catalog model. (Typing the richer register is a person's own choice
+    // and delivers the rewrite; the button stays the terse, cheaper path.)
     for (const modelId of CATALOG_MODEL_IDS) {
+      const pressed = resolveControl("shorter", modelId);
+      const typed = resolveTypedTurn(TYPED_EQUIVALENT, modelId);
       expect(
-        resolveControl("shorter", modelId),
-        `pressing "Make shorter" no longer matches typing it on ${modelId}`,
-      ).toEqual(resolveTypedTurn(TYPED_EQUIVALENT, modelId));
+        pressed.maxTokens,
+        `pressing "Make shorter" costs more than typing it on ${modelId}`,
+      ).toBeLessThanOrEqual(typed.maxTokens);
     }
     expect(resolveControl("shorter", PREFERRED_DEFAULT_MODEL_ID).maxTokens).toBe(1024);
   });

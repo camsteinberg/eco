@@ -113,6 +113,29 @@ describe("isTextTransformAsk — the user wants the text back changed, not expla
     expect(isTextTransformAsk("make this sound more professional")).toBe(true);
   });
 
+  // TR-1 widening (2026-08-16, measured on the real 1.2B): the natural transform
+  // phrasings PR #154 left uncovered. Before, these routed to `explain` and the
+  // model lectured instead of delivering (0/6 Did-It on the probe).
+  it("fires on the TR-1 verbs added after measurement", () => {
+    for (const ask of [
+      "tidy this up",
+      "polish this",
+      "soften this",
+      "translate this to spanish",
+      "bullet point this",
+      "bullet-point this",
+    ]) {
+      expect(isTextTransformAsk(ask), ask).toBe(true);
+    }
+  });
+
+  it("fires on a curated PROSE comparative after 'make this/it'", () => {
+    expect(isTextTransformAsk("make this shorter")).toBe(true);
+    expect(isTextTransformAsk("make this punchier")).toBe(true);
+    expect(isTextTransformAsk("can you make it a bit shorter")).toBe(true);
+    expect(isTextTransformAsk("make it tighter")).toBe(true);
+  });
+
   it("does NOT fire on 'make <a noun>' — a creation ask, not a rewrite", () => {
     expect(isTextTransformAsk("make me a study guide for calc 1")).toBe(false);
     expect(isTextTransformAsk("turn this into a grocery list")).toBe(false);
@@ -129,9 +152,15 @@ describe("isTextTransformAsk — the user wants the text back changed, not expla
     expect(isTextTransformAsk("can you summarize the french revolution")).toBe(false);
   });
 
-  it("does not fire on a bare comparative — 'make it a bit shorter'", () => {
-    // "shorter" is not the verb "shorten"; no more/less/sound after "make it".
-    expect(isTextTransformAsk("can you make it a bit shorter")).toBe(false);
+  it("keeps explain-overlap and non-prose comparatives OUT (curated, not any -er)", () => {
+    // "easier"/"clearer" are as often "explain X more clearly" as a rewrite;
+    // "bigger"/"better" aren't prose-transform signals. All deliberately excluded.
+    expect(isTextTransformAsk("make it easier for me to understand recursion")).toBe(false);
+    expect(isTextTransformAsk("make it clearer")).toBe(false);
+    expect(isTextTransformAsk("make it bigger")).toBe(false);
+    expect(isTextTransformAsk("make it better")).toBe(false);
+    // "clean" is unmeasured here and "clean this room" is a real non-text sense.
+    expect(isTextTransformAsk("clean this up")).toBe(false);
   });
 
   it("reads only the ask, never the pasted subject", () => {

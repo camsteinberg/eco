@@ -192,6 +192,29 @@ describe("writing intent — the transform family routes to writing, not explain
     ).toBe("writing");
   });
 
+  // TR-1 widening (2026-08-16): the natural phrasings PR #154 missed — measured
+  // on the real 1.2B, these ALSO fell through to explain and were lectured at
+  // (make-it-shorter came back several times LONGER, with "Why this matters"
+  // sections; polish leaked "Plain-language explanation:" verbatim).
+  it("routes the TR-1 transform phrasings to writing", () => {
+    for (const ask of [
+      "make this shorter: 'the meeting moved to thursday at ten, please update your calendars'",
+      "make this punchier: 'our app helps you keep track of your daily tasks'",
+      "tidy this up: 'so basically i went to the store and the bank'",
+      "polish this: 'thanks, looks fine, lets go with it'",
+      "soften this: 'send me the report today'",
+      "bullet point this: 'book the hotel, rent a car, get insurance'",
+      "translate this to spanish: 'what time does the meeting start'",
+    ]) {
+      expect(inferChatIntent(ask), ask).toBe("writing");
+    }
+  });
+
+  it("leaves explain-overlap comparatives on their non-writing route", () => {
+    expect(inferChatIntent("make it easier for me to understand recursion")).not.toBe("writing");
+    expect(inferChatIntent("make it clearer")).not.toBe("writing");
+  });
+
   it("does not pull a plain 'make <a noun>' creation ask into writing", () => {
     expect(inferChatIntent("please make a study guide for calc 1")).not.toBe("writing");
     expect(inferChatIntent("turn this into a grocery list: spaghetti for 4")).not.toBe("writing");
