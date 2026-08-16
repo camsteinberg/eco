@@ -15,7 +15,10 @@ import { SeedlingIllustration } from '@eco/ui';
  * Provides:
  *   - A calm explanation that Eco is coming to their device, TRUE to the
  *     actual reason it can't run here (runtime / memory / fallback)
- *   - Email signup (caller-provided action)
+ *   - An honest "Email us" handoff: a real mailto to a real inbox the user
+ *     opens themselves, so nothing is captured or stored here. (MC-1 replaced
+ *     an email field + "Sign me up" + "we'll let you know" that implied a
+ *     waitlist backend we don't run — there is no automated signup.)
  *   - "What works today" disclosure
  */
 
@@ -36,6 +39,10 @@ export type BelowFloorReasonKind = 'runtime' | 'memory' | 'fallback' | 'mobile';
 /** Where we send people to run Eco. Kept in one place for the handoff + copy. */
 const ECO_URL = 'https://econetwork.ai';
 
+/** The real inbox behind the "Email us" handoff. A person reads it — there is
+ *  no automated waitlist, so the copy promises a reply, not a subscription. */
+const CONTACT_EMAIL = 'hello@econetwork.ai';
+
 export type BelowFloorScreenProps = {
   /** The user-friendly device/browser tag — e.g. "Safari on iPhone". */
   deviceLabel?: string;
@@ -46,34 +53,39 @@ export type BelowFloorScreenProps = {
    * valid.
    */
   reason?: BelowFloorReasonKind;
-  /** Called when the user opts in to be notified. */
-  onSignup(email: string): Promise<void>;
 };
 
-export function BelowFloorScreen({ deviceLabel, reason = 'runtime', onSignup }: BelowFloorScreenProps) {
-  const [email, setEmail] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [confirmed, setConfirmed] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [disclosureOpen, setDisclosureOpen] = useState(false);
+/** The one line beside the Email-us action — true to why this device can't run
+ *  Eco yet, and framed as a reply we send, not a list we add them to. */
+function notifyCopy(reason: BelowFloorReasonKind): string {
+  switch (reason) {
+    case 'mobile':
+      return "Email us and we'll tell you when Eco comes to phones.";
+    case 'memory':
+      return "Email us and we'll tell you when lighter models arrive.";
+    case 'fallback':
+      return "Email us and we'll tell you when Eco is ready for this setup.";
+    default:
+      return "Email us and we'll tell you when your browser is supported.";
+  }
+}
 
-  const submit = async (event: React.FormEvent): Promise<void> => {
-    event.preventDefault();
-    if (!email || !email.includes('@')) {
-      setError('Please enter a valid email address.');
-      return;
-    }
-    setError(null);
-    setSubmitting(true);
-    try {
-      await onSignup(email);
-      setConfirmed(true);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong.');
-    } finally {
-      setSubmitting(false);
-    }
-  };
+/** A pre-addressed mailto: the user's own mail client supplies their address
+ *  (nothing is captured on this screen), and we get the device context we'd
+ *  need to follow up. */
+function emailUsHref(reason: BelowFloorReasonKind, deviceLabel?: string): string {
+  const subject = 'Eco — let me know when my device is supported';
+  const body = [
+    "I'd like to know when Eco can run on my device.",
+    '',
+    `Device: ${deviceLabel ?? 'unknown'}`,
+    `Reason: ${reason}`,
+  ].join('\n');
+  return `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+}
+
+export function BelowFloorScreen({ deviceLabel, reason = 'runtime' }: BelowFloorScreenProps) {
+  const [disclosureOpen, setDisclosureOpen] = useState(false);
 
   return (
     <main
@@ -131,55 +143,32 @@ export function BelowFloorScreen({ deviceLabel, reason = 'runtime', onSignup }: 
 
         {reason === 'mobile' && <MobileHandoff />}
 
-        {confirmed ? (
-          <p className="text-sm" style={{ color: 'var(--eco-success)' }}>
-            {reason === 'mobile'
-              ? "Thanks — we'll email you when Eco comes to phones."
-              : "Thanks — we'll let you know when Eco arrives on your device."}
+        <div className="flex flex-col items-center gap-3 w-full max-w-xs">
+          <p className="text-sm" style={{ color: 'var(--eco-text-secondary)' }}>
+            {notifyCopy(reason)}
           </p>
-        ) : (
-          <form onSubmit={submit} className="flex flex-col gap-3 w-full max-w-xs">
-            <p className="text-sm" style={{ color: 'var(--eco-text-secondary)' }}>
-              {reason === 'mobile'
-                ? "We'll email you when Eco comes to phones."
-                : reason === 'memory'
-                  ? "We'll email you when lighter models arrive."
-                  : "We'll email you when Eco arrives."}
-            </p>
-            <input
-              type="email"
-              required
-              autoComplete="email"
-              placeholder="you@example.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-xl px-4 py-3 text-sm"
-              style={{
-                background: 'var(--eco-surface-elevated)',
-                border: '1px solid var(--eco-border)',
-                color: 'var(--eco-text)',
-                fontFamily: 'var(--eco-font-body)',
-              }}
-              aria-label="Email address"
-            />
-            {/* On the mobile branch the native handoff is the one primary CTA;
-                the notify action drops to the quiet outline (secondary) variant so
-                two same-weight green buttons don't compete. Other reason branches
-                have no competing CTA, so Sign me up stays primary there. */}
-            <Button
-              type="submit"
-              variant={reason === 'mobile' ? 'secondary' : 'primary'}
-              disabled={submitting}
-            >
-              {submitting ? 'Saving...' : 'Sign me up'}
-            </Button>
-            {error && (
-              <p className="text-xs" style={{ color: 'var(--eco-error)' }}>
-                {error}
-              </p>
-            )}
-          </form>
-        )}
+          {/* A real mailto link, not a form: it opens the user's own mail client
+              (which supplies their address), so nothing on this screen collects or
+              stores anything. It's an <a>, not the @eco/ui <Button> (button-only),
+              because a mailto is a link — the native affordance works without JS
+              and long-press reveals the address. Styled to the primary/secondary
+              button so it reads as the CTA. On mobile the native handoff is the one
+              primary CTA, so Email us drops to the quiet outline (secondary) to
+              avoid two competing green buttons. */}
+          <a
+            href={emailUsHref(reason, deviceLabel)}
+            className={[
+              'w-full inline-flex items-center justify-center gap-2 font-medium transition-colors',
+              'px-5 py-2.5 text-sm rounded-[var(--eco-radius-sm)]',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--eco-primary)]/30 focus-visible:ring-offset-2',
+              reason === 'mobile'
+                ? 'border border-[var(--eco-primary)] text-[var(--eco-primary)] hover:bg-[var(--eco-primary-soft)]'
+                : 'bg-[var(--eco-primary)] text-[var(--eco-on-primary)] hover:bg-[var(--eco-primary-hover)]',
+            ].join(' ')}
+          >
+            Email us
+          </a>
+        </div>
 
         <div className="mt-4 w-full">
           <button

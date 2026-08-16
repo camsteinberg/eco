@@ -25,15 +25,12 @@ import { BelowFloorScreen } from './BelowFloorScreen';
 
 export type LocalAiSetupGateProps = {
   children: ReactNode;
-  /** Optional email signup handler for the below-floor screen. */
-  onBelowFloorSignup?(email: string): Promise<void>;
   /** Open a diagnostic / support panel from the error state. */
   onTellUsMore?(): void;
 };
 
 export function LocalAiSetupGate({
   children,
-  onBelowFloorSignup,
   onTellUsMore,
 }: LocalAiSetupGateProps) {
   const setup = useLocalAiSetup();
@@ -67,11 +64,7 @@ export function LocalAiSetupGate({
     const deviceLabel = describeDevice(profile);
     const reason = deriveBelowFloorReason(profile);
     return (
-      <BelowFloorScreen
-        deviceLabel={deviceLabel}
-        reason={reason}
-        onSignup={onBelowFloorSignup ?? noopSignup}
-      />
+      <BelowFloorScreen deviceLabel={deviceLabel} reason={reason} />
     );
   }
 
@@ -139,9 +132,4 @@ export function deriveBelowFloorReason(profile: DeviceProfile): BelowFloorReason
   if (profile.webgpuSupport === 'none') return 'runtime';
   if (failsMemoryFloor(profile)) return 'memory';
   return 'fallback';
-}
-
-async function noopSignup(_email: string): Promise<void> {
-  // Deployment-time default. Real signup is wired in production via
-  // mailto: or the marketing/site signup endpoint.
 }
