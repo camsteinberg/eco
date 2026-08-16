@@ -104,11 +104,13 @@ function GeneratingCursor() {
 }
 
 /**
- * Growing seedling SVG icon for tool-executing state.
+ * Growing seedling SVG icon for the tool-executing and looking-up states.
  * A simple stem with two small leaves, colored with var(--eco-accent).
- * Uses Motion v12 gentle scale pulse.
+ * Uses Motion v12 gentle scale pulse. `srLabel` names what is running for screen
+ * readers — the generic on-device tools keep "Running tool...", while a web lookup
+ * announces the web honestly.
  */
-function ToolSeedling() {
+function ToolSeedling({ srLabel = "Running tool..." }: { srLabel?: string }) {
   const shouldReduce = useReducedMotion();
 
   return (
@@ -152,7 +154,7 @@ function ToolSeedling() {
           opacity="0.85"
         />
       </motion.svg>
-      <span className="sr-only">Running tool...</span>
+      <span className="sr-only">{srLabel}</span>
     </span>
   );
 }
@@ -170,5 +172,7 @@ export function StreamingCursor({ phase = "generating" }: StreamingCursorProps) 
       return <GeneratingCursor />;
     case "tool-executing":
       return <ToolSeedling />;
+    case "looking-up":
+      return <ToolSeedling srLabel="Looking this up on the web" />;
   }
 }

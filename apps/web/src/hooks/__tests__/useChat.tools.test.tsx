@@ -567,8 +567,9 @@ describe("useChat — grounding pipeline (citation presentation)", () => {
       await Promise.resolve();
     });
 
-    // Mid-lookup: the "Looking it up…" phase is shown.
-    expect(useChatStore.getState().streamPhase).toBe("tool-executing");
+    // Mid-lookup: the web-lookup phase is shown ("Looking this up on the web…"),
+    // distinct from the on-device tools' "tool-executing".
+    expect(useChatStore.getState().streamPhase).toBe("looking-up");
 
     // Release the lookup and let generation finish.
     await act(async () => {

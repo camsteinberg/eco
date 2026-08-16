@@ -507,8 +507,15 @@ function StreamingPrelude({ phase }: { phase?: StreamPhase }) {
   }
 
   // Some phases carry an honest context label; queued stays dots-only.
-  // - tool-executing: deterministic tool work is running.
-  const label = resolvedPhase === "tool-executing" ? "Working with tools" : null;
+  // - looking-up: a web lookup is running — name the web so the user knows their
+  //   question is leaving the device (matters most for anything sensitive).
+  // - tool-executing: on-device tool work (calculator/date/unit) is running.
+  const label =
+    resolvedPhase === "looking-up"
+      ? "Looking this up on the web…"
+      : resolvedPhase === "tool-executing"
+        ? "Working with tools"
+        : null;
 
   return (
     <div className="inline-flex items-center gap-2 rounded-full border border-[var(--eco-border)]/70 bg-[var(--eco-surface-elevated)]/75 px-3 py-2 text-sm text-[var(--eco-text-secondary)] shadow-sm">

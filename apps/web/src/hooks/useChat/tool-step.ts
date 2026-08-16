@@ -45,11 +45,13 @@ export type ToolStepStore = {
   /** Flip the running call to complete/error with the authoritative display string. */
   updateToolCall: (id: string, updates: Partial<ToolCallDisplay>) => void;
   /**
-   * Set the stream phase. Used to flip into `"tool-executing"` ("Looking it up…")
-   * ONLY while a matched tool's `execute` is awaited (#5 S3). The step never
-   * restores the phase — `streamResponse` owns the next transition (the generation
-   * flips it to generating/thinking on its first token), so there is no flash on
-   * the common no-match path and no stuck `"tool-executing"` after a real match.
+   * Set the stream phase ONLY while a matched tool's `execute` is awaited (#5 S3):
+   * `"looking-up"` for a web lookup (grounding — a real fetch leaves the device, so
+   * the UI names the web) and `"tool-executing"` for the on-device
+   * calculator/date/unit tools. The step never restores the phase —
+   * `streamResponse` owns the next transition (the generation flips it to
+   * generating/thinking on its first token), so there is no flash on the common
+   * no-match path and no stuck phase after a real match.
    */
   setStreamPhase: (phase: StreamPhase) => void;
 };
@@ -151,7 +153,7 @@ function nextToolCallId(): string {
  */
 export const WEB_LOOKUPS_OFF_DECLINE_MESSAGE =
   "I can't look that up right now — web lookups are turned off, so I don't have live " +
-  "data for it. You can turn them back on in Settings → Models, and I'll be able to " +
+  "data for it. You can turn them back on in Settings → Eco, and I'll be able to " +
   "check a real source. Happy to help with something else in the meantime.";
 
 /**
@@ -285,10 +287,12 @@ export async function runToolStep(
     });
   }
 
-  // Show "Looking it up…" ONLY while the matched tool's execute is awaited (the
-  // seedling/tool-executing affordance). Set immediately before the await; never
-  // restored here — the generation's first token flips it to generating/thinking.
-  store.setStreamPhase("tool-executing");
+  // Flip the phase ONLY while the matched tool's execute is awaited (the seedling
+  // affordance). A web lookup names the web ("looking-up" → "Looking this up on the
+  // web…"); the on-device tools stay generic ("tool-executing"). Set immediately
+  // before the await; never restored here — the generation's first token flips it to
+  // generating/thinking.
+  store.setStreamPhase(isCitation ? "looking-up" : "tool-executing");
 
   // Execute (may be async, may hit the network). On an unexpected throw, surface a
   // tool error AND tell the model the tool couldn't run, so it answers normally

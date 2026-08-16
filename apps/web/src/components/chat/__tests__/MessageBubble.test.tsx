@@ -408,6 +408,25 @@ describe("MessageBubble", () => {
     expect(cursor).toHaveAttribute("data-phase", "tool-executing");
   });
 
+  it("names the web for the looking-up streaming phase (a live grounding lookup)", () => {
+    // Honest in-the-moment signal: a web lookup is the one moment a user learns
+    // their question is leaving the device, so the pill names the web plainly
+    // rather than the generic "Working with tools".
+    render(
+      <MessageBubble
+        role="assistant"
+        content=""
+        isStreaming
+        streamPhase="looking-up"
+        status="streaming"
+      />,
+    );
+    expect(screen.getByText("Looking this up on the web…")).toBeInTheDocument();
+    expect(screen.queryByText("Working with tools")).not.toBeInTheDocument();
+    const cursor = screen.getByTestId("cursor");
+    expect(cursor).toHaveAttribute("data-phase", "looking-up");
+  });
+
   it("renders honest 'Warming up Eco…' label + loading cursor for loading streaming phase", () => {
     // Cold-load window (#4 W3a): the model is warming up before the first token,
     // so the prelude must say so honestly rather than show undifferentiated dots.

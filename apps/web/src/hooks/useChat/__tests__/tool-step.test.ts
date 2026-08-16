@@ -357,8 +357,9 @@ describe("runToolStep — grounding (presentation:'citation')", () => {
     });
     // FOUND carries a citation, NOT a verification marker (they are mutually exclusive).
     expect(out.verification).toBeUndefined();
-    // The "Looking it up…" phase is set during the lookup (single flip).
-    expect(phases).toEqual(["tool-executing"]);
+    // A web lookup names the web: the "looking-up" phase is set during the lookup
+    // (single flip), distinct from the on-device tools' "tool-executing".
+    expect(phases).toEqual(["looking-up"]);
   });
 
   it("hard-declines an unknown entity: note set, NO citation, NO ToolCallBlock", async () => {

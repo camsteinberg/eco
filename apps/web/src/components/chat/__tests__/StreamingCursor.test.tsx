@@ -57,6 +57,17 @@ describe("StreamingCursor", () => {
     expect(screen.getByText("Running tool...")).toBeTruthy();
   });
 
+  it("announces the web honestly for the 'looking-up' phase (a live grounding lookup)", () => {
+    render(<StreamingCursor phase="looking-up" />);
+    const cursor = screen.getByTestId("streaming-cursor");
+    expect(cursor).toBeTruthy();
+    // Same seedling affordance as the on-device tools…
+    expect(cursor.querySelector("svg")).toBeTruthy();
+    // …but the screen-reader name names the web, not the generic "Running tool...".
+    expect(screen.getByText("Looking this up on the web")).toBeTruthy();
+    expect(screen.queryByText("Running tool...")).toBeNull();
+  });
+
   it("renders the calm loading indicator (seed + halo) when phase is 'loading'", () => {
     // Cold-load window (#4 W3a): a distinct botanical "warming up" motif, not the
     // staccato thinking dots, so the residual model-load wait reads honestly.
