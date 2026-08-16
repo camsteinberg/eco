@@ -352,9 +352,9 @@ describe("ErrorMessage", () => {
     render(<ErrorMessage onRetry={() => {}} message={CONTEXT_WINDOW_REFUSAL_MESSAGE} />);
     expect(screen.getByRole("heading")).toHaveTextContent("This conversation is too long");
     expect(screen.queryByText(/Eco needs one quick setup/i)).not.toBeInTheDocument();
-    // The body says what to do (trim / shorten); an unchanged retry would just
+    // The body says what to do (start a new chat); an unchanged retry would just
     // re-refuse, so there is no Try again button.
-    expect(screen.getByText(/trim the long chat or file/i)).toBeInTheDocument();
+    expect(screen.getByText(/start a new chat/i)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /try again/i })).not.toBeInTheDocument();
   });
 

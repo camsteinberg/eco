@@ -24,7 +24,7 @@ export function estimateTokens(text: string): number {
  * "kept your draft." It states what happened and what the user can do next.
  */
 export const CONTEXT_WINDOW_REFUSAL_MESSAGE =
-  "This local model needs a shorter context before it can answer. Trim the long chat or file, or ask for a shorter answer.";
+  "This conversation has grown past what the local model can hold in context. Start a new chat to keep going, or try a shorter question.";
 
 function countTokens(text: string, estimator?: TokenEstimator): number {
   return estimator ? Math.max(0, Math.ceil(estimator(text))) : estimateTokens(text);
@@ -72,6 +72,41 @@ export type LocalContextSafetyDecision =
  */
 const EVICTION_QUANTUM_FRACTION = 1 / 8;
 
+export type ContextSelectionOptions = {
+  estimateTokens?: TokenEstimator;
+  /**
+   * Token budget reserved for rendering overhead that exists in the rendered
+   * prompt but NOT in the raw message content (per-turn hints, branch recaps,
+   * grounding tool system notes). Subtracted from the history budget so that
+   * any window passing selection also passes the 0.90 safety check
+   * (`assessLocalContextSafety`) on the rendered prompt. Callers compute this
+   * from the branch's user-turn count and a per-turn hint ceiling.
+   */
+  reservedOverheadTokens?: number;
+};
+
+/**
+ * Coalesce consecutive user turns created by empty-assistant removal.
+ * Joins adjacent user contents with a blank line; keeps the later message's
+ * metadata (id, parentId, timestamps) so branch navigation and context
+ * divider computation work correctly.
+ *
+ * @internal Exported for unit testing.
+ */
+export function coalesceConsecutiveUsers(messages: ChatMessage[]): ChatMessage[] {
+  if (messages.length <= 1) return messages;
+  const result: ChatMessage[] = [];
+  for (const m of messages) {
+    const prev = result.length > 0 ? result[result.length - 1]! : undefined;
+    if (prev && prev.role === "user" && m.role === "user") {
+      result[result.length - 1] = { ...m, content: `${prev.content}\n\n${m.content}` };
+    } else {
+      result.push(m);
+    }
+  }
+  return result;
+}
+
 /**
  * Select the most recent messages that fit within 75% of the model's context
  * window. System prompt tokens are deducted first (always included, outside
@@ -79,6 +114,11 @@ const EVICTION_QUANTUM_FRACTION = 1 / 8;
  * history must be evicted the cut advances in quantum steps (see
  * `EVICTION_QUANTUM_FRACTION`) so the window start — and with it KV-cache
  * reuse — stays stable between evictions.
+ *
+ * Empty assistant turns (errored / stopped before first token) are filtered
+ * out before selection so they never replay to the model. If removal creates
+ * adjacent user turns, they are coalesced to maintain strict user/assistant
+ * alternation (the chat template layer does NOT merge consecutive user roles).
  *
  * @param activeBranch - All messages in the current conversation branch
  * @param modelContextLength - Model's total context length in tokens
@@ -89,25 +129,35 @@ export function selectMessagesForContext(
   activeBranch: ChatMessage[],
   modelContextLength: number,
   systemPrompt?: string,
-  options?: { estimateTokens?: TokenEstimator }
+  options?: ContextSelectionOptions,
 ): ChatMessage[] {
   if (activeBranch.length === 0) return [];
+
+  // CS-3: filter out assistant messages with empty content. Errored turns write
+  // {status:'error', content:''} and stop-before-first-token writes
+  // {status:'complete', content:''}; replaying them as empty assistant turns
+  // confuses the model and wastes context.
+  const cleaned = activeBranch.filter(
+    (m) => m.role !== "assistant" || m.content.trim().length > 0,
+  );
+  if (cleaned.length === 0) return [];
 
   // Compute available token budget
   const totalBudget = Math.floor(modelContextLength * 0.75);
   const systemTokens = systemPrompt ? countTokens(systemPrompt, options?.estimateTokens) : 0;
-  const historyBudget = Math.max(0, totalBudget - systemTokens);
+  const reserved = options?.reservedOverheadTokens ?? 0;
+  const historyBudget = Math.max(0, totalBudget - systemTokens - reserved);
 
   // Walk backward from the end, accumulating tokens.
   // Track indices of messages to include.
   let tokensUsed = 0;
-  let startIndex = activeBranch.length; // exclusive start (will move backward)
+  let startIndex = cleaned.length; // exclusive start (will move backward)
 
-  for (let i = activeBranch.length - 1; i >= 0; i--) {
-    const msg = activeBranch[i]!;
+  for (let i = cleaned.length - 1; i >= 0; i--) {
+    const msg = cleaned[i]!;
     const msgTokens = countTokens(msg.content, options?.estimateTokens);
 
-    if (tokensUsed + msgTokens > historyBudget && startIndex < activeBranch.length) {
+    if (tokensUsed + msgTokens > historyBudget && startIndex < cleaned.length) {
       // This message would exceed budget and we already have at least one message
       break;
     }
@@ -121,27 +171,27 @@ export function selectMessagesForContext(
   // the minimum buys turns of start stability (KV reuse) before the next
   // eviction. Never advances past the final user turn — the last pair (or
   // trailing user message) survives, matching the minimal walk's guarantee.
-  if (startIndex > 0 && startIndex < activeBranch.length) {
+  if (startIndex > 0 && startIndex < cleaned.length) {
     const quantum = Math.max(1, Math.floor(historyBudget * EVICTION_QUANTUM_FRACTION));
     let evictedTokens = 0;
     for (let i = 0; i < startIndex; i++) {
-      evictedTokens += countTokens(activeBranch[i]!.content, options?.estimateTokens);
+      evictedTokens += countTokens(cleaned[i]!.content, options?.estimateTokens);
     }
     const targetEvicted = Math.ceil(evictedTokens / quantum) * quantum;
 
-    let lastUserIndex = activeBranch.length - 1;
-    while (lastUserIndex > 0 && activeBranch[lastUserIndex]!.role !== "user") {
+    let lastUserIndex = cleaned.length - 1;
+    while (lastUserIndex > 0 && cleaned[lastUserIndex]!.role !== "user") {
       lastUserIndex--;
     }
 
     while (startIndex < lastUserIndex && evictedTokens < targetEvicted) {
-      evictedTokens += countTokens(activeBranch[startIndex]!.content, options?.estimateTokens);
+      evictedTokens += countTokens(cleaned[startIndex]!.content, options?.estimateTokens);
       startIndex++;
     }
   }
 
   // Extract the selected slice
-  let selected = activeBranch.slice(startIndex);
+  let selected = cleaned.slice(startIndex);
 
   // Drop orphaned assistant at the start (ensures complete pairs)
   if (selected.length > 0 && selected[0]!.role === "assistant") {
@@ -149,21 +199,25 @@ export function selectMessagesForContext(
   }
 
   // Guarantee at least the last user+assistant pair (or trailing user)
-  if (selected.length === 0 && activeBranch.length > 0) {
+  if (selected.length === 0 && cleaned.length > 0) {
     // Find the last user message and include everything from it to the end
-    for (let i = activeBranch.length - 1; i >= 0; i--) {
-      if (activeBranch[i]!.role === "user") {
-        selected = activeBranch.slice(i);
+    for (let i = cleaned.length - 1; i >= 0; i--) {
+      if (cleaned[i]!.role === "user") {
+        selected = cleaned.slice(i);
         break;
       }
     }
     // If no user message found, just return the last message
     if (selected.length === 0) {
-      selected = [activeBranch[activeBranch.length - 1]!];
+      selected = [cleaned[cleaned.length - 1]!];
     }
   }
 
-  return selected;
+  // CS-3: coalesce consecutive user turns that may result from filtering out
+  // empty assistant turns. The chat template layer (normalizeMessagesForTemplate)
+  // does NOT merge consecutive user roles — it only handles system-role
+  // normalization — so apply_chat_template would receive malformed alternation.
+  return coalesceConsecutiveUsers(selected);
 }
 
 export function getContextSelectionDiagnostics(
@@ -171,7 +225,7 @@ export function getContextSelectionDiagnostics(
   selectedMessages: ChatMessage[],
   modelContextLength: number,
   systemPrompt?: string,
-  options?: { estimateTokens?: TokenEstimator }
+  options?: ContextSelectionOptions,
 ): ContextSelectionDiagnostics {
   const systemPromptTokens = systemPrompt ? countTokens(systemPrompt, options?.estimateTokens) : 0;
   const selectedMessageTokens = selectedMessages.reduce(

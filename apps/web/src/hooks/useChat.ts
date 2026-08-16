@@ -97,6 +97,34 @@ export {
 } from "./useChat/generation";
 
 /**
+ * Estimate the rendering overhead (hints, recaps, tool note) that the prompt
+ * assembly adds on top of the raw message content. Passed to
+ * `selectMessagesForContext` as `reservedOverheadTokens` so the selection
+ * budget accounts for the tokens that will exist in the rendered prompt but
+ * not in the raw conversation, preventing a window that passes selection from
+ * failing the 0.90 safety check.
+ *
+ * Per-turn overhead: the longest hint (`buildTurnQualityInstruction`) is
+ * ~120 chars ≈ 30 tokens. Recaps and tool notes add a fixed amount.
+ * The reserve is capped at 10% of the context length to avoid over-eviction
+ * in long conversations where the user-turn count is large.
+ *
+ * @internal Exported for unit testing.
+ */
+export function estimateRenderingOverhead(
+  messages: ReadonlyArray<{ role: string }>,
+  contextLength: number,
+): number {
+  const PER_TURN_HINT_TOKENS = 24;
+  const FIXED_OVERHEAD_TOKENS = 128;
+  const userTurnCount = messages.filter((m) => m.role === "user").length;
+  return Math.min(
+    userTurnCount * PER_TURN_HINT_TOKENS + FIXED_OVERHEAD_TOKENS,
+    Math.floor(contextLength * 0.10),
+  );
+}
+
+/**
  * Build a composed system prompt combining the Eco identity prompt and custom
  * instructions.
  *
@@ -1655,6 +1683,7 @@ export function useChat() {
         msgsForApi,
         effectiveModelContextLength,
         composedSystemPrompt,
+        { reservedOverheadTokens: estimateRenderingOverhead(msgsForApi, effectiveModelContextLength) },
       );
       const apiMessages = windowedMsgs.map((m) => ({ role: m.role, content: m.content }));
 
@@ -1757,12 +1786,21 @@ export function useChat() {
       fullBranch,
       effectiveModelContextLength,
       composedSystemPrompt,
+      { reservedOverheadTokens: estimateRenderingOverhead(fullBranch, effectiveModelContextLength) },
     );
     const branchForApi = windowedBranch.map((m) => ({ role: m.role, content: m.content }));
 
     // Update displayed messages to show the new branch
     const newBranch = [...ancestors, ...allMsgs.filter((m) => m.id === newUserId || m.id === newAssistantId)];
     useChatStore.getState().setMessages(newBranch);
+    // CS-2: restore streaming state since setMessages resets it to idle/isStreaming=false.
+    // Without this, the Stop button disappears and send/edit/regenerate guards open to
+    // overlapping generation. Same pattern as regenerateMessage (~line 1845-1849).
+    useChatStore
+      .getState()
+      .setStreamPhase(
+        resolveInitialStreamPhase(useChatStore.getState().selectedModel),
+      );
 
     try {
       await streamResponse(newAssistantId, branchForApi, buildBranchRecaps(fullBranch));
@@ -1834,6 +1872,7 @@ export function useChat() {
       ancestors,
       effectiveModelContextLength,
       composedSystemPrompt,
+      { reservedOverheadTokens: estimateRenderingOverhead(ancestors, effectiveModelContextLength) },
     );
     const apiMessages = windowedAncestors.map((m) => ({ role: m.role, content: m.content }));
 
@@ -1910,10 +1949,73 @@ export function useChat() {
       }
     }
 
-    // Remove the failed assistant message
-    removeMessage(failedAssistant.id);
-    // Resend
-    await sendMessage(userMsg.content);
+    // CS-1: regenerate-style retry — reuse the EXISTING user turn, create a
+    // fresh assistant SIBLING. The old failed assistant stays as a hidden
+    // sibling (same as regenerateMessage leaves the old one). The old code
+    // called removeMessage + sendMessage, which added a SECOND identical user
+    // turn (duplicate in the transcript + malformed user→user history for
+    // apply_chat_template).
+    setError(null);
+    const retryAssistantId = addMessage({
+      role: "assistant",
+      content: "",
+      parentId: failedAssistant.parentId ?? null,
+    });
+    updateMessage(retryAssistantId, { status: "streaming" });
+    setStreamPhase(
+      resolveInitialStreamPhase(useChatStore.getState().selectedModel),
+    );
+
+    // Save to IndexedDB immediately
+    const convId = useConversationStore.getState().activeConversationId;
+    if (convId) {
+      const convStore = useConversationStore.getState();
+      const assistantMsg = useChatStore.getState().messages.find((m) => m.id === retryAssistantId);
+      if (assistantMsg) convStore.saveMessage(toDbMessage(assistantMsg, convId));
+      convStore.updateConversation(convId, { activeLeafId: retryAssistantId });
+    }
+
+    // Build ancestors by walking up from failedAssistant.parentId (the user turn)
+    const retryAllMsgs = useChatStore.getState().messages;
+    const retryMsgById = new Map(retryAllMsgs.map((m) => [m.id, m]));
+    const retryAncestors: ChatMessage[] = [];
+    let retryCurrentId: string | null = failedAssistant.parentId ?? null;
+    while (retryCurrentId) {
+      const m = retryMsgById.get(retryCurrentId);
+      if (!m) break;
+      retryAncestors.push(m);
+      retryCurrentId = m.parentId ?? null;
+    }
+    retryAncestors.reverse();
+
+    // Apply context window to ancestors
+    const retryWindowedAncestors = selectMessagesForContext(
+      retryAncestors,
+      effectiveModelContextLength,
+      composedSystemPrompt,
+      { reservedOverheadTokens: estimateRenderingOverhead(retryAncestors, effectiveModelContextLength) },
+    );
+    const retryApiMessages = retryWindowedAncestors.map((m) => ({ role: m.role, content: m.content }));
+
+    // Update displayed messages: ancestors + new assistant (old failed stays as hidden sibling)
+    const retryBranch = [...retryAncestors, ...retryAllMsgs.filter((m) => m.id === retryAssistantId)];
+    useChatStore.getState().setMessages(retryBranch);
+    // Restore streaming state since setMessages resets it (CS-2 pattern)
+    useChatStore
+      .getState()
+      .setStreamPhase(
+        resolveInitialStreamPhase(useChatStore.getState().selectedModel),
+      );
+
+    try {
+      await streamResponse(retryAssistantId, retryApiMessages, buildBranchRecaps(retryAncestors));
+    } catch (err) {
+      if (!isActiveGenerationAborted()) {
+        handleStreamError(err, retryAssistantId);
+      }
+    } finally {
+      setStreamPhase("idle");
+    }
   }
 
   // ── Invisible readiness retry ──────────────────────────────────────────
@@ -2024,6 +2126,7 @@ export function useChat() {
       messages,
       effectiveModelContextLength,
       composedSystemPrompt,
+      { reservedOverheadTokens: estimateRenderingOverhead(messages, effectiveModelContextLength) },
     );
     return findContextDividerIndex(messages, selected);
   }, [messages, effectiveModelContextLength, composedSystemPrompt]);
