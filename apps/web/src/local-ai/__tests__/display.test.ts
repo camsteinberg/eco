@@ -22,15 +22,15 @@ describe('getDisplayInfo', () => {
     }
   });
 
-  it('maps Qwen2.5 0.5B (int8 CPU floor) to a branded name — not the raw model name (MC-4)', () => {
-    const info = getDisplayInfo('candidate/qwen2.5-0.5b-instruct-onnx', {
-      friendlyName: 'Qwen2.5 0.5B',
-      vendor: 'Alibaba',
-      sizeGB: 0.52,
+  it('maps Granite 4.0 350M (q4 CPU floor) to a branded name — not the raw model name (MC-4)', () => {
+    const info = getDisplayInfo('candidate/granite-4.0-350m-onnx', {
+      friendlyName: 'Granite 4.0 350M',
+      vendor: 'IBM',
+      sizeGB: 0.58,
     });
-    expect(info.friendlyName).toBe('Eco Basic (Qwen)');
+    expect(info.friendlyName).toBe('Eco Basic (Granite)');
     expect(info.qualityPhrase).toBeTruthy();
-    expect(info.provenance).toBe('Alibaba · 0.5 GB');
+    expect(info.provenance).toBe('IBM · 0.6 GB');
   });
 
   it('maps SmolLM2 360M (lightest int8 CPU floor) to a branded name — not the raw model name (MC-4)', () => {

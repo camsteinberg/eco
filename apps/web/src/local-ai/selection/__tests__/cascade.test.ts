@@ -98,7 +98,7 @@ describe('cascadePath', () => {
 
 describe('cascadePath — Finding E: WASM cascade never attempts CPU-EP-unloadable models', () => {
   // On a wasm-only device the ladder is the CPU-EP-safe floor set — SmolLM2-360M
-  // (preferred fast floor) first, then Qwen2.5-0.5B and qwen3-0.6b. The int4 LFM2.5
+  // (preferred fast floor) first, then Granite and qwen3-0.6b. The int4 LFM2.5
   // builds (350m, 1.2B-q4) block-quantize embeddings → GatherBlockQuantized, absent
   // on ort-web's CPU EP, so they must NEVER appear — the setup cascade cannot burn a
   // doomed download on a model that can't load here.
@@ -108,7 +108,7 @@ describe('cascadePath — Finding E: WASM cascade never attempts CPU-EP-unloadab
     expect(path).not.toContain('candidate/lfm2.5-350m-onnx');
     expect([...path].sort()).toEqual(
       [
-        'candidate/qwen2.5-0.5b-instruct-onnx',
+        'candidate/granite-4.0-350m-onnx',
         'candidate/smollm2-360m-instruct-onnx',
         'local/qwen3-0.6b',
       ].sort(),

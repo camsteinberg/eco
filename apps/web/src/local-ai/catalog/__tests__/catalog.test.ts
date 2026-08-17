@@ -28,7 +28,7 @@ const V1_CATALOG_IDS = [
   'candidate/qwen3.5-2b-onnx',
   'candidate/gemma-4-e2b-litert',
   'candidate/qwen2.5-0.5b-mlc',
-  'candidate/qwen2.5-0.5b-instruct-onnx',
+  'candidate/granite-4.0-350m-onnx',
   'candidate/smollm2-360m-instruct-onnx',
   'candidate/lfm2-2.6b-onnx',
 ] as const;
@@ -83,10 +83,10 @@ describe('local-ai catalog (Phase C)', () => {
       // ModelRecord.overrides.context_window_size (see runtime/webllm-config.ts),
       // not just clamped in what Eco sends. Raising it needs a fresh on-device run.
       'candidate/qwen2.5-0.5b-mlc': 4096,
-      // The int8 no-GPU CPU-EP floor models. Both are natively larger-context
-      // (Qwen2.5 32k / SmolLM2 8k) but capped at 4096 to bound the KV-cache working
-      // set on the weak, memory-tight devices this floor serves.
-      'candidate/qwen2.5-0.5b-instruct-onnx': 4096,
+      // The no-GPU CPU-EP floor models (deeper q4 Granite + lightest int8 SmolLM2).
+      // Both are natively larger-context (Granite 32k / SmolLM2 8k) but capped at 4096
+      // to bound the KV-cache working set on the weak, memory-tight devices this floor serves.
+      'candidate/granite-4.0-350m-onnx': 4096,
       'candidate/smollm2-360m-instruct-onnx': 4096,
       // LFM2-2.6B graduated 2026-08-10 at the eval-lane's declared 4096 — no
       // headroom run has yet earned a larger window (raising it needs one first).
@@ -113,7 +113,7 @@ describe('local-ai catalog (Phase C)', () => {
       'candidate/lfm2.5-1.2b-instruct-q4-onnx': 'native',
       'candidate/lfm2.5-350m-onnx': 'native',
       'candidate/qwen3.5-2b-onnx': 'native',
-      'candidate/qwen2.5-0.5b-instruct-onnx': 'native',
+      'candidate/granite-4.0-350m-onnx': 'native',
       'candidate/smollm2-360m-instruct-onnx': 'native',
       // LFM2-2.6B graduated 2026-08-10. Its template natively extracts a leading
       // system message (messages[0] role==system → renders <|im_start|>system),
@@ -142,7 +142,7 @@ describe('local-ai catalog (Phase C)', () => {
     'candidate/qwen3.5-2b-onnx': 'proven',
     'candidate/gemma-4-e2b-litert': 'predicted',
     'candidate/qwen2.5-0.5b-mlc': 'predicted',
-    'candidate/qwen2.5-0.5b-instruct-onnx': 'predicted',
+    'candidate/granite-4.0-350m-onnx': 'predicted',
     'candidate/smollm2-360m-instruct-onnx': 'predicted',
     // Deeper eco-smart pick; 'predicted' pending a second-machine by-eye
     // validation (it carries no seed row of its own — see the invariant below).

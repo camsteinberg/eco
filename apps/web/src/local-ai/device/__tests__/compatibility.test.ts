@@ -257,12 +257,14 @@ describe('device/compatibility — CPU-EP incompatibility (Finding E)', () => {
     const assignable = getCatalog()
       .filter((m) => isAssignable(m, PROFILES.chromiumWasmOnly))
       .map((m) => m.id);
-    // qwen3-0.6b (q4f16, runs on the CPU EP) plus the two int8 floors — SmolLM2-360M
-    // and Qwen2.5-0.5B — clear the wall. The block-quant int4 LFM2.5 builds
-    // (cpuEpIncompatible) and every requireWebgpu model are excluded.
+    // qwen3-0.6b (q4f16, runs on the CPU EP) plus the CPU-EP-safe floor pair — the
+    // deeper q4 Granite and the lightest int8 SmolLM2-360M — clear the wall. The
+    // block-quant int4 LFM2.5 builds (cpuEpIncompatible) and every requireWebgpu model
+    // are excluded. (Granite's q4/MatMulNBits build is CPU-EP-safe — headed WASM-EP
+    // smoke test 2026-08-17d — so it is not cpuEpIncompatible.)
     expect(assignable).toEqual([
       'local/qwen3-0.6b',
-      'candidate/qwen2.5-0.5b-instruct-onnx',
+      'candidate/granite-4.0-350m-onnx',
       'candidate/smollm2-360m-instruct-onnx',
     ]);
     expect(assignable).not.toContain('candidate/lfm2.5-350m-onnx');

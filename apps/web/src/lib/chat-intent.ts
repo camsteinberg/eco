@@ -70,14 +70,17 @@ const CHAT_INTENT_MODEL_DATA: Record<string, ChatIntentModelSlice> = {
       },
     },
   },
-  // No-GPU (WASM/CPU-EP) int8 floor models. Small non-reasoning instruct models that
-  // ride the generic Qwen slice (QWEN_GEN via PROFILE_BY_MODEL_ID). maxNewTokens caps
-  // at 512 like the retired qwen3-0.6b floor: these run on the slow CPU EP (~3-8
-  // words/s), so a 1024/2048 budget would make a "deep"/"expand" answer take minutes
-  // on a phone. EOS ends normal replies well before the cap.
-  "candidate/qwen2.5-0.5b-instruct-onnx": {
-    id: "candidate/qwen2.5-0.5b-instruct-onnx",
-    family: "qwen3",
+  // No-GPU (WASM/CPU-EP) floor models: the deeper q4 Granite and the lightest int8
+  // SmolLM2. Small instruct models that ride the generic Qwen slice (QWEN_GEN via
+  // PROFILE_BY_MODEL_ID). maxNewTokens caps at 512 like the retired qwen3-0.6b floor:
+  // these run on the slow CPU EP (~3-8 words/s), so a 1024/2048 budget would make a
+  // "deep"/"expand" answer take minutes on a phone. EOS ends normal replies well before
+  // the cap. Granite is a different family (outside the v1 LocalModelFamily union), so it
+  // casts to ChatIntentModelSlice — its profile still resolves through the explicit
+  // PROFILE_BY_MODEL_ID (QWEN_GEN) row, not family fallback.
+  "candidate/granite-4.0-350m-onnx": {
+    id: "candidate/granite-4.0-350m-onnx",
+    family: "granite",
     qualityTier: "fast",
     maxNewTokens: { webgpu: 512 },
     generationDefaults: {
@@ -88,7 +91,7 @@ const CHAT_INTENT_MODEL_DATA: Record<string, ChatIntentModelSlice> = {
         writing: { topP: 0.92 },
       },
     },
-  },
+  } as unknown as ChatIntentModelSlice,
   // SmolLM2 is a different family (outside the v1 LocalModelFamily union), so it casts
   // to ChatIntentModelSlice — same pattern as smollm3/gemma4 below. Its profile still
   // resolves through the explicit PROFILE_BY_MODEL_ID (QWEN_GEN) row, not family fallback.

@@ -273,17 +273,18 @@ describe('recommend — non-Chromium profiles', () => {
   // Finding E + the no-GPU floor (2026-08-10): on a wasm-only profile the int4
   // LFM2.5 builds (350m, 1.2B-q4) block-quantize embeddings and are CPU-EP-unloadable,
   // so they never appear. eco-fast leads with the fast int8 SmolLM2-360M floor; eco-smart
-  // steps up to the higher-world-knowledge Qwen2.5-0.5B int8 so a CPU-only device gets a
-  // genuine two-model choice, not one collapsed floor (device-coverage audit, 2026-08-17).
+  // steps up to the more-capable Granite 4.0 q4 (class-leading 350M IFEval, CPU-EP-safe) so a
+  // CPU-only device gets a genuine two-model choice, not one collapsed floor (device-coverage
+  // audit, 2026-08-17; Granite replaced Qwen2.5-0.5B as the CPU deeper pick 2026-08-17d).
   it('Firefox WASM 16 GB eco-fast returns SmolLM2-360M (the fast int8 floor)', () => {
     const pick = recommend('eco-fast', PROFILE_FIREFOX);
     expect(pick.id).toBe('candidate/smollm2-360m-instruct-onnx');
   });
 
-  it('Firefox WASM 16 GB eco-smart steps up to the deeper Qwen2.5-0.5B int8 (distinct from eco-fast)', () => {
+  it('Firefox WASM 16 GB eco-smart steps up to the deeper Granite 4.0 q4 (distinct from eco-fast)', () => {
     const fast = recommend('eco-fast', PROFILE_FIREFOX);
     const smart = recommend('eco-smart', PROFILE_FIREFOX);
-    expect(smart.id).toBe('candidate/qwen2.5-0.5b-instruct-onnx');
+    expect(smart.id).toBe('candidate/granite-4.0-350m-onnx');
     // The two slots resolve to DIFFERENT models — the first-run card can offer a real
     // fast + deeper pair on a no-WebGPU device instead of a single collapsed option.
     expect(smart.id).not.toBe(fast.id);
@@ -291,13 +292,13 @@ describe('recommend — non-Chromium profiles', () => {
 
   it('surfaces the CPU-EP-safe floor set, SmolLM2 first, and never the 350m', () => {
     const ids = listCandidates('eco-fast', PROFILE_FIREFOX).map((c) => c.model.id);
-    // SmolLM2 (the preferred fast floor) leads; Qwen2.5-0.5B and qwen3-0.6b follow as
+    // SmolLM2 (the preferred fast floor) leads; Granite and qwen3-0.6b follow as
     // alternatives. The block-quant 350m (CPU-EP-unloadable) never appears.
     expect(ids[0]).toBe('candidate/smollm2-360m-instruct-onnx');
     expect(ids).not.toContain('candidate/lfm2.5-350m-onnx');
     expect([...ids].sort()).toEqual(
       [
-        'candidate/qwen2.5-0.5b-instruct-onnx',
+        'candidate/granite-4.0-350m-onnx',
         'candidate/smollm2-360m-instruct-onnx',
         'local/qwen3-0.6b',
       ].sort(),

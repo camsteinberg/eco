@@ -701,8 +701,9 @@ const MODEL_MATRIX_TODAY: Readonly<Record<string, string>> = {
     "quick:256/0.18 explain:768/0.3 deep:1536/0.42 code:1024/0.18 writing:1024/0.45 file:1536/0.45 research:1536/0.45",
   "candidate/qwen2.5-0.5b-mlc":
     "quick:1024/0.45 explain:1536/0.55 deep:2048/0.55 code:2048/0.25 writing:1536/0.75 file:2048/0.4 research:2048/0.35",
-  // No-GPU int8 floor models — same 512 CPU-EP cap + generic Qwen slice as qwen3-0.6b.
-  "candidate/qwen2.5-0.5b-instruct-onnx":
+  // No-GPU CPU-EP floor models (deeper q4 Granite + lightest int8 SmolLM2) — same 512
+  // CPU-EP cap + generic Qwen slice as qwen3-0.6b.
+  "candidate/granite-4.0-350m-onnx":
     "quick:512/0.32 explain:512/0.42 deep:512/0.6 code:512/0.2 writing:512/0.48 file:512/0.6 research:512/0.6",
   "candidate/smollm2-360m-instruct-onnx":
     "quick:512/0.32 explain:512/0.42 deep:512/0.6 code:512/0.2 writing:512/0.48 file:512/0.6 research:512/0.6",
@@ -935,7 +936,7 @@ describe("everyday-use sweep — the instrument", () => {
       "local/qwen3-0.6b",
       "candidate/lfm2.5-350m-onnx",
       // The no-GPU int8 floor models: flat 512 budget across every intent (CPU-EP cap).
-      "candidate/qwen2.5-0.5b-instruct-onnx",
+      "candidate/granite-4.0-350m-onnx",
       "candidate/smollm2-360m-instruct-onnx",
     ]);
   });
