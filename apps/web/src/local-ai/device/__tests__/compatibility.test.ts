@@ -548,3 +548,42 @@ describe('device/compatibility — Qwen2.5-0.5B WebLLM (rung-1 WebKit-mobile pic
     expect(isCompatible(mlc(), strippedMobile)).toBe('unsupported');
   });
 });
+
+describe('device/compatibility — unreported device memory (Chromium fork, conservative floor)', () => {
+  // A Chromium fork that strips the reported-memory API lands here as
+  // deviceMemoryGB === 0. Real Chrome always reports a value, so a 0 reading is
+  // this fork case — and skipping the memory floor let it be offered a premium
+  // ≥8 GB-floor download it cannot be trusted to run (COV-6). The adapter exposes
+  // shader-f16 so the f16 premium models are gated ONLY by the memory floor,
+  // isolating exactly what this suite checks.
+  const chromiumUnreportedMem: DeviceProfile = {
+    browserClass: 'chromium',
+    webgpuSupport: 'webgpu',
+    deviceMemoryGB: 0,
+    isMobile: false,
+    override: 'auto',
+    webgpuShaderF16: true,
+  };
+
+  it('declines the ≥8 GB-floor premium tier when memory is unreported', () => {
+    // gemma-4-e2b-litert is the cleanest witness: litertlm makes shader-f16
+    // irrelevant, so its ONLY gate is the 8 GB memory floor. Before the guard the
+    // floor was skipped (0 > 0 is false) so it was assignable; now effective 4 < 8.
+    for (const id of [
+      'candidate/gemma-4-e2b-litert',
+      'candidate/lfm2-2.6b-onnx',
+      'candidate/qwen3.5-2b-onnx',
+    ]) {
+      expect(isAssignable(model(id), chromiumUnreportedMem), id).toBe(false);
+    }
+  });
+
+  it('keeps the good 1.2B (4 GB floor) and lighter models assignable — not locked out', () => {
+    expect(isAssignable(model('candidate/lfm2.5-1.2b-instruct-onnx'), chromiumUnreportedMem)).toBe(true);
+    expect(isAssignable(model('local/qwen3-0.6b'), chromiumUnreportedMem)).toBe(true);
+  });
+
+  it('does not regress #176 — a real reported 4 GB still keeps the good 1.2B', () => {
+    expect(isAssignable(model('candidate/lfm2.5-1.2b-instruct-onnx'), PROFILES.chromiumLowMem)).toBe(true);
+  });
+});

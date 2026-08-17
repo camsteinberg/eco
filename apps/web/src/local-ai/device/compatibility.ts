@@ -24,6 +24,21 @@ import type { DeviceProfile, ModelConfig } from '../types';
 
 export type CompatibilityResult = 'supported' | 'unsupported' | 'with-warning';
 
+/**
+ * Conservative memory assumed for a device that reports no memory value
+ * (`deviceMemoryGB === 0`). Real Chrome always reports one of {0.25,0.5,1,2,4,8}
+ * (never 0), so a 0 reading is a Chromium fork that strips the reported-memory
+ * API. Skipping the floor for such a device let it be offered a premium
+ * ≥8 GB-floor download it cannot be trusted to run. We instead assume 4 GB —
+ * chosen to equal the 1.2B family's floor, so an unreported device keeps the same
+ * good everyday model a real 4 GB device gets (not locked out) while the ≥8 GB
+ * premium tier is declined. A genuinely-tiny fork is still backstopped by the
+ * first-use smoke gate and the ≥2-download-fail demotion. No #176 regression: a
+ * real 5-7 GB laptop reports a NON-zero 4 (the reading caps at 8 and rounds down),
+ * so its value is used as-is and the recovered band is untouched.
+ */
+const UNREPORTED_MEMORY_ASSUMED_GB = 4;
+
 type CompatibilityRule = {
   /** Requires WebGPU (cannot run in WASM-only). */
   requireWebgpu: boolean;
@@ -388,7 +403,14 @@ export function isCompatible(model: ModelConfig, profile: DeviceProfile): Compat
     return 'unsupported';
   }
 
-  if (profile.deviceMemoryGB > 0 && profile.deviceMemoryGB < rule.minDeviceMemoryGB) {
+  // Memory floor. An unreported reading (deviceMemoryGB === 0) is substituted with
+  // a conservative UNREPORTED_MEMORY_ASSUMED_GB rather than skipping the floor —
+  // otherwise a memory-stripping Chromium fork passes even the ≥8 GB premium tier
+  // and is handed a doomed download (see the constant's rationale). For any device
+  // that DOES report memory (> 0) this is byte-identical to the prior check.
+  const effectiveDeviceMemoryGB =
+    profile.deviceMemoryGB > 0 ? profile.deviceMemoryGB : UNREPORTED_MEMORY_ASSUMED_GB;
+  if (effectiveDeviceMemoryGB < rule.minDeviceMemoryGB) {
     return 'unsupported';
   }
 
