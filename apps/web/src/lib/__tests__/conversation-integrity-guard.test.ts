@@ -147,6 +147,67 @@ describe("conversation-integrity-guard — single-turn shape (the canonical repr
   });
 });
 
+describe("conversation-integrity-guard — single-turn proper-noun leads", () => {
+  // Closes a subset of the single-turn seam: a PROPER-NOUN secret that is the object
+  // of an announcement/secrecy lead, with no co-located sensitive-category word.
+  it("forbids a proper noun that is the object of a secrecy lead", () => {
+    const oneTurn =
+      "i want to email my current tutor a quick note. between us i got into Cambridge " +
+      "and havent told anyone yet, keep it quiet. write it";
+    const guard = derivePrivacyGuard([{ role: "user", content: oneTurn }], oneTurn);
+    expect(guard.armed).toBe(true);
+    expect(guard.forbiddenSpans.map((s) => s.toLowerCase())).toContain("cambridge");
+  });
+
+  it("forbids a 'moving to X' destination flagged private", () => {
+    const oneTurn =
+      "draft a message to my client. between us i'm moving to Lisbon next month but " +
+      "it's private for now";
+    const guard = derivePrivacyGuard([{ role: "user", content: oneTurn }], oneTurn);
+    expect(guard.forbiddenSpans.map((s) => s.toLowerCase())).toContain("lisbon");
+  });
+
+  it("pins the lead's object but NEVER the recipient in the same turn", () => {
+    const oneTurn =
+      "the real reason is Brightwave and i'd rather nobody knows — email my manager " +
+      "Dana to ask for the day off";
+    const guard = derivePrivacyGuard([{ role: "user", content: oneTurn }], oneTurn);
+    const lowered = guard.forbiddenSpans.map((s) => s.toLowerCase());
+    expect(lowered).toContain("brightwave");
+    // The recipient is not the object of a secrecy lead — it must stay usable.
+    expect(lowered).not.toContain("dana");
+  });
+
+  it("redacts the leaked proper noun end-to-end", () => {
+    const oneTurn =
+      "write my landlord a short note. between us i'm moving to Zephyria next month " +
+      "but keep it confidential for now";
+    const guard = derivePrivacyGuard([{ role: "user", content: oneTurn }], oneTurn);
+    const draft = [
+      "Hi,",
+      "",
+      "I'm writing to give notice. I'm moving to Zephyria at the end of the month.",
+      "",
+      "Thanks!",
+    ].join("\n");
+    const out = redactPrivateSpans(draft, guard.forbiddenSpans);
+    expect(out).not.toMatch(/zephyria/i);
+    expect(out).toContain("Hi,");
+    expect(out).toContain("Thanks!");
+  });
+
+  it("does NOT capture a recipient company named via an employment/offer lead", () => {
+    // The message is addressed TO Brightwave; 'position at Brightwave' / 'offer from
+    // Brightwave' must NOT forbid it, or redaction would delete the greeting. The
+    // employment/offer leads are deliberately omitted for exactly this reason.
+    const oneTurn =
+      "email the team at Brightwave to accept the position at Brightwave — keep it " +
+      "confidential for now, my current boss doesnt know";
+    const guard = derivePrivacyGuard([{ role: "user", content: oneTurn }], oneTurn);
+    expect(guard.forbiddenSpans.map((s) => s.toLowerCase())).not.toContain("brightwave");
+  });
+});
+
 describe("conversation-integrity-guard — matchesTerm (mirrors the leak scorer)", () => {
   it("is whole-token and plural-tolerant, not a prefix match", () => {
     expect(matchesTerm("we booked Reykjavik", "Reykjavik")).toBe(true);
