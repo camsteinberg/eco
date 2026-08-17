@@ -49,7 +49,7 @@ import {
   buildIntegrityRepairPrompt,
   derivePrivacyGuard,
   findLeaks,
-  redactPrivateSpans,
+  redactReplyForIntegrity,
 } from "../lib/conversation-integrity-guard";
 import { LocalInferenceStreamError } from "../local-ai/runtime/errors";
 import { buildLocalFallbackMessages, getLocalRuntimeCrashRecovery } from "../lib/chat-recovery";
@@ -1494,15 +1494,14 @@ export function useChat() {
         // hard backstop — redaction cannot fail to remove a span it was given — so a
         // leaked secret can never reach a message drafted to a third party, even when
         // the model ignores the hardened frame. Runs before the markdown normalizer so
-        // the persisted body is the redacted text.
-        if (integrityGuard.armed && integrityGuard.forbiddenSpans.length > 0) {
-          const current =
-            useChatStore.getState().messages.find((m) => m.id === assistantId)?.content ?? "";
-          const cleaned = redactPrivateSpans(current, integrityGuard.forbiddenSpans);
-          if (cleaned !== current) {
-            updateMessage(assistantId, { content: cleaned, lastSeq: 0 });
-            generation.batcher.resetSeq();
-          }
+        // the persisted body is the redacted text. Shared with the offline-continue
+        // completion path via redactReplyForIntegrity so neither path can forget it.
+        const current =
+          useChatStore.getState().messages.find((m) => m.id === assistantId)?.content ?? "";
+        const cleaned = redactReplyForIntegrity(apiMessages, current);
+        if (cleaned !== current) {
+          updateMessage(assistantId, { content: cleaned, lastSeq: 0 });
+          generation.batcher.resetSeq();
         }
         finalizeAssistantMarkdown(assistantId, updateMessage);
       }
@@ -1661,6 +1660,19 @@ export function useChat() {
       });
       // A clean continuation breaks any prior generic-failure streak.
       resetLocalGenerationFailureStreak();
+      // Conversation-integrity guarantee (#27): the offline-continue path finalizes a
+      // model-drafted reply too, so it must carry the SAME deterministic redaction as
+      // the primary stream — otherwise a third-party draft interrupted and then
+      // continued offline would bypass the backstop entirely and could leak a private
+      // span. `apiMessages` is the whole branch here; the shared helper derives the
+      // guard from it and strips any forbidden span before the body is persisted.
+      const guardedContent =
+        useChatStore.getState().messages.find((m) => m.id === assistantId)?.content ?? "";
+      const redacted = redactReplyForIntegrity(apiMessages, guardedContent);
+      if (redacted !== guardedContent) {
+        updateMessage(assistantId, { content: redacted, lastSeq: 0 });
+        generation.batcher.resetSeq();
+      }
       // Reconcile persisted body with the deterministic display normalization
       // (this block is reached only on a clean "completed" continuation).
       finalizeAssistantMarkdown(assistantId, updateMessage);

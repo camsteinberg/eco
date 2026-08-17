@@ -9,6 +9,7 @@ import {
   findLeaks,
   matchesTerm,
   redactPrivateSpans,
+  redactReplyForIntegrity,
   type IntegrityTurn,
 } from "../conversation-integrity-guard";
 import { CONVERSATION_INTEGRITY_PROBES } from "../../local-ai/eval/conversation-integrity-probe";
@@ -184,6 +185,68 @@ describe("conversation-integrity-guard — redaction guarantee", () => {
   it("no-ops when there is nothing to redact", () => {
     const draft = "Happy birthday! Hope you have a wonderful day.";
     expect(redactPrivateSpans(draft, ["Zeplox"])).toBe(draft);
+  });
+});
+
+// The single completion-seam guarantee shared by BOTH the primary stream and the
+// offline-continue path (the fix for the path that used to bypass redaction).
+describe("conversation-integrity-guard — redactReplyForIntegrity (shared seam)", () => {
+  const marker: IntegrityTurn = {
+    role: "user",
+    content: "between us — i'm interviewing at Zeplox and nobody at work knows",
+  };
+  const ack: IntegrityTurn = { role: "assistant", content: "Got it, I'll keep that private." };
+  const draftAsk: IntegrityTurn = {
+    role: "user",
+    content: "write a short email to my manager asking for friday off",
+  };
+
+  it("redacts a leaking reply when the latest turn is an armed draft request", () => {
+    const reply = [
+      "Hi,",
+      "",
+      "Could I take Friday off? The real reason is I'm interviewing at Zeplox.",
+      "",
+      "Thanks!",
+    ].join("\n");
+    const out = redactReplyForIntegrity([marker, ack, draftAsk], reply);
+    expect(findLeaks(out, ["Zeplox", "interviewing"])).toEqual([]);
+    expect(out).toContain("Hi,");
+    expect(out).toContain("Thanks!");
+    expect(out).toContain("Could I take Friday off?");
+  });
+
+  it("returns the reply UNCHANGED when the guard is not armed", () => {
+    const reply = "Sure — I'll bring the interview notes on Tuesday.";
+    // No privacy marker in history → not armed → nothing is stripped.
+    const history: IntegrityTurn[] = [
+      { role: "user", content: "we have a team interview coming up" },
+      { role: "user", content: "write a message to the team about it" },
+    ];
+    expect(redactReplyForIntegrity(history, reply)).toBe(reply);
+  });
+
+  it("returns the reply UNCHANGED when armed but nothing leaked", () => {
+    const reply = "Hi manager, could I take Friday off? Thanks!";
+    expect(redactReplyForIntegrity([marker, ack, draftAsk], reply)).toBe(reply);
+  });
+
+  it("covers the single-turn shape (marker + secret + ask in one turn)", () => {
+    const oneTurn =
+      "i need to email the events team to cancel my slot. the real reason is my " +
+      "husband is having surgery at the hospital that day, but its private. write it";
+    const reply = [
+      "Hi events team,",
+      "",
+      "I need to cancel my slot. My husband is having surgery at the hospital that day.",
+      "",
+      "Thanks for understanding.",
+    ].join("\n");
+    const out = redactReplyForIntegrity([{ role: "user", content: oneTurn }], reply);
+    expect(out).not.toMatch(/surgery/i);
+    expect(out).not.toMatch(/hospital/i);
+    expect(out).toContain("Hi events team");
+    expect(out).toContain("Thanks for understanding");
   });
 });
 

@@ -417,6 +417,27 @@ export function redactPrivateSpans(text: string, spans: readonly string[]): stri
   return result;
 }
 
+/**
+ * The completion-seam guarantee as ONE call both drafting paths share.
+ *
+ * Derives the guard for the latest turn from the message list and returns `reply`
+ * with every forbidden span deterministically removed; returns `reply` UNCHANGED
+ * when the guard is not armed or nothing was extracted. Keeping the derive-and-redact
+ * step in one place is the point: every model-drafted reply — the primary stream AND
+ * the offline-continue path — funnels through here, so the #27 guarantee can never be
+ * applied on one completion path and silently forgotten on another.
+ */
+export function redactReplyForIntegrity(
+  history: readonly IntegrityTurn[],
+  reply: string,
+): string {
+  const latestUserPrompt =
+    [...history].reverse().find((turn) => turn.role === "user")?.content ?? "";
+  const guard = derivePrivacyGuard(history, latestUserPrompt);
+  if (!guard.armed || guard.forbiddenSpans.length === 0) return reply;
+  return redactPrivateSpans(reply, guard.forbiddenSpans);
+}
+
 // ─── Quality-first regeneration frame ───────────────────────────────────────
 
 /**
