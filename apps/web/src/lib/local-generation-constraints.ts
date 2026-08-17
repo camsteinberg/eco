@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Bos Computing LLC
 
-export type LocalHardConstraintRepairReason = "dietary-constraint" | "concise-format";
+export type LocalHardConstraintRepairReason =
+  | "dietary-constraint"
+  | "concise-format"
+  | "conversation-integrity";
 
 export type LocalHardConstraintRepair = {
   reason: LocalHardConstraintRepairReason;

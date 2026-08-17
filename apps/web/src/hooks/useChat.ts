@@ -41,7 +41,16 @@ import {
   type BranchRecaps,
 } from "../lib/detail-recap";
 import { inferAnswerShape, type AnswerShape } from "../lib/answer-shape";
-import { buildLocalHardConstraintRepair } from "../lib/local-generation-constraints";
+import {
+  buildLocalHardConstraintRepair,
+  type LocalHardConstraintRepair,
+} from "../lib/local-generation-constraints";
+import {
+  buildIntegrityRepairPrompt,
+  derivePrivacyGuard,
+  findLeaks,
+  redactPrivateSpans,
+} from "../lib/conversation-integrity-guard";
 import { LocalInferenceStreamError } from "../local-ai/runtime/errors";
 import { buildLocalFallbackMessages, getLocalRuntimeCrashRecovery } from "../lib/chat-recovery";
 import { buildLocalReadinessFailureV2, findAutoRetryTarget } from "../lib/chat-turns";
@@ -1345,10 +1354,27 @@ export function useChat() {
       const latestUserPrompt = [...apiMessages]
         .reverse()
         .find((message) => message.role === "user")?.content ?? "";
-      const repair = buildLocalHardConstraintRepair({
-        userPrompt: latestUserPrompt,
-        outputText: primaryResult.finalText,
-      });
+      // Conversation-integrity guard (#27): armed only when the history carries a
+      // privacy marker AND this turn drafts new correspondence. Read from
+      // apiMessages (the windowed history + this turn), never a host-authored
+      // directive. The guarantee is applied deterministically at completion; here
+      // we prefer a hardened regeneration when the primary draft actually leaked.
+      const integrityGuard = derivePrivacyGuard(apiMessages, latestUserPrompt);
+      const integrityLeaked =
+        integrityGuard.armed
+        && findLeaks(primaryResult.finalText, integrityGuard.forbiddenSpans).length > 0;
+      const repair: LocalHardConstraintRepair | null =
+        buildLocalHardConstraintRepair({
+          userPrompt: latestUserPrompt,
+          outputText: primaryResult.finalText,
+        })
+        ?? (integrityLeaked
+          ? {
+              reason: "conversation-integrity",
+              ...buildIntegrityRepairPrompt(latestUserPrompt, integrityGuard.forbiddenSpans),
+              generationOptions: { temperature: 0.4, top_p: 0.85 },
+            }
+          : null);
       if (repair && !generation.abortController.signal.aborted) {
         if (repair.replacementText !== undefined) {
           deterministicReplacementApplied = true;
@@ -1463,6 +1489,21 @@ export function useChat() {
       // Reconcile the persisted body with the deterministic display normalization
       // (clean completion only — a user-stopped turn keeps its raw partial text).
       if (!generation.abortController.signal.aborted) {
+        // Conversation-integrity guarantee (#27): deterministically strip any private
+        // span that survived the primary draft AND any regeneration above. This is the
+        // hard backstop — redaction cannot fail to remove a span it was given — so a
+        // leaked secret can never reach a message drafted to a third party, even when
+        // the model ignores the hardened frame. Runs before the markdown normalizer so
+        // the persisted body is the redacted text.
+        if (integrityGuard.armed && integrityGuard.forbiddenSpans.length > 0) {
+          const current =
+            useChatStore.getState().messages.find((m) => m.id === assistantId)?.content ?? "";
+          const cleaned = redactPrivateSpans(current, integrityGuard.forbiddenSpans);
+          if (cleaned !== current) {
+            updateMessage(assistantId, { content: cleaned, lastSeq: 0 });
+            generation.batcher.resetSeq();
+          }
+        }
         finalizeAssistantMarkdown(assistantId, updateMessage);
       }
       recordReceiptAsync((base, sph) => ({
