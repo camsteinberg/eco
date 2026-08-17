@@ -16,6 +16,11 @@ import { ProgressTracker } from '../download/progress';
 import { bootstrapLocalAi } from '../bootstrap';
 import { downloadModel, InsufficientStorageError, isModelDownloaded } from '../download/download';
 import { bridgeDownloadWebLLMModel } from '../runtime/webllm-cache-bridge';
+import {
+  acquireLocalHeavyWork,
+  type LocalHeavyWorkAcquireResult,
+  type LocalHeavyWorkKind,
+} from '../../lib/local-heavy-work-owner';
 import { runSmoke } from './smoke';
 import { setSlot, setSlotStatus, getSlot, type SlotState, type SlotStatus } from './slots';
 import { isBelowFloor } from '../device/below-floor';
@@ -156,11 +161,74 @@ async function requestFirstRunChoice(
   return requestChoice(offer);
 }
 
+/**
+ * How long first-run will WAIT for another tab's 'download' lease before giving
+ * up and proceeding anyway. Sized to cover a typical concurrent first-run
+ * download so the second tab cache-hits; past it we fail open (see below).
+ */
+export const SETUP_DOWNLOAD_LEASE_WAIT_MS = 60_000;
+const DOWNLOAD_LEASE_POLL_MS = 500;
+
+function abortableSleep(ms: number, signal?: AbortSignal): Promise<'slept' | 'aborted'> {
+  return new Promise((resolve) => {
+    if (signal?.aborted) {
+      resolve('aborted');
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve('slept');
+    }, ms);
+    function onAbort(): void {
+      clearTimeout(timer);
+      resolve('aborted');
+    }
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+/**
+ * Acquire the cross-tab 'download' lease for first-run — but FAIL OPEN.
+ *
+ * First-run historically took no lease, so two tabs onboarding at once each
+ * downloaded the same ~2GB weights (the 'download' domain enforces one heavy
+ * download at a time everywhere else — switch/upgrade both hold it). Acquiring
+ * it here serializes them: when the busy tab finishes, ours becomes a
+ * verify-skip cache hit.
+ *
+ * The hard rule: onboarding must NEVER dead-end on a lease. So if another tab
+ * holds it we WAIT (bounded, abortable) for it to clear, and if the wait times
+ * out — or the signal aborts — we PROCEED WITHOUT the lease. Worst case is
+ * today's behavior (a rare double download); best case is a clean hand-off. The
+ * returned `release` is a no-op when we proceeded unleased.
+ */
+export async function acquireDownloadLeaseFailOpen(
+  acquireLease: (kind: LocalHeavyWorkKind) => LocalHeavyWorkAcquireResult,
+  options: { signal?: AbortSignal; waitMs?: number; pollMs?: number } = {},
+): Promise<{ release: () => void }> {
+  const waitMs = options.waitMs ?? SETUP_DOWNLOAD_LEASE_WAIT_MS;
+  const pollMs = options.pollMs ?? DOWNLOAD_LEASE_POLL_MS;
+  const proceedUnleased: { release: () => void } = { release: () => {} };
+  const startedAt = Date.now();
+
+  for (;;) {
+    if (options.signal?.aborted) return proceedUnleased;
+    const attempt = acquireLease('download');
+    if (attempt.ok) return { release: attempt.release };
+    // Busy: another tab is downloading. Wait for it to clear so we cache-hit —
+    // but fail open past the budget so first-run never blocks on the lease.
+    if (Date.now() - startedAt >= waitMs) return proceedUnleased;
+    const slept = await abortableSleep(pollMs, options.signal);
+    if (slept === 'aborted') return proceedUnleased;
+  }
+}
+
 /** Default real attempt: download → smoke, wired to the progress tracker. */
-async function defaultRunAttempt(
+export async function defaultRunAttempt(
   slot: Slot,
   model: ModelConfig,
   onProgressEvent: (e: ProgressEvent) => void,
+  acquireLease: (kind: LocalHeavyWorkKind) => LocalHeavyWorkAcquireResult = acquireLocalHeavyWork,
 ): Promise<AttemptResult> {
   const tracker = new ProgressTracker();
   // RT-4: a download stall (a TTFB hang before the first byte, or a mid-stream
@@ -175,6 +243,12 @@ async function defaultRunAttempt(
   });
   const unsubscribe = tracker.subscribe(onProgressEvent);
   try {
+    // Coordinate concurrent first-run downloads across tabs (fail-open). Do this
+    // BEFORE arming the download stall timer, so waiting on another tab is never
+    // misread as a stall.
+    const downloadLease = await acquireDownloadLeaseFailOpen(acquireLease, {
+      signal: controller.signal,
+    });
     try {
       // Arm the stall timer before the first byte so a TTFB hang is caught even
       // when no progress is ever reported (RT-4).
@@ -196,6 +270,10 @@ async function defaultRunAttempt(
       return err instanceof InsufficientStorageError
         ? { ok: false, phase: 'download', reason, reasonCode: 'insufficient-storage' }
         : { ok: false, phase: 'download', reason };
+    } finally {
+      // The 'download' lease covers only the transfer; smoke is runtime work in
+      // a different lease domain. Release before smoke, on success and failure.
+      downloadLease.release();
     }
     tracker.startSmoke();
     let result;

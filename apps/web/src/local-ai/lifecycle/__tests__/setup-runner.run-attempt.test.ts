@@ -44,9 +44,10 @@ vi.mock('../../download/download', () => ({
 }));
 vi.mock('../smoke', () => ({ runSmoke: vi.fn() }));
 
-import { DEFAULT_SEAMS } from '../setup-runner';
+import { DEFAULT_SEAMS, defaultRunAttempt, acquireDownloadLeaseFailOpen } from '../setup-runner';
 import { downloadModel, InsufficientStorageError } from '../../download/download';
 import { runSmoke } from '../smoke';
+import type { LocalHeavyWorkAcquireResult, LocalHeavyWorkKind } from '../../../lib/local-heavy-work-owner';
 
 const SLOT: Slot = 'eco-fast';
 const MODEL = { id: 'lfm2.5-1.2b' } as ModelConfig;
@@ -271,5 +272,134 @@ describe('DEFAULT_SEAMS.runAttempt — progress-listener cleanup (finally semant
     await expect(DEFAULT_SEAMS.runAttempt(SLOT, MODEL, throwingHandler)).rejects.toThrow('handler boom');
     // Both listeners (stall→abort + progress) released even when a handler throws.
     expect(unsubscribeSpy).toHaveBeenCalledTimes(2);
+  });
+});
+
+// ─── C5: cross-tab first-run download coordination (fail-open) ───────────────
+//
+// First-run historically took NO lease, so two tabs onboarding at once each
+// pulled the same ~2GB weights. defaultRunAttempt now acquires the shared
+// 'download' lease around the transfer — but it must FAIL OPEN: onboarding can
+// never dead-end waiting on a lease, so a stuck/foreign holder just means we
+// proceed unleased (worst case: today's rare double download).
+
+const leaseHeldByOtherTab = (): LocalHeavyWorkAcquireResult => ({
+  ok: false,
+  active: { ownerId: 'other-tab', kind: 'download', startedAt: 0, expiresAt: Number.MAX_SAFE_INTEGER },
+  reason: 'busy',
+});
+const leaseGranted = (release: () => void): LocalHeavyWorkAcquireResult => ({
+  ok: true,
+  lease: { ownerId: 'me', kind: 'download', startedAt: 0, expiresAt: Number.MAX_SAFE_INTEGER },
+  release,
+});
+
+describe('acquireDownloadLeaseFailOpen — fail-open download coordination', () => {
+  it('acquires immediately when the lease is free and hands back its release', async () => {
+    const release = vi.fn();
+    const acquire = vi.fn((_k: LocalHeavyWorkKind) => leaseGranted(release));
+
+    const held = await acquireDownloadLeaseFailOpen(acquire);
+
+    expect(acquire).toHaveBeenCalledWith('download');
+    held.release();
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  it('waits for a busy lease, then acquires it when it frees (the second tab cache-hits)', async () => {
+    const release = vi.fn();
+    let calls = 0;
+    const acquire = vi.fn((_k: LocalHeavyWorkKind) =>
+      ++calls < 3 ? leaseHeldByOtherTab() : leaseGranted(release),
+    );
+
+    const held = await acquireDownloadLeaseFailOpen(acquire, { waitMs: 1_000, pollMs: 1 });
+
+    expect(calls).toBeGreaterThanOrEqual(3);
+    held.release();
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  it('FAILS OPEN with a no-op release when the lease stays busy past the budget', async () => {
+    const acquire = vi.fn((_k: LocalHeavyWorkKind) => leaseHeldByOtherTab());
+
+    const held = await acquireDownloadLeaseFailOpen(acquire, { waitMs: 20, pollMs: 5 });
+
+    // Resolved (no hang) and its release is a safe no-op — first-run proceeds unleased.
+    expect(acquire.mock.calls.length).toBeGreaterThan(1);
+    expect(() => held.release()).not.toThrow();
+  });
+
+  it('fails open immediately, without acquiring, when the signal is already aborted', async () => {
+    const acquire = vi.fn((_k: LocalHeavyWorkKind) => leaseGranted(vi.fn()));
+    const controller = new AbortController();
+    controller.abort();
+
+    const held = await acquireDownloadLeaseFailOpen(acquire, { signal: controller.signal });
+
+    expect(acquire).not.toHaveBeenCalled();
+    expect(() => held.release()).not.toThrow();
+  });
+
+  it('fails open when the signal aborts mid-wait', async () => {
+    const acquire = vi.fn((_k: LocalHeavyWorkKind) => leaseHeldByOtherTab());
+    const controller = new AbortController();
+
+    const promise = acquireDownloadLeaseFailOpen(acquire, {
+      signal: controller.signal,
+      waitMs: 10_000,
+      pollMs: 20,
+    });
+    controller.abort();
+    const held = await promise;
+
+    expect(() => held.release()).not.toThrow();
+  });
+});
+
+describe('defaultRunAttempt — download-lease integration', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it('acquires the "download" lease, downloads once, and releases it on success', async () => {
+    downloadOk();
+    vi.mocked(runSmoke).mockResolvedValue(passSmoke());
+    const release = vi.fn();
+    const acquire = vi.fn((_k: LocalHeavyWorkKind) => leaseGranted(release));
+
+    const result = await defaultRunAttempt(SLOT, MODEL, vi.fn(), acquire);
+
+    expect(result).toEqual({ ok: true });
+    expect(acquire).toHaveBeenCalledWith('download');
+    expect(downloadModel).toHaveBeenCalledTimes(1);
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  it('releases the download lease even when the download fails', async () => {
+    vi.mocked(downloadModel).mockRejectedValue(new Error('network down'));
+    const release = vi.fn();
+    const acquire = vi.fn((_k: LocalHeavyWorkKind) => leaseGranted(release));
+
+    const result = await defaultRunAttempt(SLOT, MODEL, vi.fn(), acquire);
+
+    expect(result).toMatchObject({ ok: false, phase: 'download' });
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails open and still downloads exactly once when the lease is busy then frees', async () => {
+    downloadOk();
+    vi.mocked(runSmoke).mockResolvedValue(passSmoke());
+    let calls = 0;
+    const release = vi.fn();
+    const acquire = vi.fn((_k: LocalHeavyWorkKind) =>
+      ++calls < 2 ? leaseHeldByOtherTab() : leaseGranted(release),
+    );
+
+    const result = await defaultRunAttempt(SLOT, MODEL, vi.fn(), acquire);
+
+    expect(result).toEqual({ ok: true });
+    expect(downloadModel).toHaveBeenCalledTimes(1);
+    expect(release).toHaveBeenCalledTimes(1);
   });
 });
