@@ -42,7 +42,7 @@
 
 import type { DeviceProfile, Intent, ModelConfig, Slot } from '../types';
 import { getCatalog } from '../catalog/catalog';
-import { isAssignable } from '../device/compatibility';
+import { isAssignable, isWebKitMobile, WEBKIT_MOBILE_VALIDATED_MODEL_IDS } from '../device/compatibility';
 import {
   admit,
   type AdmissionDecision,
@@ -180,12 +180,12 @@ const PREFERRED_F16LESS_MODEL_ID_BY_SLOT: Readonly<Record<Slot, string>> = {
  *
  * NOT literally universal: on a `wasm-only` device this build is unassignable
  * (its block-quantized embeddings emit GatherBlockQuantized, unimplemented on
- * the CPU EP — see compatibility `cpuEpIncompatible`), so qwen3-0.6b is the
- * effective floor there. The demotion exemption below is keyed to THIS id, so
- * the wasm-only floor (qwen3-0.6b) is not itself exempt and can be demoted on
- * transient download failures, over-declining a runnable device until the 7-day
- * window clears (device-coverage audit, finding COV-3 — backlog, device-keyed
- * fix deferred).
+ * the CPU EP — see compatibility `cpuEpIncompatible`), so PREFERRED_WASM_FLOOR_MODEL_ID
+ * is the effective floor there. The exemption therefore cannot be keyed to this one
+ * id alone; {@link isDemotionExemptFloor} also exempts the wasm-only floor on a
+ * wasm-only device, so a runnable low-end device whose sole assignable model has a
+ * couple of transient download failures is never declined below its floor for the
+ * 7-day window (device-coverage audit, finding COV-3 — fixed).
  */
 export const STARTER_FLOOR_MODEL_ID = 'candidate/lfm2.5-350m-onnx';
 
@@ -581,9 +581,35 @@ type FloorOutcome =
   | { admit: true; confidence: AvailableConfidence }
   | { admit: false };
 
+/**
+ * Whether a model is EXEMPT from download-fail auto-demotion because it is the
+ * DEVICE's effective instant-start floor — demoting it would leave the device with
+ * nothing offerable (COV-3). The universal starter floor covers most WebGPU devices
+ * (its onnx-q4 build loads on the WebGPU EP). Two device classes have a DIFFERENT
+ * effective floor and need their own exemption:
+ *   - `wasm-only`: the starter build is `cpuEpIncompatible` and never assignable, so
+ *     the floor is {@link PREFERRED_WASM_FLOOR_MODEL_ID}.
+ *   - iOS/WebKit-mobile: every ONNX build (incl. the starter) is declined by the
+ *     WebKit-mobile gate before any capability check, so the sole assignable floor is
+ *     the WebLLM/MLC pick in {@link WEBKIT_MOBILE_VALIDATED_MODEL_IDS} — a WebGPU
+ *     model, so the wasm-only branch never covers it.
+ * Without these, two transient download failures of a device's sole assignable model
+ * would over-decline a runnable device to below-floor for the 7-day window.
+ */
+function isDemotionExemptFloor(modelId: string, profile: DeviceProfile): boolean {
+  if (modelId === STARTER_FLOOR_MODEL_ID) return true;
+  if (profile.webgpuSupport === 'wasm-only' && modelId === PREFERRED_WASM_FLOOR_MODEL_ID) {
+    return true;
+  }
+  if (isWebKitMobile(profile) && WEBKIT_MOBILE_VALIDATED_MODEL_IDS.includes(modelId)) {
+    return true;
+  }
+  return false;
+}
+
 function applyConfidenceFloor(
   model: ModelConfig,
-  _profile: DeviceProfile,
+  profile: DeviceProfile,
   admission: AdmissionResult,
   options: FloorOptions,
 ): FloorOutcome {
@@ -598,12 +624,12 @@ function applyConfidenceFloor(
   }
   // Auto-demote a model that keeps failing to DOWNLOAD (≥2 in 7d) from the
   // auto-offer surfaces — this kills the re-offer nag loop. Two carve-outs: the
-  // currently-bound model (never lose the user's pick) and the starter floor
-  // (never leave a device with nothing offerable).
+  // currently-bound model (never lose the user's pick) and the device's effective
+  // floor (never leave a device with nothing offerable — see isDemotionExemptFloor).
   if (
     options.demoteOnDownloadFail
     && !isBound
-    && model.id !== STARTER_FLOOR_MODEL_ID
+    && !isDemotionExemptFloor(model.id, profile)
     && admission.recentDownloadFailureCount >= DOWNLOAD_FAIL_DEMOTION_THRESHOLD
   ) {
     return { admit: false };

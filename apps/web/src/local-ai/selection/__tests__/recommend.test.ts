@@ -18,8 +18,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getCatalog, getModel } from '../../catalog/catalog';
 import { isAssignable } from '../../device/compatibility';
-import { CURRENT_LEDGER_VERSION } from '../../evidence/ledger';
-import { canServe, listCandidates, listCatalog, NoAssignableModelError, recommend, starterModelForSlot } from '../recommend';
+import { CURRENT_LEDGER_VERSION, profileKey } from '../../evidence/ledger';
+import { canServe, listCandidates, listCatalog, NoAssignableModelError, PREFERRED_WASM_FLOOR_MODEL_ID, recommend, starterModelForSlot } from '../recommend';
 import { isBelowFloor } from '../../device/below-floor';
 import type { DeviceProfile } from '../../types';
 
@@ -730,6 +730,78 @@ describe('recommend — confidence floor', () => {
       expect(
         listCandidates('eco-fast', PROFILE_24GB).some((c) => c.model.id === STARTER_ID),
       ).toBe(true);
+    });
+
+    it('NEVER demotes the wasm-only effective floor even after repeated failures (COV-3)', () => {
+      // On a wasm-only device the universal starter floor (lfm2.5-350m) is
+      // cpuEpIncompatible and never assignable, so PREFERRED_WASM_FLOOR_MODEL_ID is
+      // the effective floor — often the SOLE offerable model on a small device.
+      // Demoting it on transient download failures would decline a runnable device
+      // to below-floor for the 7-day window; the exemption must track the device.
+      const WASM_LOW: DeviceProfile = {
+        browserClass: 'chromium',
+        webgpuSupport: 'wasm-only',
+        deviceMemoryGB: 3,
+        isMobile: false,
+        override: 'auto',
+      };
+      const floorId = PREFERRED_WASM_FLOOR_MODEL_ID;
+      // Sanity: it is the offered floor here (and not the universal starter floor).
+      expect(floorId).not.toBe(STARTER_ID);
+      expect(
+        listCandidates('eco-fast', WASM_LOW).some((c) => c.model.id === floorId),
+      ).toBe(true);
+      // Seed repeated recent download failures under THIS device's profile key.
+      localStorage.setItem(
+        'eco-local-ai-ledger-v1',
+        JSON.stringify(
+          [0, HOUR, 2 * HOUR].map((daysAgo) => ({
+            modelId: floorId,
+            profileKey: profileKey(WASM_LOW),
+            outcome: 'download-fail',
+            errorCode: 'failed',
+            recordedAt: new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000).toISOString(),
+            ledgerVersion: CURRENT_LEDGER_VERSION,
+          })),
+        ),
+      );
+      // Still offered, and recommend() does not throw NoAssignableModelError.
+      expect(
+        listCandidates('eco-fast', WASM_LOW).some((c) => c.model.id === floorId),
+      ).toBe(true);
+      expect(() => recommend('eco-fast', WASM_LOW)).not.toThrow();
+    });
+
+    it('NEVER demotes the iOS/WebKit-mobile floor even after repeated failures (COV-3)', () => {
+      // On iOS/WebKit-mobile every ONNX build (incl. the universal starter floor) is
+      // declined by the WebKit-mobile gate, so the SOLE assignable model is the
+      // WebLLM/MLC pick — a WebGPU model, which the wasm-only exemption never covers.
+      const IOS: DeviceProfile = {
+        browserClass: 'safari',
+        webgpuSupport: 'webgpu',
+        deviceMemoryGB: 8,
+        isMobile: true,
+        override: 'auto',
+        webgpuShaderF16: true,
+      };
+      const floorId = 'candidate/qwen2.5-0.5b-mlc';
+      // Sanity: it is the sole offered model here (mobile-network flakiness reachable).
+      expect(listCandidates('eco-fast', IOS).some((c) => c.model.id === floorId)).toBe(true);
+      localStorage.setItem(
+        'eco-local-ai-ledger-v1',
+        JSON.stringify(
+          [0, HOUR, 2 * HOUR].map((daysAgo) => ({
+            modelId: floorId,
+            profileKey: profileKey(IOS),
+            outcome: 'download-fail',
+            errorCode: 'failed',
+            recordedAt: new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000).toISOString(),
+            ledgerVersion: CURRENT_LEDGER_VERSION,
+          })),
+        ),
+      );
+      expect(listCandidates('eco-fast', IOS).some((c) => c.model.id === floorId)).toBe(true);
+      expect(() => recommend('eco-fast', IOS)).not.toThrow();
     });
   });
 
