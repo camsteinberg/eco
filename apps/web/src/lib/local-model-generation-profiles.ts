@@ -368,13 +368,14 @@ const PROFILE_BY_MODEL_ID: Record<string, GenerationProfileSlice> = {
   // so it rides the shared generic Qwen slice (same as qwen3-0.6b) — deliberately
   // NOT QWEN35_GEN, which carries the Qwen3.5-family-only CJK-token suppression.
   "candidate/qwen2.5-0.5b-mlc": QWEN_GEN,
-  // No-GPU (WASM/CPU-EP) int8 floor models. Both are small non-reasoning instruct
-  // models, so they ride the generic small-instruct Qwen slice (moderate temperature
-  // plus a repetitionPenalty loop guard that a sub-1B model benefits from) — the same
-  // slice as the Qwen2.5-0.5B-mlc sibling. NOT QWEN35_GEN (that carries the
-  // Qwen3.5-family-only CJK-token suppression). SmolLM2 is a different family but has
-  // no vendor-specific sampling rec, so the generic slice is the honest default.
-  "candidate/qwen2.5-0.5b-instruct-onnx": QWEN_GEN,
+  // No-GPU (WASM/CPU-EP) floor models: the lightest int8 SmolLM2 (fast floor) and the
+  // deeper q4 Granite. Both are small instruct models with no vendor-specific sampling
+  // rec, so they ride the generic small-instruct Qwen slice (moderate temperature plus a
+  // repetitionPenalty loop guard a sub-1B model benefits from) — the same slice as the
+  // Qwen2.5-0.5B-mlc sibling. NOT QWEN35_GEN (that carries the Qwen3.5-family-only
+  // CJK-token suppression). Granite/SmolLM2 are different families but have no
+  // vendor-specific sampling rec, so the generic slice is the honest default.
+  "candidate/granite-4.0-350m-onnx": QWEN_GEN,
   "candidate/smollm2-360m-instruct-onnx": QWEN_GEN,
   "candidate/gemma-4-e4b-litert": GEMMA4_LITERT_GEN,
 };

@@ -224,12 +224,12 @@
       }
     },
     {
-      "id": "candidate/qwen2.5-0.5b-instruct-onnx",
-      "friendlyName": "Qwen2.5 0.5B",
-      "vendor": "Alibaba",
-      "sizeGB": 0.52,
+      "id": "candidate/granite-4.0-350m-onnx",
+      "friendlyName": "Granite 4.0 350M",
+      "vendor": "IBM",
+      "sizeGB": 0.58,
       "runtime": "transformers",
-      "format": "onnx-int8",
+      "format": "onnx-q4",
       "capabilities": {
         "intent": [
           "snappy",
@@ -241,22 +241,23 @@
         ],
         "contextTokens": 4096
       },
-      "bestFor": "The no-GPU floor: a small, non-reasoning instruction-tuned model that runs on the CPU (WASM) execution provider where GPU builds can't, for clean everyday chat and writing on older or GPU-less devices.",
+      "bestFor": "The no-GPU deeper pick: a class-leading 350M instruction-tuned model that runs on the CPU (WASM) execution provider where GPU builds can't — a more capable everyday chat and writing option than the lightest floor, for older or GPU-less devices.",
       "knownLimitation": "Runs on the CPU so replies are slow (tens of seconds), and open-world factual answers can be wrong without grounding.",
       "evidenceTier": "predicted",
       "systemRoleSupport": "native",
       "artifact": {
-        "hfId": "onnx-community/Qwen2.5-0.5B-Instruct",
-        "revision": "cc5cc01a65cc3ff17bdb73a7de33d879f62599b0",
+        "hfId": "onnx-community/granite-4.0-350m-ONNX-web",
+        "revision": "25ed491901f51273649619f51e89f1b77f720bc0",
         "files": [
-          "onnx/model_int8.onnx",
+          "onnx/model_q4.onnx",
+          "onnx/model_q4.onnx_data",
           "config.json",
           "generation_config.json",
+          "chat_template.jinja",
           "tokenizer.json",
           "tokenizer_config.json",
           "vocab.json",
           "merges.txt",
-          "added_tokens.json",
           "special_tokens_map.json"
         ]
       }

@@ -152,15 +152,16 @@ const RULES: Readonly<Record<string, CompatibilityRule>> = Object.freeze({
     allowedBrowsers: ['chromium', 'safari', 'firefox', 'mobile', 'unknown'] as const,
     warnIfMobile: false,
   },
-  // Qwen2.5-0.5B-Instruct (onnx-int8) — the no-GPU/WASM floor candidate. A small,
-  // NON-reasoning instruct model whose int8 ONNX export uses standard per-tensor
-  // quantization (no block-quantized embeddings), so it emits no GatherBlockQuantized
-  // and runs on ort-web's CPU/WASM EP — unlike the LFM2.5 q4 builds (cpuEpIncompatible).
-  // Universal floor tier like qwen3-0.6b: requireWebgpu false, all browser classes,
-  // 4GB floor. NOT cpuEpIncompatible (int8 clears the wall; confirmed on-device via the
-  // backend cross-check before graduation). Same non-f16 CPU-safe path (formatRequiresShaderF16
-  // → false for onnx-int8).
-  'candidate/qwen2.5-0.5b-instruct-onnx': {
+  // Granite-4.0-350M (onnx-q4) — the no-GPU/WASM DEEPER pick (device-coverage audit,
+  // 2026-08-17: replaced Qwen2.5-0.5B in this slot after a headed WASM-EP smoke test
+  // proved it loads + generates coherently on ort-web's CPU EP). A class-leading 350M
+  // instruction-tuned model — granitemoehybrid config but a DENSE all-attention export
+  // (layer_types all 'attention', num_local_experts 0, mamba_* keys inert). Its q4
+  // (MatMulNBits) build runs on the CPU/WASM EP and emits no GatherBlockQuantized, so it
+  // is NOT cpuEpIncompatible — unlike the LFM2.5 q4 builds. Universal WASM-floor tier:
+  // requireWebgpu false, requireWasmOnly true (a WebGPU-native build is better on any GPU
+  // device), all browser classes, 4GB floor. formatRequiresShaderF16 → false for onnx-q4.
+  'candidate/granite-4.0-350m-onnx': {
     requireWebgpu: false,
     requireWasmOnly: true,
     minDeviceMemoryGB: 4,

@@ -69,14 +69,15 @@ const DISPLAY_MAP: Record<string, Omit<DisplayInfo, 'provenance'> & { provider: 
     qualityPhrase: 'Made for iPhone · quick private chat on the go',
     provider: 'Alibaba',
   },
-  // The two int8 CPU-EP floor models the weakest / no-GPU devices actually run.
-  // Without branded entries here they leak their raw catalog names ("Qwen2.5
-  // 0.5B" / "SmolLM2 360M") into primary UI (MC-4). Names avoid collisions with
-  // "Eco Light" (350M) and "Eco Mobile" (the distinct WebGPU/iPhone 0.5B build).
-  'candidate/qwen2.5-0.5b-instruct-onnx': {
-    friendlyName: 'Eco Basic (Qwen)',
-    qualityPhrase: 'Runs on almost any computer · steady, private chat',
-    provider: 'Alibaba',
+  // The two CPU-EP floor models the weakest / no-GPU devices actually run: the
+  // lightest int8 SmolLM2 (the fast floor) and the deeper q4 Granite. Without branded
+  // entries here they leak their raw catalog names ("Granite 4.0 350M" / "SmolLM2 360M")
+  // into primary UI (MC-4). Names avoid collisions with "Eco Light" (350M) and
+  // "Eco Mobile" (the distinct WebGPU/iPhone 0.5B build).
+  'candidate/granite-4.0-350m-onnx': {
+    friendlyName: 'Eco Basic (Granite)',
+    qualityPhrase: 'Runs on almost any computer · a more capable private chat',
+    provider: 'IBM',
   },
   'candidate/smollm2-360m-instruct-onnx': {
     friendlyName: 'Eco Tiny (SmolLM)',

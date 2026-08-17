@@ -5,8 +5,8 @@
  * Catalog — the v1.0 model list.
  *
  * Exactly 10 models ship in the user-facing catalog (the 7 headline picks below,
- * plus the f16-less int4 1.2B sibling and two int8 CPU-EP floor models —
- * qwen2.5-0.5b-instruct-onnx and smollm2-360m-instruct-onnx):
+ * plus the f16-less int4 1.2B sibling and two CPU-EP floor models —
+ * granite-4.0-350m-onnx (deeper q4) and smollm2-360m-instruct-onnx (lightest int8)):
  *   1. local/qwen3-0.6b            — Qwen3       (universal small / Safari WASM, proven)
  *   2. candidate/lfm2.5-1.2b-instruct-onnx — LFM2.5 1.2B (capable-laptop, proven; DEFAULT)
  *   3. candidate/lfm2.5-350m-onnx  — LFM2.5      (starter; f16-less-WebGPU light rung —

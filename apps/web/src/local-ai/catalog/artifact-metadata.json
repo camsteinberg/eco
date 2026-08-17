@@ -79,16 +79,17 @@
     "vocab.json": { "sizeBytes": 2776833, "oid": "4783fe10ac3adce15ac8f358ef5462739852c569" },
     "merges.txt": { "sizeBytes": 1671839, "oid": "20024bfe7c83998e9aeaf98a0cd6a2ce6306c2f0" }
   },
-  "candidate/qwen2.5-0.5b-instruct-onnx": {
-    "onnx/model_int8.onnx": { "sizeBytes": 512096557, "oid": "41834041ab1b29eff9fc592f1a29a1844133aea35832ea9fa91682be13016100" },
-    "config.json": { "sizeBytes": 678, "oid": "eea21cd6f7909a44509a193b7fcdac194766c904" },
-    "generation_config.json": { "sizeBytes": 242, "oid": "f602853d6100c43666f46c67b1c354fa15fe0b93" },
-    "tokenizer.json": { "sizeBytes": 7031673, "oid": "d24314ef7f0afd1b678c2e24c767e19f24f86b0e" },
-    "tokenizer_config.json": { "sizeBytes": 7306, "oid": "8adf747ccaf85ff9587338cee6ed6be027b98210" },
-    "vocab.json": { "sizeBytes": 2776833, "oid": "4783fe10ac3adce15ac8f358ef5462739852c569" },
-    "merges.txt": { "sizeBytes": 1671853, "oid": "31349551d90c7606f325fe0f11bbb8bd5fa0d7c7" },
-    "added_tokens.json": { "sizeBytes": 605, "oid": "482ced4679301bf287ebb310bdd1790eb4514232" },
-    "special_tokens_map.json": { "sizeBytes": 613, "oid": "ac23c0aaa2434523c494330aeb79c58395378103" }
+  "candidate/granite-4.0-350m-onnx": {
+    "onnx/model_q4.onnx": { "sizeBytes": 272846, "oid": "17e171e1d30f1c644eda76d673e662996ff6b89cdb22a11e2ecadde9c158535f" },
+    "onnx/model_q4.onnx_data": { "sizeBytes": 575639552, "oid": "c322cb280cd7168e37d5d187656973ac7ccecc1465c29f52c5547b2f6e557799" },
+    "config.json": { "sizeBytes": 2018, "oid": "dae2009d13c330371b1c2a4abd1f9fb74dbb8b67" },
+    "generation_config.json": { "sizeBytes": 147, "oid": "5a68186517825b97c5c6c55fcebc4c2b73ffc83a" },
+    "chat_template.jinja": { "sizeBytes": 6418, "oid": "82e3ebf57b6de47c0c4e722dde0e33915f73bfe8" },
+    "tokenizer.json": { "sizeBytes": 4131199, "oid": "e103680dfb8956291607bc310e8fd55986290831" },
+    "tokenizer_config.json": { "sizeBytes": 24271, "oid": "cd14926a668570d0e7ffe48980e8b288b2f4cce6" },
+    "vocab.json": { "sizeBytes": 1612704, "oid": "4764ec73731a47701c2f49b01bb428342870f498" },
+    "merges.txt": { "sizeBytes": 916646, "oid": "354558edcdbd64ca7abd407b8be3d5d09d39d781" },
+    "special_tokens_map.json": { "sizeBytes": 579, "oid": "3f67e7c50d57b16925f4f15469a774e7bf439047" }
   },
   "candidate/smollm2-360m-instruct-onnx": {
     "onnx/model_int8.onnx": { "sizeBytes": 363115149, "oid": "5ee6c8dc6791050d8779687a16c8167643a234e00ea41e06a92e05f88003dbb3" },
