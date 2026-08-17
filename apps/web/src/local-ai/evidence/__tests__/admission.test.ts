@@ -88,8 +88,9 @@ function model(id: string) {
 
 // LFM2.5-1.2B is proven only on the high-memory-laptop class (its sole seed
 // row), so it exercises the mirror of what Bonsai used to: proven-on-profile on
-// high-memory, proven-elsewhere on the compatible-but-unseeded capable-laptop,
-// and denied below its 8 GB floor. (Bonsai retired 2026-07-11.)
+// high-memory, proven-elsewhere on the compatible-but-unseeded capable-laptop, and
+// admitted with-warning down to its 4 GB floor (device-coverage audit 2026-08-17:
+// the fast 1.2B floor dropped 8→4). (Bonsai retired 2026-07-11.)
 describe('admit — LFM2.5 1.2B (proven on high-memory)', () => {
   const lfm = () => model('candidate/lfm2.5-1.2b-instruct-onnx');
 
@@ -110,8 +111,14 @@ describe('admit — LFM2.5 1.2B (proven on high-memory)', () => {
     expect(r.reason).toBe('proven-elsewhere');
   });
 
-  it('denied on Chromium 4 GB (compat floor 8 GB)', () => {
-    expect(admit(lfm(), PROFILES.chromiumLowMem).decision).toBe('denied');
+  it('with-warning on Chromium 4 GB (compat floor is now 4 GB — recovered band, unseeded)', () => {
+    // The 1.2B floor dropped 8→4: a 4-7GB WebGPU device (reports device-memory 4)
+    // now runs the 1.2B. It has no seed row for the low-memory-laptop class, so it is
+    // admitted with-warning (proven elsewhere) and gated by the first-use smoke test,
+    // rather than denied outright.
+    const r = admit(lfm(), PROFILES.chromiumLowMem);
+    expect(r.decision).toBe('with-warning');
+    expect(r.reason).toBe('proven-elsewhere');
   });
 });
 
