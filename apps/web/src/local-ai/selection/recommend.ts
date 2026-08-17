@@ -219,9 +219,25 @@ const PREFERRED_MODEL_ID_BY_SLOT: Readonly<Record<Slot, string>> = {
  */
 export const PREFERRED_WASM_FLOOR_MODEL_ID = 'candidate/smollm2-360m-instruct-onnx';
 
+/**
+ * No-WebGPU (WASM/CPU-EP) SMART-slot preference — the modest "a bit deeper" step-up
+ * for CPU-only devices. Qwen2.5-0.5B (onnx-int8) is already the higher-world-knowledge
+ * alternative the wasm floor carries (0.52GB vs the 360M floor's 0.37GB), it clears the
+ * GatherBlockQuantized wall (standard per-tensor int8, not cpuEpIncompatible), and it is
+ * assignable on wasm-only devices with >=4GB. Pointing eco-smart at it (instead of
+ * collapsing BOTH slots onto the 360M floor) gives a CPU-only device a genuine two-model
+ * first-run CHOICE — a fast floor plus a slightly deeper pick — where before it saw one
+ * option. This is the HONEST ceiling for no-WebGPU hardware: a real WebGPU-class "smart"
+ * model (a 2B) decodes under a word per second on the CPU EP, so it is deliberately never
+ * offered here; the 0.5B step-up is the most a CPU device can meaningfully carry. Where it
+ * is unassignable (a wasm-only device below the 4GB floor) this is a safe no-op and the
+ * slot falls through to natural ranking exactly as before (device-coverage audit, 2026-08-17).
+ */
+export const PREFERRED_WASM_SMART_MODEL_ID = 'candidate/qwen2.5-0.5b-instruct-onnx';
+
 const PREFERRED_WASM_FLOOR_MODEL_ID_BY_SLOT: Readonly<Record<Slot, string>> = {
   'eco-fast': PREFERRED_WASM_FLOOR_MODEL_ID,
-  'eco-smart': PREFERRED_WASM_FLOOR_MODEL_ID,
+  'eco-smart': PREFERRED_WASM_SMART_MODEL_ID,
 };
 
 /**
