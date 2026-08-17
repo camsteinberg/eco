@@ -132,6 +132,25 @@ const OBJECT_CAPTURE =
   /\b(?:diagnosed with|diagnosis of|suffering from|battling|struggling with)\s+([a-z][a-z'-]*(?:\s+[a-z][a-z'-]*)?)/gi;
 
 /**
+ * Announcement/secrecy leads whose OBJECT is a PROPER NOUN the user is keeping
+ * private — "the real reason is Brightwave", "moving to Lisbon", "got into
+ * Cambridge". In the SINGLE-TURN shape (marker + secret + ask in one turn) whole-turn
+ * proper-noun mining is deliberately off — the recipient lives in that turn — so a
+ * bare proper-noun secret would otherwise slip. This pins ONLY the noun that is the
+ * OBJECT of one of these leads.
+ *
+ * The lead set is deliberately restricted to leads whose object is (almost) never the
+ * ADDRESSEE. Employment/offer leads ("offer from X", "position at X", "interview at
+ * X") are OMITTED on purpose: those name the very company a message is written TO, so
+ * mining their object would forbid the recipient and drop the greeting — a real
+ * quality defect, not acceptable over-suppression. This closes a subset of the seam
+ * deterministically; a proper-noun secret with NO safe lead still needs a stronger
+ * model, so it is a partial, honest hardening, not a full closure.
+ */
+const PROPER_NOUN_SECRET_LEAD =
+  /\b(?:the real reason is(?: that)?|moving to|relocating to|transferring to|got into)\s+(\p{Lu}[\p{L}'’-]*(?:\s+\p{Lu}[\p{L}'’-]*)?)/gu;
+
+/**
  * Common capitalised words that are NOT entities — sentence openers, days, months,
  * pronouns. A capitalised token whose lowercase form is here is never a private
  * proper noun (it is sentence casing or a calendar word the recap layer owns).
@@ -231,6 +250,25 @@ function extractCapturedObjects(text: string): string[] {
 }
 
 /**
+ * Proper-noun objects of an announcement/secrecy lead ("moving to Lisbon" → "Lisbon",
+ * "offer from Zeplox" → "Zeplox"). A capture that is only a common capitalised word
+ * (a sentence opener the lead happened to precede, or "I'm") is dropped, so the lead
+ * pins a real entity and never the recipient.
+ */
+function extractLedProperNouns(text: string): string[] {
+  const found: string[] = [];
+  for (const match of text.matchAll(PROPER_NOUN_SECRET_LEAD)) {
+    const object = match[1]?.trim();
+    if (object === undefined || object === "") continue;
+    const meaningful = object
+      .split(/\s+/)
+      .filter((token) => !COMMON_CAPITALISED.has(token.toLowerCase()));
+    if (meaningful.length > 0) found.push(meaningful.join(" "));
+  }
+  return found;
+}
+
+/**
  * The BACKGROUND turns: everything before the current drafting turn. Robust to two
  * calling conventions — `useChat` passes the FULL message list (the current turn is
  * its last user element, a duplicate of `prompt`), while the eval harness passes the
@@ -278,15 +316,18 @@ function extractPrivateSpans(
   // where the private detail, the privacy marker and the draft ask all sit in ONE
   // turn. Its sensitive detail IS the request, so it cannot be prompt-excluded; it
   // is only harvested when the current turn itself carries a privacy marker (a
-  // normal writing turn's own words are never mined). Proper nouns are deliberately
-  // NOT taken here — the recipient lives in this turn — but sentence-level redaction
-  // still removes a co-located lowercase name when a sensitive term in the same
-  // sentence is caught.
+  // normal writing turn's own words are never mined). GENERAL proper nouns are
+  // deliberately NOT taken here — the recipient lives in this turn — but the OBJECT
+  // of a destination / "real reason" lead ("moving to Lisbon", "the real reason is
+  // Brightwave") is, since those leads (unlike the omitted employment/offer ones) do
+  // not name the addressee; and sentence-level redaction still removes a co-located
+  // lowercase name when a sensitive term in the same sentence is caught.
   const nonExcludable: string[] = [];
   if (PRIVACY_MARKER.test(prompt)) {
     nonExcludable.push(
       ...extractSensitiveTerms(prompt),
       ...extractCapturedObjects(prompt),
+      ...extractLedProperNouns(prompt),
       ...extractFigures(prompt),
     );
   }
