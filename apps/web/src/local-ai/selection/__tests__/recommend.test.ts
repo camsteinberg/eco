@@ -235,16 +235,21 @@ describe('recommend — per-slot preferred picks', () => {
 describe('recommend — non-Chromium profiles', () => {
   // Finding E + the no-GPU floor (2026-08-10): on a wasm-only profile the int4
   // LFM2.5 builds (350m, 1.2B-q4) block-quantize embeddings and are CPU-EP-unloadable,
-  // so they never appear. The preferred floor is now the fast int8 SmolLM2-360M (both
-  // slots floor to it); Qwen2.5-0.5B and the retired qwen3-0.6b remain as alternatives.
+  // so they never appear. eco-fast leads with the fast int8 SmolLM2-360M floor; eco-smart
+  // steps up to the higher-world-knowledge Qwen2.5-0.5B int8 so a CPU-only device gets a
+  // genuine two-model choice, not one collapsed floor (device-coverage audit, 2026-08-17).
   it('Firefox WASM 16 GB eco-fast returns SmolLM2-360M (the fast int8 floor)', () => {
     const pick = recommend('eco-fast', PROFILE_FIREFOX);
     expect(pick.id).toBe('candidate/smollm2-360m-instruct-onnx');
   });
 
-  it('Firefox WASM 16 GB eco-smart also floors to SmolLM2-360M', () => {
-    const pick = recommend('eco-smart', PROFILE_FIREFOX);
-    expect(pick.id).toBe('candidate/smollm2-360m-instruct-onnx');
+  it('Firefox WASM 16 GB eco-smart steps up to the deeper Qwen2.5-0.5B int8 (distinct from eco-fast)', () => {
+    const fast = recommend('eco-fast', PROFILE_FIREFOX);
+    const smart = recommend('eco-smart', PROFILE_FIREFOX);
+    expect(smart.id).toBe('candidate/qwen2.5-0.5b-instruct-onnx');
+    // The two slots resolve to DIFFERENT models — the first-run card can offer a real
+    // fast + deeper pair on a no-WebGPU device instead of a single collapsed option.
+    expect(smart.id).not.toBe(fast.id);
   });
 
   it('surfaces the CPU-EP-safe floor set, SmolLM2 first, and never the 350m', () => {
