@@ -48,7 +48,14 @@ export function deriveFirstRunChoices(slot: Slot, profile: DeviceProfile): First
   let deeper: ModelConfig | null = null;
   try {
     const smart = recommend('eco-smart', profile);
-    if (smart.id !== everyday.id) deeper = smart;
+    // Only offer the deeper tile when it is a genuine step UP from the everyday
+    // pick. On a memory-constrained device the eco-smart slot can fall back to a
+    // floor model SMALLER than the everyday fast pick — e.g. a 4-7GB WebGPU device
+    // now recovers the 1.2B (0.76GB) for eco-fast, but eco-smart still floors to the
+    // 0.57GB qwen3-0.6b; offering that as "deeper" would be a downgrade wearing an
+    // upgrade's clothes. Mirrors the size-step-up guard in lifecycle/upgrade.ts
+    // (planUpgradeOffer). Device-coverage audit, 2026-08-17.
+    if (smart.id !== everyday.id && smart.sizeGB > everyday.sizeGB) deeper = smart;
   } catch {
     // No distinct deeper model this device can run — single-option offer.
   }

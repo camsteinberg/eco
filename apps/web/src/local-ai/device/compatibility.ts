@@ -90,9 +90,17 @@ type CompatibilityRule = {
 };
 
 const RULES: Readonly<Record<string, CompatibilityRule>> = Object.freeze({
+  // 4GB floor (device-coverage audit, 2026-08-17): the browser's reported
+  // device-memory value caps at 8 and rounds DOWN to {…,2,4,8}, so every real 5-7GB
+  // laptop reports 4. An 8 floor is therefore a binary "reports exactly 8" gate that
+  // demoted the entire 4-7GB band
+  // to the weak qwen3-0.6b / 350m floor — for a model whose download is only 0.76GB.
+  // The 4GB floor recovers that band to the good 1.2B; the first-use smoke gate + the
+  // >=2-download-fail demotion backstop the rarer genuine-4GB device. (The 8GB floor
+  // was inherited from the heavier Bonsai/2B precedent, never measured for this build.)
   'candidate/lfm2.5-1.2b-instruct-onnx': {
     requireWebgpu: true,
-    minDeviceMemoryGB: 8,
+    minDeviceMemoryGB: 4,
     allowedBrowsers: ['chromium'] as const,
     warnIfMobile: true,
   },
@@ -106,9 +114,12 @@ const RULES: Readonly<Record<string, CompatibilityRule>> = Object.freeze({
   // embeddings emit GatherBlockQuantized, which runs on the WebGPU EP but not the
   // CPU/WASM EP — so it declines on wasm-only (qwen3-0.6b stays that floor), just
   // like the 350M.
+  // 4GB floor: same rationale as the q4f16 sibling above — it recovers the good
+  // f16-less 1.2B for the 4-7GB f16-less-WebGPU band (older-Intel iGPU / Adreno),
+  // which previously saw only the 350m extraction-type model.
   'candidate/lfm2.5-1.2b-instruct-q4-onnx': {
     requireWebgpu: false,
-    minDeviceMemoryGB: 8,
+    minDeviceMemoryGB: 4,
     allowedBrowsers: ['chromium'] as const,
     warnIfMobile: true,
     cpuEpIncompatible: true,

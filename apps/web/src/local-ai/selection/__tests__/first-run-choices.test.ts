@@ -12,7 +12,7 @@ import { deriveFirstRunChoices } from '../first-run-choices';
 import type { DeviceProfile, ModelConfig, Slot } from '../../types';
 
 const PROFILE = {} as DeviceProfile;
-const model = (id: string) => ({ id } as ModelConfig);
+const model = (id: string, sizeGB = 1) => ({ id, sizeGB } as ModelConfig);
 const mockRecommend = vi.mocked(recommend);
 
 beforeEach(() => {
@@ -22,7 +22,7 @@ beforeEach(() => {
 describe('deriveFirstRunChoices', () => {
   it('offers the everyday + deeper models but preselects the everyday one for instant-start (capable desktop)', () => {
     mockRecommend.mockImplementation((slot: Slot) =>
-      slot === 'eco-smart' ? model('deeper') : model('fast'),
+      slot === 'eco-smart' ? model('deeper', 1.65) : model('fast', 0.76),
     );
 
     const offer = deriveFirstRunChoices('eco-fast', PROFILE);
@@ -54,5 +54,20 @@ describe('deriveFirstRunChoices', () => {
 
     expect(offer.models.map((m) => m.id)).toEqual(['fast']);
     expect(offer.recommendedId).toBe('fast');
+  });
+
+  it('drops a deeper pick that is SMALLER than the everyday pick (no downgrade-as-upgrade)', () => {
+    // A memory-constrained device can resolve eco-smart to a floor model smaller
+    // than the everyday fast pick — e.g. a 4-7GB WebGPU device recovers the 1.2B
+    // (0.76GB) for eco-fast but eco-smart still floors to the 0.57GB qwen3-0.6b.
+    // Offering that as "deeper" would be a downgrade; the size guard suppresses it.
+    mockRecommend.mockImplementation((slot: Slot) =>
+      slot === 'eco-smart' ? model('smaller-floor', 0.57) : model('good-fast', 0.76),
+    );
+
+    const offer = deriveFirstRunChoices('eco-fast', PROFILE);
+
+    expect(offer.models.map((m) => m.id)).toEqual(['good-fast']);
+    expect(offer.recommendedId).toBe('good-fast');
   });
 });

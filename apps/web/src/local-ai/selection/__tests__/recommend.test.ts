@@ -549,28 +549,34 @@ describe('listCatalog — bound-but-unassignable model stays switchable (FH-2)',
   });
 });
 
-describe('recommend — sub-8GB WebGPU floor (FR-2)', () => {
-  const PROFILE_CHROMIUM_6GB_F16: DeviceProfile = {
+describe('recommend — 4-7GB WebGPU recovers the good 1.2B (device-coverage audit 2026-08-17)', () => {
+  // navigator.deviceMemory caps at 8 and rounds DOWN, so every real 5-7GB laptop
+  // reports 4. The 1.2B fast floor is now 4 (was 8), so this whole band gets the
+  // good 1.2B for eco-fast instead of the weak qwen3-0.6b / 350m floor.
+  const PROFILE_CHROMIUM_4GB_F16: DeviceProfile = {
     browserClass: 'chromium',
     webgpuSupport: 'webgpu',
-    deviceMemoryGB: 6,
+    deviceMemoryGB: 4,
     isMobile: false,
     webgpuShaderF16: true,
     override: 'auto',
   };
 
-  it('recommends the proven qwen3-0.6b (not the 350M extraction model) for eco-fast on a sub-8GB WebGPU device', () => {
-    // The 1.2B family needs 8GB; without a preferred floor, fit-ranking surfaced
-    // the 0.35B LFM2.5-350M (extraction-type, wrong for chat) as "Recommended" by
-    // a ~0.004 margin. FR-2 promotes the proven qwen3-0.6b chat floor instead.
-    expect(recommend('eco-fast', PROFILE_CHROMIUM_6GB_F16).id).toBe('local/qwen3-0.6b');
-    // The 350M stays offerable — just no longer the top "Recommended" pick.
-    expect(listCandidates('eco-fast', PROFILE_CHROMIUM_6GB_F16).map((c) => c.model.id)).toContain(
-      'candidate/lfm2.5-350m-onnx',
+  it('recovers the good 1.2B (q4f16) for eco-fast on a 4-7GB f16 WebGPU device (floor 8→4)', () => {
+    // Was qwen3-0.6b under the old 8GB floor; the 0.76GB 1.2B is the right fast pick,
+    // with the first-use smoke gate backstopping a genuine-4GB device.
+    expect(recommend('eco-fast', PROFILE_CHROMIUM_4GB_F16).id).toBe(
+      'candidate/lfm2.5-1.2b-instruct-onnx',
     );
   });
 
-  it('leaves safari/firefox WebGPU on the proven qwen3-0.6b (already correct — no regression)', () => {
+  it('recovers the good 1.2B (q4) for eco-fast on a 4-7GB f16-less WebGPU device', () => {
+    // Was the 350m extraction-type model; the plain-int4 1.2B now reaches this band.
+    const f16less: DeviceProfile = { ...PROFILE_CHROMIUM_4GB_F16, webgpuShaderF16: false };
+    expect(recommend('eco-fast', f16less).id).toBe('candidate/lfm2.5-1.2b-instruct-q4-onnx');
+  });
+
+  it('leaves safari/firefox WebGPU on the proven qwen3-0.6b (premium models stay chromium-only — no regression)', () => {
     const safari: DeviceProfile = {
       browserClass: 'safari',
       webgpuSupport: 'webgpu',
