@@ -171,13 +171,10 @@
 /* ── Dark Theme ───────────────────────────────────────────────────────────── */
 
 .dark {
-  /* Surfaces — warm charcoal (greenhouse-at-dusk). The cold neutral grays read
-     "could be any app"; nudging R>G>B onto the same warm axis as the cream text
-     (#ede8e0) lets the mint primary read as the accent. The green channel is
-     held to the old value, so text-on-surface contrast is unchanged. */
-  --eco-surface: #1d1a14;
-  --eco-surface-elevated: #27241e;
-  --eco-surface-chat: #211e18;
+  /* Surfaces */
+  --eco-surface: #1a1a1a;
+  --eco-surface-elevated: #242424;
+  --eco-surface-chat: #1e1e1e;
 
   /* Primary */
   --eco-primary: #7bc08e;
@@ -202,9 +199,9 @@
   /* On-primary */
   --eco-on-primary: #1a1a1a;
 
-  /* Borders — warmed onto the same charcoal axis as the surfaces */
-  --eco-border: #37332c;
-  --eco-border-muted: #2e2a23;
+  /* Borders */
+  --eco-border: #333333;
+  --eco-border-muted: #2a2a2a;
 
   /* Status */
   --eco-success: #4ade80;
@@ -237,11 +234,11 @@
   --eco-syntax-addition: #4ade80; /* success green */
   --eco-syntax-deletion: #e07060; /* coral */
 
-  /* Neutral — warmed onto the same charcoal axis as the surfaces */
-  --eco-neutral-bg: #28251f;
-  --eco-neutral-bg-muted: #1d1a14;
-  --eco-neutral-border: #37332c;
-  --eco-neutral-border-muted: #2e2a23;
+  /* Neutral */
+  --eco-neutral-bg: #252525;
+  --eco-neutral-bg-muted: #1a1a1a;
+  --eco-neutral-border: #333333;
+  --eco-neutral-border-muted: #2a2a2a;
   --eco-neutral-text: #ede8e0;
   --eco-neutral-text-secondary: #bbb5ad;
   --eco-neutral-text-muted: #706b65;
