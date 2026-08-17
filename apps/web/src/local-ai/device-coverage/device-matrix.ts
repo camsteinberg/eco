@@ -3,7 +3,7 @@
 
 /**
  * Device-matrix enumeration for the coverage audit. Defines the full universe
- * of device profiles the routing system can perceive (the five DeviceProfile
+ * of device profiles the routing system can perceive (the six DeviceProfile
  * axes, all URL-forceable) crossed with the contextual dimensions that change
  * the setup outcome (ledger history, download result, smoke result).
  *
@@ -20,6 +20,14 @@ const CAPS: readonly WebGPUSupport[] = ['webgpu', 'wasm-only', 'none'];
 const MEMS: readonly number[] = [0, 2, 4, 8, 16];
 const SHADER_F16: readonly (boolean | undefined)[] = [true, false, undefined];
 const MOBILE: readonly boolean[] = [false, true];
+// The WebGPU adapter's `maxBufferSize` ceiling in bytes. Only probed on WebGPU
+// devices — the setup path leaves it `undefined` elsewhere (see DeviceProfile) —
+// so it varies only under the `webgpu` cap. The two probed points bracket any
+// future max-buffer floor: a tiny cap a floor would reject, and a large cap it
+// would accept. No catalog rule declares `minMaxBufferBytes` today, so all three
+// collapse to the same outcome; the axis is enumerated so the audit perceives it
+// and gains below/above-floor coverage the moment a rule adds a floor.
+const MAX_BUFFER_BYTES: readonly (number | undefined)[] = [undefined, 128_000_000, 2_147_483_648];
 
 export type LedgerState =
   | 'fresh'
@@ -43,14 +51,20 @@ export function enumerateProfiles(): DeviceProfile[] {
       for (const deviceMemoryGB of MEMS)
         for (const webgpuShaderF16 of SHADER_F16)
           for (const isMobile of MOBILE)
-            out.push({
-              browserClass,
-              webgpuSupport,
-              deviceMemoryGB,
-              isMobile,
-              webgpuShaderF16,
-              override: 'auto',
-            });
+            // maxBufferBytes is a WebGPU-only probe; on every other cap the real
+            // profiler leaves it unprobed, so don't fabricate values there.
+            for (const webgpuMaxBufferBytes of webgpuSupport === 'webgpu'
+              ? MAX_BUFFER_BYTES
+              : [undefined])
+              out.push({
+                browserClass,
+                webgpuSupport,
+                deviceMemoryGB,
+                isMobile,
+                webgpuShaderF16,
+                webgpuMaxBufferBytes,
+                override: 'auto',
+              });
   return out;
 }
 

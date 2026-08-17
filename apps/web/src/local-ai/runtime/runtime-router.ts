@@ -22,12 +22,13 @@
  *     fails at load. Compatibility gating keeps it off such devices upstream.
  *
  *   - WebLLM/MLC runs only its own MLC-compiled builds — no cross-runtime
- *     fallback, same reasoning as LiteRT. Re-integrated as the WebKit
- *     survival path ORT cannot serve; `WebLLMAdapter` exists and is routed
- *     to here, but no production engine factory is registered yet (that
- *     needs a specific self-hosted model_lib, a model-scope decision this
- *     router doesn't make) — until one is, load() fails with an honest
- *     'init-failed', matching every other not-yet-configured seam.
+ *     fallback, same reasoning as LiteRT. It's the WebKit survival path ORT
+ *     cannot serve; `WebLLMAdapter` is routed to here and its production
+ *     engine factory is registered at boot (`bootstrap.ts` wires a real
+ *     MLCEngine from the self-hosted Qwen2-0.5B `model_lib`), so the catalog
+ *     ships one webllm entry for that path. Absent a registered factory,
+ *     load() fails with an honest 'init-failed', like every other
+ *     not-yet-configured seam.
  *
  * No `intent`-based override is needed at the router level. The
  * recommendation engine already factored intent into which model it
