@@ -21,6 +21,7 @@ import { isAssignable } from '../../device/compatibility';
 import { CURRENT_LEDGER_VERSION, profileKey } from '../../evidence/ledger';
 import { canServe, listCandidates, listCatalog, NoAssignableModelError, PREFERRED_WASM_FLOOR_MODEL_ID, recommend, starterModelForSlot } from '../recommend';
 import { isBelowFloor } from '../../device/below-floor';
+import { deriveFirstRunChoices } from '../first-run-choices';
 import type { DeviceProfile } from '../../types';
 
 const PROFILE_24GB: DeviceProfile = {
@@ -95,6 +96,42 @@ describe('canServe — hardware-level assignability gate (COV-1)', () => {
       expect(canServe(p)).toBe(false);
       expect(() => recommend('eco-fast', p)).toThrow(NoAssignableModelError);
     }
+  });
+});
+
+describe('recommend — unreported device memory (Chromium fork, COV-6)', () => {
+  // A memory-stripping Chromium fork reports deviceMemoryGB 0. The compatibility
+  // guard substitutes an effective 4GB, so the ≥8GB-floor premium tier is declined
+  // — the fork keeps the good 1.2B fast pick but is NOT handed a doomed premium
+  // download. This pins the END-TO-END user-facing outcome (single-option first-run
+  // offer), which the compatibility unit test only guarantees transitively.
+  const PROFILE_UNREPORTED_MEM: DeviceProfile = {
+    browserClass: 'chromium',
+    webgpuSupport: 'webgpu',
+    deviceMemoryGB: 0,
+    isMobile: false,
+    override: 'auto',
+    webgpuShaderF16: true,
+  };
+  const PREMIUM_IDS = [
+    'candidate/lfm2-2.6b-onnx',
+    'candidate/qwen3.5-2b-onnx',
+    'candidate/gemma-4-e2b-litert',
+  ];
+
+  it('serves a fast pick but never a ≥8GB-floor premium model', () => {
+    expect(canServe(PROFILE_UNREPORTED_MEM)).toBe(true);
+    expect(PREMIUM_IDS).not.toContain(recommend('eco-fast', PROFILE_UNREPORTED_MEM).id);
+    expect(PREMIUM_IDS).not.toContain(recommend('eco-smart', PROFILE_UNREPORTED_MEM).id);
+  });
+
+  it('collapses the first-run offer to a single option — no doomed deeper download', () => {
+    // Before the guard, eco-smart resolved to the 2.6B premium (memory floor
+    // skipped) and was offered as a larger "deeper" tile — a doomed ~1.65GB
+    // download. With the guard the deeper pick is non-premium and ≤ the fast pick,
+    // so the size-step-up guard collapses the offer to a single option.
+    const offer = deriveFirstRunChoices('eco-fast', PROFILE_UNREPORTED_MEM);
+    expect(offer.models).toHaveLength(1);
   });
 });
 
