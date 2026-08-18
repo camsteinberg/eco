@@ -137,6 +137,18 @@ hydrated (a fiber key on the DOM, not just `load`), runs the assertions, and
 rejects an empty body. The dev-tools portal is hidden with a style tag — it is
 not part of the product.
 
+Model weights never arrive. They are fetched same-origin through
+`/api/local-models/…`, so any state that reaches the download path would really
+download a model — hundreds of megabytes per shot, and a progress bar reading a
+different percentage every run. `installRouteMocks` holds those requests open
+(never fulfilled, never aborted), which leaves the app in the state it genuinely
+is in while it waits for the first byte: download phase, percent 0, no error.
+The plan/manifest request is let through so the pipeline still builds a real
+plan and the forced-failure entries still fail where they would in the wild.
+That is what makes the `setup-gate` progress surfaces reproducible; it is also
+why the mid-download percent bands (45–84%, 85–99%, smoke, done) have no
+entries — they are driven by real bytes and nothing forces them.
+
 `clock: 'paused'` installs a fake clock, which freezes timers and
 `requestAnimationFrame` too. That is how an intro animation gets parked at a
 chosen millisecond (`advanceMs`) — and also why it is not the default: a surface

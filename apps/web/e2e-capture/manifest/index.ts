@@ -3,6 +3,7 @@
 
 import type { StateEntry } from "../types";
 import { pilotStates } from "./pilot";
+import { setupGateStates } from "./setup-gate";
 
 /**
  * The manifest: every UI state the capture lane knows how to shoot.
@@ -16,6 +17,7 @@ import { pilotStates } from "./pilot";
 
 const GROUPS: Record<string, StateEntry[]> = {
   pilot: pilotStates,
+  "setup-gate": setupGateStates,
 };
 
 /**

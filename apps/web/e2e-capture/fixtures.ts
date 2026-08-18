@@ -135,6 +135,26 @@ async function installRouteMocks(page: Page, signedIn: boolean): Promise<void> {
     route.fulfill({ status: 200, contentType: "application/json", body: "{}" }),
   );
 
+  // Model weights are the one response a capture must never actually receive.
+  // They are fetched same-origin through `/api/local-models/…`, so any state
+  // that reaches the download path really downloads a model: hundreds of
+  // megabytes per shot, and a progress bar reading a different percentage every
+  // run. Holding the request open — never fulfilled, never aborted — leaves the
+  // app in the state it genuinely is in while it waits for the first byte:
+  // download phase, percent 0, no error. The app's own 30-second stall timer is
+  // the escape hatch, and a capture finishes long before it.
+  //
+  // The plan/manifest request is let through, so the pipeline still builds a
+  // real download plan and the forced-failure entries still fail at the point
+  // they would in the wild (the harness injects at the top of the fetch phase,
+  // after the plan).
+  await page.route("**/api/local-models/**", (route) => {
+    if (route.request().url().includes("/manifest/")) {
+      return route.continue();
+    }
+    return undefined;
+  });
+
   // The service worker would serve cached HTML on later navigations, so one
   // run's captures could show another run's build. `eco-skip-sw-registration-once`
   // already asks the app not to register it; aborting the script is the belt to
