@@ -193,6 +193,11 @@ export const captureTest = base.extend<CaptureFixtures>({
         // registration order.
         await installRouteMocks(page, true);
       }
+      if (entry.serviceWorker) {
+        // The offline-fallback state is the one capture that needs the real
+        // worker installed, so it drops the blanket abort.
+        await page.unroute("**/sw.js");
+      }
       await captureState(page, entry, captureContext, testInfo);
     });
   },

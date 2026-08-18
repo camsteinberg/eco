@@ -3,6 +3,7 @@
 
 import type { StateEntry } from "../types";
 import { pilotStates } from "./pilot";
+import { routesStates } from "./routes";
 import { setupGateStates } from "./setup-gate";
 
 /**
@@ -17,6 +18,7 @@ import { setupGateStates } from "./setup-gate";
 
 const GROUPS: Record<string, StateEntry[]> = {
   pilot: pilotStates,
+  routes: routesStates,
   "setup-gate": setupGateStates,
 };
 
@@ -64,6 +66,16 @@ export const KNOWN_ROUTE_PARAMS: ReadonlySet<string> = new Set([
   "tab",
   "prompt",
   "eco-diagnostics",
+  // Auth + gate continuation and result params. Each one is read by a shipping
+  // route: `callbackUrl`/`prompt` by the auth pages (auth-continuation.ts),
+  // `returnTo` by /gate, `signedOut` by /sign-in, `token` and `error` by
+  // /reset-password, `billing` by the billing settings tab.
+  "returnTo",
+  "billing",
+  "signedOut",
+  "error",
+  "token",
+  "callbackUrl",
 ]);
 
 const ID_PATTERN = /^[a-z0-9-]+(\.[a-z0-9-]+)+$/;
@@ -98,6 +110,14 @@ function assertEntryIsWellFormed(entry: StateEntry, group: string): void {
 
   if (entry.tier === "micro" && !entry.prepare) {
     fail(entry.id, "micro states must define prepare() — the interaction IS the state");
+  }
+
+  if (entry.mock && entry.realism !== "mocked") {
+    fail(
+      entry.id,
+      `declares mock() but realism is "${entry.realism}" — a faked response is never real, `
+        + "and the generated index has to be able to say so",
+    );
   }
 
   if (entry.search === undefined) {

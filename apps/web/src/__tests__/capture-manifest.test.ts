@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import {
   allStates,
   KNOWN_HARNESS_KEYS,
+  KNOWN_ROUTE_PARAMS,
   manifestFor,
   manifestGroups,
 } from "../../e2e-capture/manifest";
@@ -79,7 +80,7 @@ describe("capture manifest", () => {
     for (const entry of allStates) {
       if (!entry.search) continue;
       for (const key of new URLSearchParams(entry.search).keys()) {
-        const known = KNOWN_HARNESS_KEYS.has(key) || ["tab", "prompt", "eco-diagnostics"].includes(key);
+        const known = KNOWN_HARNESS_KEYS.has(key) || KNOWN_ROUTE_PARAMS.has(key);
         expect(known, `${entry.id} uses unknown search param "${key}"`).toBe(true);
       }
     }

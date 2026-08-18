@@ -94,6 +94,30 @@ after `prepare`, so they must describe what is true in **both** phases — the
 stable base state, not the interaction. Proving the interaction is `prepare`'s
 job (`openMenu` waits for `role=menu`; the hover pilot polls computed opacity).
 
+### Escape hatches, and when they are allowed
+
+Four optional fields exist for states the plain declare-and-shoot path cannot
+reach. Each one narrows what the lane can promise, so an entry that sets one
+should say why in its `notes`.
+
+| Field | For | Cost |
+| --- | --- | --- |
+| `mock(page, ctx)` | Network fakes installed **before** the first navigation — a response a route fetches on mount, or cutting the network off entirely. Also where a warm-up navigation goes. | Forces `realism: 'mocked'`; the manifest rejects any other value. |
+| `serviceWorker` | Lets the real worker register instead of aborting `/sw.js`. | One run could serve another run's cached HTML. Only the offline state sets it. |
+| `server: 'prod'` | States that do not exist on a dev server. | Skipped, and absent from `expected.json`, on a dev run — so coverage does not call them missing. |
+| `hydrates: false` | A document the app did not render. | Drops the hydration wait, which is the check that stops the lane photographing a page whose buttons do not work. |
+
+Two things genuinely need `server: 'prod'`: the app registers its service worker
+only when `NODE_ENV === 'production'` (and, on a loopback host, only with
+`eco-enable-local-sw` set), and Next.js's dev error overlay covers the
+`error.tsx` boundaries — which `assertNoDevErrorOverlay` refuses to photograph.
+
+`routes.offline-fallback` is the one state using all four, and is the worked
+example: seed the two opt-in keys, remove `eco-skip-sw-registration-once` so the
+app actually registers, warm up with a navigation in `mock`, wait for
+`navigator.serviceWorker.controller`, then `setOffline(true)` and let the
+entry's own `goto` land on the worker's fallback document.
+
 ### Realism is disclosed, not hidden
 
 `real` (the app did this by itself), `seeded` (we set storage or harness knobs),
@@ -129,7 +153,7 @@ They just do not confer *readiness*.
 In order, per capture: fixed clock → media emulation (`colorScheme`,
 `reducedMotion`) → one ordered `addInitScript` (onboarding suppression → theme
 and font size → entry seed → **removals last**, so an entry can un-suppress a
-first-run surface) → navigate → settle → `prepare` → screenshot.
+first-run surface) → `mock` → navigate → settle → `prepare` → screenshot.
 
 Settling refuses to photograph a broken app: it fails on a Next.js dev error
 overlay, waits for `document.fonts.ready` and for React to have actually

@@ -215,7 +215,9 @@ async function settle(page: Page, entry: StateEntry): Promise<void> {
   });
 
   await page.evaluate(() => document.fonts.ready.then(() => undefined));
-  await waitForHydration(page);
+  if (entry.hydrates !== false) {
+    await waitForHydration(page);
+  }
   await runAssertions(page, entry, "settle");
 
   // Best-effort: quiet network makes late-arriving images deterministic, but a
@@ -313,6 +315,12 @@ export async function captureState(
       // below will fail loudly if the missing seed actually mattered.
     }
   }, seed);
+
+  // Before the first navigation: anything a route fetches on mount has already
+  // fired by the time `prepare` runs.
+  if (entry.mock) {
+    await entry.mock(page, ctx);
+  }
 
   await page.goto(buildUrl(entry));
   await settle(page, entry);
@@ -416,6 +424,12 @@ const TIER_VIEWPORTS: Record<StateEntry["tier"], readonly CaptureContext["viewpo
 export function entryRunsInContext(entry: StateEntry, ctx: CaptureContext): boolean {
   const tierFilter = process.env.ECO_CAPTURE_TIER;
   if (tierFilter && !tierFilter.split(",").map((tier) => tier.trim()).includes(entry.tier)) {
+    return false;
+  }
+
+  // A prod-only state does not exist on the dev server, so it is not "missing"
+  // from a dev run — it never belonged to it.
+  if (entry.server === "prod" && process.env.ECO_CAPTURE_SERVER !== "prod") {
     return false;
   }
 
