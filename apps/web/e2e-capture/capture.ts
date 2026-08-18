@@ -5,6 +5,7 @@ import { createHash } from "node:crypto";
 import { appendFileSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { expect, type Locator, type Page, type TestInfo } from "@playwright/test";
+import { IDB_SEEDS, installIdbSeed, isIdbSeedName } from "./seeds/idb";
 import {
   FONT_SIZE_STORAGE_VALUE,
   type CaptureContext,
@@ -76,6 +77,21 @@ const IDB_FIXTURE_PARAM: Record<IdbFixtureName, string> = {
   "conversation-hybrid-continuation": "hybrid-continuation",
 };
 
+function isIdbFixtureName(name: string): name is IdbFixtureName {
+  return Object.prototype.hasOwnProperty.call(IDB_FIXTURE_PARAM, name);
+}
+
+/**
+ * The conversation the app should reopen.
+ *
+ * A lane-seeded conversation is written straight into IndexedDB, so nothing has
+ * told the app it is the active one. Without this key the store falls back to
+ * "the most recently updated conversation", which is only reliable while there
+ * is exactly one — naming it explicitly keeps a seeded capture pointing at its
+ * own conversation no matter what else the profile holds.
+ */
+const ACTIVE_CONVERSATION_KEY = "eco-active-conversation";
+
 type InitSeedPayload = {
   local: Record<string, string>;
   session: Record<string, string>;
@@ -85,6 +101,12 @@ type InitSeedPayload = {
 
 function buildSeedPayload(entry: StateEntry, ctx: CaptureContext): InitSeedPayload {
   const local: Record<string, string> = { ...ONBOARDING_SUPPRESSION_LOCAL };
+
+  for (const name of entry.seed?.idb ?? []) {
+    if (isIdbSeedName(name)) {
+      local[ACTIVE_CONVERSATION_KEY] = IDB_SEEDS[name].conversation.id;
+    }
+  }
 
   // Theme: the pre-paint script in app/layout.tsx reads these two keys before
   // React runs, so seeding them here is what makes a dark capture dark on the
@@ -113,12 +135,31 @@ function buildSeedPayload(entry: StateEntry, ctx: CaptureContext): InitSeedPaylo
 
 function buildUrl(entry: StateEntry): string {
   const params = new URLSearchParams(entry.search ?? "");
-  for (const fixture of entry.seed?.idb ?? []) {
-    params.set("eco-history-fixture", IDB_FIXTURE_PARAM[fixture]);
+  for (const name of entry.seed?.idb ?? []) {
+    // Lane seeds are written directly (see installIdbSeeds); only the app's own
+    // fixtures ride the URL.
+    if (isIdbFixtureName(name)) {
+      params.set("eco-history-fixture", IDB_FIXTURE_PARAM[name]);
+    }
   }
 
   const query = params.toString();
   return query ? `${entry.route}?${query}` : entry.route;
+}
+
+/**
+ * Plant any lane-seeded conversations, at document-start.
+ *
+ * Registered AFTER the storage seed so the ordering inside the page matches the
+ * declared order (storage, then database), and before `mock` so a state that
+ * needs both gets the conversation on its warm-up navigation too.
+ */
+async function installIdbSeeds(page: Page, entry: StateEntry): Promise<void> {
+  for (const name of entry.seed?.idb ?? []) {
+    if (isIdbSeedName(name)) {
+      await page.addInitScript(installIdbSeed, IDB_SEEDS[name]);
+    }
+  }
 }
 
 function locatorFor(page: Page, assertion: StateAssertion): Locator {
@@ -295,6 +336,24 @@ export async function captureState(
     reducedMotion: ctx.motion,
   });
 
+  // Hide the capture machine's own battery.
+  //
+  // `useBatteryAwareness` reads the real Battery Status API, and below 30% on a
+  // discharging laptop the app shows a "Low battery mode" notice above the
+  // composer. That notice then appears in EVERY chat capture, depending on
+  // nothing but how charged the machine happened to be — it made two unrelated
+  // states come out byte-identical on 2026-08-18 and would make a run
+  // unreproducible on any other laptop. Removing the API is the app's own
+  // "battery unavailable" path (`computeRestriction(null)` → no restriction), so
+  // this reads as a desktop on mains rather than as a special case. The forced
+  // battery states are unaffected: the harness override is consulted first and
+  // returns before this check.
+  await page.addInitScript(() => {
+    // The property lives on the prototype, and `'getBattery' in navigator`
+    // walks the chain — so deleting it from the instance would change nothing.
+    Reflect.deleteProperty(Navigator.prototype, "getBattery");
+  });
+
   const seed = buildSeedPayload(entry, ctx);
   await page.addInitScript((payload: InitSeedPayload) => {
     try {
@@ -315,6 +374,8 @@ export async function captureState(
       // below will fail loudly if the missing seed actually mattered.
     }
   }, seed);
+
+  await installIdbSeeds(page, entry);
 
   // Before the first navigation: anything a route fetches on mount has already
   // fired by the time `prepare` runs.

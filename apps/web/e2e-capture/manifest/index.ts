@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Bos Computing LLC
 
 import type { StateEntry } from "../types";
+import { chatSurfaceStates } from "./chat-surface";
 import { pilotStates } from "./pilot";
 import { routesStates } from "./routes";
 
@@ -18,6 +19,7 @@ import { routesStates } from "./routes";
 const GROUPS: Record<string, StateEntry[]> = {
   pilot: pilotStates,
   routes: routesStates,
+  "chat-surface": chatSurfaceStates,
 };
 
 /**

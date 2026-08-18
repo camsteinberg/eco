@@ -103,6 +103,14 @@ after `prepare`, so they must describe what is true in **both** phases — the
 stable base state, not the interaction. Proving the interaction is `prepare`'s
 job (`openMenu` waits for `role=menu`; the hover pilot polls computed opacity).
 
+This is not a style rule, and getting it wrong is quiet. An assertion that is
+only true *before* the interaction does not fail — it **retries for ten seconds**,
+so the lane waits for the interaction to undo itself and then photographs the
+undone state. `chat-surface.code-block-copied` was asserting on a button whose
+accessible name changes when it is clicked, and produced two runs of a perfectly
+green "Copied" state that showed "Copy". If a `prepare` changes a name, a label
+or a count, assert on something structural instead.
+
 ### Escape hatches, and when they are allowed
 
 Four optional fields exist for states the plain declare-and-shoot path cannot
@@ -157,12 +165,51 @@ past the first-run choice into the download path, which is exactly how
 `pilot.setup-error-storage` reaches a forced `eco-force-download=quota` failure.
 They just do not confer *readiness*.
 
+## Seeding a conversation
+
+`seed.idb` names the conversation a state needs. Two kinds of name resolve:
+
+- the app's own harness fixtures (`conversation-assistant-dom`,
+  `conversation-hybrid-continuation`), installed by the app through its
+  `eco-history-fixture` param;
+- a **lane seed** from `seeds/idb.ts`, written straight into the `eco-chat`
+  database at document-start.
+
+Lane seeds exist because the message surface is where most of the UI lives and
+two fixed fixtures cannot express it: a markdown showcase, thirteen classified
+error cards, a reasoning block and a three-way branch are all just "a
+conversation whose rows say particular things". They are built from the app's
+own `DbConversation` / `DbMessage` types, so a schema change fails type-check
+instead of silently producing an empty chat.
+
+The write is ordered, not raced: `indexedDB.open` is called before any app JS
+runs and the write transaction is created synchronously in its success handler,
+so the app's own read queues behind it. Timestamps are offsets from the same
+frozen clock `capture.ts` uses, and ids are fixed strings — both are load-bearing
+and `seeds/idb.ts` says so.
+
+**One caveat, and it is a big one.** A conversation that is already active when
+`/chat` mounts renders nothing on the **dev server**: `useConversationManager`'s
+load effect stamps its request id above its own early-return, so React
+StrictMode's second (no-op) invocation invalidates the load that the first one
+started. The production build has no double invocation and renders correctly, so
+every seeded-conversation state is marked `server: 'prod'`. If that effect is
+ever fixed, the flag can come off all of them at once.
+
 ## Determinism, and what it costs
 
 In order, per capture: fixed clock → media emulation (`colorScheme`,
-`reducedMotion`) → one ordered `addInitScript` (onboarding suppression → theme
-and font size → entry seed → **removals last**, so an entry can un-suppress a
-first-run surface) → `mock` → navigate → settle → `prepare` → screenshot.
+`reducedMotion`) → the Battery Status API removed → one ordered `addInitScript`
+(onboarding suppression → theme and font size → entry seed → **removals last**,
+so an entry can un-suppress a first-run surface) → any IndexedDB seed → `mock` →
+navigate → settle → `prepare` → screenshot.
+
+The battery removal is not cosmetic. Below 30% on a discharging laptop the app
+shows a "Low battery mode" notice above the composer, which then appears in
+every chat capture — a run that differs by how charged the machine happened to
+be is not a baseline. Dropping the API is the app's own "battery unavailable"
+path, and the forced battery states still work because the harness override is
+read first.
 
 Settling refuses to photograph a broken app: it fails on a Next.js dev error
 overlay, waits for `document.fonts.ready` and for React to have actually

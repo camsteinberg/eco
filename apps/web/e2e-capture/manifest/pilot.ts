@@ -41,6 +41,35 @@ export const DESKTOP_DEVICE_SEARCH = [
 
 export const READY_CHAT_SEARCH = `${READY_SLOT_SEARCH}&${DESKTOP_DEVICE_SEARCH}`;
 
+/**
+ * Storage that keeps the model-upgrade offer off a chat capture.
+ *
+ * On the forced desktop profile the upgrade machine offers LFM2-2.6B a few
+ * seconds after the chat mounts, and its floating card lands over whatever the
+ * shot was meant to show (it contaminated `pilot.chat-empty-ready`). A settled
+ * cycle for the same target suppresses the offer — `planUpgradeOffer` returns
+ * null the moment a record names the target in any phase but `offered` — and
+ * "declined" is the honest one to seed: it is exactly the state of a person who
+ * has already said no thanks.
+ *
+ * The target id is not guessed. `recommend('eco-smart', profile)` resolves to
+ * `candidate/lfm2-2.6b-onnx` for `DESKTOP_DEVICE_SEARCH`, confirmed on
+ * 2026-08-18 by reading the record the app itself wrote after an unsuppressed
+ * load. If the recommendation ever moves, the card reappears in the captures —
+ * visible in review rather than silently wrong.
+ */
+export const UPGRADE_DECLINED_LOCAL: Record<string, string> = {
+  "eco-local-ai-upgrade-v1": JSON.stringify({
+    version: 1,
+    phase: "declined",
+    targetModelId: "candidate/lfm2-2.6b-onnx",
+    baseModelId: "local/qwen3-0.6b",
+    deferral: null,
+    swapAttempts: 0,
+    updatedAt: 0,
+  }),
+};
+
 /** The assistant reply the app's own IndexedDB fixture installs. */
 const FIXTURE_ASSISTANT_ROW = '[data-message-id="eco-validation-assistant-message"]';
 
