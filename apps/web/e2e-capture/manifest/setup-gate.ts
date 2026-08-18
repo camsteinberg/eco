@@ -122,6 +122,27 @@ const IOS_WEBKIT = [
   "eco-force-device-memory=8",
 ].join("&");
 
+/**
+ * Bound models for the entries that reach the download path.
+ *
+ * `downloadByPlan` runs a REAL storage-headroom preflight
+ * (`assertStorageHeadroom`) immediately before the harness's forced-failure
+ * seam, and it throws the same `InsufficientStorageError` the seam does. A
+ * Playwright profile reports an origin quota of roughly 0.9–1.1 GB (measured
+ * 2026-08-18: 0.87, 0.87, 1.09, 1.14 GB across four fresh contexts), and the
+ * preflight trips when the available budget is under `remaining × 1.1`.
+ * Qwen3-0.6B's plan is ~0.79 GB, so its threshold (~0.87 GB) sits exactly on
+ * that boundary — it pre-empts the forced failure on roughly one project per
+ * run, at random, and renders the real storage error instead of the state the
+ * entry asked for.
+ *
+ * So every entry here binds a 350M-class model: ~0.3–0.5 GB of plan bytes, a
+ * threshold far under the smallest quota ever observed. This is about the test
+ * profile, not the product — a real device has orders of magnitude more room.
+ */
+const SMALL_WEBGPU_MODEL = "candidate/lfm2.5-350m-onnx";
+const SMALL_CPU_MODEL = "candidate/smollm2-360m-instruct-onnx";
+
 /** A bound-but-unfinished pick: the runner resumes it and softens the copy. */
 function resumingSlot(modelId: string): string {
   return `eco-validation-slot-eco-fast=${modelId}&eco-validation-slot-status-eco-fast=preparing`;
@@ -222,18 +243,18 @@ export const setupGateStates: StateEntry[] = [
     group: "setup-gate",
     title: "Setup — finishing an interrupted download",
     route: "/chat",
-    search: `${resumingSlot("local/qwen3-0.6b")}&${DESKTOP_WEBGPU}`,
+    search: `${resumingSlot(SMALL_WEBGPU_MODEL)}&${LOW_MEMORY_WEBGPU}`,
     tier: "page",
     realism: "seeded",
     assert: [{ text: "Finishing your model download…" }],
-    notes: "A slot left 'preparing' resumes that exact model, so the copy frames the wait as finishing, not starting.",
+    notes: "A slot left 'preparing' resumes that exact model, so the copy frames the wait as finishing, not starting. The 350M is this device's own pick and keeps the run clear of the storage-preflight boundary.",
   },
   {
     id: "setup-gate.setup-prior-attempt-failed",
     group: "setup-gate",
     title: "Setup — after a failed prior attempt",
     route: "/chat",
-    search: `${failedSlot("local/qwen3-0.6b")}&${DESKTOP_WEBGPU}`,
+    search: `${failedSlot(SMALL_WEBGPU_MODEL)}&${LOW_MEMORY_WEBGPU}`,
     tier: "page",
     realism: "seeded",
     assert: [
@@ -247,7 +268,7 @@ export const setupGateStates: StateEntry[] = [
     group: "setup-gate",
     title: "Setup — the lighter-model expectation on a CPU-only device",
     route: "/chat",
-    search: `${failedSlot("local/qwen3-0.6b")}&${CPU_ONLY}`,
+    search: `${failedSlot(SMALL_CPU_MODEL)}&${CPU_ONLY}`,
     tier: "page",
     realism: "seeded",
     assert: [{ text: "Setting up a lighter AI that runs smoothly on this device" }],
@@ -258,7 +279,10 @@ export const setupGateStates: StateEntry[] = [
     group: "setup-gate",
     title: "Setup — reassurance line 1 (just after choosing)",
     route: "/chat",
-    search: DESKTOP_WEBGPU,
+    // The one-tile device deliberately: committing the choice on the two-tile
+    // card binds the 0.76 GB model, whose preflight threshold sits on the test
+    // profile's quota boundary (see SMALL_WEBGPU_MODEL).
+    search: LOW_MEMORY_WEBGPU,
     seed: { removeLocal: ["eco-onboarding"] },
     tier: "micro",
     realism: "seeded",
@@ -275,7 +299,7 @@ export const setupGateStates: StateEntry[] = [
     group: "setup-gate",
     title: "Setup — reassurance line 2 (one rotation later)",
     route: "/chat",
-    search: DESKTOP_WEBGPU,
+    search: LOW_MEMORY_WEBGPU,
     seed: { removeLocal: ["eco-onboarding"] },
     tier: "micro",
     realism: "seeded",
@@ -298,21 +322,21 @@ export const setupGateStates: StateEntry[] = [
     group: "setup-gate",
     title: "Setup error — not enough free space (with figures)",
     route: "/chat",
-    search: `eco-force-download=storage&${resumingSlot("local/qwen3-0.6b")}&${DESKTOP_WEBGPU}`,
+    search: `eco-force-download=storage&${resumingSlot(SMALL_CPU_MODEL)}&${CPU_LOW_MEMORY}`,
     tier: "page",
     realism: "seeded",
     assert: [
       { text: "Eco needs a little more free space" },
       { text: "is available on this device" },
     ],
-    notes: "The storage headline overrides the exhausted copy. Differs from pilot.setup-error-storage (quota) only in the subtitle: this one names both figures.",
+    notes: "The storage headline overrides the exhausted copy. Differs from pilot.setup-error-storage (quota) in the subtitle — this one names both figures — and binds a 350M model so the real preflight can never pre-empt the forced failure and make the two identical.",
   },
   {
     id: "setup-gate.error-exhausted-multi-model",
     group: "setup-gate",
     title: "Setup error — every option tried",
     route: "/chat",
-    search: `eco-force-download=cache&${resumingSlot("local/qwen3-0.6b")}&${DESKTOP_WEBGPU}`,
+    search: `eco-force-download=cache&${resumingSlot(SMALL_CPU_MODEL)}&${CPU_ONLY}`,
     tier: "page",
     realism: "seeded",
     assert: [{ text: "We tried a few options" }],
@@ -323,7 +347,7 @@ export const setupGateStates: StateEntry[] = [
     group: "setup-gate",
     title: "Setup error — a one-model device",
     route: "/chat",
-    search: `eco-force-download=cache&${resumingSlot("candidate/smollm2-360m-instruct-onnx")}&${CPU_LOW_MEMORY}`,
+    search: `eco-force-download=cache&${resumingSlot(SMALL_CPU_MODEL)}&${CPU_LOW_MEMORY}`,
     tier: "page",
     realism: "seeded",
     assert: [{ text: "We couldn't get Eco's model running on this device just yet." }],
@@ -334,7 +358,7 @@ export const setupGateStates: StateEntry[] = [
     group: "setup-gate",
     title: "Setup error — 'Copied' confirmation",
     route: "/chat",
-    search: `eco-force-download=cache&${resumingSlot("local/qwen3-0.6b")}&${DESKTOP_WEBGPU}`,
+    search: `eco-force-download=cache&${resumingSlot(SMALL_CPU_MODEL)}&${CPU_ONLY}`,
     tier: "micro",
     realism: "seeded",
     assert: [{ text: "We tried a few options" }],
