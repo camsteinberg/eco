@@ -23,7 +23,7 @@ import type { StateEntry } from "../types";
  * does NOT reach a ready chat — it lands on "Finishing your model download…".
  * The harness URL params below do. See the README for the full finding.
  */
-const READY_SLOT_SEARCH = [
+export const READY_SLOT_SEARCH = [
   "eco-validation-slot-eco-fast=local/qwen3-0.6b",
   "eco-validation-slot-status-eco-fast=ready",
   "eco-validation-selected-model=eco-fast",
@@ -31,7 +31,7 @@ const READY_SLOT_SEARCH = [
 ].join("&");
 
 /** Force a predictable device so recommendation never varies by host hardware. */
-const DESKTOP_DEVICE_SEARCH = [
+export const DESKTOP_DEVICE_SEARCH = [
   "eco-force-capability=webgpu",
   "eco-force-browser=chromium",
   "eco-force-platform=desktop",
@@ -39,7 +39,7 @@ const DESKTOP_DEVICE_SEARCH = [
   "eco-force-opfs=true",
 ].join("&");
 
-const READY_CHAT_SEARCH = `${READY_SLOT_SEARCH}&${DESKTOP_DEVICE_SEARCH}`;
+export const READY_CHAT_SEARCH = `${READY_SLOT_SEARCH}&${DESKTOP_DEVICE_SEARCH}`;
 
 /** The assistant reply the app's own IndexedDB fixture installs. */
 const FIXTURE_ASSISTANT_ROW = '[data-message-id="eco-validation-assistant-message"]';

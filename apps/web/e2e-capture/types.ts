@@ -158,8 +158,50 @@ export type StateEntry = {
   capture?: CaptureSpec;
   clock?: ClockSpec;
   assert: StateAssertion[];
+  /**
+   * Network fakes installed BEFORE the first navigation.
+   *
+   * `prepare` is too late for anything a route fetches on mount (the gate's
+   * `/api/gate` probe, an auth endpoint a form posts to on submit), so this hook
+   * runs right after seeding and before `goto`. It owns the whole network for
+   * that window, which also covers cutting it off entirely
+   * (`page.context().setOffline`) and any warm-up navigation a state needs
+   * before the one being photographed. Setting it forces `realism: 'mocked'` —
+   * a faked or severed response is never "real", and the generated index says
+   * so.
+   */
+  mock?: (page: Page, ctx: CaptureContext) => Promise<void>;
   /** Real interaction (hover, click, Tab) run after the state settles. */
   prepare?: (page: Page, ctx: CaptureContext) => Promise<void>;
+  /**
+   * Let the real service worker register instead of aborting `/sw.js`.
+   *
+   * Only the offline-fallback state wants this; every other capture keeps the
+   * abort so one run cannot serve another run's cached HTML. A `true` here also
+   * needs `seed.removeSession: ['eco-skip-sw-registration-once']` — the app's
+   * own opt-out is separate from the route block.
+   */
+  serviceWorker?: boolean;
+  /**
+   * Which server this state exists on.
+   *
+   * `'prod'` states are skipped entirely against the dev server (and are absent
+   * from that run's `expected.json`, so coverage does not report them missing).
+   * Two things genuinely need it: the app registers its service worker only when
+   * `NODE_ENV === 'production'`, and Next.js's dev error overlay covers the
+   * `error.tsx` boundaries — which the runner refuses to photograph.
+   */
+  server?: "any" | "prod";
+  /**
+   * Whether React is expected to attach to this document. Defaults to true.
+   *
+   * `false` ONLY for a document the app did not render — today just the service
+   * worker's offline fallback, which is static HTML synthesised inside `sw.js`
+   * and has no React root to wait for. Every real route must leave this alone:
+   * the hydration wait is what stops the lane photographing a page whose
+   * buttons do not work yet.
+   */
+  hydrates?: boolean;
   /** Marks a state only reachable through a dev/diagnostics seam. */
   internal?: boolean;
   notes?: string;
