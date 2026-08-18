@@ -18,6 +18,9 @@ export default defineConfig({
       "e2e/**",
       "e2e-smoke/**",
       "e2e-webllm/**",
+      // The capture lane's specs end in `.capture.spec.ts`, which vitest would
+      // otherwise pick up; its manifest IS unit-tested, from src/__tests__.
+      "e2e-capture/**",
       "e2e-perf/*.spec.ts",
       "node_modules/**",
     ],

@@ -20,7 +20,10 @@
     "verify:no-lab-bundle": "node scripts/verify-no-lab-bundled.mjs",
     "seed:evidence": "node scripts/build-seed-evidence.mjs",
     "test:visual": "playwright test --config playwright.visual.config.ts",
-    "test:visual:update": "playwright test --config playwright.visual.config.ts --update-snapshots"
+    "test:visual:update": "playwright test --config playwright.visual.config.ts --update-snapshots",
+    "capture": "playwright test --config playwright.capture.config.ts",
+    "capture:index": "node scripts/build-capture-index.mjs",
+    "capture:coverage": "node scripts/check-capture-coverage.mjs"
   },
   "dependencies": {
     "@codesandbox/sandpack-react": "^2.20.0",

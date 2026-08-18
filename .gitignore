@@ -37,6 +37,8 @@ coverage
 *.lcov
 playwright-report/
 test-results/
+# UI capture runs land in ~/eco-artifacts by default; ECO_CAPTURE_OUT may point here
+/artifacts/
 
 # Logs
 *.log

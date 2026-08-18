@@ -1,0 +1,153 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Bos Computing LLC
+
+import type { StateEntry } from "../types";
+import { pilotStates } from "./pilot";
+
+/**
+ * The manifest: every UI state the capture lane knows how to shoot.
+ *
+ * Groups are added by later waves — a wave is one new `<group>.ts` file plus
+ * one line in `GROUPS` below. The invariant guards at the bottom of this file
+ * run at MODULE LOAD, so a malformed entry fails the whole lane loudly (and
+ * fails the unit suite) instead of silently producing a missing or duplicate
+ * screenshot that nobody notices in a 300-image contact sheet.
+ */
+
+const GROUPS: Record<string, StateEntry[]> = {
+  pilot: pilotStates,
+};
+
+/**
+ * URL knobs the validation harness reads (`src/lib/validation-harness.ts`).
+ *
+ * A manifest entry may only put these in its `search`. Anything else is either
+ * a typo (which would silently capture the un-forced state) or a production
+ * query param that does not belong in a forced capture. Kept in sync with the
+ * harness by `src/__tests__/capture-manifest.test.ts`, which greps the harness
+ * module for each name.
+ */
+export const KNOWN_HARNESS_KEYS: ReadonlySet<string> = new Set([
+  "eco-force-download",
+  "eco-force-local-runtime",
+  "eco-force-protection",
+  "eco-force-remote",
+  "eco-force-capability",
+  "eco-force-browser",
+  "eco-force-platform",
+  "eco-force-device-memory",
+  "eco-force-opfs",
+  "eco-force-data-saver",
+  "eco-force-metered",
+  "eco-force-connection",
+  "eco-force-cache-verified",
+  "eco-heavy-work-dry-run",
+  "eco-heavy-work-model",
+  "eco-history-fixture",
+  "eco-local-generation-fixture",
+  "eco-local-generation-model",
+  "eco-local-generation-slot",
+  "eco-validation-selected-model",
+  "eco-validation-slot-eco-fast",
+  "eco-validation-slot-eco-smart",
+  "eco-validation-slot-status-eco-fast",
+  "eco-validation-slot-status-eco-smart",
+]);
+
+/**
+ * Real product query params a route reads (not harness knobs) — allowed in
+ * `search` because they select a shipping state, e.g. which settings tab opens.
+ */
+export const KNOWN_ROUTE_PARAMS: ReadonlySet<string> = new Set([
+  "tab",
+  "prompt",
+  "eco-diagnostics",
+]);
+
+const ID_PATTERN = /^[a-z0-9-]+(\.[a-z0-9-]+)+$/;
+
+function fail(entryId: string, problem: string): never {
+  throw new Error(
+    `Capture manifest is invalid — entry "${entryId}": ${problem}. `
+      + `Fix the manifest; the capture lane refuses to run on an ambiguous state list.`,
+  );
+}
+
+function assertEntryIsWellFormed(entry: StateEntry, group: string): void {
+  if (!ID_PATTERN.test(entry.id)) {
+    fail(entry.id, `id must match ${String(ID_PATTERN)} (lowercase, dot-separated)`);
+  }
+
+  if (!entry.id.startsWith(`${group}.`)) {
+    fail(entry.id, `id must be prefixed with its group ("${group}.")`);
+  }
+
+  if (entry.group !== group) {
+    fail(entry.id, `group is "${entry.group}" but it is registered under "${group}"`);
+  }
+
+  if (entry.assert.length < 1) {
+    fail(entry.id, "needs at least one assertion — an unproven screenshot proves nothing");
+  }
+
+  if (entry.capture?.mode === "element" && !entry.capture.selector) {
+    fail(entry.id, "capture mode 'element' requires a selector");
+  }
+
+  if (entry.tier === "micro" && !entry.prepare) {
+    fail(entry.id, "micro states must define prepare() — the interaction IS the state");
+  }
+
+  if (entry.search === undefined) {
+    return;
+  }
+
+  for (const key of new URLSearchParams(entry.search).keys()) {
+    if (!KNOWN_HARNESS_KEYS.has(key) && !KNOWN_ROUTE_PARAMS.has(key)) {
+      fail(
+        entry.id,
+        `search param "${key}" is not a known harness knob or route param. `
+          + "Add it to KNOWN_HARNESS_KEYS only if src/lib/validation-harness.ts really reads it",
+      );
+    }
+  }
+}
+
+function buildManifest(): StateEntry[] {
+  const all: StateEntry[] = [];
+  const seen = new Set<string>();
+
+  for (const [group, entries] of Object.entries(GROUPS)) {
+    if (entries.length === 0) {
+      throw new Error(`Capture manifest group "${group}" is empty — remove it or fill it.`);
+    }
+
+    for (const entry of entries) {
+      assertEntryIsWellFormed(entry, group);
+      if (seen.has(entry.id)) {
+        fail(entry.id, "duplicate id — ids are the lane's stable API and must be unique");
+      }
+      seen.add(entry.id);
+      all.push(entry);
+    }
+  }
+
+  return all;
+}
+
+/** Every entry, in group order. Validated at module load. */
+export const allStates: StateEntry[] = buildManifest();
+
+/** The group names the manifest currently declares. */
+export const manifestGroups: string[] = Object.keys(GROUPS);
+
+/** Entries for one group; throws on an unknown group so typos fail loudly. */
+export function manifestFor(group: string): StateEntry[] {
+  const entries = GROUPS[group];
+  if (!entries) {
+    throw new Error(
+      `Unknown capture manifest group "${group}". Known groups: ${manifestGroups.join(", ")}`,
+    );
+  }
+  return entries;
+}
