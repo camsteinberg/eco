@@ -21,15 +21,24 @@ disturb a state they had never seen. It runs on demand and never gates a merge.
 pnpm --filter @eco/web capture
 
 # One state (test titles are entry ids)
-pnpm --filter @eco/web capture -- -g pilot.chat-empty-ready
+pnpm --filter @eco/web capture -g pilot.chat-empty-ready
 
-# One project
-pnpm --filter @eco/web capture -- --project desktop-dark
+# One project, or one group (the positional arg matches the spec FILE name)
+pnpm --filter @eco/web capture --project=desktop-dark
+pnpm --filter @eco/web capture routes.capture
 
 # Verify a finished run, then (re)build its index
 pnpm --filter @eco/web capture:coverage
 pnpm --filter @eco/web capture:index
 ```
+
+**Never put `--` before those flags.** pnpm forwards arguments to a script
+without it, and Playwright honours `--` as the standard end-of-options marker:
+everything after it becomes a positional test-*file* filter. So
+`capture -- --project=desktop-dark --list` does not select a project and does
+not list — it silently runs the **whole grid**, which is a twenty-minute
+surprise. Verified on 2026-08-18: with `--` the same command ran 184 shots
+across all twelve projects; without it, 37 tests in one project, listed.
 
 The lane starts its own server on **port 3300** and never reuses a running one,
 so it cannot accidentally photograph a stale build or another branch. It builds

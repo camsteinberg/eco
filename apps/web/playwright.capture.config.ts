@@ -14,7 +14,11 @@ import { defineConfig } from "@playwright/test";
  *
  * Run:
  *   pnpm --filter @eco/web capture
- *   pnpm --filter @eco/web capture -- -g pilot.chat-empty-ready   (re-shoot one)
+ *   pnpm --filter @eco/web capture -g pilot.chat-empty-ready   (re-shoot one)
+ *
+ * Do NOT insert `--` before those flags: Playwright treats it as end-of-options
+ * and turns everything after it into a positional file filter, so the run
+ * quietly becomes the full grid. See the README.
  *
  * Environment:
  *   ECO_CAPTURE_OUT      artifact base dir (default ~/eco-artifacts/ui-baseline)
