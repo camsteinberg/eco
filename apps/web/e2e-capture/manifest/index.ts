@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Bos Computing LLC
 
 import type { StateEntry } from "../types";
+import { chatInteractionsStates } from "./chat-interactions";
 import { chatSurfaceStates } from "./chat-surface";
 import { pilotStates } from "./pilot";
 import { routesStates } from "./routes";
@@ -20,6 +21,7 @@ const GROUPS: Record<string, StateEntry[]> = {
   pilot: pilotStates,
   routes: routesStates,
   "chat-surface": chatSurfaceStates,
+  "chat-interactions": chatInteractionsStates,
 };
 
 /**
@@ -76,6 +78,10 @@ export const KNOWN_ROUTE_PARAMS: ReadonlySet<string> = new Set([
   "error",
   "token",
   "callbackUrl",
+  // `tour=1` launches the guided tour and is read by OnboardingTour, which then
+  // strips it from the URL with replaceState — a shipping entry point (the help
+  // menu links to it), not a harness knob.
+  "tour",
 ]);
 
 const ID_PATTERN = /^[a-z0-9-]+(\.[a-z0-9-]+)+$/;
