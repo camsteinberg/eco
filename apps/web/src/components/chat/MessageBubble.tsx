@@ -300,7 +300,7 @@ export function MessageBubble({
         ) : (
           <div
             className={[
-              "text-[15px]",
+              "text-[0.9375rem]",
               isUser
                 ? "ml-auto w-fit rounded-3xl bg-[var(--eco-primary)] dark:bg-gradient-to-br dark:from-[var(--eco-primary)] dark:to-[var(--eco-primary-hover)] px-4 py-3 text-[var(--eco-on-primary)] shadow-sm"
                 : "w-full rounded-xl px-1 py-1 text-[var(--eco-text)]",
@@ -351,7 +351,7 @@ export function MessageBubble({
                   canonicalAnswerText !== null && (
                     <p
                       data-testid="canonical-tool-answer"
-                      className="whitespace-pre-wrap text-[15px] font-medium leading-relaxed text-[var(--eco-text)]"
+                      className="whitespace-pre-wrap text-[0.9375rem] font-medium leading-relaxed text-[var(--eco-text)]"
                     >
                       {canonicalAnswerText}
                     </p>

@@ -46,7 +46,7 @@ export function EditMessage({ content, onSave, onCancel }: EditMessageProps) {
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={handleKeyDown}
-        className="w-full resize-none rounded-xl border border-[var(--eco-border)] bg-[var(--eco-surface-elevated)] px-3 py-2 text-[15px] text-[var(--eco-text)] focus:outline-none focus:ring-2 focus:ring-[var(--eco-primary)]/15"
+        className="w-full resize-none rounded-xl border border-[var(--eco-border)] bg-[var(--eco-surface-elevated)] px-3 py-2 text-[0.9375rem] text-[var(--eco-text)] focus:outline-none focus:ring-2 focus:ring-[var(--eco-primary)]/15"
         rows={3}
         aria-label="Edit message"
       />

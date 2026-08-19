@@ -278,7 +278,7 @@ export function ChatInput({
           disabled={disabled}
           placeholder={placeholder}
           rows={1}
-          className="min-h-[44px] min-w-0 flex-1 resize-none bg-transparent py-2.5 text-[15px] leading-normal text-[var(--eco-text)] placeholder:text-[var(--eco-text-secondary)] focus:outline-none focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-0 sm:py-0"
+          className="min-h-[44px] min-w-0 flex-1 resize-none bg-transparent py-2.5 text-[0.9375rem] leading-normal text-[var(--eco-text)] placeholder:text-[var(--eco-text-secondary)] focus:outline-none focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-0 sm:py-0"
           style={{ maxHeight: `${MAX_HEIGHT}px`, overflowY: "auto" }}
           aria-label="Message input"
         />
