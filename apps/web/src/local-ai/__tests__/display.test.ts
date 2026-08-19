@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Bos Computing LLC
 
 import { describe, expect, it } from 'vitest';
-import { getDisplayInfo, resolveRunningModel } from '../display';
+import { dedupeByDisplayName, getDisplayInfo, resolveRunningModel } from '../display';
 import { getCatalog } from '../catalog/catalog';
 
 describe('getDisplayInfo', () => {
@@ -119,6 +119,50 @@ describe('getDisplayInfo', () => {
     expect(info.friendlyName).toBe('Unknown Model');
     expect(info.qualityPhrase).toBe('');
     expect(info.provenance).toBe('Test Vendor · 1.5 GB');
+  });
+});
+
+// Two catalog entries brand as one name on purpose (the f16 and int4 builds of
+// the 1.2B are both "Eco Fast (Liquid)"), so any list that renders branded names
+// must collapse them — a device that can serve both otherwise offers two rows a
+// person cannot tell apart.
+describe('dedupeByDisplayName', () => {
+  const catalog = getCatalog();
+  const f16 = catalog.find((m) => m.id === 'candidate/lfm2.5-1.2b-instruct-onnx');
+  const int4 = catalog.find((m) => m.id === 'candidate/lfm2.5-1.2b-instruct-q4-onnx');
+  const light = catalog.find((m) => m.id === 'candidate/lfm2.5-350m-onnx');
+  if (!f16 || !int4 || !light) throw new Error('catalog missing the duplicate-named 1.2B pair');
+
+  it('collapses the two 1.2B builds into a single "Eco Fast (Liquid)" row', () => {
+    const rows = dedupeByDisplayName([f16, int4, light]);
+    expect(rows.map((m) => m.id)).toEqual([f16.id, light.id]);
+  });
+
+  it('leaves the rest of the catalog alone — one row per branded name', () => {
+    const rows = dedupeByDisplayName(catalog);
+    expect(rows).toHaveLength(catalog.length - 1);
+    const names = rows.map((m) => getDisplayInfo(m.id, m).friendlyName);
+    expect(new Set(names).size).toBe(rows.length);
+  });
+
+  it('keeps the preferred build when one of the duplicates is selected', () => {
+    const rows = dedupeByDisplayName([f16, int4], [int4.id]);
+    expect(rows.map((m) => m.id)).toEqual([int4.id]);
+  });
+
+  it('honours preference order — the selected build beats the recommended one', () => {
+    const rows = dedupeByDisplayName([f16, int4], [int4.id, f16.id]);
+    expect(rows.map((m) => m.id)).toEqual([int4.id]);
+  });
+
+  it('keeps first-appearance order regardless of which build survives', () => {
+    const rows = dedupeByDisplayName([light, f16, int4], [int4.id]);
+    expect(rows.map((m) => m.id)).toEqual([light.id, int4.id]);
+  });
+
+  it('ignores preferred ids that are not in the list, and accepts an empty list', () => {
+    expect(dedupeByDisplayName([f16, int4], ['local/not-here'])).toEqual([f16]);
+    expect(dedupeByDisplayName([], [null, undefined])).toEqual([]);
   });
 });
 

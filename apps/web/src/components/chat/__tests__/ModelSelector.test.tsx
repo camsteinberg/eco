@@ -70,7 +70,7 @@ describe("ModelSelector (composer)", () => {
     });
   });
 
-  it("lists every v1.0 catalog model and no Eco Network option", async () => {
+  it("lists one row per runnable AI and no Eco Network option", async () => {
     const user = userEvent.setup();
     render(<ModelSelector variant="composer" />);
 
@@ -78,14 +78,69 @@ describe("ModelSelector (composer)", () => {
 
     const listbox = getListbox();
     const options = within(listbox).getAllByRole("option");
-    // Exactly the 10 catalog models — one option per catalog entry.
-    expect(options).toHaveLength(getCatalog().length);
-    expect(options).toHaveLength(10);
+    // One row per branded name: 10 catalog entries, but the f16 and int4 builds
+    // of the 1.2B are the same "Eco Fast (Liquid)" and collapse into one row.
+    expect(options).toHaveLength(getCatalog().length - 1);
+    expect(options).toHaveLength(9);
 
     // Branded friendly names are surfaced; no "Eco Network" / network copy.
     expect(within(listbox).getByText("Eco (Qwen)")).toBeInTheDocument();
     expect(within(listbox).queryByText(/eco network/i)).not.toBeInTheDocument();
     expect(within(listbox).queryByText(/coming soon/i)).not.toBeInTheDocument();
+  });
+
+  // Both 1.2B builds brand as "Eco Fast (Liquid)" on purpose — the choice
+  // between them is a graphics-hardware detail. A device that can serve both
+  // used to see two rows a person could not tell apart.
+  it("shows the duplicate-named 1.2B pair as a single row", async () => {
+    const f16 = getCatalog().find((m) => m.id === "candidate/lfm2.5-1.2b-instruct-onnx")!;
+    const int4 = getCatalog().find((m) => m.id === "candidate/lfm2.5-1.2b-instruct-q4-onnx")!;
+    vi.mocked(listCatalog).mockReturnValue({
+      available: [f16, int4].map((model, index) => ({
+        model,
+        confidence: "calculated" as const,
+        scoreTotal: 100 - index,
+      })),
+    });
+
+    const user = userEvent.setup();
+    render(<ModelSelector variant="composer" />);
+
+    await user.click(screen.getByTestId("model-selector"));
+
+    const listbox = getListbox();
+    expect(within(listbox).getAllByRole("option")).toHaveLength(1);
+    expect(within(listbox).getAllByText("Eco Fast (Liquid)")).toHaveLength(1);
+  });
+
+  it("keeps the selected build's row when it is the duplicate that would be dropped", async () => {
+    mockSelectedModel = "candidate/lfm2.5-1.2b-instruct-q4-onnx";
+    const f16 = getCatalog().find((m) => m.id === "candidate/lfm2.5-1.2b-instruct-onnx")!;
+    const int4 = getCatalog().find((m) => m.id === "candidate/lfm2.5-1.2b-instruct-q4-onnx")!;
+    vi.mocked(listCatalog).mockReturnValue({
+      available: [f16, int4].map((model, index) => ({
+        model,
+        confidence: "calculated" as const,
+        scoreTotal: 100 - index,
+      })),
+    });
+
+    const user = userEvent.setup();
+    render(<ModelSelector variant="composer" />);
+
+    await user.click(screen.getByTestId("model-selector"));
+
+    const listbox = getListbox();
+    const options = within(listbox).getAllByRole("option");
+    expect(options).toHaveLength(1);
+    // The surviving row is the selected build, so the checkmark still lands.
+    expect(options[0]).toHaveAttribute("aria-selected", "true");
+
+    await user.click(within(listbox).getByText("Eco Fast (Liquid)"));
+    expect(mockSetSelectedModel).toHaveBeenCalledWith(
+      "candidate/lfm2.5-1.2b-instruct-q4-onnx",
+      { explicit: true },
+    );
   });
 
   it("offers only the AIs this device can run (an f16-less device sees no f16 models)", async () => {

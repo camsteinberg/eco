@@ -9,7 +9,7 @@ import { useChatStore } from "../../stores/chatStore";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { BottomSheet } from "../ui/BottomSheet";
 import { getCatalog } from "../../local-ai/catalog/catalog";
-import { getDisplayInfo } from "../../local-ai/display";
+import { dedupeByDisplayName, getDisplayInfo } from "../../local-ai/display";
 import { canServe, listCatalog, recommend } from "../../local-ai/index";
 import { useDeviceProfile } from "../../hooks/local-ai/useDeviceProfile";
 import { getSlotForModel } from "../../local-ai/lifecycle/slots";
@@ -185,18 +185,26 @@ export function ModelSelector({ variant = "header" }: ModelSelectorProps) {
   // currently-selected model is exempted so it always stays visible. Device
   // probing is client-only, so before mount we render the full catalog to keep
   // the first paint stable, then narrow to the runnable set once mounted.
+  //
+  // Builds of the same model share one branded name (the f16 and int4 1.2B are
+  // both "Eco Fast (Liquid)"), so the runnable set is deduped by display name
+  // before it is rendered — otherwise a device that can serve both offers two
+  // identical-looking rows. The selected build wins, then the recommended one.
   const models = useMemo(() => {
-    if (!hasMounted) return getCatalog();
-    try {
-      if (!canServe(profile)) return [];
-      const { available } = listCatalog(profile, {
-        currentlyBoundModelId: resolvedSelectedId,
-      });
-      return available.map((entry) => entry.model);
-    } catch {
-      return getCatalog();
-    }
-  }, [hasMounted, resolvedSelectedId, profile]);
+    const runnable = (): ModelConfig[] => {
+      if (!hasMounted) return getCatalog();
+      try {
+        if (!canServe(profile)) return [];
+        const { available } = listCatalog(profile, {
+          currentlyBoundModelId: resolvedSelectedId,
+        });
+        return available.map((entry) => entry.model);
+      } catch {
+        return getCatalog();
+      }
+    };
+    return dedupeByDisplayName(runnable(), [resolvedSelectedId, recommendedId]);
+  }, [hasMounted, resolvedSelectedId, recommendedId, profile]);
 
   const currentModel = models.find((m) => m.id === resolvedSelectedId) ?? null;
   // One identity in the composer: the model is always "Eco". Its branded name
