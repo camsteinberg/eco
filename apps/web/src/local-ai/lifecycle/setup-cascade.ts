@@ -31,8 +31,23 @@ export const SETUP_EXHAUSTED_REASON =
 /** Caps total attempts (including download retries) to bound bandwidth/time. */
 export const SETUP_LADDER_MAX_STEPS = 4;
 
-/** Marks a failure that is deterministic for this device, not a transient blip. */
-export type AttemptFailureReasonCode = 'insufficient-storage';
+/**
+ * A structured cause the error surface can act on, when the failure origin knew
+ * one. This is the ONLY channel that survives exhaustion: once the ladder is
+ * spent the cascade replaces the last failure's raw text with its own copy (raw
+ * internal strings are not error copy), so a code is the only way a real cause
+ * reaches the user's screen.
+ *
+ *   - 'insufficient-storage' — deterministic for this device; retrying cannot
+ *     free space, so the ladder demotes immediately instead of retrying.
+ *   - 'network-or-host' — the host or the connection, not this device. Naming
+ *     the device for a hosting failure is the dishonesty this code prevents.
+ *
+ * Deliberately partial: a cache/OPFS write error arrives as a plain `Error` and
+ * gets NO code, because it cannot be told apart from any other unexpected throw.
+ * Guessing there would be the same dishonesty in the other direction.
+ */
+export type AttemptFailureReasonCode = 'insufficient-storage' | 'network-or-host';
 
 export type AttemptResult =
   | { ok: true }
@@ -47,7 +62,14 @@ export type SelectKind = 'initial' | 'retry' | 'demote';
 
 export type SetupCascadeResult =
   | { kind: 'ready'; model: ModelConfig }
-  | { kind: 'exhausted'; reason: string; triedModelIds: string[] };
+  | {
+      kind: 'exhausted';
+      reason: string;
+      /** The last failure's structured cause, when it had one. Undefined means
+       *  we genuinely do not know — the surface must not invent a cause. */
+      reasonCode?: AttemptFailureReasonCode;
+      triedModelIds: string[];
+    };
 
 export type RunSetupCascadeOptions = {
   slot: Slot;
@@ -86,9 +108,14 @@ export async function runSetupCascade(opts: RunSetupCascadeOptions): Promise<Set
 
   const exhausted = (): SetupCascadeResult => ({
     kind: 'exhausted',
+    // The storage reason is already plain language WITH the numbers, so it is
+    // the one failure text worth showing verbatim. Everything else is an
+    // internal string and gets replaced by written copy — the `reasonCode`
+    // below is how the real cause still reaches the error surface.
     reason: lastFailure?.reasonCode === 'insufficient-storage'
       ? lastFailure.reason
       : SETUP_EXHAUSTED_REASON,
+    reasonCode: lastFailure?.reasonCode,
     triedModelIds: tried,
   });
 

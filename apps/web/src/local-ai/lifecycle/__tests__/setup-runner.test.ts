@@ -86,8 +86,30 @@ describe('executeSetup', () => {
     expect(a.setError).toHaveBeenCalledWith(expect.any(String), {
       exhausted: true,
       triedModelCount: 1,
+      // A load/smoke failure carries no code — the surface must not name a cause.
+      reasonCode: undefined,
     });
     expect(s.setSlotStatus).toHaveBeenCalledWith('eco-fast', 'error');
+  });
+
+  it('threads the last failure code to the error surface when the ladder is spent', async () => {
+    const a = fakeActions();
+    const s = seams({
+      runAttempt: vi.fn(async () => ({
+        ok: false as const,
+        phase: 'download' as const,
+        reason: 'HTTP 500 fetching model weights',
+        reasonCode: 'network-or-host' as const,
+      })),
+      nextInCascade: vi.fn(() => null),
+    });
+    await executeSetup(a, { slot: 'eco-fast', seams: s });
+    // The reason string is the cascade's own copy by this point, so the code is
+    // the only thing that still knows a host — not this device — was the problem.
+    expect(a.setError).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ exhausted: true, reasonCode: 'network-or-host' }),
+    );
   });
 
   it('surfaces a prior-session error slot', async () => {

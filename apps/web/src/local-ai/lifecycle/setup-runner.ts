@@ -14,7 +14,14 @@ import type { DeviceProfile, ModelConfig, Slot } from '../types';
 import type { ProgressEvent } from '../download/progress';
 import { ProgressTracker } from '../download/progress';
 import { bootstrapLocalAi } from '../bootstrap';
-import { downloadModel, InsufficientStorageError, isModelDownloaded } from '../download/download';
+import {
+  DownloadAbortedError,
+  DownloadFailedError,
+  DownloadIntegrityError,
+  downloadModel,
+  InsufficientStorageError,
+  isModelDownloaded,
+} from '../download/download';
 import { bridgeDownloadWebLLMModel } from '../runtime/webllm-cache-bridge';
 import {
   acquireLocalHeavyWork,
@@ -30,7 +37,11 @@ import { NoAssignableModelError, starterModelForSlot } from '../selection/recomm
 import { deriveFirstRunChoices, type FirstRunChoiceOffer } from '../selection/first-run-choices';
 import { recordEvidence } from '../evidence/ledger';
 import { resolveSetupProfile } from '../device/profile';
-import { runSetupCascade, type AttemptResult } from './setup-cascade';
+import {
+  runSetupCascade,
+  type AttemptFailureReasonCode,
+  type AttemptResult,
+} from './setup-cascade';
 import { logSetupAttemptFailure } from './setup-diagnostics';
 
 /** Subset of EcoSetupActions the runner drives (structural — no React import). */
@@ -38,7 +49,14 @@ export type SetupRunnerActions = {
   onProgressEvent(event: ProgressEvent): void;
   setBelowFloor(reason: string): void;
   setReady(model: ModelConfig): void;
-  setError(reason: string, opts?: { exhausted?: boolean; triedModelCount?: number }): void;
+  setError(
+    reason: string,
+    opts?: {
+      exhausted?: boolean;
+      triedModelCount?: number;
+      reasonCode?: AttemptFailureReasonCode;
+    },
+  ): void;
   markPriorAttemptFailed(): void;
   markFindingFit(): void;
   /** The run picked up a bound-but-unfinished pick (interrupted download /
@@ -223,6 +241,30 @@ export async function acquireDownloadLeaseFailOpen(
   }
 }
 
+/**
+ * Which download failures the error surface is allowed to NAME.
+ *
+ * Only classes we can identify get a code; everything else returns undefined and
+ * the surface falls back to copy that claims nothing about the cause. In
+ * particular:
+ *
+ *   - `DownloadIntegrityError` is a `DownloadFailedError` subclass, but it means
+ *     the bytes did not match the reviewed manifest — not that the host was
+ *     unreachable. Checked first so it does not inherit the connectivity copy.
+ *   - a cache / OPFS write failure surfaces as a plain `Error` from `storage.put`
+ *     with no distinguishing type, so it stays uncoded rather than guessed at.
+ */
+function downloadFailureReasonCode(err: unknown): AttemptFailureReasonCode | undefined {
+  if (err instanceof InsufficientStorageError) return 'insufficient-storage';
+  if (err instanceof DownloadIntegrityError) return undefined;
+  // A non-OK response, a dropped stream, or a stall that aborted the in-flight
+  // fetch (RT-4): the host or the connection, never this device.
+  if (err instanceof DownloadFailedError || err instanceof DownloadAbortedError) {
+    return 'network-or-host';
+  }
+  return undefined;
+}
+
 /** Default real attempt: download → smoke, wired to the progress tracker. */
 export async function defaultRunAttempt(
   slot: Slot,
@@ -267,8 +309,9 @@ export async function defaultRunAttempt(
       const reason = err instanceof Error ? err.message : 'Download failed.';
       logSetupAttemptFailure({ modelId: model.id, runtime: model.runtime, phase: 'download', reason, error: err });
       tracker.error(reason);
-      return err instanceof InsufficientStorageError
-        ? { ok: false, phase: 'download', reason, reasonCode: 'insufficient-storage' }
+      const reasonCode = downloadFailureReasonCode(err);
+      return reasonCode
+        ? { ok: false, phase: 'download', reason, reasonCode }
         : { ok: false, phase: 'download', reason };
     } finally {
       // The 'download' lease covers only the transfer; smoke is runtime work in
@@ -428,6 +471,9 @@ export async function executeSetup(
     actions.setError(result.reason, {
       exhausted: true,
       triedModelCount: result.triedModelIds.length,
+      // The exhausted `reason` is written copy, not the failure text, so this
+      // code is the only thing left that knows WHY the ladder ran out.
+      reasonCode: result.reasonCode,
     });
   }
 }

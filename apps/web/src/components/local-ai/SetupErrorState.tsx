@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { Button } from '@eco/ui';
 import { WiltedPlant } from '@eco/ui';
 import { exportDiagnostics } from '../../local-ai/diagnostics/capture';
+import type { AttemptFailureReasonCode } from '../../local-ai/lifecycle/setup-cascade';
 
 /**
  * Setup error state — shown after the download pipeline exhausts its
@@ -17,6 +18,14 @@ import { exportDiagnostics } from '../../local-ai/diagnostics/capture';
 
 export type SetupErrorStateProps = {
   reason: string;
+  /**
+   * The structured cause, when the setup ladder knew one. This takes precedence
+   * over anything read out of `reason`, and it is what makes the connectivity
+   * copy reachable at all: once the ladder is exhausted the cascade replaces the
+   * real failure text with its own line, so there is nothing left in `reason`
+   * to sniff. Omitted = the cause is genuinely unknown; say nothing about it.
+   */
+  reasonCode?: AttemptFailureReasonCode;
   /** True when every compatible model on the fallback ladder was tried. */
   exhausted?: boolean;
   /**
@@ -50,6 +59,23 @@ function looksLikeNetworkOrHosting(reason: string): boolean {
 }
 
 /**
+ * Structured code first, text second.
+ *
+ * A code is a fact the failure origin reported; the regexes above are a guess at
+ * a string that may not even be the failure text any more (the exhausted path
+ * substitutes written copy). So when a code is present it decides on its own —
+ * including deciding AGAINST the other branch — and the sniffers only run for
+ * the paths that carry no code (bootstrap, device probe, model selection).
+ */
+function isStorageShortage(reason: string, reasonCode?: AttemptFailureReasonCode): boolean {
+  return reasonCode ? reasonCode === 'insufficient-storage' : looksLikeStorageShortage(reason);
+}
+
+function isNetworkOrHosting(reason: string, reasonCode?: AttemptFailureReasonCode): boolean {
+  return reasonCode ? reasonCode === 'network-or-host' : looksLikeNetworkOrHosting(reason);
+}
+
+/**
  * The headline owns the honesty: once the ladder is exhausted we have
  * already tried every option, so the copy must NOT imply a quick retry
  * will fix it. The non-exhausted case keeps the calmer "trouble right now".
@@ -60,8 +86,13 @@ function looksLikeNetworkOrHosting(reason: string): boolean {
  * did not make. An unknown count keeps the plural line, which is what the
  * multi-model desktop ladder does.
  */
-function headlineFor(reason: string, exhausted: boolean, triedModelCount: number): string {
-  if (looksLikeStorageShortage(reason)) {
+function headlineFor(
+  reason: string,
+  exhausted: boolean,
+  triedModelCount: number,
+  reasonCode?: AttemptFailureReasonCode,
+): string {
+  if (isStorageShortage(reason, reasonCode)) {
     return 'Eco needs a little more free space to set up on this device.';
   }
   if (!exhausted) {
@@ -83,22 +114,27 @@ function headlineFor(reason: string, exhausted: boolean, triedModelCount: number
  * network issue" for a local load timeout teaches users to distrust the message
  * (and their wifi).
  */
-function subtitleFor(reason: string, exhausted: boolean): string {
-  if (looksLikeStorageShortage(reason)) {
+function subtitleFor(
+  reason: string,
+  exhausted: boolean,
+  reasonCode?: AttemptFailureReasonCode,
+): string {
+  if (isStorageShortage(reason, reasonCode)) {
     return `${reason} Free up some space and try again.`;
   }
   if (exhausted) {
-    return looksLikeNetworkOrHosting(reason)
+    return isNetworkOrHosting(reason, reasonCode)
       ? "We couldn't reach the model host just now — check your connection and try again in a bit."
       : 'This can happen on some devices. You can copy what happened and send it to us, or try again later.';
   }
-  return looksLikeNetworkOrHosting(reason)
+  return isNetworkOrHosting(reason, reasonCode)
     ? 'This is probably a network issue.'
     : 'Something interrupted the setup — trying again usually fixes it.';
 }
 
 export function SetupErrorState({
   reason,
+  reasonCode,
   exhausted = false,
   triedModelCount = 0,
   onTryAgain,
@@ -143,9 +179,9 @@ export function SetupErrorState({
         <h1 className="font-display text-3xl tracking-tight">Eco</h1>
 
         <p className="text-base leading-relaxed" style={{ color: 'var(--eco-text)' }}>
-          {headlineFor(reason, exhausted, triedModelCount)}
+          {headlineFor(reason, exhausted, triedModelCount, reasonCode)}
           <br />
-          {subtitleFor(reason, exhausted)}
+          {subtitleFor(reason, exhausted, reasonCode)}
         </p>
 
         <div className="flex flex-row flex-wrap justify-center gap-3">

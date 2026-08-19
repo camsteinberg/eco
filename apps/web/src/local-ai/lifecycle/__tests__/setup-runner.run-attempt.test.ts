@@ -31,21 +31,54 @@ import type { ProgressEvent, ProgressPhase } from '../../download/progress';
 import type { ModelConfig, Slot } from '../../types';
 import type { SmokeResult } from '../smoke';
 
-vi.mock('../../download/download', () => ({
-  downloadModel: vi.fn(),
-  // Real error hierarchy (signature mirrors the module) so setup-runner's
-  // `instanceof` check resolves and the type-checker accepts the constructor.
-  InsufficientStorageError: class InsufficientStorageError extends Error {
-    constructor(public requiredBytes: number, public availableBytes?: number) {
-      super('not enough free space');
-      this.name = 'InsufficientStorageError';
+// Real error hierarchy (signatures mirror the module, and DownloadIntegrityError
+// really does extend DownloadFailedError) so setup-runner's `instanceof` checks
+// resolve and the type-checker accepts the constructors. Declared inside the
+// factory because vi.mock is hoisted above every top-level binding.
+vi.mock('../../download/download', () => {
+  class DownloadFailedError extends Error {
+    readonly status?: number;
+    readonly url: string;
+    constructor(message: string, opts: { url: string; status?: number }) {
+      super(message);
+      this.name = 'DownloadFailedError';
+      this.url = opts.url;
+      this.status = opts.status;
     }
-  },
-}));
+  }
+  return {
+    downloadModel: vi.fn(),
+    InsufficientStorageError: class InsufficientStorageError extends Error {
+      constructor(public requiredBytes: number, public availableBytes?: number) {
+        super('not enough free space');
+        this.name = 'InsufficientStorageError';
+      }
+    },
+    DownloadFailedError,
+    DownloadIntegrityError: class DownloadIntegrityError extends DownloadFailedError {
+      constructor(message: string, opts: { url: string }) {
+        super(message, opts);
+        this.name = 'DownloadIntegrityError';
+      }
+    },
+    DownloadAbortedError: class DownloadAbortedError extends Error {
+      constructor(modelId: string) {
+        super(`Download aborted for ${modelId}`);
+        this.name = 'DownloadAbortedError';
+      }
+    },
+  };
+});
 vi.mock('../smoke', () => ({ runSmoke: vi.fn() }));
 
 import { DEFAULT_SEAMS, defaultRunAttempt, acquireDownloadLeaseFailOpen } from '../setup-runner';
-import { downloadModel, InsufficientStorageError } from '../../download/download';
+import {
+  DownloadAbortedError,
+  DownloadFailedError,
+  DownloadIntegrityError,
+  downloadModel,
+  InsufficientStorageError,
+} from '../../download/download';
 import { runSmoke } from '../smoke';
 import type { LocalHeavyWorkAcquireResult, LocalHeavyWorkKind } from '../../../lib/local-heavy-work-owner';
 
@@ -108,6 +141,62 @@ describe('DEFAULT_SEAMS.runAttempt — download vs load/smoke phase classificati
       reasonCode: 'insufficient-storage',
     });
     expect(runSmoke).not.toHaveBeenCalled();
+  });
+
+  // The reason code is the only cause signal that survives ladder exhaustion —
+  // the cascade replaces the failure text with its own copy — so what gets a code
+  // here decides whether the error surface can name the host or has to stay
+  // generic. See `downloadFailureReasonCode` in setup-runner.ts.
+  it('tags a host/transport failure so the error surface can name the host', async () => {
+    vi.mocked(downloadModel).mockRejectedValue(
+      new DownloadFailedError('HTTP 500 fetching model weights', {
+        url: 'https://models.example/weights',
+        status: 500,
+      }),
+    );
+
+    const result = await DEFAULT_SEAMS.runAttempt(SLOT, MODEL, vi.fn());
+
+    expect(result).toMatchObject({
+      ok: false,
+      phase: 'download',
+      reasonCode: 'network-or-host',
+    });
+  });
+
+  it('tags an aborted (stalled) download as network-or-host too', async () => {
+    vi.mocked(downloadModel).mockRejectedValue(new DownloadAbortedError('lfm2.5-1.2b'));
+
+    const result = await DEFAULT_SEAMS.runAttempt(SLOT, MODEL, vi.fn());
+
+    expect(result).toMatchObject({ ok: false, phase: 'download', reasonCode: 'network-or-host' });
+  });
+
+  it('does NOT call an integrity failure a connectivity problem', async () => {
+    // DownloadIntegrityError extends DownloadFailedError, but "the bytes did not
+    // match the manifest" is not "we could not reach the host" — telling someone
+    // to check their connection would send them after the wrong thing.
+    vi.mocked(downloadModel).mockRejectedValue(
+      new DownloadIntegrityError('checksum mismatch', { url: 'https://models.example/weights' }),
+    );
+
+    const result = await DEFAULT_SEAMS.runAttempt(SLOT, MODEL, vi.fn());
+
+    expect(result).toEqual({ ok: false, phase: 'download', reason: 'checksum mismatch' });
+  });
+
+  it('leaves a cache/OPFS write failure uncoded rather than guessing', async () => {
+    vi.mocked(downloadModel).mockRejectedValue(
+      new Error("Couldn't write the model file to the browser cache."),
+    );
+
+    const result = await DEFAULT_SEAMS.runAttempt(SLOT, MODEL, vi.fn());
+
+    expect(result).toEqual({
+      ok: false,
+      phase: 'download',
+      reason: "Couldn't write the model file to the browser cache.",
+    });
   });
 
   it('classifies a smoke rejection as phase "load-or-smoke" (cascade demotes immediately)', async () => {

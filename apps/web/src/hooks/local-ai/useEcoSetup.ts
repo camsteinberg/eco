@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ProgressEvent } from '../../local-ai/download/progress';
 import type { ModelConfig } from '../../local-ai/types';
 import type { FirstRunChoiceOffer } from '../../local-ai/selection/first-run-choices';
+import type { AttemptFailureReasonCode } from '../../local-ai/lifecycle/setup-cascade';
 
 /**
  * Setup state machine the WelcomeSetup component renders against.
@@ -56,6 +57,12 @@ export type EcoSetupState = {
    *  (iOS, f16-less low-memory Android) report 1, so the error surface can stop
    *  claiming "we tried a few options". 0 = not known. */
   errorTriedModelCount: number;
+  /** The structured cause of the failure, when the ladder knew one. Null means
+   *  we do not know — SetupErrorState must not claim a cause it wasn't given.
+   *  Load-bearing: the exhausted `errorReason` is written copy, not the failure
+   *  text, so this is the only signal that distinguishes a hosting failure from
+   *  a device one. */
+  errorReasonCode: AttemptFailureReasonCode | null;
   /** True when start() resumed a bound-but-unfinished pick (interrupted
    * download / reconcile flip) rather than recommending fresh — WelcomeSetup
    * softens its copy to "finishing your download". */
@@ -74,7 +81,14 @@ export type EcoSetupActions = {
   setReady(model: ModelConfig): void;
   /** Called when setup fails terminally. `exhausted` = the whole ladder was
    *  spent; `triedModelCount` = how many models it got through. */
-  setError(reason: string, opts?: { exhausted?: boolean; triedModelCount?: number }): void;
+  setError(
+    reason: string,
+    opts?: {
+      exhausted?: boolean;
+      triedModelCount?: number;
+      reasonCode?: AttemptFailureReasonCode;
+    },
+  ): void;
   /** Called when the user clicks "Try again" from the error state. */
   reset(): void;
   /** Called when start() detects an error slot status from a prior session. */
@@ -114,6 +128,7 @@ const INITIAL_STATE: EcoSetupState = {
   findingFit: false,
   errorExhausted: false,
   errorTriedModelCount: 0,
+  errorReasonCode: null,
   resuming: false,
   choiceOffer: null,
 };
@@ -177,14 +192,15 @@ export function useEcoSetup(): UseEcoSetupReturn {
     setState((s) => ({ ...s, status: 'ready', model, phase: 'done', percent: 100 }));
   }, []);
 
-  const setError = useCallback(
-    (reason: string, opts?: { exhausted?: boolean; triedModelCount?: number }) => {
+  const setError = useCallback<EcoSetupActions['setError']>(
+    (reason, opts) => {
       setState((s) => ({
         ...s,
         status: 'error',
         errorReason: reason,
         errorExhausted: opts?.exhausted ?? false,
         errorTriedModelCount: opts?.triedModelCount ?? 0,
+        errorReasonCode: opts?.reasonCode ?? null,
       }));
     },
     [],
