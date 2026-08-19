@@ -17,13 +17,20 @@ type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
 
 const variantClasses: Record<Variant, string> = {
   primary:
-    "bg-[var(--eco-primary)] text-[var(--eco-on-primary)] hover:bg-[var(--eco-primary-hover)] rounded-[var(--eco-radius-full)]",
+    "bg-[var(--eco-primary)] text-[var(--eco-on-primary)] hover:bg-[var(--eco-primary-hover)]",
   secondary:
-    "border border-[var(--eco-primary)] text-[var(--eco-primary)] hover:bg-[var(--eco-primary-soft)] rounded-[var(--eco-radius-sm)]",
+    "border border-[var(--eco-primary)] text-[var(--eco-primary)] hover:bg-[var(--eco-primary-soft)]",
   ghost:
-    "text-[var(--eco-text-secondary)] hover:text-[var(--eco-text)] hover:bg-[var(--eco-surface-elevated)] rounded-[var(--eco-radius-sm)]",
+    "text-[var(--eco-text-secondary)] hover:text-[var(--eco-text)] hover:bg-[var(--eco-surface-elevated)]",
   danger:
-    "bg-[var(--eco-coral)] text-[var(--eco-on-primary)] hover:opacity-90 rounded-[var(--eco-radius-full)]",
+    "bg-[var(--eco-coral)] text-[var(--eco-on-primary)] hover:opacity-90",
+};
+
+const variantRadius: Record<Variant, string> = {
+  primary: "rounded-[var(--eco-radius-full)]",
+  secondary: "rounded-[var(--eco-radius-sm)]",
+  ghost: "rounded-[var(--eco-radius-sm)]",
+  danger: "rounded-[var(--eco-radius-full)]",
 };
 
 const sizeClasses: Record<Size, string> = {
@@ -63,6 +70,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
           loading
             ? "disabled:cursor-wait bg-[var(--eco-primary-soft)] text-[var(--eco-primary)]"
             : `disabled:opacity-40 disabled:cursor-not-allowed ${variantClasses[variant]}`,
+          variantRadius[variant],
           sizeClasses[size],
           className,
         ].join(" ")}
