@@ -31,6 +31,7 @@ import {
   SeedlingIllustration,
   SproutIllustration,
 } from "@eco/ui";
+import { ProgressBar } from "../ui/ProgressBar";
 import type { ModelConfig } from "../../local-ai/types";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
 import type {
@@ -269,29 +270,9 @@ function CardBody({
 }
 
 function DownloadProgress({ percent }: { percent: number }) {
-  const reducedMotion = useReducedMotion();
   return (
-    <div className="mt-3" aria-hidden={false}>
-      <div
-        role="progressbar"
-        aria-valuenow={percent}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-label="Download progress"
-        className="h-1.5 w-full overflow-hidden rounded-full"
-        style={{ backgroundColor: "var(--eco-primary-soft)" }}
-      >
-        <motion.div
-          className="h-full rounded-full"
-          style={{ backgroundColor: "var(--eco-primary)" }}
-          initial={false}
-          animate={{ width: `${percent}%` }}
-          transition={reducedMotion ? { duration: 0 } : { type: "spring", stiffness: 120, damping: 26 }}
-        />
-      </div>
-      <p className="mt-1.5 text-[11px] tabular-nums" style={{ color: "var(--eco-text-muted)" }}>
-        {percent}%
-      </p>
+    <div className="mt-3">
+      <ProgressBar percent={percent} label={`${percent}%`} />
     </div>
   );
 }

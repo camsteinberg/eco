@@ -5,6 +5,7 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import { canServe, listCatalog, recommend } from '../../local-ai/index';
+import { dedupeByDisplayName } from '../../local-ai/display';
 import { useDeviceProfile } from './useDeviceProfile';
 import type { SwitchModelResult } from '../../local-ai/lifecycle/switch-model';
 import type { ModelConfig, Slot } from '../../local-ai/types';
@@ -106,9 +107,12 @@ export function useSwitchAI(options: UseSwitchAIOptions): UseSwitchAIReturn {
     const { available } = listCatalog(profile, {
       currentlyBoundModelId: options.currentModel?.id ?? null,
     });
-    return available.map((entry, index) => ({
-      model: entry.model,
-      confidence: entry.confidence,
+    const models = available.map((entry) => entry.model);
+    const deduped = dedupeByDisplayName(models, [options.currentModel?.id]);
+    const confidenceMap = new Map(available.map((e) => [e.model.id, e.confidence]));
+    return deduped.map((model, index) => ({
+      model,
+      confidence: confidenceMap.get(model.id) ?? 'calculated' as const,
       isTop: index === 0,
     }));
   }, [cannotServe, profile, options.currentModel?.id]);

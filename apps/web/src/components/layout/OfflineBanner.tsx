@@ -5,6 +5,7 @@
 
 import { useSyncExternalStore } from "react";
 
+import { WarningTriangle } from "@eco/ui";
 import { useNetworkStatus } from "../../hooks/useNetworkStatus";
 import {
   hasReadySlot,
@@ -56,23 +57,6 @@ function LeafIcon() {
   );
 }
 
-function WarningIcon() {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 20 20"
-      fill="currentColor"
-      className="mt-0.5 h-4 w-4 shrink-0"
-      aria-hidden="true"
-    >
-      <path
-        fillRule="evenodd"
-        d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z"
-        clipRule="evenodd"
-      />
-    </svg>
-  );
-}
 
 export function OfflineBanner() {
   const isOnline = useNetworkStatus();
@@ -96,7 +80,7 @@ export function OfflineBanner() {
       aria-live="polite"
       className="flex items-start gap-2 border-b border-[var(--eco-amber-border)] bg-[var(--eco-amber-soft)] px-4 py-2 text-sm text-[var(--eco-amber-text)]"
     >
-      {localModelReady ? <LeafIcon /> : <WarningIcon />}
+      {localModelReady ? <LeafIcon /> : <WarningTriangle className="mt-0.5 h-4 w-4 shrink-0" />}
       <p className="min-w-0">
         <span className="font-medium">{lead}</span>{" "}
         <span className="opacity-80">{detail}</span>

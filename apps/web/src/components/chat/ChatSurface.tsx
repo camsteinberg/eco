@@ -6,7 +6,7 @@
 import type { DragEvent } from "react";
 import { useEffect, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
-import { springPresets } from "@eco/ui";
+import { springPresets, WarningTriangle } from "@eco/ui";
 import { timeGreeting } from "./greeting";
 import { MessageList } from "./MessageList";
 import type { AssistantReplyControl } from "./MessageActions";
@@ -405,16 +405,17 @@ export function ChatSurface(props: ChatSurfaceProps) {
             <div
               role="status"
               aria-live="polite"
-              className="mx-4 mb-2 rounded-xl border px-4 py-3 text-sm"
+              className="flex items-start gap-2 border-b px-4 py-2 text-sm"
               style={{
-                backgroundColor: "color-mix(in srgb, var(--eco-amber) 10%, transparent)",
                 borderColor: "color-mix(in srgb, var(--eco-amber) 26%, var(--eco-border))",
+                backgroundColor: "var(--eco-amber-soft)",
                 color: "var(--eco-text)",
               }}
             >
-              <p className="font-medium">Low battery mode</p>
-              <p className="mt-1 text-xs leading-relaxed" style={{ color: "var(--eco-text-secondary)" }}>
-                Eco is keeping on-device replies shorter until you plug this device in.
+              <WarningTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <p className="min-w-0">
+                <span className="font-medium">Low battery mode</span>{" "}
+                <span className="opacity-80">Eco is keeping on-device replies shorter until you plug this device in.</span>
               </p>
             </div>
           )}
