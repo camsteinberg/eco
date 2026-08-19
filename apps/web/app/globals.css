@@ -88,6 +88,31 @@ html.dark {
   color-scheme: dark;
 }
 
+/* Native <dialog> centering.
+   Tailwind's preflight zeroes `margin` on every element, which wipes out the
+   UA stylesheet's `dialog:modal { margin: auto }` and pins every modal dialog
+   to the viewport origin. Restoring it inside @layer base beats preflight on
+   specificity while staying overridable by Tailwind margin utilities. */
+@layer base {
+  dialog:modal {
+    margin: auto;
+  }
+}
+
+/* Code surfaces render literal characters.
+   JetBrains Mono (the --eco-font-mono stack) ships programming ligatures, so
+   `->`, `=>`, `!=` and `<=` are drawn as single arrow/comparison glyphs. In
+   prose that is a nicety; in code it is a correctness bug, because what the
+   reader sees stops matching what Copy puts on the clipboard. */
+@layer base {
+  code,
+  pre,
+  kbd,
+  samp {
+    font-variant-ligatures: none;
+  }
+}
+
 /* ── Calm scrollbars ─────────────────────────────────────────
    Keep scroll affordances present without the default browser chrome
    cutting through sidebar, settings, modal, and code surfaces. */

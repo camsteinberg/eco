@@ -347,10 +347,10 @@ export const sidebarStates: StateEntry[] = [
       capture: { mode: "viewport" },
       notes:
         "Three words of warning and a coral confirm. It is a native <dialog> in the top layer, "
-        + "which is why it is not clipped by the sidebar — and why it lands in the TOP-LEFT corner "
-        + "rather than centred: `showModal()` centres a dialog with `margin: auto`, and Tailwind's "
-        + "preflight resets every element's margin to 0. Confirmed the same in W5's "
-        + "settings.account-delete-confirm, so it is every ConfirmDialog in the product, not this one.",
+        + "which is why it is not clipped by the sidebar. It used to land in the top-left corner "
+        + "rather than centred — `showModal()` centres a dialog with `margin: auto`, and Tailwind's "
+        + "preflight resets every element's margin to 0 — which globals.css now restores for "
+        + "`dialog:modal`, so this and every other ConfirmDialog in the product sit centred.",
     },
   ),
 
