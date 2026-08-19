@@ -62,6 +62,11 @@ const escapeHtml = (value) =>
 
 // ── INDEX.md ────────────────────────────────────────────────────────────────
 
+const tooling = run.tooling ?? {};
+const toolingLine = Object.entries(tooling)
+  .map(([name, version]) => `${name} ${version}`)
+  .join(" · ");
+
 const lines = [
   "# Eco UI capture run",
   "",
@@ -70,8 +75,43 @@ const lines = [
   `- **Server:** ${run.server} (${run.baseURL})`,
   `- **Captured:** ${String(shots.length)} shots of ${String(run.entryCount ?? "?")} states`,
   `- **Started:** ${run.startedAt}${run.finishedAt ? ` · finished ${run.finishedAt}` : ""}`,
+  ...(toolingLine ? [`- **Tooling:** ${toolingLine}`] : []),
+  ...(run.host ? [`- **Host:** ${run.host.platform} ${run.host.release}`] : []),
+  "",
+  "> **Keycaps are this machine's, not the design's.** The command palette and the",
+  "> shortcuts sheet print their modifier as Cmd or Ctrl from `navigator.platform`,",
+  `> which the lane does not control — these shots were taken on \`${run.host?.platform ?? "an unrecorded platform"}\`.`,
+  "> A run on another OS differs in those keycaps for a reason that is not the UI",
+  "> changing. Noted rather than faked, because faking it would mean lying about",
+  "> what a reader's own machine will show them.",
+  "",
+  "> **Storage figures are this machine's too.** The settings storage panel reads a",
+  "> real `navigator.storage.estimate()`, and a fresh browser profile reports a",
+  "> different origin quota each time — measured 873 MB and 864 MB in two",
+  "> back-to-back runs on 2026-08-19. So the “N MB available” line moves between",
+  "> runs while nothing about the UI has changed. Review the layout and the copy,",
+  "> not the number. (The setup-gate storage ERRORS are stable: their figures come",
+  "> from the forced-failure seam, not from the disk.)",
   "",
 ];
+
+const gaps = run.gaps ?? [];
+const gapsByGroup = new Map();
+for (const gap of gaps) {
+  gapsByGroup.set(gap.group, [...(gapsByGroup.get(gap.group) ?? []), gap]);
+}
+
+// A contents block, because the point of this file is that a reviewer can find
+// the one group they care about in a 300-shot inventory.
+lines.push("## Contents", "");
+for (const [group, entries] of [...byGroup.entries()].sort()) {
+  const gapCount = (gapsByGroup.get(group) ?? []).length;
+  lines.push(
+    `- [${group}](#${group}) — ${String(entries.size)} states`
+      + `${gapCount > 0 ? `, ${String(gapCount)} documented gap${gapCount === 1 ? "" : "s"}` : ""}`,
+  );
+}
+lines.push("- [Honest gaps](#honest-gaps)", "");
 
 for (const [group, entries] of [...byGroup.entries()].sort()) {
   lines.push(`## ${group}`, "", `[Contact sheet](contact-sheets/${group}.html)`, "");
@@ -85,8 +125,16 @@ for (const [group, entries] of [...byGroup.entries()].sort()) {
       `- Tier: ${first.tier} · Realism: ${first.realism}`,
       `- Asserted: ${(first.asserts ?? []).map((assertion) => `\`${assertion}\``).join(", ") || "—"}`,
     );
+    if (first.notes) {
+      lines.push(`- Notes: ${first.notes}`);
+    }
     if (first.realism === "mocked") {
       lines.push("- ⚠️ **Mocked** — a network response was faked for this state; do not read it as live behavior.");
+    }
+    if (first.server === "prod") {
+      lines.push(
+        "- ⚠️ **Production build only** — this state does not render on the dev server, so it is absent from any dev run.",
+      );
     }
     lines.push("");
 
@@ -126,6 +174,34 @@ function relativeShot(shot) {
   return shot.path.startsWith(marker) ? shot.path.slice(marker.length) : shot.path;
 }
 
+// ── honest gaps ─────────────────────────────────────────────────────────────
+//
+// An inventory that only lists what it has is a sales brochure. Every state a
+// wave decided it could not reach honestly is declared in the manifest next to
+// the states it sits among (`<group>Gaps` in each manifest file), and printed
+// here so the limits are read alongside the coverage rather than discovered
+// later by someone looking for a screenshot that was never taken.
+
+lines.push(
+  "## Honest gaps",
+  "",
+  `${gaps.length === 0 ? "None declared." : `${String(gaps.length)} UI states are knowingly absent from this run.`}`,
+  "",
+  "These are not failures — every one was investigated and the reason is recorded.",
+  "Two kinds are mixed here on purpose: states with no honest trigger (the app",
+  "cannot be made to render them without editing `src/`), and states excluded by",
+  "choice (harness-only copy that never ships, which would invite design critique",
+  "of text no user sees). The reason line says which.",
+  "",
+);
+
+for (const [group, groupGaps] of [...gapsByGroup.entries()].sort()) {
+  lines.push(`### ${group}`, "");
+  for (const gap of groupGaps) {
+    lines.push(`- **\`${gap.id}\`** — ${gap.surface}`, `  ${gap.reason}`, "");
+  }
+}
+
 writeFileSync(join(runDir, "INDEX.md"), `${lines.join("\n")}\n`);
 
 // ── contact sheets ──────────────────────────────────────────────────────────
@@ -141,11 +217,30 @@ for (const [group, entries] of byGroup) {
         (row) => `
       <figure>
         <a href="../${escapeHtml(relativeShot(row))}"><img src="../${escapeHtml(relativeShot(row))}" alt="${escapeHtml(id)} ${escapeHtml(row.project)}" loading="lazy" /></a>
-        <figcaption><code>${escapeHtml(id)}</code><br /><small>${escapeHtml(row.project)}${row.realism === "mocked" ? " · ⚠️ mocked" : ""}</small></figcaption>
+        <figcaption><code>${escapeHtml(id)}</code><br /><small>${escapeHtml(row.project)}${row.realism === "mocked" ? " · ⚠️ mocked" : ""}${row.server === "prod" ? " · prod-only" : ""}</small></figcaption>
       </figure>`,
       ),
     )
     .join("\n");
+
+  // The group's own limits travel with the sheet: this is the surface a
+  // reviewer actually scans, so "what is missing" belongs on it, not only in
+  // the index they may never open.
+  const groupGaps = gapsByGroup.get(group) ?? [];
+  const gapsSection =
+    groupGaps.length === 0
+      ? ""
+      : `<section class="gaps">
+<h2>Not captured (${String(groupGaps.length)})</h2>
+<dl>
+${groupGaps
+  .map(
+    (gap) =>
+      `  <dt><code>${escapeHtml(gap.id)}</code> — ${escapeHtml(gap.surface)}</dt>\n  <dd>${escapeHtml(gap.reason)}</dd>`,
+  )
+  .join("\n")}
+</dl>
+</section>`;
 
   writeFileSync(
     join(sheetsDir, `${group}.html`),
@@ -162,6 +257,10 @@ for (const [group, entries] of byGroup) {
   figure { margin: 0; }
   img { width: 100%; border: 1px solid rgba(128,128,128,.4); border-radius: 6px; background: #808080; }
   figcaption { margin-top: .4rem; word-break: break-all; }
+  .gaps { margin-top: 2.5rem; border-top: 1px solid rgba(128,128,128,.4); padding-top: 1rem; max-width: 60rem; }
+  .gaps h2 { font-size: 1rem; }
+  .gaps dt { font-weight: 600; margin-top: .75rem; }
+  .gaps dd { margin: .25rem 0 0; color: color-mix(in srgb, CanvasText 70%, Canvas); }
 </style>
 </head>
 <body>
@@ -169,6 +268,7 @@ for (const [group, entries] of byGroup) {
 <div class="grid">
 ${cards}
 </div>
+${gapsSection}
 </body>
 </html>
 `,
@@ -176,5 +276,6 @@ ${cards}
 }
 
 console.log(
-  `[capture] index written: ${join(runDir, "INDEX.md")} (${String(byGroup.size)} group(s), ${String(shots.length)} shots)`,
+  `[capture] index written: ${join(runDir, "INDEX.md")} `
+    + `(${String(byGroup.size)} group(s), ${String(shots.length)} shots, ${String(gaps.length)} documented gap(s))`,
 );

@@ -3,7 +3,7 @@
 
 import { expect, type Locator, type Page } from "@playwright/test";
 import type { IdbSeedName } from "../seeds/idb";
-import type { StateEntry } from "../types";
+import type { CaptureGap, StateEntry } from "../types";
 import { READY_CHAT_SEARCH, UPGRADE_DECLINED_LOCAL } from "./pilot";
 
 /**
@@ -165,6 +165,48 @@ async function enterMultiSelect(page: Page): Promise<void> {
   await expect(page.getByRole("button", { name: "Cancel selection" })).toBeVisible();
   await expect(row(page, ACTIVE_TITLE).getByRole("checkbox")).toBeVisible();
 }
+
+/** The states this file's header explains at length, in a printable form. */
+export const sidebarGaps: CaptureGap[] = [
+  {
+    id: "sidebar.row-mid-delete",
+    group: "sidebar",
+    surface: "A conversation row mid-delete (.slide-out-left)",
+    reason:
+      "ConversationList sets deletingId, the row takes .slide-out-left, and a 200ms timer removes it. The animation's only "
+      + "keyframe is `to { transform: translateX(-100%); opacity: 0 }`, and the screenshot's animations:'disabled' "
+      + "fast-forwards CSS animations to their END frame — so the shot is of a row that has already left, whether or not a "
+      + "paused clock holds the timer. There is nothing to photograph.",
+  },
+  {
+    id: "sidebar.error-boundary",
+    group: "sidebar",
+    surface: "SidebarErrorBoundary's fallback",
+    reason:
+      "It catches a render throw from Sidebar/ConversationList, and nothing reachable throws there. Faking one means "
+      + "patching a component from an init script, which is a screenshot of sabotage rather than of the product.",
+  },
+  {
+    id: "sidebar.bulk-select-all-label",
+    group: "sidebar",
+    surface: "BulkActionsBar's “Select All” label",
+    reason:
+      "A DEAD AFFORDANCE, found by reading the code for these states: the bar renders only when selectedIds.size > 0, and its "
+      + "first button reads 'Select All' only when selectedCount === 0. Those conditions cannot both hold, so the label ships "
+      + "but can never appear. sidebar.bulk-selected is the only state that bar has.",
+  },
+  {
+    id: "sidebar.tablet-navigation",
+    group: "sidebar",
+    surface: "Any sidebar or history surface between 768px and 1023px",
+    reason:
+      "A PRODUCT BUG, not a lane limitation. AppShell's standing column is `hidden lg:block` (≥1024px) and the drawer is a "
+      + "BottomSheet that is `md:hidden` (<768px), so the lane's 768px tablet projects fall in the gap: measured 2026-08-19, "
+      + "the header's hamburger reports visible, the click lands, and the sheet's host computes to display:none while the "
+      + "standing column is not visible either. Nothing in this group is shot at the tablet viewport, and the entries carry "
+      + "explicit axes.viewports rather than pretending the tier system chose it.",
+  },
+];
 
 export const sidebarStates: StateEntry[] = [
   // ── The list ────────────────────────────────────────────────────────────

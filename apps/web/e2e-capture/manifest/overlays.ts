@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Bos Computing LLC
 
 import { expect, type Page } from "@playwright/test";
-import type { StateEntry } from "../types";
+import type { CaptureGap, StateEntry } from "../types";
 import { DESKTOP_DEVICE_SEARCH, READY_CHAT_SEARCH, UPGRADE_DECLINED_LOCAL } from "./pilot";
 
 /**
@@ -141,6 +141,38 @@ function paletteState(
     notes,
   };
 }
+
+/** What could not be reached honestly here, in a printable form. */
+export const overlaysGaps: CaptureGap[] = [
+  {
+    id: "overlays.toast-success-and-error",
+    group: "overlays",
+    surface: "The success and error toast styles",
+    reason:
+      "ToastProvider supports three types; a grep of the whole app for callers of toast(...) returns exactly one — the "
+      + "retired-model notice, which is 'info'. The success and error styles ship with NO product path that fires them. "
+      + "Calling the context from the console would photograph a component, not a state. The honest finding is that two "
+      + "thirds of that component is unreachable.",
+  },
+  {
+    id: "overlays.upgrade-boosted",
+    group: "overlays",
+    surface: "The upgrade card's `boosted` phase (the bottom-centre “Eco just got a boost” pill, 6s)",
+    reason:
+      "It only follows a completed swap, and performUpgradeSwap re-checks the cache before it swaps — returning "
+      + "reverted-to-download when the bytes are missing. The lane holds every weight request open by design, so a "
+      + "staged-with-bytes device cannot exist here without downloading gigabytes per shot. Genuinely uncaptured. "
+      + "(`ready` IS captured, through the one path that does not touch the cache — see overlays.upgrade-ready.)",
+  },
+  {
+    id: "overlays.model-dropdown-downward",
+    group: "overlays",
+    surface: "The model dropdown opening DOWNWARD",
+    reason:
+      "ModelSelector is mounted once, by ChatInput, at the bottom of the viewport, so the portal always flips above its "
+      + "trigger. The below-trigger branch of updateDropdownPosition is live code with no mount point that reaches it.",
+  },
+];
 
 export const overlaysStates: StateEntry[] = [
   // ── Command palette ─────────────────────────────────────────────────────

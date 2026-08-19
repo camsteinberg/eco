@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Bos Computing LLC
 
-import type { StateEntry } from "../types";
-import { axesStates } from "./axes";
-import { chatInteractionsStates } from "./chat-interactions";
-import { chatSurfaceStates } from "./chat-surface";
-import { overlaysStates } from "./overlays";
-import { pilotStates } from "./pilot";
-import { routesStates } from "./routes";
-import { settingsStates } from "./settings";
-import { setupGateStates } from "./setup-gate";
-import { sidebarStates } from "./sidebar";
+import type { CaptureGap, StateEntry } from "../types";
+import { axesGaps, axesStates } from "./axes";
+import { chatInteractionsGaps, chatInteractionsStates } from "./chat-interactions";
+import { chatSurfaceGaps, chatSurfaceStates } from "./chat-surface";
+import { overlaysGaps, overlaysStates } from "./overlays";
+import { pilotGaps, pilotStates } from "./pilot";
+import { routesGaps, routesStates } from "./routes";
+import { settingsGaps, settingsStates } from "./settings";
+import { setupGateGaps, setupGateStates } from "./setup-gate";
+import { sidebarGaps, sidebarStates } from "./sidebar";
 
 /**
  * The manifest: every UI state the capture lane knows how to shoot.
@@ -32,6 +32,27 @@ const GROUPS: Record<string, StateEntry[]> = {
   sidebar: sidebarStates,
   overlays: overlaysStates,
   axes: axesStates,
+};
+
+/**
+ * What each group could NOT photograph, and why.
+ *
+ * Every group declares an array — an empty one is a claim ("this group is
+ * complete"), not an omission, which is why the guard below requires the key to
+ * exist rather than defaulting it. The generated index prints all of these
+ * under HONEST GAPS, so a reviewer reads the inventory's limits next to the
+ * inventory instead of trusting that silence means coverage.
+ */
+const GAPS: Record<string, CaptureGap[]> = {
+  pilot: pilotGaps,
+  routes: routesGaps,
+  "setup-gate": setupGateGaps,
+  "chat-surface": chatSurfaceGaps,
+  "chat-interactions": chatInteractionsGaps,
+  settings: settingsGaps,
+  sidebar: sidebarGaps,
+  overlays: overlaysGaps,
+  axes: axesGaps,
 };
 
 /**
@@ -173,11 +194,67 @@ function buildManifest(): StateEntry[] {
   return all;
 }
 
+/**
+ * Every documented gap, in group order. Validated against the state list, so a
+ * gap can never claim a surface the lane actually shoots.
+ */
+function buildGaps(states: StateEntry[]): CaptureGap[] {
+  const capturedIds = new Set(states.map((entry) => entry.id));
+  const all: CaptureGap[] = [];
+  const seen = new Set<string>();
+
+  for (const group of Object.keys(GROUPS)) {
+    const gaps = GAPS[group];
+    if (!gaps) {
+      throw new Error(
+        `Capture manifest group "${group}" declares no gaps array. Export a \`${group}Gaps\` — `
+          + "an empty array is the claim that the group is complete, and that claim has to be made on purpose.",
+      );
+    }
+
+    for (const gap of gaps) {
+      if (gap.group !== group) {
+        fail(gap.id, `gap group is "${gap.group}" but it is registered under "${group}"`);
+      }
+      if (!gap.id.startsWith(`${group}.`)) {
+        fail(gap.id, `gap id must be prefixed with its group ("${group}.")`);
+      }
+      if (capturedIds.has(gap.id)) {
+        fail(gap.id, "is declared as an uncaptured gap but a state with that id IS captured");
+      }
+      if (seen.has(gap.id)) {
+        fail(gap.id, "duplicate gap id");
+      }
+      if (gap.reason.trim().length === 0) {
+        fail(gap.id, "a gap without a reason is an excuse — say what makes it unreachable");
+      }
+      seen.add(gap.id);
+      all.push(gap);
+    }
+  }
+
+  return all;
+}
+
 /** Every entry, in group order. Validated at module load. */
 export const allStates: StateEntry[] = buildManifest();
 
+/** Every state the lane knowingly does not capture. Validated at module load. */
+export const allGaps: CaptureGap[] = buildGaps(allStates);
+
 /** The group names the manifest currently declares. */
 export const manifestGroups: string[] = Object.keys(GROUPS);
+
+/** Documented gaps for one group; throws on an unknown group, like manifestFor. */
+export function gapsFor(group: string): CaptureGap[] {
+  const gaps = GAPS[group];
+  if (!gaps) {
+    throw new Error(
+      `Unknown capture manifest group "${group}". Known groups: ${manifestGroups.join(", ")}`,
+    );
+  }
+  return gaps;
+}
 
 /** Entries for one group; throws on an unknown group so typos fail loudly. */
 export function manifestFor(group: string): StateEntry[] {

@@ -303,6 +303,8 @@ function recordShot(entry: StateEntry, ctx: CaptureContext, path: string): void 
     realism: entry.realism,
     route: entry.route,
     asserts: entry.assert.map(describeAssertion),
+    server: entry.server ?? "any",
+    ...(entry.notes === undefined ? {} : { notes: entry.notes }),
     bytes,
     sha256,
   };
@@ -455,6 +457,39 @@ export async function focusVisibleState(page: Page, selector: string): Promise<v
     `focusVisibleState: "${selector}" was not reachable within 40 Tab presses. `
       + "Either it is not keyboard-focusable (a real accessibility finding) or it sits behind a focus trap.",
   );
+}
+
+/**
+ * Wait until a Motion animation has actually come to rest.
+ *
+ * `animations: 'disabled'` fast-forwards CSS animations and does NOTHING to a
+ * Motion spring — the app's entrances are springs, so a state photographed the
+ * moment its text becomes *visible* is caught mid-flight and comes out a few
+ * percent of scale different every run. Playwright's visibility check is about
+ * layout, not opacity, so `toBeVisible()` is not the signal it looks like.
+ *
+ * Two identical consecutive reads is the only settle signal that does not guess
+ * at a duration. Found the hard way twice: W6 needed it to stop reduced-motion
+ * twins differing by settle noise instead of by the branch it was measuring, and
+ * `setup-gate.setup-reassurance-first` was byte-unstable across runs until it
+ * used this (its sibling `-second` was stable only because a 9s rotation wait
+ * happened to outlast the spring).
+ */
+export async function motionSettled(page: Page, selector: string): Promise<void> {
+  let previous = "";
+  await expect
+    .poll(async () => {
+      const current = await page.evaluate((sel: string) => {
+        const node = document.querySelector(sel);
+        if (!(node instanceof HTMLElement) && !(node instanceof SVGElement)) return "";
+        const style = getComputedStyle(node);
+        return `${style.transform}|${style.opacity}`;
+      }, selector);
+      const settled = current !== "" && current === previous;
+      previous = current;
+      return settled;
+    })
+    .toBe(true);
 }
 
 /** Click a menu trigger and wait for its menu to actually be open. */

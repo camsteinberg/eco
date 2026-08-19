@@ -239,6 +239,32 @@ export type ShotRecord = {
   route: string;
   /** Human-readable form of the entry's assertions, for the generated index. */
   asserts: string[];
+  /** The entry's `server`, so the index can flag a prod-only state. */
+  server: NonNullable<StateEntry["server"]>;
+  notes?: string;
   bytes: number;
   sha256: string;
+};
+
+/**
+ * A UI state that exists in the product but that this lane cannot photograph.
+ *
+ * An inventory is only trustworthy if it says what it is missing. Every "we
+ * deliberately did not capture this" finding a wave made is declared as one of
+ * these, next to the states it sits among, and the generated index prints them
+ * all under HONEST GAPS. Prose in a file header cannot be rendered and quietly
+ * rots; this can be counted, and `manifest/index.ts` rejects a gap whose id
+ * collides with a state that really does get captured.
+ *
+ * `reason` is the whole value here: "no honest trigger" is a claim, and the
+ * reader deserves the specific mechanism that makes it true.
+ */
+export type CaptureGap = {
+  /** Dotted `<group>.<name>` id — the id this state WOULD have had. */
+  id: string;
+  group: string;
+  /** The surface in the product's own terms, e.g. "SidebarErrorBoundary fallback". */
+  surface: string;
+  /** Why it has no honest trigger, concretely enough to re-check later. */
+  reason: string;
 };

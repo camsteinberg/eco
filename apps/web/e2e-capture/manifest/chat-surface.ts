@@ -3,7 +3,7 @@
 
 import { expect, type Page } from "@playwright/test";
 import type { IdbSeedName } from "../seeds/idb";
-import type { StateAssertion, StateEntry } from "../types";
+import type { CaptureGap, StateAssertion, StateEntry } from "../types";
 import { READY_CHAT_SEARCH, UPGRADE_DECLINED_LOCAL } from "./pilot";
 
 /**
@@ -145,6 +145,47 @@ async function send(page: Page, prompt: string): Promise<void> {
   await page.locator(COMPOSER).first().fill(prompt);
   await page.getByRole("button", { name: "Send message", exact: true }).first().click();
 }
+
+/** The four surfaces this file's header explains at length, in a printable form. */
+export const chatSurfaceGaps: CaptureGap[] = [
+  {
+    id: "chat-surface.harness-banners",
+    group: "chat-surface",
+    surface: "The three harness protection banners and the validation selected-model banner",
+    reason:
+      "Their copy lives in src/lib/validation-harness.ts and renders only while the validation harness is on, so no user "
+      + "ever sees it. In an inventory meant for design review it would read as shipping copy and invite critique of text "
+      + "that does not ship. EXCLUDED ON PURPOSE, not unreachable. The battery-reduced notice IS captured — that one is real "
+      + "product behaviour and the harness only forces the level.",
+  },
+  {
+    id: "chat-surface.tool-call-running-and-error",
+    group: "chat-surface",
+    surface: "ToolCallBlock's running and error states",
+    reason:
+      "Tool calls live in a transient store side-channel (activeToolCalls), never in IndexedDB, so they cannot be seeded — "
+      + "only driven. 'Running' is over in a few milliseconds on a host-computed tool, and 'error' needs a tool that throws, "
+      + "which nothing reachable does. The complete state IS captured.",
+  },
+  {
+    id: "chat-surface.mid-stream-cursor",
+    group: "chat-surface",
+    surface: "Mid-stream text with the streaming cursor",
+    reason:
+      "The generation fixture enqueues all five chunks synchronously and the stream's flushSync() then releases the token "
+      + "batcher's whole backlog at once, so there is no mid-stream moment to hold — and a paused clock cannot create one, "
+      + "because nothing in that path waits on a timer. The holdable phase BEFORE any token (a web lookup blocked at the "
+      + "network) is captured instead.",
+  },
+  {
+    id: "chat-surface.error-slot-is-ready",
+    group: "chat-surface",
+    surface: "The “{slot} is ready” error-card variant",
+    reason:
+      "Needs localReadiness on the message plus a prepare run that reached 'ready'. The first is a runtime-only field "
+      + "(never persisted, so never seedable) and the second is a real model download. The rest of that card's family is covered.",
+  },
+];
 
 export const chatSurfaceStates: StateEntry[] = [
   // ── The shape of a conversation ─────────────────────────────────────────

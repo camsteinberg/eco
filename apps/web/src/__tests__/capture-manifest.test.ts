@@ -5,7 +5,9 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  allGaps,
   allStates,
+  gapsFor,
   KNOWN_HARNESS_KEYS,
   KNOWN_ROUTE_PARAMS,
   manifestFor,
@@ -83,6 +85,43 @@ describe("capture manifest", () => {
         const known = KNOWN_HARNESS_KEYS.has(key) || KNOWN_ROUTE_PARAMS.has(key);
         expect(known, `${entry.id} uses unknown search param "${key}"`).toBe(true);
       }
+    }
+  });
+});
+
+/**
+ * The gap list is the inventory's own honesty check, so it gets the same
+ * treatment as the states: it has to load, it has to be unique, and it must not
+ * claim a surface the lane actually photographs.
+ */
+describe("capture manifest gaps", () => {
+  it("makes every group declare its gaps, empty or not", () => {
+    for (const group of manifestGroups) {
+      expect(() => gapsFor(group), `group "${group}" declares no gaps array`).not.toThrow();
+    }
+  });
+
+  it("rejects an unknown group loudly", () => {
+    expect(() => gapsFor("no-such-group")).toThrow(/Unknown capture manifest group/);
+  });
+
+  it("gives every gap a unique, group-prefixed id and a real reason", () => {
+    const ids = allGaps.map((gap) => gap.id);
+    expect(new Set(ids).size).toBe(ids.length);
+
+    for (const gap of allGaps) {
+      expect(gap.id.startsWith(`${gap.group}.`), `${gap.id} must start with its group`).toBe(true);
+      expect(gap.surface.trim().length, `${gap.id} has no surface`).toBeGreaterThan(0);
+      // A one-liner here would defeat the point: the reason is what lets a
+      // later reader re-check the claim instead of taking it on trust.
+      expect(gap.reason.trim().length, `${gap.id}'s reason is too thin to verify`).toBeGreaterThan(40);
+    }
+  });
+
+  it("never declares a gap for a state that is actually captured", () => {
+    const capturedIds = new Set(allStates.map((entry) => entry.id));
+    for (const gap of allGaps) {
+      expect(capturedIds.has(gap.id), `${gap.id} is declared a gap but is in the manifest`).toBe(false);
     }
   });
 });

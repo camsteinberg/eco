@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Bos Computing LLC
 
 import { expect, type Page } from "@playwright/test";
-import type { StateEntry } from "../types";
+import type { CaptureGap, StateEntry } from "../types";
 import { READY_CHAT_SEARCH } from "./pilot";
 
 /**
@@ -132,6 +132,36 @@ function gateStatus(configured: boolean) {
     });
   };
 }
+
+/** The three surfaces this file's header explains at length, in a printable form. */
+export const routesGaps: CaptureGap[] = [
+  {
+    id: "routes.loading-skeleton",
+    group: "routes",
+    surface: "Route-level loading skeletons (chat/loading.tsx, settings/loading.tsx)",
+    reason:
+      "Probed 2026-08-18 two ways and neither reaches the fallback: a client-side navigation with the destination's "
+      + "RSC payload held open leaves Next 16 on the CURRENT page (zero .skeleton-shimmer nodes), and a held document "
+      + "navigation simply stays put. Both routes are client components with no server-side suspense, so the fallback "
+      + "has no honest trigger from outside; rendering the component directly would photograph a React tree, not the product.",
+  },
+  {
+    id: "routes.error-boundary",
+    group: "routes",
+    surface: "error.tsx and global-error.tsx",
+    reason:
+      "There is no in-app way to make a route throw, and adding a throw-on-this-param seam to src/ is app surgery for a "
+      + "screenshot's benefit. The server:'prod' mechanism these need already exists, so an entry is cheap the day a "
+      + "legitimate trigger does.",
+  },
+  {
+    id: "routes.gate-suspense-fallback",
+    group: "routes",
+    surface: "The /gate Suspense fallback (“Loading gate…”)",
+    reason:
+      "Same missing trigger as the loading skeletons, for a far smaller prize: one line of centred text.",
+  },
+];
 
 export const routesStates: StateEntry[] = [
   // ── Settings, signed in ────────────────────────────────────────────────

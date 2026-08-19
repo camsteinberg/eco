@@ -3,7 +3,7 @@
 
 import { expect } from "@playwright/test";
 import { openMenu } from "../capture";
-import type { StateEntry } from "../types";
+import type { CaptureGap, StateEntry } from "../types";
 
 /**
  * Pilot states — one per mechanism the lane has to get right.
@@ -85,6 +85,13 @@ export const UPGRADE_DECLINED_LOCAL: Record<string, string> = {
 
 /** The assistant reply the app's own IndexedDB fixture installs. */
 const FIXTURE_ASSISTANT_ROW = '[data-message-id="eco-validation-assistant-message"]';
+
+/**
+ * None. This group is the lane's own regression net, not a coverage wave: each
+ * entry exists to prove one mechanism of `capture.ts` works, so there is no
+ * inventory here to be incomplete against.
+ */
+export const pilotGaps: CaptureGap[] = [];
 
 export const pilotStates: StateEntry[] = [
   {

@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Bos Computing LLC
 
-import { expect, type Page } from "@playwright/test";
 import type { IdbSeedName } from "../seeds/idb";
-import type { AxisOverrides, StateEntry } from "../types";
+import { motionSettled } from "../capture";
+import type { AxisOverrides, CaptureGap, StateEntry } from "../types";
 import { READY_CHAT_SEARCH, UPGRADE_DECLINED_LOCAL, WASM_DEVICE_SEARCH } from "./pilot";
+import { BOTANICAL } from "./setup-gate";
 
 /**
  * W6 — the axis sweeps.
@@ -136,33 +137,17 @@ function seededSeed(idb: IdbSeedName) {
   return { local: UPGRADE_DECLINED_LOCAL, idb: [idb] };
 }
 
-/**
- * Wait for a Motion transform to stop moving.
- *
- * `animations: 'disabled'` fast-forwards CSS animations and does nothing to a
- * Motion spring, so a twin caught on the way in differs from its partner by
- * settle noise rather than by the branch this wave is measuring. Two identical
- * consecutive reads is the only signal that does not guess at a duration.
- */
-async function transformSettled(page: Page, selector: string): Promise<void> {
-  let previous = "";
-  await expect
-    .poll(async () => {
-      const current = await page.evaluate((sel: string) => {
-        const node = document.querySelector(sel);
-        if (!(node instanceof HTMLElement) && !(node instanceof SVGElement)) return "";
-        const style = getComputedStyle(node);
-        return `${style.transform}|${style.opacity}`;
-      }, selector);
-      const settled = current !== "" && current === previous;
-      previous = current;
-      return settled;
-    })
-    .toBe(true);
-}
+// The settle wait this wave needs — a twin caught on the way in differs from its
+// partner by spring noise rather than by the branch being measured — is now
+// `motionSettled` in capture.ts, shared with setup-gate.ts.
 
-/** The growth layer of the setup illustration, in either branch. */
-const BOTANICAL = '[role="img"][aria-label^="A botanical"]';
+/**
+ * None. The nine reduced-motion entries this wave deleted are NOT gaps: they
+ * were built, shot against their no-preference twins, and removed because the
+ * pixels proved they do not branch. That is a finding, recorded in this file's
+ * header with the per-pair diff counts — not a state we failed to reach.
+ */
+export const axesGaps: CaptureGap[] = [];
 
 export const axesStates: StateEntry[] = [
   // ── Reduced motion: the two that really branch ──────────────────────────
@@ -199,7 +184,7 @@ export const axesStates: StateEntry[] = [
     },
     assert: [{ selector: "[data-eco-setup-surface]" }],
     prepare: async (page) => {
-      await transformSettled(page, BOTANICAL);
+      await motionSettled(page, BOTANICAL);
     },
     notes:
       "The one unambiguous branch in the app. BotanicalAnimation returns a plain <div> under "

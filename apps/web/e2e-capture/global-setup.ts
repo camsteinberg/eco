@@ -2,12 +2,14 @@
 // Copyright (C) 2026 Bos Computing LLC
 
 import { execFileSync } from "node:child_process";
+import { createRequire } from "node:module";
 import { mkdirSync, writeFileSync } from "node:fs";
+import { platform, release } from "node:os";
 import { join } from "node:path";
 import type { FullConfig } from "@playwright/test";
 import { entryRunsInContext, shotRelativePath } from "./capture";
 import { captureOutputBase, parseProjectName } from "./fixtures";
-import { allStates } from "./manifest";
+import { allGaps, allStates } from "./manifest";
 
 /**
  * Run header + route warm-up.
@@ -30,6 +32,37 @@ function git(args: string[]): string {
   } catch {
     return "unknown";
   }
+}
+
+/**
+ * What produced these pixels, beyond the app's own commit.
+ *
+ * A baseline is compared against a LATER run, and "the UI changed" and "the
+ * browser changed" look identical in a PNG. Recording the browser and framework
+ * versions is what lets a future reviewer tell those apart instead of filing a
+ * font-rendering delta as a regression.
+ */
+function toolingVersions(): Record<string, string> {
+  // Resolved from cwd, not from this module: Playwright transpiles this file and
+  // `import.meta` does not survive that reliably (global-teardown.ts hit the same
+  // thing). `pnpm --filter @eco/web capture` runs with cwd = apps/web, which is
+  // exactly where these packages should resolve from anyway.
+  const resolve = createRequire(join(process.cwd(), "package.json"));
+  const version = (name: string): string => {
+    try {
+      return (resolve(`${name}/package.json`) as { version: string }).version;
+    } catch {
+      return "unknown";
+    }
+  };
+
+  return {
+    node: process.version,
+    playwright: version("@playwright/test"),
+    next: version("next"),
+    react: version("react"),
+    tailwindcss: version("tailwindcss"),
+  };
 }
 
 function mintRunId(gitSha: string): string {
@@ -96,10 +129,16 @@ export default async function globalSetup(config: FullConfig): Promise<void> {
         server: process.env.ECO_CAPTURE_SERVER === "prod" ? "prod" : "dev",
         baseURL,
         node: process.version,
+        tooling: toolingVersions(),
+        // The palette and shortcuts sheet print "Cmd" or "Ctrl" from
+        // navigator.platform, which the lane does not control — so the host OS
+        // is part of what a reader is looking at. See the index's caveat.
+        host: { platform: platform(), release: release() },
         entryCount: allStates.length,
         projects: config.projects.map((project) => project.name),
         expectedShots: expected.length,
         warmFailures,
+        gaps: allGaps,
         shots: [],
       },
       null,

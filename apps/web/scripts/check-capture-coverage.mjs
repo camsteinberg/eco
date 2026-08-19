@@ -29,6 +29,28 @@ import { join, relative } from "node:path";
 
 const SUSPECT_BYTES = 8 * 1024;
 
+/**
+ * Small shots that have been looked at and are correct.
+ *
+ * Both are `mode: 'element'` crops of a genuinely tiny region, so they land
+ * under the blank-frame threshold every run. Without this list the same two
+ * warnings reappear forever and a reviewer either re-checks them each time or —
+ * far worse — learns to skim past the SUSPECT section, which is where a real
+ * blank frame would show up. Listing them turns the section back into a signal:
+ * anything printed under NEW is genuinely unverified.
+ */
+const EXPLAINED_SMALL_SHOTS = {
+  "chat-interactions.guide-button-hover":
+    "a 44px floating button, cropped to itself — about 2 KB",
+  "settings.storage-measuring":
+    "the storage panel's skeleton, a few flat bars while the estimate stalls — about 7.7 KB",
+};
+
+/** `shots/<project>/<group>.<name>.png` → `<group>.<name>`. */
+function entryIdFromPath(path) {
+  return path.split("/").at(-1)?.replace(/\.png$/, "") ?? path;
+}
+
 function outputBase() {
   return process.env.ECO_CAPTURE_OUT ?? join(homedir(), "eco-artifacts", "ui-baseline");
 }
@@ -84,6 +106,7 @@ const missing = [];
 const orphan = [];
 const zeroByte = [];
 const suspect = [];
+const explainedSmall = [];
 const byHash = new Map();
 
 for (const [path] of expectedByPath) {
@@ -102,7 +125,12 @@ for (const [path, absolute] of onDisk) {
     continue;
   }
   if (size < SUSPECT_BYTES) {
-    suspect.push(`${path} (${String(size)} bytes)`);
+    const explanation = EXPLAINED_SMALL_SHOTS[entryIdFromPath(path)];
+    if (explanation) {
+      explainedSmall.push(`${path} (${String(size)} bytes) — ${explanation}`);
+    } else {
+      suspect.push(`${path} (${String(size)} bytes)`);
+    }
   }
 
   const hash = createHash("sha256").update(readFileSync(absolute)).digest("hex");
@@ -134,8 +162,16 @@ report("ORPHAN — captured but not in the manifest", orphan);
 report("ZERO_BYTE — file exists but is empty", zeroByte);
 report("DUPLICATE — different ids, identical pixels", duplicates);
 
+if (explainedSmall.length > 0) {
+  console.log(`\nsmall but explained (${String(explainedSmall.length)}) — element crops already reviewed:`);
+  for (const item of explainedSmall) console.log(`  ${item}`);
+}
+
 if (suspect.length > 0) {
-  console.warn(`\nSUSPECT — under ${String(SUSPECT_BYTES)} bytes, check these are not blank (${String(suspect.length)}):`);
+  console.warn(
+    `\nSUSPECT — under ${String(SUSPECT_BYTES)} bytes and NOT on the explained list, `
+      + `open these and check they are not blank (${String(suspect.length)}):`,
+  );
   for (const item of suspect) console.warn(`  ${item}`);
 }
 

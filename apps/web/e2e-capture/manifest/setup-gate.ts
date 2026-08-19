@@ -2,7 +2,8 @@
 // Copyright (C) 2026 Bos Computing LLC
 
 import { expect } from "@playwright/test";
-import type { StateEntry } from "../types";
+import { motionSettled } from "../capture";
+import type { CaptureGap, StateEntry } from "../types";
 
 /**
  * The /chat setup gate — every surface a person can meet before the chat.
@@ -162,6 +163,48 @@ const REASSURANCE_ROTATION_MS = 9_000;
 /** Either gate surface a choice-then-wait entry passes through. */
 const GATE_SURFACE = "[data-eco-welcome-card], [data-eco-setup-surface]";
 
+/**
+ * The growth layer of the setup illustration.
+ *
+ * The slowest Motion spring on the setup surface (stiffness 55), so it is the
+ * right thing to wait on when a state needs the whole surface at rest. Exported
+ * because the axis sweep photographs this same illustration.
+ */
+export const BOTANICAL = '[role="img"][aria-label^="A botanical"]';
+
+/** What the held-open weight requests cost this group, in a printable form. */
+export const setupGateGaps: CaptureGap[] = [
+  {
+    id: "setup-gate.setup-percent-bands",
+    group: "setup-gate",
+    surface:
+      "WelcomeSetup's mid-download and near-done status copy (“Bringing your AI onto your device…” at percent ≥45, "
+      + "“Almost ready…” at ≥85) and the botanical growth those percentages drive",
+    reason:
+      "Weights are fetched same-origin through /api/local-models/…, so any state that reaches the download path would "
+      + "really download a model — hundreds of megabytes per shot, and a different percentage every run. The lane holds "
+      + "those requests open, which is exactly what makes every WelcomeSetup capture reproducible AND pins all of them at "
+      + "percent 0. The opening band is captured; the two later bands are the price of determinism.",
+  },
+  {
+    id: "setup-gate.setup-finding-fit",
+    group: "setup-gate",
+    surface: "WelcomeSetup's “Finding the best fit for your device…” copy",
+    reason:
+      "findingFit is set only by setup-runner's demote path (`if (info.kind === 'demote') actions.markFindingFit()`), which "
+      + "needs a real download to get far enough to fail and fall down the ladder. The lane never lets a download progress, "
+      + "so the demote never fires.",
+  },
+  {
+    id: "setup-gate.setup-smoke-phase",
+    group: "setup-gate",
+    surface: "WelcomeSetup's `smoke` phase (“Almost there — waking up your AI for the first time”, both device wordings)",
+    reason:
+      "The smoke phase IS the first real cold load of a downloaded model. Same root cause as the percent bands: no bytes "
+      + "arrive, so the pipeline never leaves the download phase.",
+  },
+];
+
 export const setupGateStates: StateEntry[] = [
   // ── WelcomeCard — the first-run model choice ────────────────────────────
   {
@@ -291,6 +334,13 @@ export const setupGateStates: StateEntry[] = [
       await page.getByRole("button", { name: /^Start with/ }).click();
       await expect(page.locator("[data-eco-setup-surface]")).toBeVisible();
       await expect(page.getByText(REASSURANCE_FIRST)).toBeVisible();
+      // The surface arrives on Motion springs, which `animations: 'disabled'`
+      // does not touch, and the reassurance line is visible well before either
+      // has come to rest. Without this the shot differed between runs (measured
+      // 2026-08-19: byte-unstable across two otherwise identical runs, while
+      // every other WelcomeSetup state was stable). The illustration's growth
+      // spring is the slowest thing on screen, so it is the one to wait on.
+      await motionSettled(page, BOTANICAL);
     },
     notes: "Committing the choice is the only way to 'setting-up' without a live download; the rotation starts here.",
   },

@@ -3,7 +3,7 @@
 
 import { expect, type Page } from "@playwright/test";
 import { openMenu } from "../capture";
-import type { StateAssertion, StateEntry } from "../types";
+import type { CaptureGap, StateAssertion, StateEntry } from "../types";
 import { READY_CHAT_SEARCH, UPGRADE_DECLINED_LOCAL } from "./pilot";
 
 /**
@@ -243,6 +243,37 @@ const LONG_DRAFT = [
   "explains why the check matters, and says plainly when a container genuinely",
   "does need water twice a day — without hedging every sentence into uselessness?",
 ].join(" ");
+
+/** The two surfaces this wave deliberately did not capture, in a printable form. */
+export const chatInteractionsGaps: CaptureGap[] = [
+  {
+    id: "chat-interactions.flag-for-eval",
+    group: "chat-interactions",
+    surface: "The “Flag for eval…” message-menu item",
+    reason:
+      "Gated on eco-dev-capture, a dev-only eval seam rather than a shipping control, so it belongs with the harness banners "
+      + "W3 excluded for the same reason: an inventory for design review must not invite critique of copy that never ships. "
+      + "EXCLUDED ON PURPOSE, not unreachable.",
+  },
+  {
+    id: "chat-interactions.impact-footer-hidden",
+    group: "chat-interactions",
+    surface: "The impact footer's hidden state",
+    reason:
+      "ImpactFooter returns an empty div when the query count is zero, and the empty chat does not render the region that "
+      + "holds it at all — so 'hidden' is pixel-for-pixel pilot.chat-empty-ready, which the coverage check would (rightly) "
+      + "fail as a duplicate. The footer's real state gets its own element shot instead.",
+  },
+  {
+    id: "chat-interactions.tour-step-privacy",
+    group: "chat-interactions",
+    surface: "The guided tour's second step",
+    reason:
+      "A SHIPPING DEFECT found by these captures: OnboardingTour filters its three steps by document.querySelector, and step 2 "
+      + "targets [aria-label=\"Privacy information\"], which no component in the app declares. The shipped tour is two steps, "
+      + "not three. Nothing to photograph until the target exists.",
+  },
+];
 
 export const chatInteractionsStates: StateEntry[] = [
   // ── What a message's action row can do ──────────────────────────────────

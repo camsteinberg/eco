@@ -71,11 +71,30 @@ every route fails to resolve it — the symptom is a completely blank capture ru
 
 A wave is **one manifest file plus one spec file**, nothing else:
 
-1. `manifest/<group>.ts` — export `<group>States: StateEntry[]`.
-2. Register it in `manifest/index.ts`'s `GROUPS`.
+1. `manifest/<group>.ts` — export `<group>States: StateEntry[]` and
+   `<group>Gaps: CaptureGap[]`.
+2. Register both in `manifest/index.ts`'s `GROUPS` and `GAPS`.
 3. `specs/<group>.capture.spec.ts` — copy `pilot.capture.spec.ts` and change the
    group name. It is a 15-line loop; if you need more, the mechanism belongs in
    `capture.ts` instead.
+
+### Say what you could not capture
+
+Every group declares a gaps array, and an **empty one is a claim** ("this group
+is complete"), not an omission — which is why `manifest/index.ts` throws when the
+key is missing instead of defaulting it. Each gap names the surface and the
+concrete mechanism that puts it out of reach, so a later reader can re-check the
+claim rather than take it on trust; the unit suite rejects a reason too thin to
+verify, and rejects a gap whose id belongs to a state that IS captured.
+
+The generated `INDEX.md` prints them all under **Honest gaps**, and each contact
+sheet carries its own group's list. Two kinds live there together, distinguished
+by the reason line: states with no honest trigger (the app cannot be made to
+render them without editing `src/`), and states excluded on purpose (harness-only
+copy that never ships, which would invite design critique of text no user sees).
+
+An inventory that lists only what it has is a sales brochure. This is the part
+that makes it evidence.
 
 ### Entry ids are API
 

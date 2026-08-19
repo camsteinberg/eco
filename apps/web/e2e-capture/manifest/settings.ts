@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Bos Computing LLC
 
 import { expect, type Page } from "@playwright/test";
-import type { StateEntry } from "../types";
+import type { CaptureGap, StateEntry } from "../types";
 
 /**
  * W5 — the states INSIDE the settings tabs.
@@ -314,6 +314,35 @@ async function reloadWith(page: Page, init: () => void): Promise<void> {
   await page.reload();
   await page.addStyleTag({ content: "nextjs-portal { display: none !important; }" });
 }
+
+/** What this wave deliberately did not capture, in a printable form. */
+export const settingsGaps: CaptureGap[] = [
+  {
+    id: "settings.switch-smoke-failed",
+    group: "settings",
+    surface: "The switch dialog's smoke-failure copy (smokeFailedHeadline, both confidence variants)",
+    reason:
+      "Reaching it means a model that downloads AND loads and then fails its readiness check. eco-force-download fails "
+      + "before the load and eco-force-local-runtime=crash fails at it, so both land on the load-failed headline instead. "
+      + "Nothing forces a smoke failure, and faking one would mean editing src/.",
+  },
+  {
+    id: "settings.eco-legacy-storage-summary",
+    group: "settings",
+    surface: "SettingsEcoTab's legacy single-line storage summary and its “Yes, clear <model>” confirm",
+    reason:
+      "LocalAiSettingsAdapter always passes a breakdown, so the branch cannot render in the shipping app — it is dead code "
+      + "behind a prop, not a state a person can meet.",
+  },
+  {
+    id: "settings.account-saving-beat",
+    group: "settings",
+    surface: "The account form's `saving` disabled beat (“Saving…”) and the delete-in-progress dialog copy",
+    reason:
+      "Both live between a click and a fulfilled route mock; holding the response open would park them, but the pair is two "
+      + "words of button copy inside states already captured.",
+  },
+];
 
 export const settingsStates: StateEntry[] = [
   // ── Settings → Eco: the tab itself ──────────────────────────────────────
