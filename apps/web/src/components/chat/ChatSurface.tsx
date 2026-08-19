@@ -49,6 +49,28 @@ function QuestionMarkIcon({ className }: { className?: string }) {
   );
 }
 
+/**
+ * The floating "open the guide" button.
+ *
+ * Positioning is the caller's job, and it differs by branch: in a conversation
+ * the button hangs off the composer bar's top edge, so it clears the composer
+ * at every height it can autogrow to; the empty state keeps it pinned to the
+ * surface, where there is no bottom-anchored composer to collide with.
+ */
+function HelpGuideButton({ className }: { className: string }) {
+  return (
+    <button
+      type="button"
+      onClick={() => window.dispatchEvent(new Event(ECO_OPEN_GUIDE_EVENT))}
+      className={`absolute z-40 flex h-11 w-11 cursor-pointer items-center justify-center rounded-full border border-[var(--eco-border)] bg-[var(--eco-surface-elevated)]/90 text-[var(--eco-text-secondary)] shadow-md backdrop-blur-sm transition-all duration-200 hover:scale-105 active:scale-95 hover:border-[var(--eco-primary)]/40 hover:bg-[var(--eco-surface-elevated)] hover:text-[var(--eco-primary)] hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--eco-primary)] focus-visible:ring-offset-2 ${className}`}
+      aria-label="Open Eco guide"
+      title="Open Eco guide"
+    >
+      <QuestionMarkIcon className="h-5 w-5" />
+    </button>
+  );
+}
+
 function AttachmentDropError({ message, className = "" }: { message: string; className?: string }) {
   return (
     <div className={className}>
@@ -424,6 +446,11 @@ export function ChatSurface(props: ChatSurfaceProps) {
             data-eco-composer-bar
             className="relative border-t border-[var(--eco-border)]/40 px-3 sm:px-4 pt-3 sm:pt-5 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:pb-[calc(1.25rem+env(safe-area-inset-bottom))]"
           >
+            {/* Anchored to the composer bar's top edge rather than the surface:
+                a fixed bottom offset collides with the composer as soon as the
+                textarea autogrows, and at tablet widths the centered composer
+                reaches the right edge the button used to sit in. */}
+            <HelpGuideButton className="bottom-[calc(100%+0.5rem)] right-4 md:right-6" />
             <div className="mx-auto max-w-2xl">
               {droppedAttachmentError ? (
                 <AttachmentDropError message={droppedAttachmentError} className="mb-3" />
@@ -434,16 +461,11 @@ export function ChatSurface(props: ChatSurfaceProps) {
         </>
       )}
 
-      {/* Help guide floating button */}
-      <button
-        type="button"
-        onClick={() => window.dispatchEvent(new Event(ECO_OPEN_GUIDE_EVENT))}
-        className="absolute z-40 flex h-11 w-11 cursor-pointer items-center justify-center rounded-full border border-[var(--eco-border)] bg-[var(--eco-surface-elevated)]/90 text-[var(--eco-text-secondary)] shadow-md backdrop-blur-sm transition-all duration-200 hover:scale-105 active:scale-95 hover:border-[var(--eco-primary)]/40 hover:bg-[var(--eco-surface-elevated)] hover:text-[var(--eco-primary)] hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--eco-primary)] focus-visible:ring-offset-2 bottom-[80px] right-4 md:bottom-5 md:right-6"
-        aria-label="Open Eco guide"
-        title="Open Eco guide"
-      >
-        <QuestionMarkIcon className="h-5 w-5" />
-      </button>
+      {/* Help guide floating button — the empty state has no bottom-anchored
+          composer bar to hang it from, so it stays pinned to the surface. */}
+      {messages.length === 0 && (
+        <HelpGuideButton className="bottom-[80px] right-4 md:bottom-5 md:right-6" />
+      )}
     </div>
   );
 }

@@ -35,7 +35,11 @@ export function ImpactFooter({ queryCount, onShare }: ImpactFooterProps) {
     `}</style>
     <div
       data-tour-target="impact-footer"
-      className="flex items-center justify-between border-t border-[var(--eco-border)]/40 px-5 py-2"
+      // pr reserves the lane the help button occupies above the composer bar
+      // (right-4 / md:right-6 plus its 44px diameter), so the controls below
+      // are never tucked underneath it. flex-wrap lets the controls take their
+      // own row once the metrics no longer leave them room.
+      className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-[var(--eco-border)]/40 py-2 pl-5 pr-[4.25rem] md:pr-[4.75rem]"
       style={{
         backgroundColor: "rgba(var(--eco-primary-rgb, 45, 90, 61), 0.05)",
       }}
@@ -92,10 +96,10 @@ export function ImpactFooter({ queryCount, onShare }: ImpactFooterProps) {
         </span>
       </div>
 
-      <div className="flex items-center gap-3 text-xs">
+      <div className="flex w-full items-center gap-3 text-xs sm:w-auto">
         <a
           href="/impact"
-          className="min-h-[44px] md:min-h-0 flex items-center gap-0.5 transition-colors hover:underline"
+          className="min-h-[44px] md:min-h-0 flex items-center gap-0.5 whitespace-nowrap transition-colors hover:underline"
           style={{ color: "var(--eco-primary)" }}
           aria-label="Learn more about environmental impact"
         >
@@ -117,7 +121,7 @@ export function ImpactFooter({ queryCount, onShare }: ImpactFooterProps) {
         <button
           type="button"
           onClick={onShare}
-          className="cursor-pointer rounded-md px-2 py-0.5 min-h-[44px] md:min-h-0 flex items-center font-medium transition-colors hover:bg-[var(--eco-primary-soft)]"
+          className="cursor-pointer rounded-md px-2 py-0.5 min-h-[44px] md:min-h-0 flex items-center whitespace-nowrap font-medium transition-colors hover:bg-[var(--eco-primary-soft)]"
           style={{ color: "var(--eco-primary)" }}
           aria-label="Share conversation"
         >
