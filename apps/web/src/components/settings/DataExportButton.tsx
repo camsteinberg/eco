@@ -59,7 +59,7 @@ export function DataExportButton() {
         onClick={handleExport}
         disabled={state === 'exporting'}
         aria-busy={state === 'exporting'}
-        className="cursor-pointer rounded-xl border border-[var(--eco-primary)] px-4 py-2.5 text-base font-medium text-[var(--eco-primary)] transition-colors hover:bg-[var(--eco-primary-soft)] disabled:cursor-not-allowed disabled:opacity-50"
+        className="cursor-pointer rounded-[var(--eco-radius-sm)] border border-[var(--eco-primary)] px-4 py-2.5 text-base font-medium text-[var(--eco-primary)] transition-colors hover:bg-[var(--eco-primary-soft)] disabled:cursor-not-allowed disabled:opacity-50"
       >
         {label[state]}
       </button>
