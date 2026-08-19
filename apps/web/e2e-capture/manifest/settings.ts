@@ -47,10 +47,6 @@ import type { CaptureGap, StateEntry } from "../types";
  *   `eco-force-local-runtime=crash` fails at it, so both land on the
  *   load-failed headline instead. Nothing forces a smoke failure, and faking
  *   one would mean editing `src/`.
- * - **`SettingsEcoTab`'s legacy single-line storage summary** and its
- *   "Yes, clear <model>" confirm. `LocalAiSettingsAdapter` always passes a
- *   breakdown, so the branch cannot render in the shipping app — it is dead
- *   code behind a prop, not a state a person can meet.
  * - **The `saving` disabled beat** of the account form (`Saving…`) and the
  *   delete-in-progress dialog copy. Both live between a click and a fulfilled
  *   route mock; holding the response open would park them, but the pair is two
@@ -378,14 +374,6 @@ export const settingsGaps: CaptureGap[] = [
       "Reaching it means a model that downloads AND loads and then fails its readiness check. eco-force-download fails "
       + "before the load and eco-force-local-runtime=crash fails at it, so both land on the load-failed headline instead. "
       + "Nothing forces a smoke failure, and faking one would mean editing src/.",
-  },
-  {
-    id: "settings.eco-legacy-storage-summary",
-    group: "settings",
-    surface: "SettingsEcoTab's legacy single-line storage summary and its “Yes, clear <model>” confirm",
-    reason:
-      "LocalAiSettingsAdapter always passes a breakdown, so the branch cannot render in the shipping app — it is dead code "
-      + "behind a prop, not a state a person can meet.",
   },
   {
     id: "settings.account-saving-beat",

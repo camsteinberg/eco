@@ -3,7 +3,7 @@
 
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEcoState } from '../../hooks/local-ai/useEcoState';
 import { useSwitchAI } from '../../hooks/local-ai/useSwitchAI';
@@ -75,7 +75,6 @@ export function LocalAiSettingsAdapter() {
   }, [searchParams]);
 
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [storageBytes, setStorageBytes] = useState<number | null>(null);
   const [loadProgress, setLoadProgress] = useState<number>(0);
   const [loadPhase, setLoadPhase] = useState<string | null>(null);
 
@@ -88,24 +87,6 @@ export function LocalAiSettingsAdapter() {
   // the Cache API for each model's actual cached bytes. Refreshes
   // automatically when slots change (a fresh download bumps state.slots).
   const breakdown = useLocalAiStorageBreakdown({ refreshKey: state.slots });
-
-  // Legacy single-number total — still surfaced inside the "Show details"
-  // disclosure. Sourced from navigator.storage.estimate() (cross-origin
-  // browser total) so the disclosure shows the broader context, while
-  // the new panel below shows Eco-specific accounting.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        if (typeof navigator === 'undefined' || !navigator.storage?.estimate) return;
-        const est = await navigator.storage.estimate();
-        if (!cancelled) setStorageBytes(est.usage ?? null);
-      } catch {
-        // Best-effort.
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [state.slots]);
 
   const onSwitchRequested = useCallback(
     async (modelId: string): Promise<SwitchAIResult> => {
@@ -191,7 +172,6 @@ export function LocalAiSettingsAdapter() {
       <SettingsEcoTab
         currentModel={running.model}
         currentModelStatus={running.status ?? undefined}
-        storageBytes={storageBytes}
         storageBreakdown={breakdown.data}
         storageStatus={breakdown.status}
         onSwitchAI={() => setDialogOpen(true)}
