@@ -208,6 +208,29 @@ export function MessageList({
     }
   }, [messages, messages.length, scrollToBottom]);
 
+  // Re-anchor whenever the geometry moves under a scroll we already committed.
+  // `scrollTop = scrollHeight` in the messages effect is only correct for the
+  // layout of that frame: on mobile the last row's actions are always visible
+  // (so they land a beat later) and the impact footer rewraps to two rows once
+  // the webfont swaps in — both shrink the visible height afterwards, leaving
+  // the bottom of the transcript clipped under the footer. Watching the
+  // scroller AND its content catches either kind of shift.
+  const contentRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const scroller = parentRef.current;
+    const content = contentRef.current;
+    if (!scroller || typeof ResizeObserver === "undefined") return;
+
+    const observer = new ResizeObserver(() => {
+      if (shouldStickToBottomRef.current) {
+        scrollToBottom();
+      }
+    });
+    observer.observe(scroller);
+    if (content) observer.observe(content);
+    return () => observer.disconnect();
+  }, [scrollToBottom]);
+
   // Keep the latest answer anchored after returning to a hidden tab.
   useEffect(() => {
     const handleVisibility = () => {
@@ -282,7 +305,10 @@ export function MessageList({
       tabIndex={0}
       style={{ overflowAnchor: "none" }}
     >
-      <div className="flex flex-col gap-4 px-4 py-4 md:px-6 md:py-6">
+      {/* The extra mobile bottom padding is a belt for the re-anchor above:
+          it keeps the last row's actions off the footer's top edge even in the
+          frame before a resize lands. */}
+      <div ref={contentRef} className="flex flex-col gap-4 px-4 pb-8 pt-4 md:px-6 md:py-6">
         <p className="sr-only" role="status" aria-live="polite">
           {isStreaming
             ? `Assistant response ${streamPhase ? `${streamPhase.replace(/-/g, " ")}` : "streaming"}`

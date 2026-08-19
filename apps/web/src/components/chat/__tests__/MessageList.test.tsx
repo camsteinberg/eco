@@ -371,3 +371,76 @@ describe("MessageList grounding-notice anchor (provenance honesty)", () => {
     expect(screen.queryByTestId("grounding-anchor")).not.toBeInTheDocument();
   });
 });
+
+/**
+ * The transcript's bottom was sliced off on every mobile conversation: the
+ * messages effect commits `scrollTop = scrollHeight` for the layout of that
+ * frame, and the frame after it the geometry moves — the always-visible mobile
+ * action row lands, the impact footer rewraps to two rows once the webfont
+ * swaps in — leaving the committed scrollTop short of the new bottom.
+ */
+describe("MessageList re-anchors when the geometry moves after a scroll", () => {
+  const resizeCallbacks: ResizeObserverCallback[] = [];
+  let originalResizeObserver: typeof ResizeObserver;
+
+  beforeEach(() => {
+    resizeCallbacks.length = 0;
+    originalResizeObserver = globalThis.ResizeObserver;
+    class TestResizeObserver implements ResizeObserver {
+      constructor(callback: ResizeObserverCallback) {
+        resizeCallbacks.push(callback);
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+    globalThis.ResizeObserver = TestResizeObserver;
+  });
+
+  afterEach(() => {
+    globalThis.ResizeObserver = originalResizeObserver;
+  });
+
+  function fireResize() {
+    for (const callback of resizeCallbacks) {
+      callback([], {} as ResizeObserver);
+    }
+  }
+
+  const messages = [
+    chatMessage("user-1", "user", "Original prompt"),
+    chatMessage("assistant-1", "assistant", "An answer"),
+  ];
+
+  it("scrolls to the new bottom when the content grows after the message effect", () => {
+    const { rerender } = render(<MessageList messages={messages} isStreaming={false} />);
+    const log = screen.getByRole("log");
+    setScrollMetrics(log, { scrollHeight: 1_000, clientHeight: 400, scrollTop: 0 });
+
+    // The messages effect commits the scroll for THIS layout.
+    rerender(<MessageList messages={[...messages]} isStreaming={false} />);
+    expect(log.scrollTop).toBe(1_000);
+
+    // A beat later the action row lands and the transcript is taller.
+    Object.defineProperty(log, "scrollHeight", { configurable: true, get: () => 1_200 });
+    fireResize();
+
+    expect(log.scrollTop).toBe(1_200);
+  });
+
+  it("leaves a user who scrolled up alone", () => {
+    const { rerender } = render(<MessageList messages={messages} isStreaming={true} />);
+    const log = screen.getByRole("log");
+    setScrollMetrics(log, { scrollHeight: 1_000, clientHeight: 400, scrollTop: 600 });
+
+    // Scrolling up mid-stream releases the stick-to-bottom follow.
+    fireEvent.wheel(log, { deltaY: -120 });
+    rerender(<MessageList messages={[...messages]} isStreaming={true} />);
+    expect(log.scrollTop).toBe(600);
+
+    Object.defineProperty(log, "scrollHeight", { configurable: true, get: () => 1_200 });
+    fireResize();
+
+    expect(log.scrollTop).toBe(600);
+  });
+});
