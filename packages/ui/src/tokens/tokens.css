@@ -105,9 +105,9 @@
   /* Primary as comma-separated RGB (for rgba() composition) */
   --eco-primary-rgb: 45, 90, 61;
 
-  /* Danger */
-  --eco-danger: #b95050;
-  --eco-danger-soft: #faf0f0;
+  /* Danger — aliases coral so destructive UI shares its AA-tuned hue */
+  --eco-danger: var(--eco-coral); /* AA: 4.76:1 on surface (was #b95050 at 4.28:1) */
+  --eco-danger-soft: var(--eco-coral-soft);
 
   /* Typography */
   --eco-font-display: 'Fraunces', Georgia, serif;
@@ -287,9 +287,9 @@
   /* Primary as comma-separated RGB */
   --eco-primary-rgb: 123, 192, 142;
 
-  /* Danger */
-  --eco-danger: #e87171;
-  --eco-danger-soft: #3d2020;
+  /* Danger — aliases coral so destructive UI shares its AA-tuned hue */
+  --eco-danger: var(--eco-coral); /* AA: 5.5:1 on surface (was a second red, #e87171) */
+  --eco-danger-soft: var(--eco-coral-soft);
 
   /* Shadows (dark: deeper with pure black) */
   --eco-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.15);
