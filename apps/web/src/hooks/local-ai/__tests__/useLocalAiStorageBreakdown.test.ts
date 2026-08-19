@@ -6,6 +6,7 @@ import { renderHook, act, waitFor } from '@testing-library/react';
 import { useLocalAiStorageBreakdown } from '../useLocalAiStorageBreakdown';
 import type { Storage as LocalStorage } from '../../../local-ai/download/storage';
 import { getCatalog } from '../../../local-ai/catalog/catalog';
+import { getDisplayInfo } from '../../../local-ai/display';
 
 class FakeStorage implements LocalStorage {
   readonly backend = 'cache-api' as const;
@@ -70,8 +71,30 @@ describe('useLocalAiStorageBreakdown', () => {
     expect(data.models).toHaveLength(2);
     const firstEntry = data.models.find((m) => m.id === first.id);
     expect(firstEntry?.sizeBytes).toBe(350);
-    expect(firstEntry?.friendlyName).toBe(first.friendlyName);
+    expect(firstEntry?.friendlyName).toBe(getDisplayInfo(first.id, first).friendlyName);
     expect(firstEntry?.vendor).toBe(first.vendor);
+  });
+
+  // The storage cards are primary UI, so they must name models the way the
+  // rest of the product does. Reading model.friendlyName straight off the
+  // catalog printed raw names ("SmolLM2 360M") on those cards.
+  it('names models with their branded display name, not the raw catalog name', async () => {
+    const storage = new FakeStorage();
+    const smol = getCatalog().find((m) => m.id === 'candidate/smollm2-360m-instruct-onnx');
+    if (!smol) throw new Error('catalog missing the SmolLM2 CPU floor model');
+    expect(smol.friendlyName).toBe('SmolLM2 360M');
+    storage.setBytes(smol.id, 'model_int8.onnx', 361_000_000);
+
+    const { result } = renderHook(() =>
+      useLocalAiStorageBreakdown({
+        storage,
+        estimateBrowserStorage: async () => null,
+      }),
+    );
+
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+    const entry = result.current.data!.models.find((m) => m.id === smol.id);
+    expect(entry?.friendlyName).toBe('Eco Tiny (SmolLM)');
   });
 
   it('filters out models with zero cached bytes', async () => {

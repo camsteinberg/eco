@@ -526,10 +526,10 @@ export const settingsStates: StateEntry[] = [
     mock: seedCachedModels,
     assert: [
       { testId: "local-ai-storage-panel" },
-      { text: "Granite 4.0 350M" },
-      { text: "SmolLM2 360M" },
+      { text: "Eco Basic (Granite)" },
+      { text: "Eco Tiny (SmolLM)" },
     ],
-    notes: "Real Cache Storage entries in the shipping format, planted on a warm-up navigation — the per-model byte figures are ours but the accounting is the app's. The soil bar's 'available' half still comes from the real browser estimate and moves between runs. Note the cards print raw catalog names ('SmolLM2 360M') where the rest of the product prints branded ones ('Eco Tiny').",
+    notes: "Real Cache Storage entries in the shipping format, planted on a warm-up navigation — the per-model byte figures are ours but the accounting is the app's. The soil bar's 'available' half still comes from the real browser estimate and moves between runs. The cards name models the way the rest of the product does: branded ('Eco Tiny (SmolLM)'), not the raw catalog name.",
   },
   {
     id: "settings.storage-remove-confirming",
@@ -543,8 +543,8 @@ export const settingsStates: StateEntry[] = [
     mock: seedCachedModels,
     assert: [{ testId: "local-ai-storage-panel" }],
     prepare: async (page) => {
-      await page.getByRole("button", { name: "Remove SmolLM2 360M from this device" }).click();
-      await expect(page.getByRole("button", { name: /Confirm removing SmolLM2/ })).toBeVisible();
+      await page.getByRole("button", { name: "Remove Eco Tiny (SmolLM) from this device" }).click();
+      await expect(page.getByRole("button", { name: /Confirm removing Eco Tiny/ })).toBeVisible();
     },
     notes: "Deleting a model asks first, inline on the card — one row in confirm, the other still offering Remove.",
   },
