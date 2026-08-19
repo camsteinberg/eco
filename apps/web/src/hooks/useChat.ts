@@ -17,6 +17,7 @@ import {
   assessLocalContextSafety,
   clampRequestedNewTokensForContext,
   selectMessagesForContext,
+  selectContextWindow,
   findContextDividerIndex,
 } from "../lib/context-window";
 import { playMessageSent, playMessageReceived } from "../lib/sounds";
@@ -2175,13 +2176,13 @@ export function useChat() {
   // Memoized so it only recalculates when messages or context params change.
   const contextDividerIndex = useMemo(() => {
     if (messages.length === 0) return -1;
-    const selected = selectMessagesForContext(
+    const selection = selectContextWindow(
       messages,
       effectiveModelContextLength,
       composedSystemPrompt,
       { reservedOverheadTokens: estimateRenderingOverhead(messages, effectiveModelContextLength) },
     );
-    return findContextDividerIndex(messages, selected);
+    return findContextDividerIndex(messages, selection);
   }, [messages, effectiveModelContextLength, composedSystemPrompt]);
 
   return { messages, isStreaming, streamPhase, error, sendMessage, editMessage, regenerateMessage, clearMessages, retryMessage, continueLatestTurnLocally, stopGeneration, contextDividerIndex, activeToolCalls };

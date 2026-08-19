@@ -73,24 +73,24 @@ import { READY_CHAT_SEARCH, UPGRADE_DECLINED_LOCAL } from "./pilot";
  *    runtime-only field (never persisted, so never seedable) and the second is
  *    a real model download. The rest of that card's family is covered.
  *
- * ── Two things in these shots that are the app, not the lane ──────────────
+ * ── Something in these shots that is the app, not the lane ────────────────
  *
- * Both were found by reading the captures. They are real behaviour, so they are
- * photographed as-is rather than papered over.
- *
- * - Every turn whose assistant message is EMPTY — the error cards, the
- *   interrupted-with-nothing bubble, a turn still looking something up — draws
- *   "Messages above are no longer in context" above the user's question, in a
- *   two-message conversation where nothing can possibly have been evicted.
- *   `selectMessagesForContext` filters empty assistant turns out of the
- *   selection (CS-3), and `findContextDividerIndex` reads any shortfall between
- *   selection and branch as an eviction. The `chat-surface.context-divider`
- *   entry deliberately uses the long transcript instead, so that shot is the
- *   real thing.
+ * Found by reading the captures. It is real behaviour, so it is photographed
+ * as-is rather than papered over.
  *
  * - Inside the fenced Python block, `->` renders as `→`. Smart-typography
  *   substitution is reaching code, where it must not: the shot shows a function
  *   signature that would not parse if copied.
+ *
+ * ── Fixed since the first run ──────────────────────────────────────────────
+ *
+ * - Every turn whose assistant message was EMPTY — the error cards, the
+ *   interrupted-with-nothing bubble — drew "Messages above are no longer in
+ *   context" above the user's question, in a two-message conversation where
+ *   nothing could possibly have been evicted. The selection now reports the
+ *   first message that survived budget eviction, so the divider means only
+ *   that. The `chat-surface.context-divider` entry still uses the long
+ *   transcript, which is where a real divider comes from.
  */
 
 /** The composer, which is on screen before and after every interaction here. */

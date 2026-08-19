@@ -86,10 +86,36 @@ export type ContextSelectionOptions = {
 };
 
 /**
+ * The outcome of windowing a branch for the model.
+ *
+ * `windowStartId` is the identity of the first branch message that survived
+ * BUDGET EVICTION — not simply the first entry of `messages`. The two differ,
+ * and that difference is why the context divider needs this field instead of a
+ * comparison between the branch and the selected array:
+ *
+ * - Empty assistant turns (errored / interrupted before the first token) are
+ *   filtered out before selection, so `messages` is shorter than the branch
+ *   even when nothing was evicted. A length comparison therefore reports
+ *   phantom truncation on any conversation containing an error card.
+ * - `coalesceConsecutiveUsers` merges adjacent user turns and keeps the LATER
+ *   message's identity, so neither the length nor `messages[0].id` identifies
+ *   the true window start once a merge lands at the head of the window.
+ *
+ * `null` means nothing was evicted — the whole branch is in context.
+ */
+export type ContextWindowSelection = {
+  messages: ChatMessage[];
+  windowStartId: string | null;
+};
+
+/**
  * Coalesce consecutive user turns created by empty-assistant removal.
  * Joins adjacent user contents with a blank line; keeps the later message's
- * metadata (id, parentId, timestamps) so branch navigation and context
- * divider computation work correctly.
+ * metadata (id, parentId, timestamps) so branch navigation works correctly.
+ *
+ * NOTE: because the merged turn adopts the LATER message's id, this function's
+ * output cannot be used to locate the window start in the original branch —
+ * use `ContextWindowSelection.windowStartId` for that.
  *
  * @internal Exported for unit testing.
  */
@@ -131,7 +157,23 @@ export function selectMessagesForContext(
   systemPrompt?: string,
   options?: ContextSelectionOptions,
 ): ChatMessage[] {
-  if (activeBranch.length === 0) return [];
+  return selectContextWindow(activeBranch, modelContextLength, systemPrompt, options).messages;
+}
+
+/**
+ * `selectMessagesForContext` plus the identity of the first message that
+ * survived budget eviction (see `ContextWindowSelection`). Callers that only
+ * need the prompt should use `selectMessagesForContext`; the context divider
+ * needs the window start.
+ */
+export function selectContextWindow(
+  activeBranch: ChatMessage[],
+  modelContextLength: number,
+  systemPrompt?: string,
+  options?: ContextSelectionOptions,
+): ContextWindowSelection {
+  const empty: ContextWindowSelection = { messages: [], windowStartId: null };
+  if (activeBranch.length === 0) return empty;
 
   // CS-3: filter out assistant messages with empty content. Errored turns write
   // {status:'error', content:''} and stop-before-first-token writes
@@ -140,7 +182,7 @@ export function selectMessagesForContext(
   const cleaned = activeBranch.filter(
     (m) => m.role !== "assistant" || m.content.trim().length > 0,
   );
-  if (cleaned.length === 0) return [];
+  if (cleaned.length === 0) return empty;
 
   // Compute available token budget
   const totalBudget = Math.floor(modelContextLength * 0.75);
@@ -190,36 +232,53 @@ export function selectMessagesForContext(
     }
   }
 
-  // Extract the selected slice
-  let selected = cleaned.slice(startIndex);
+  // Track the window start as an index into `cleaned` (never as a slice) so the
+  // true first in-context message can be reported back for the divider.
+  let windowStart = startIndex;
 
   // Drop orphaned assistant at the start (ensures complete pairs)
-  if (selected.length > 0 && selected[0]!.role === "assistant") {
-    selected = selected.slice(1);
+  if (cleaned[windowStart]!.role === "assistant") {
+    windowStart++;
   }
 
   // Guarantee at least the last user+assistant pair (or trailing user)
-  if (selected.length === 0 && cleaned.length > 0) {
-    // Find the last user message and include everything from it to the end
+  if (windowStart >= cleaned.length) {
+    let lastUserIndex = -1;
     for (let i = cleaned.length - 1; i >= 0; i--) {
       if (cleaned[i]!.role === "user") {
-        selected = cleaned.slice(i);
+        lastUserIndex = i;
         break;
       }
     }
     // If no user message found, just return the last message
-    if (selected.length === 0) {
-      selected = [cleaned[cleaned.length - 1]!];
-    }
+    windowStart = lastUserIndex >= 0 ? lastUserIndex : cleaned.length - 1;
   }
 
   // CS-3: coalesce consecutive user turns that may result from filtering out
   // empty assistant turns. The chat template layer (normalizeMessagesForTemplate)
   // does NOT merge consecutive user roles — it only handles system-role
   // normalization — so apply_chat_template would receive malformed alternation.
-  return coalesceConsecutiveUsers(selected);
+  return {
+    messages: coalesceConsecutiveUsers(cleaned.slice(windowStart)),
+    // Everything before `windowStart` was dropped by the token budget (or by
+    // the complete-pair rule) — genuine truncation the user should be told
+    // about. A window starting at the first surviving message evicted nothing,
+    // however many empty assistant turns the filter removed along the way.
+    windowStartId: windowStart > 0 ? cleaned[windowStart]!.id : null,
+  };
 }
 
+/**
+ * Token-pressure diagnostics for a selection.
+ *
+ * `truncatedCount` / `wasTruncated` are a raw array-length difference, so they
+ * count every message the selection dropped for ANY reason — budget eviction,
+ * empty-assistant filtering (CS-3) and user coalescing alike. They are a
+ * pressure signal, NOT an answer to "did history fall out of context?"; a
+ * conversation with a single error card reports `wasTruncated: true` while
+ * holding its entire history. Use `ContextWindowSelection.windowStartId` (via
+ * `findContextDividerIndex`) for anything user-facing.
+ */
 export function getContextSelectionDiagnostics(
   activeBranch: ChatMessage[],
   selectedMessages: ChatMessage[],
@@ -314,20 +373,21 @@ export function assessLocalContextSafety(
 
 /**
  * Find the index in activeBranch where the context divider should appear.
- * The divider goes BEFORE the first selected message (between excluded and
- * included messages).
+ * The divider goes BEFORE the first in-context message (between evicted and
+ * retained messages).
+ *
+ * Takes the selection rather than the selected array because only the
+ * selection knows which messages the BUDGET evicted: empty-assistant filtering
+ * and user coalescing both shrink the array and rewrite head identity without
+ * anything having left the context. See `ContextWindowSelection`.
  *
  * @returns Index of the first in-context message, or -1 if all are in context
  */
 export function findContextDividerIndex(
   activeBranch: ChatMessage[],
-  selectedMessages: ChatMessage[]
+  selection: ContextWindowSelection,
 ): number {
-  if (activeBranch.length === 0 || selectedMessages.length === 0) return -1;
-  if (selectedMessages.length === activeBranch.length) return -1;
-
-  // Find the first selected message's position in the full branch
-  const firstSelectedId = selectedMessages[0]!.id;
-  const index = activeBranch.findIndex((m) => m.id === firstSelectedId);
-  return index >= 0 ? index : -1;
+  if (activeBranch.length === 0 || selection.windowStartId === null) return -1;
+  const index = activeBranch.findIndex((m) => m.id === selection.windowStartId);
+  return index > 0 ? index : -1;
 }
