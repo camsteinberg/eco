@@ -166,6 +166,26 @@ describe('AppShell', () => {
     expect(screen.getByText('Chat content')).toBeInTheDocument()
   })
 
+  it('keeps the navigation drawer reachable at every width the standing sidebar is hidden', () => {
+    render(<AppShell><div>Chat content</div></AppShell>)
+
+    // The standing column only exists from lg up...
+    const standingColumn = screen.getByTestId('sidebar').parentElement
+    expect(standingColumn).toHaveClass('hidden', 'lg:block')
+
+    act(() => {
+      screen.getByLabelText('Toggle sidebar').click()
+    })
+
+    // ...so the drawer the hamburger opens has to cover everything below lg.
+    // With the sheet's default md:hidden it went dark between 768px and
+    // 1023px, leaving that range with no navigation at all.
+    const drawer = screen.getByRole('dialog', { name: 'Navigation' })
+    expect(drawer.parentElement).toHaveClass('lg:hidden')
+    expect(drawer.parentElement).not.toHaveClass('md:hidden')
+    expect(within(drawer).getByTestId('sidebar')).toBeInTheDocument()
+  })
+
   it('shows "New chat" as default title', () => {
     render(<AppShell><div>Chat</div></AppShell>)
     const header = screen.getByTestId('header')
