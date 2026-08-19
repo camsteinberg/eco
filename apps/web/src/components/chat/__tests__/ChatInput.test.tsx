@@ -230,7 +230,7 @@ describe("ChatInput", () => {
 
     await waitFor(() => {
       expect(screen.getByRole("alert")).toHaveTextContent(
-        "Could not attach malware.exe: Unsupported file type (.exe).",
+        "Eco can't use malware.exe — Unsupported file type (.exe). Try a different file.",
       );
     });
     expect(screen.queryByTestId("file-chip")).not.toBeInTheDocument();
@@ -252,7 +252,7 @@ describe("ChatInput", () => {
 
     await waitFor(() => {
       expect(screen.getByRole("alert")).toHaveTextContent(
-        "Could not attach large-notes.txt: Too large (max 10MB).",
+        "Eco can't use large-notes.txt — Too large (max 10MB). Try a different file.",
       );
     });
     expect(screen.queryByTestId("file-chip")).not.toBeInTheDocument();
@@ -276,7 +276,7 @@ describe("ChatInput", () => {
 
     await waitFor(() => {
       expect(screen.getByRole("alert")).toHaveTextContent(
-        "Could not read broken.txt: The browser could not read this file. Remove it or choose another file before sending.",
+        "Eco couldn't read broken.txt. Remove it or try a different file.",
       );
     });
     expect(screen.getByTestId("file-chip")).toHaveTextContent("error");

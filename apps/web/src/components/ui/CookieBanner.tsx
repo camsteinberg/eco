@@ -66,7 +66,7 @@ export function CookieBanner() {
           Only essential cookies and local browser preferences. No tracking.{" "}
           <a
             href="/privacy"
-            className="inline-flex min-h-11 items-center underline underline-offset-2 transition-colors hover:text-[var(--eco-text)]"
+            className="inline underline underline-offset-2 transition-colors hover:text-[var(--eco-text)]"
             style={{ color: "var(--eco-primary)" }}
           >
             Learn more

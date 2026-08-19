@@ -19,6 +19,7 @@ import type { FileExtractionResult } from "../../lib/file-extract";
 import { getSeason } from "../../lib/season";
 import { LeafAnimation, checkEasterEgg } from "../easter-eggs/LeafAnimation";
 import type { AnimationVariant } from "../easter-eggs/LeafAnimation";
+import { attachLimitError, attachValidationError, attachReadError } from "../../lib/attachment-errors";
 
 export type ChatInputProps = {
   onSubmit: (message: string) => void;
@@ -32,7 +33,6 @@ export type ChatInputProps = {
 const MAX_HEIGHT = 192;
 
 const ACCEPT_STRING = [...ALLOWED_EXTENSIONS].map((e) => `.${e}`).join(",");
-const trimTerminalPunctuation = (message: string) => message.replace(/[.!?]+$/u, "");
 
 export function ChatInput({
   onSubmit,
@@ -88,17 +88,13 @@ export function ChatInput({
 
         // Enforce max files per message
         if (currentCount + acceptedFileCount >= MAX_FILES_PER_MESSAGE) {
-          setAttachmentError(
-            `Could not attach ${file.name}: max ${String(MAX_FILES_PER_MESSAGE)} files per message.`,
-          );
+          setAttachmentError(attachLimitError(file.name, MAX_FILES_PER_MESSAGE));
           continue;
         }
 
         const validationError = validateFile(file);
         if (validationError) {
-          setAttachmentError(
-            `Could not attach ${validationError.filename}: ${validationError.error}.`,
-          );
+          setAttachmentError(attachValidationError(validationError.filename, validationError.error));
           continue;
         }
 
@@ -114,9 +110,7 @@ export function ChatInput({
         } catch (err) {
           const message = err instanceof Error ? err.message : "Extraction failed";
           updateFileAttachment(id, { status: "error", errorMessage: message });
-          setAttachmentError(
-            `Could not read ${file.name}: ${trimTerminalPunctuation(message)}. Remove it or choose another file before sending.`,
-          );
+          setAttachmentError(attachReadError(file.name, message));
         }
       }
     },

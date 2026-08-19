@@ -103,16 +103,19 @@ html.dark {
   }
 }
 
-/* Code surfaces render literal characters.
+/* Code surfaces and mono-font data render literal characters.
    JetBrains Mono (the --eco-font-mono stack) ships programming ligatures, so
    `->`, `=>`, `!=` and `<=` are drawn as single arrow/comparison glyphs. In
    prose that is a nicety; in code it is a correctness bug, because what the
-   reader sees stops matching what Copy puts on the clipboard. */
+   reader sees stops matching what Copy puts on the clipboard. The attribute
+   selector catches diagnostics panels that set the mono font via inline style
+   rather than a semantic element. */
 @layer base {
   code,
   pre,
   kbd,
-  samp {
+  samp,
+  [style*="eco-font-mono"] {
     font-variant-ligatures: none;
   }
 }
@@ -810,6 +813,9 @@ button:disabled,
     padding-bottom: calc(6.5rem + env(safe-area-inset-bottom));
   }
   html.eco-chat-cookie-notice [data-eco-setup-error-surface] {
+    padding-bottom: calc(6.5rem + env(safe-area-inset-bottom));
+  }
+  html.eco-chat-cookie-notice [data-eco-welcome-card] {
     padding-bottom: calc(6.5rem + env(safe-area-inset-bottom));
   }
 }

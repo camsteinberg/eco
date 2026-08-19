@@ -193,10 +193,10 @@ function ModelChoiceTile({
     >
       {recommended && (
         <span
-          className="absolute -top-2.5 right-3 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
-          style={{ background: 'var(--eco-primary)', color: 'var(--eco-on-primary)' }}
+          className="absolute -top-2.5 right-3 rounded-full px-2 py-0.5 text-[10px] font-medium"
+          style={{ background: 'var(--eco-primary-soft)', color: 'var(--eco-primary)' }}
         >
-          ✦ Recommended
+          Recommended
         </span>
       )}
       <div className="flex items-baseline justify-between gap-2">

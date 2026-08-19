@@ -20,11 +20,11 @@ export default function SettingsPage() {
       : 'Back to chat'
 
   return (
-    <div className="h-full overflow-y-auto"><div className="mx-auto max-w-4xl px-4 py-10">
+    <div className="h-full overflow-y-auto"><div className="mx-auto max-w-3xl px-4 py-10">
         <div className="relative mb-8 flex items-center gap-4">
           <Link
             href="/chat"
-            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-[var(--eco-text-secondary)] transition-colors hover:bg-[var(--eco-primary-soft)] hover:text-[var(--eco-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--eco-primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--eco-surface)]"
+            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-[var(--eco-text-secondary)] transition-colors hover:bg-[var(--eco-primary-soft)] hover:text-[var(--eco-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--eco-primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--eco-surface)] lg:absolute lg:-left-14"
             aria-label="Back to chat"
           >
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5">
@@ -38,7 +38,7 @@ export default function SettingsPage() {
             </p>
           </div>
         </div>
-        <div className="mx-auto max-w-3xl">
+        <div>
           <SettingsTabs />
         </div>
       </div></div>

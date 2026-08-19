@@ -13,9 +13,9 @@ describe("WaterCounter", () => {
     expect(el).toBeTruthy();
   });
 
-  it("shows '0 L' with On-Device label when isDevicePrivate=true", () => {
+  it("shows '0 L' with On-device label when isDevicePrivate=true", () => {
     render(<WaterCounter liters={0} isDevicePrivate={true} />);
-    expect(screen.getByText("On-Device")).toBeTruthy();
+    expect(screen.getByText("On-device")).toBeTruthy();
     expect(screen.getByLabelText(/0\.0 liters/i)).toBeTruthy();
   });
 

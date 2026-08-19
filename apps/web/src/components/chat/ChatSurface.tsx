@@ -345,7 +345,7 @@ export function ChatSurface(props: ChatSurfaceProps) {
               className="relative flex h-full flex-col items-center justify-center gap-6 sm:gap-8"
             >
               <EmptyGreeting />
-              <div className="relative z-10 w-full max-w-2xl px-4">
+              <div className="relative z-10 w-full">
                 <SuggestedPrompts onSelect={onSendMessage} />
               </div>
             </div>

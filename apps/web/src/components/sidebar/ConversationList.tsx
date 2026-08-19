@@ -6,6 +6,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { FernIllustration } from "@eco/ui";
+import { LeafIllustration } from "../illustrations/LeafIllustration";
 import { useRouter, usePathname } from "next/navigation";
 import { useConversationStore } from "../../stores/conversationStore";
 import { ConversationItem } from "./ConversationItem";
@@ -58,52 +59,6 @@ function groupConversations(
     groups.set(group, list);
   }
   return groups;
-}
-
-/**
- * Tiny mint-stroke seedling for the sidebar nested empty state.
- * Reuses the project's SeedlingIllustration path data scaled to 16px.
- * Spring entrance respects prefers-reduced-motion.
- */
-const SPROUT_PATHS = (
-  <>
-    <path d="M60 90 C60 78, 60 66, 60 55" />
-    <path d="M60 58 C52 52, 42 50, 38 54 C34 58, 40 64, 48 62 C52 61, 56 59, 60 58" />
-    <path d="M60 58 C68 52, 78 50, 82 54 C86 58, 80 64, 72 62 C68 61, 64 59, 60 58" />
-    <path d="M60 55 C58 48, 56 42, 58 38 C60 36, 62 38, 62 42 C62 46, 61 50, 60 55" />
-  </>
-);
-
-function SidebarSprout() {
-  const shouldReduceMotion = useReducedMotion();
-
-  if (shouldReduceMotion) {
-    return (
-      <svg width={16} height={16} viewBox="0 0 120 120" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ color: "var(--eco-primary)" }}>
-        {SPROUT_PATHS}
-      </svg>
-    );
-  }
-
-  return (
-    <motion.svg
-      width={16}
-      height={16}
-      viewBox="0 0 120 120"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2.5}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      style={{ color: "var(--eco-primary)" }}
-      initial={{ scale: 0, opacity: 0 }}
-      animate={{ scale: 1, opacity: 1 }}
-      transition={{ type: "spring", stiffness: 80, damping: 15, delay: 0.2 }}
-    >
-      {SPROUT_PATHS}
-    </motion.svg>
-  );
 }
 
 /**
@@ -312,15 +267,21 @@ export function ConversationList({ variant = "standalone" }: ConversationListPro
       <div className={isNested ? "flex flex-col gap-2" : "flex flex-col gap-2 px-2 py-2"}>
         {recoverableFailureAlert}
         <div className={isNested
-          ? "flex flex-col items-center gap-2 rounded-xl px-3 py-4 text-center text-xs leading-5 text-[var(--eco-text-secondary)]"
+          ? "flex flex-col items-center gap-3 px-4 py-6 text-center"
           : "flex flex-col items-center gap-3 px-3 py-8 text-center text-sm text-[var(--eco-text-secondary)]"}
         >
           {isNested ? (
-            <SidebarSprout />
+            <>
+              <LeafIllustration className="h-12 w-12" style={{ color: "var(--eco-primary)" }} />
+              <p className="text-xs font-medium text-[var(--eco-text)]">No conversations yet</p>
+              <p className="text-xs text-[var(--eco-text-secondary)]">Your conversations will gather here.</p>
+            </>
           ) : (
-            <SidebarFern />
+            <>
+              <SidebarFern />
+              {"Your conversations will gather here. Start one above when you're ready."}
+            </>
           )}
-          {isNested ? "Your conversations will gather here." : "Your conversations will gather here. Start one above when you're ready."}
         </div>
       </div>
     );

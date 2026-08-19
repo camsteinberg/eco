@@ -19,7 +19,7 @@ describe("WhyEcoCard", () => {
       screen.getByText("Local chats stay in this browser")
     ).toBeDefined();
     expect(
-      screen.getByText("The model runs on your machine")
+      screen.getByText("The model runs on your machine, not a server")
     ).toBeDefined();
     expect(
       screen.getByText("Designed to avoid data-center water waste")
