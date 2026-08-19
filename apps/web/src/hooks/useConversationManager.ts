@@ -220,7 +220,6 @@ export function useConversationManager(
     const previousActiveConversationId = prevActiveIdRef.current;
     const previousActiveLeafId = prevActiveLeafIdRef.current;
     const conversationChanged = activeConversationId !== previousActiveConversationId;
-    const requestId = ++workspaceLoadRequestRef.current;
 
     if (
       activeConversationId === previousActiveConversationId
@@ -228,6 +227,12 @@ export function useConversationManager(
     ) {
       return;
     }
+
+    // Claim the request id only once this pass has committed to loading.
+    // Bumping it above the guard would let a no-op pass — StrictMode's second
+    // invocation, whose refs the first pass already updated — invalidate the
+    // load still in flight from the first, restoring a blank pane in dev.
+    const requestId = ++workspaceLoadRequestRef.current;
 
     if (conversationChanged && useChatStore.getState().isStreaming) {
       interruptActiveGeneration();
