@@ -3,6 +3,7 @@
 
 import { describe, it, expect } from "vitest";
 import type { ChatMessage } from "../../stores/chatStore";
+import type { ContextWindowSelection } from "../context-window";
 import {
   CONTEXT_WINDOW_REFUSAL_MESSAGE,
   MIN_LOCAL_NEW_TOKENS,
@@ -12,6 +13,7 @@ import {
   estimateTokens,
   findContextDividerIndex,
   getContextSelectionDiagnostics,
+  selectContextWindow,
   selectMessagesForContext,
 } from "../context-window";
 
@@ -280,30 +282,127 @@ describe("findContextDividerIndex", () => {
       msg("user", "Q1", "u1"),
       msg("assistant", "A1", "a1"),
     ];
-    const selected = [...messages]; // all selected
-    expect(findContextDividerIndex(messages, selected)).toBe(-1);
+    const selection = selectContextWindow(messages, 100000);
+    expect(selection.windowStartId).toBeNull();
+    expect(findContextDividerIndex(messages, selection)).toBe(-1);
   });
 
-  it("returns the index of the first selected message when some are excluded", () => {
-    const m1 = msg("user", "Q1", "u1");
-    const m2 = msg("assistant", "A1", "a1");
-    const m3 = msg("user", "Q2", "u2");
-    const m4 = msg("assistant", "A2", "a2");
-    const all = [m1, m2, m3, m4];
-    const selected = [m3, m4]; // first two excluded
-    expect(findContextDividerIndex(all, selected)).toBe(2);
+  it("returns the index of the first in-context message when earlier turns were evicted", () => {
+    const all = [
+      msg("user", "Q1", "u1"),
+      msg("assistant", "A1", "a1"),
+      msg("user", "Q2", "u2"),
+      msg("assistant", "A2", "a2"),
+    ];
+    const selection: ContextWindowSelection = {
+      messages: all.slice(2),
+      windowStartId: "u2",
+    };
+    expect(findContextDividerIndex(all, selection)).toBe(2);
   });
 
   it("returns -1 for empty arrays", () => {
-    expect(findContextDividerIndex([], [])).toBe(-1);
+    expect(findContextDividerIndex([], { messages: [], windowStartId: null })).toBe(-1);
   });
 
-  it("returns 0 when first message is selected but there are no earlier messages to exclude", () => {
-    const m1 = msg("user", "Q1", "u1");
-    const all = [m1];
-    const selected = [m1];
-    // All messages are selected, so -1
-    expect(findContextDividerIndex(all, selected)).toBe(-1);
+  it("returns -1 when the branch is a single message that is fully in context", () => {
+    const all = [msg("user", "Q1", "u1")];
+    const selection = selectContextWindow(all, 100000);
+    expect(findContextDividerIndex(all, selection)).toBe(-1);
+  });
+
+  it("returns -1 when the window start id is not present in the branch", () => {
+    const all = [msg("user", "Q1", "u1"), msg("assistant", "A1", "a1")];
+    expect(findContextDividerIndex(all, { messages: [], windowStartId: "gone" })).toBe(-1);
+  });
+});
+
+// ─── The divider must mean "history fell out of context", nothing else ───────
+// Two selection-stage transforms shrink the selected array and rewrite its head
+// identity WITHOUT anything having been evicted: the CS-3 empty-assistant
+// filter, and `coalesceConsecutiveUsers` (which keeps the LATER id). Neither an
+// array-length comparison nor `selected[0].id` can tell those apart from real
+// truncation, which is why the selection reports `windowStartId`.
+
+describe("context divider: no phantom truncation", () => {
+  it("an errored (empty) assistant turn alone does NOT show the divider", () => {
+    const branch: ChatMessage[] = [
+      msg("user", "Q1", "u1"),
+      msg("assistant", "", "a1"),
+    ];
+    branch[1]!.status = "error";
+
+    const selection = selectContextWindow(branch, 100000);
+    // The empty turn is filtered out of the prompt — but nothing was evicted.
+    expect(selection.messages.map((m) => m.id)).toEqual(["u1"]);
+    expect(selection.messages.length).toBeLessThan(branch.length);
+    expect(selection.windowStartId).toBeNull();
+    expect(findContextDividerIndex(branch, selection)).toBe(-1);
+  });
+
+  it("an error card mid-conversation does NOT show the divider", () => {
+    const branch: ChatMessage[] = [
+      msg("user", "Q1", "u1"),
+      msg("assistant", "A1", "a1"),
+      msg("user", "Q2", "u2"),
+      msg("assistant", "", "a2"), // errored turn
+      msg("user", "Q3", "u3"),
+      msg("assistant", "A3", "a3"),
+    ];
+    branch[3]!.status = "error";
+
+    const selection = selectContextWindow(branch, 100000);
+    expect(findContextDividerIndex(branch, selection)).toBe(-1);
+  });
+
+  it("a coalesced head without eviction does NOT show the divider", () => {
+    const branch: ChatMessage[] = [
+      msg("user", "First question", "u1"),
+      msg("assistant", "", "a1"), // interrupted before the first token
+      msg("user", "Second question", "u2"),
+      msg("assistant", "Real answer", "a2"),
+    ];
+
+    const selection = selectContextWindow(branch, 100000);
+    // The trap: coalescing keeps the LATER id, so `selected[0].id` is "u2" even
+    // though the window still starts at "u1".
+    expect(selection.messages[0]!.id).toBe("u2");
+    expect(selection.messages[0]!.content).toContain("First question");
+    expect(selection.windowStartId).toBeNull();
+    expect(findContextDividerIndex(branch, selection)).toBe(-1);
+  });
+
+  it("places the divider at the FIRST message of a coalesced pair at the window head", () => {
+    // Flat estimator: every message costs 100 tokens, so the eviction point is
+    // arithmetic rather than a function of the sample text.
+    const flat = () => 100;
+    const options = { estimateTokens: flat };
+    // ctx 1000 -> history budget floor(1000 * 0.75) = 750 -> 7 messages fit.
+    const branch: ChatMessage[] = [];
+    for (let k = 0; k < 6; k++) {
+      branch.push(msg("user", `Q${k}a`, `u${k}a`));
+      branch.push(msg("assistant", "", `x${k}`)); // errored -> filtered, merges the users
+      branch.push(msg("user", `Q${k}b`, `u${k}b`));
+      branch.push(msg("assistant", `A${k}`, `a${k}`));
+    }
+    for (const m of branch) {
+      if (m.role === "assistant" && m.content === "") m.status = "error";
+    }
+
+    const selection = selectContextWindow(branch, 1000, undefined, options);
+
+    // Real eviction happened, and the window opens on the first user of a pair
+    // the coalescer then merges under the SECOND user's id.
+    expect(selection.windowStartId).toBe("u4a");
+    expect(selection.messages[0]!.id).toBe("u4b");
+    expect(selection.messages[0]!.content).toContain("Q4a");
+
+    const dividerIndex = findContextDividerIndex(branch, selection);
+    expect(dividerIndex).toBe(16);
+    expect(branch[dividerIndex]!.id).toBe("u4a");
+    // A naive `selected[0].id` lookup would land two messages late, hiding the
+    // first half of the merged turn above the divider.
+    expect(branch.findIndex((m) => m.id === selection.messages[0]!.id)).toBe(18);
   });
 });
 

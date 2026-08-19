@@ -23,6 +23,7 @@ import {
   SHORTER_MIN_COMPLETION_TOKENS,
 } from "../lib/reply-controls";
 import { resolveActiveModelId } from "../lib/active-model";
+import { stripMarkdown } from "../lib/markdown-plain-text";
 import { requestOpenShareConversation } from "../lib/share-conversation-event";
 import { useScrollToMessage } from "./useScrollToMessage";
 
@@ -411,10 +412,14 @@ export function useConversationManager(
 
       const convStore = useConversationStore.getState();
       if (convStore.activeConversationId === null) {
+        // The sidebar renders title and preview as bare text, so store them as
+        // bare text. (ConversationItem strips again at render — that is what
+        // covers previews written by earlier versions.)
+        const plainContent = stripMarkdown(trimmedContent) || trimmedContent;
         const title =
-          trimmedContent.length > 50 ? trimmedContent.slice(0, 50) + "..." : trimmedContent;
+          plainContent.length > 50 ? plainContent.slice(0, 50) + "..." : plainContent;
         const preview =
-          trimmedContent.length > 60 ? trimmedContent.slice(0, 60) : trimmedContent;
+          plainContent.length > 60 ? plainContent.slice(0, 60) : plainContent;
         const now = Date.now();
         const id = crypto.randomUUID();
         convStore.addConversation({

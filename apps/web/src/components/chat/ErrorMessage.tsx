@@ -77,6 +77,20 @@ function browserUnsupportedBody(message: string | undefined): string {
 }
 const MANAGE_MODELS_HREF = "/settings?tab=models";
 
+/**
+ * The "Set up <model> on this device" nudge label, as ONE text run.
+ *
+ * Both nudge links are `inline-flex`. A flex container wraps its child text in
+ * anonymous flex items and is free to drop the whitespace that separates them,
+ * so a label assembled from several JSX text runs rendered as
+ * "Set up LFM2.5on this device". Interpolating the model name into a single
+ * string keeps the spacing inside the run, where it is just text — do not split
+ * this back into sibling nodes.
+ */
+function setUpOnThisDeviceLabel(modelName: string): string {
+  return `Set up ${modelName} on this device →`;
+}
+
 export type LocalModelPrepareState = {
   status: "idle" | "checking" | "downloading" | "warming" | "ready" | "error";
   progress?: number;
@@ -378,7 +392,7 @@ export function ErrorMessage({
             href={`/settings?tab=models&setup=${lighterNudge.slot}`}
             className="inline-flex min-h-8 items-center rounded-md text-xs font-medium text-[var(--eco-primary)] underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--eco-primary)]"
           >
-            Set up {lighterNudge.modelName} on this device &rarr;
+            {setUpOnThisDeviceLabel(lighterNudge.modelName)}
           </a>
         ) : (
           <a
@@ -395,9 +409,7 @@ export function ErrorMessage({
           href={`/settings?tab=models&setup=${capacityNudge.slot}`}
           className="inline-flex min-h-8 items-center rounded-md text-xs font-medium text-[var(--eco-primary)] underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--eco-primary)]"
         >
-          Set up{" "}
-          {capacityNudge.modelName}{" "}
-          on this device &rarr;
+          {setUpOnThisDeviceLabel(capacityNudge.modelName)}
         </a>
       )}
 
