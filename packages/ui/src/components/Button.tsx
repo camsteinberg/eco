@@ -26,10 +26,17 @@ const variantClasses: Record<Variant, string> = {
     "bg-[var(--eco-coral)] text-[var(--eco-on-primary)] hover:opacity-90",
 };
 
+const variantRadius: Record<Variant, string> = {
+  primary: "rounded-[var(--eco-radius-full)]",
+  secondary: "rounded-[var(--eco-radius-sm)]",
+  ghost: "rounded-[var(--eco-radius-sm)]",
+  danger: "rounded-[var(--eco-radius-full)]",
+};
+
 const sizeClasses: Record<Size, string> = {
-  sm: "px-3 py-1.5 text-sm rounded-[var(--eco-radius-sm)]",
-  md: "px-5 py-2.5 text-sm rounded-[var(--eco-radius-sm)]",
-  lg: "px-6 py-3 text-base rounded-[var(--eco-radius-sm)]",
+  sm: "px-3 py-1.5 text-sm",
+  md: "px-5 py-2.5 text-sm",
+  lg: "px-6 py-3 text-base",
 };
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
@@ -63,6 +70,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
           loading
             ? "disabled:cursor-wait bg-[var(--eco-primary-soft)] text-[var(--eco-primary)]"
             : `disabled:opacity-40 disabled:cursor-not-allowed ${variantClasses[variant]}`,
+          variantRadius[variant],
           sizeClasses[size],
           className,
         ].join(" ")}

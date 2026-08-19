@@ -268,22 +268,20 @@ function ModelCard({
         ) : (
           <>
             <Button
+              onClick={() => setConfirming(false)}
+              variant="secondary"
+              disabled={clearing}
+            >
+              Cancel
+            </Button>
+            <Button
               onClick={handleConfirm}
-              variant="primary"
+              variant="danger"
               disabled={clearing}
               aria-label={`Confirm removing ${model.friendlyName}`}
             >
               {clearing ? 'Removing…' : 'Yes, remove'}
             </Button>
-            <button
-              type="button"
-              onClick={() => setConfirming(false)}
-              className="text-sm underline"
-              style={{ color: 'var(--eco-text-secondary)' }}
-              disabled={clearing}
-            >
-              Cancel
-            </button>
           </>
         )}
       </div>

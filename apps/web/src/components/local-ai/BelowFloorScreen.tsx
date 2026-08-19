@@ -159,11 +159,11 @@ export function BelowFloorScreen({ deviceLabel, reason = 'runtime' }: BelowFloor
             href={emailUsHref(reason, deviceLabel)}
             className={[
               'w-full inline-flex items-center justify-center gap-2 font-medium transition-colors',
-              'px-5 py-2.5 text-sm rounded-[var(--eco-radius-sm)]',
+              'px-5 py-2.5 text-sm',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--eco-primary)]/30 focus-visible:ring-offset-2',
               reason === 'mobile'
-                ? 'border border-[var(--eco-primary)] text-[var(--eco-primary)] hover:bg-[var(--eco-primary-soft)]'
-                : 'bg-[var(--eco-primary)] text-[var(--eco-on-primary)] hover:bg-[var(--eco-primary-hover)]',
+                ? 'rounded-[var(--eco-radius-sm)] border border-[var(--eco-primary)] text-[var(--eco-primary)] hover:bg-[var(--eco-primary-soft)]'
+                : 'rounded-[var(--eco-radius-full)] bg-[var(--eco-primary)] text-[var(--eco-on-primary)] hover:bg-[var(--eco-primary-hover)]',
             ].join(' ')}
           >
             Email us
