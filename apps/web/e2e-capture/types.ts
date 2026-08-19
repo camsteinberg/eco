@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Bos Computing LLC
 
 import type { Page } from "@playwright/test";
+import type { IdbSeedName } from "./seeds/idb";
 
 /**
  * The capture lane's data model.
@@ -62,18 +63,34 @@ export type Realism = "real" | "seeded" | "mocked";
 export type IdbFixtureName = "conversation-assistant-dom" | "conversation-hybrid-continuation";
 
 /**
+ * A conversation the lane writes into IndexedDB itself, by name.
+ *
+ * The harness fixtures above cover exactly two fixed conversations, which is
+ * enough to prove the seam but nowhere near enough to photograph the message
+ * surface: a markdown showcase, eleven classified error cards and a branch
+ * point are all "one conversation with particular message rows". Those live in
+ * `seeds/idb.ts` and are written straight into the `eco-chat` database — see
+ * that file for why the write is ordered ahead of the app's first read.
+ */
+export type { IdbSeedName } from "./seeds/idb";
+
+/**
  * Storage to plant before the first paint.
  *
  * Removals run LAST so an entry can un-suppress something the base
  * onboarding-suppression bundle sets (e.g. drop `eco-tour-completed` to
  * capture the tour's first step).
+ *
+ * `idb` names either a harness fixture (installed by the app, through its own
+ * `eco-history-fixture` param) or a lane seed (written directly). The runner
+ * resolves which by name, so an entry just says which conversation it wants.
  */
 export type SeedRecipe = {
   local?: Record<string, string>;
   removeLocal?: string[];
   session?: Record<string, string>;
   removeSession?: string[];
-  idb?: IdbFixtureName[];
+  idb?: (IdbFixtureName | IdbSeedName)[];
 };
 
 /**
