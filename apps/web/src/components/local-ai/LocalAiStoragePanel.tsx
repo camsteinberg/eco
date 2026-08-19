@@ -20,6 +20,12 @@ import type { StorageBreakdown, StorageModelEntry } from '../../hooks/local-ai/u
  *
  * Pure presentational — caller fetches the breakdown via
  * `useLocalAiStorageBreakdown` and passes it in.
+ *
+ * The panel carries NO heading of its own: its only mount is inside the
+ * Settings → Eco tab's "Storage on this device" section, and a second heading
+ * of the same name printed the title twice, one under the other. The section
+ * owns the title; this component owns the contents. `aria-label` keeps the
+ * region named for assistive tech.
  */
 
 export type LocalAiStoragePanelProps = {
@@ -42,33 +48,11 @@ export function LocalAiStoragePanel({ status, breakdown, onClearModel }: LocalAi
       aria-label="Local AI storage"
       data-testid="local-ai-storage-panel"
     >
-      <header className="flex items-center gap-2">
-        <svg
-          width="18"
-          height="18"
-          viewBox="0 0 32 32"
-          fill="none"
-          aria-hidden="true"
-          style={{ color: 'var(--eco-primary)' }}
-        >
-          <path
-            d="M7 25C7 25 5.5 16 11 11C16.5 6 25 4.5 28 4.5C28 4.5 29.5 13.5 24 19C18.5 24.5 10 25 7 25Z"
-            fill="currentColor"
-            opacity="0.85"
-          />
-        </svg>
-        <h3 className="font-display text-base tracking-tight">
-          Storage on this device
-        </h3>
-      </header>
-
-      <div className="mt-4">
-        {status === 'loading' && !breakdown ? (
-          <SoilBarSkeleton reduceMotion={reduceMotion} />
-        ) : (
-          <SoilBar breakdown={breakdown!} reduceMotion={reduceMotion} />
-        )}
-      </div>
+      {status === 'loading' && !breakdown ? (
+        <SoilBarSkeleton reduceMotion={reduceMotion} />
+      ) : (
+        <SoilBar breakdown={breakdown!} reduceMotion={reduceMotion} />
+      )}
 
       {breakdown && breakdown.models.length > 0 && (
         <>

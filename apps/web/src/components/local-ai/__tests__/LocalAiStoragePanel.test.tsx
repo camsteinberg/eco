@@ -28,7 +28,10 @@ const EMPTY: StorageBreakdown = {
 };
 
 describe('LocalAiStoragePanel — populated state', () => {
-  it('renders the section header with the leaf glyph', () => {
+  // The panel's only mount is inside the Eco tab's "Storage on this device"
+  // section, which supplies the heading. A heading here too printed the title
+  // twice, one directly under the other.
+  it('renders no heading of its own — the settings section owns the title', () => {
     render(
       <LocalAiStoragePanel
         status="ready"
@@ -36,7 +39,11 @@ describe('LocalAiStoragePanel — populated state', () => {
         onClearModel={async () => undefined}
       />,
     );
-    expect(screen.getByText(/Storage on this device/i)).toBeInTheDocument();
+    expect(screen.getByTestId('local-ai-storage-panel')).toBeInTheDocument();
+    expect(screen.queryByRole('heading')).toBeNull();
+    expect(screen.queryByText(/Storage on this device/i)).toBeNull();
+    // The region stays named for assistive tech.
+    expect(screen.getByLabelText('Local AI storage')).toBeInTheDocument();
   });
 
   it('renders one card per cached model with vendor + formatted size', () => {

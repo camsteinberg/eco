@@ -95,6 +95,22 @@ describe('SettingsEcoTab — default state', () => {
     expect(screen.getByText(MODEL.id)).toBeInTheDocument();
   });
 
+  // The section title and the panel's own heading both said "Storage on this
+  // device", one directly under the other.
+  it('prints the storage section title exactly once', () => {
+    render(
+      <SettingsEcoTab
+        currentModel={MODEL}
+        storageBytes={null}
+        storageBreakdown={null}
+        storageStatus="loading"
+        onSwitchAI={() => undefined}
+        onClearCache={async () => undefined}
+      />,
+    );
+    expect(screen.getAllByText(/Storage on this device/i)).toHaveLength(1);
+  });
+
   it('clear cache requires a confirm step', async () => {
     const onClear = vi.fn(async () => undefined);
     render(
