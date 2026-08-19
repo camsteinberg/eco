@@ -190,12 +190,17 @@ export const chatSurfaceStates: StateEntry[] = [
       // lets the message-entrance animations finish before time stops again.
       clock: { mode: "paused", advanceMs: 2_000 },
       prepare: async (page) => {
+        // Headless Chromium denies clipboard writes by default. THIS block's
+        // label happens to flip anyway (it sets the flag before the write
+        // settles), but granting the permission is what a real click gets, and
+        // it keeps an unhandled NotAllowedError out of the page.
+        await page.context().grantPermissions(["clipboard-write"]);
         await page.getByRole("button", { name: "Copy code" }).first().click();
         await expect(page.getByText("Copied!").first()).toBeVisible();
       },
       notes:
-        "Copy is optimistic — the label flips whether or not the clipboard write resolves, "
-        + "so this state does not depend on clipboard permissions.",
+        "Copy is optimistic here — the label flips whether or not the write resolves — but the "
+        + "permission is granted anyway, because a component that awaited the write would need it.",
     },
   ),
   seededChat(

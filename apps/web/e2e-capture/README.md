@@ -217,6 +217,11 @@ hydrated (a fiber key on the DOM, not just `load`), runs the assertions, and
 rejects an empty body. The dev-tools portal is hidden with a style tag — it is
 not part of the product.
 
+That style tag is injected once, during settling. A `prepare` that **reloads**
+throws it away along with the rest of the document, so a reloading prepare has
+to re-inject it or the capture comes out with the dev-tools indicator in the
+corner. Same for anything else granted per-page rather than per-context.
+
 `clock: 'paused'` installs a fake clock, which freezes timers and
 `requestAnimationFrame` too. That is how an intro animation gets parked at a
 chosen millisecond (`advanceMs`) — and also why it is not the default: a surface
