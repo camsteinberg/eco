@@ -27,19 +27,19 @@ import { READY_CHAT_SEARCH, UPGRADE_DECLINED_LOCAL } from "./pilot";
  *
  * ── Three findings these captures produced ────────────────────────────────
  *
- * 1. The tour's second step never renders. `OnboardingTour` filters its three
- *    steps by `document.querySelector`, and step 2 targets
- *    `[aria-label="Privacy information"]`, which no component in the app
- *    declares (the only two occurrences of that string are the step itself and
- *    this note). So the shipped tour is two steps, not three: the model selector
- *    and — on a conversation, where it exists — the impact footer. That is why
- *    `tour-step-impact` is the SECOND popover and not the third.
+ * 1. The tour is two steps. These captures found a third one authored against
+ *    `[aria-label="Privacy information"]`, an element no component in the app
+ *    declares, so it was filtered out at launch and never rendered; it has since
+ *    been deleted from `OnboardingTour`. What ships is the model selector and —
+ *    on a conversation, where it exists — the impact footer, which is why
+ *    `tour-step-impact` is the SECOND popover.
  *
- *    The filter runs once, when the tour launches, so WHEN it launches decides
- *    how long the tour is. A `?tour=1` launch on a conversation beat the
- *    transcript's own mount on the mobile projects and produced a one-step tour
- *    there and a two-step tour on desktop, from the same URL. `tour-step-impact`
- *    starts from the guide button instead, after the pane is on screen.
+ *    A step whose target is not mounted is still dropped, and the filter runs
+ *    once, when the tour launches, so WHEN it launches can still decide how long
+ *    the tour is. A `?tour=1` launch on a conversation beat the transcript's own
+ *    mount on the mobile projects and produced a one-step tour there and a
+ *    two-step tour on desktop, from the same URL. `tour-step-impact` starts from
+ *    the guide button instead, after the pane is on screen.
  *
  * 2. "More depth" is hidden on the lane's default model, and that is correct.
  *    `canDeepen` compares the model's own quick and deep budgets, and
@@ -267,11 +267,12 @@ export const chatInteractionsGaps: CaptureGap[] = [
   {
     id: "chat-interactions.tour-step-privacy",
     group: "chat-interactions",
-    surface: "The guided tour's second step",
+    surface: "A privacy step in the guided tour",
     reason:
-      "A SHIPPING DEFECT found by these captures: OnboardingTour filters its three steps by document.querySelector, and step 2 "
-      + "targets [aria-label=\"Privacy information\"], which no component in the app declares. The shipped tour is two steps, "
-      + "not three. Nothing to photograph until the target exists.",
+      "There is no such step: the tour is two steps on purpose. These captures found a third one authored against "
+      + "[aria-label=\"Privacy information\"], an element no component in the app declares, so it was filtered out at launch "
+      + "and never rendered; it has since been deleted rather than given a target. Recorded here so a reader counting popovers "
+      + "against this manifest knows two is the intended number.",
   },
 ];
 
@@ -691,8 +692,8 @@ export const chatInteractionsStates: StateEntry[] = [
     notes:
       "The tour launches itself from the query param and then cleans the param out of the URL "
       + "with replaceState, so the popover — not the address — is the proof it ran. On an empty "
-      + "chat this is the ONLY step: the other two target a privacy element that does not exist "
-      + "and the impact footer, which the empty layout does not render.",
+      + "chat this is the ONLY step: the other one targets the impact footer, which the empty "
+      + "layout does not render.",
   }),
   onSeededChat(
     "tour-step-impact",
@@ -722,9 +723,9 @@ export const chatInteractionsStates: StateEntry[] = [
         await waitForTourStage(page);
       },
       notes:
-        "The SECOND popover, not the third: the step between them targets an "
-        + "[aria-label=\"Privacy information\"] element that no component renders, so the tour "
-        + "filters it out and ships two steps. See the header.",
+        "The SECOND popover and the last one: the tour is two steps. A third step authored "
+        + "against an [aria-label=\"Privacy information\"] element that no component renders was "
+        + "filtered out at launch and has since been deleted. See the header.",
     },
   ),
 ];
