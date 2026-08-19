@@ -11,6 +11,7 @@ vi.mock("../db", () => ({
 }));
 
 import {
+  ConversationNotFoundError,
   exportConversationAsJSON,
   exportConversationAsMarkdown,
   downloadFile,
@@ -110,12 +111,17 @@ describe("exportConversationAsJSON", () => {
     expect(parsed.messages.map((m: DbMessage) => m.id)).toContain("msg-2b");
   });
 
-  it("throws 'Conversation not found' for non-existent ID", async () => {
+  it("throws a typed ConversationNotFoundError for a non-existent ID", async () => {
     mockDb.get.mockResolvedValue(undefined);
 
-    await expect(exportConversationAsJSON("nonexistent")).rejects.toThrow(
-      "Conversation not found"
+    // Typed, not string-matched: the share dialog narrows on the class to tell
+    // "this conversation is gone" apart from "the clipboard refused".
+    await expect(exportConversationAsJSON("nonexistent")).rejects.toBeInstanceOf(
+      ConversationNotFoundError
     );
+    await expect(exportConversationAsJSON("nonexistent")).rejects.toMatchObject({
+      conversationId: "nonexistent",
+    });
   });
 });
 

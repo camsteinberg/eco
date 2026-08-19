@@ -4,6 +4,25 @@
 import { openEcoDB, getActiveBranch } from "./db";
 import type { DbConversation, DbMessage } from "./db";
 
+/**
+ * The conversation record is not in this device's database.
+ *
+ * Every export path re-reads the conversation when the button is pressed, so a
+ * chat deleted in the meantime (another tab, a sync, the user's own delete)
+ * makes that read fail — before any clipboard or file work is attempted. A
+ * typed error is what lets the UI say "this conversation is gone" instead of
+ * blaming the clipboard or the browser for a failure they had no part in.
+ */
+export class ConversationNotFoundError extends Error {
+  readonly conversationId: string;
+
+  constructor(conversationId: string) {
+    super(`Conversation ${conversationId} not found`);
+    this.name = "ConversationNotFoundError";
+    this.conversationId = conversationId;
+  }
+}
+
 export type ConversationExport = {
   version: 1;
   exportedAt: number;
@@ -13,7 +32,7 @@ export type ConversationExport = {
 
 /**
  * Export a conversation as JSON including full message tree (all branches).
- * Throws if the conversation is not found.
+ * Throws `ConversationNotFoundError` if the conversation is not found.
  */
 export async function exportConversationAsJSON(
   conversationId: string
@@ -21,7 +40,7 @@ export async function exportConversationAsJSON(
   const db = await openEcoDB();
   const conversation = await db.get("conversations", conversationId);
   if (!conversation) {
-    throw new Error("Conversation not found");
+    throw new ConversationNotFoundError(conversationId);
   }
 
   const messages = await db.getAllFromIndex(
@@ -42,7 +61,8 @@ export async function exportConversationAsJSON(
 
 /**
  * Export a conversation as Markdown using the active branch (flattened).
- * System messages are skipped. Throws if the conversation is not found.
+ * System messages are skipped. Throws `ConversationNotFoundError` if the
+ * conversation is not found.
  */
 export async function exportConversationAsMarkdown(
   conversationId: string
@@ -50,7 +70,7 @@ export async function exportConversationAsMarkdown(
   const db = await openEcoDB();
   const conversation = await db.get("conversations", conversationId);
   if (!conversation) {
-    throw new Error("Conversation not found");
+    throw new ConversationNotFoundError(conversationId);
   }
 
   const branch = await getActiveBranch(

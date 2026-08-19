@@ -5,7 +5,11 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { copyConversationAsMarkdown, downloadShareableHTML } from "../../lib/share";
-import { exportConversationAsJSON, downloadFile } from "../../lib/export";
+import {
+  ConversationNotFoundError,
+  exportConversationAsJSON,
+  downloadFile,
+} from "../../lib/export";
 
 type ShareDialogProps = {
   open: boolean;
@@ -13,6 +17,21 @@ type ShareDialogProps = {
   conversationId: string;
   conversationTitle: string;
 };
+
+/**
+ * Copy-button state. The two failures are kept apart on purpose: every export
+ * path re-reads the conversation from IndexedDB before it touches the clipboard,
+ * so a chat deleted while this dialog is open fails at the read. Collapsing that
+ * into "copy failed on this browser" blamed a browser that was working fine.
+ */
+type CopyStatus = "idle" | "success" | "copy-failed" | "conversation-missing";
+
+/**
+ * Shared by all three actions, because all three hit the same read first, and
+ * "try again" would be false advice for any of them — the record is gone.
+ */
+const CONVERSATION_MISSING_MESSAGE =
+  "Eco can't find this conversation on this device. It may have been deleted.";
 
 /**
  * Share dialog with three actions: copy as markdown, download as HTML,
@@ -25,7 +44,7 @@ export function ShareDialog({
   conversationId,
   conversationTitle,
 }: ShareDialogProps) {
-  const [copyStatus, setCopyStatus] = useState<"idle" | "success" | "error">("idle");
+  const [copyStatus, setCopyStatus] = useState<CopyStatus>("idle");
   const [downloadError, setDownloadError] = useState<string | null>(null);
 
   // Reset copied state when dialog closes
@@ -64,8 +83,10 @@ export function ShareDialog({
     try {
       await copyConversationAsMarkdown(conversationId);
       setCopyStatus("success");
-    } catch {
-      setCopyStatus("error");
+    } catch (err) {
+      setCopyStatus(
+        err instanceof ConversationNotFoundError ? "conversation-missing" : "copy-failed",
+      );
     }
   }, [conversationId]);
 
@@ -73,8 +94,12 @@ export function ShareDialog({
     setDownloadError(null);
     try {
       await downloadShareableHTML(conversationId, conversationTitle);
-    } catch {
-      setDownloadError("Eco could not create the HTML export. Try again or copy Markdown instead.");
+    } catch (err) {
+      setDownloadError(
+        err instanceof ConversationNotFoundError
+          ? CONVERSATION_MISSING_MESSAGE
+          : "Eco could not create the HTML export. Try again or copy Markdown instead.",
+      );
     }
   }, [conversationId, conversationTitle]);
 
@@ -83,8 +108,12 @@ export function ShareDialog({
     try {
       const json = await exportConversationAsJSON(conversationId);
       downloadFile(json, `${conversationTitle}.json`, "application/json");
-    } catch {
-      setDownloadError("Eco could not create the JSON export. Try again or copy Markdown instead.");
+    } catch (err) {
+      setDownloadError(
+        err instanceof ConversationNotFoundError
+          ? CONVERSATION_MISSING_MESSAGE
+          : "Eco could not create the JSON export. Try again or copy Markdown instead.",
+      );
     }
   }, [conversationId, conversationTitle]);
 
@@ -94,6 +123,33 @@ export function ShareDialog({
     conversationTitle.length > 60
       ? conversationTitle.slice(0, 60) + "..."
       : conversationTitle;
+
+  const copyFailed = copyStatus === "copy-failed" || copyStatus === "conversation-missing";
+  // "Try copy again" would be a lie when the record is gone — retrying re-reads
+  // the same missing conversation. The button's aria-label stays constant so the
+  // accessible name never shifts under a screen reader mid-interaction.
+  const copyButtonLabel =
+    copyStatus === "success"
+      ? "Copied!"
+      : copyStatus === "conversation-missing"
+        ? "Nothing to copy"
+        : copyStatus === "copy-failed"
+          ? "Try copy again"
+          : "Copy as Markdown";
+  const copyStatusMessage =
+    copyStatus === "success"
+      ? "Copied locally as markdown."
+      : copyStatus === "conversation-missing"
+        ? CONVERSATION_MISSING_MESSAGE
+        : "Copy failed on this browser. Try again.";
+  const copyAnnouncement =
+    copyStatus === "success"
+      ? "Conversation copied as markdown."
+      : copyStatus === "conversation-missing"
+        ? "This conversation is no longer saved on this device."
+        : copyStatus === "copy-failed"
+          ? "Couldn't copy conversation as markdown."
+          : "";
 
   return (
     <div
@@ -119,11 +175,7 @@ export function ShareDialog({
           {truncatedTitle}
         </p>
         <p className="sr-only" aria-live="polite" role="status">
-          {copyStatus === "success"
-            ? "Conversation copied as markdown."
-            : copyStatus === "error"
-              ? "Couldn't copy conversation as markdown."
-              : ""}
+          {copyAnnouncement}
         </p>
 
         <div className="mt-4 flex flex-col gap-2">
@@ -149,9 +201,9 @@ export function ShareDialog({
                     clipRule="evenodd"
                   />
                 </svg>
-                Copied!
+                {copyButtonLabel}
               </>
-            ) : copyStatus === "error" ? (
+            ) : copyFailed ? (
               <>
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
@@ -165,7 +217,7 @@ export function ShareDialog({
                     clipRule="evenodd"
                   />
                 </svg>
-                Try copy again
+                {copyButtonLabel}
               </>
             ) : (
               <>
@@ -187,7 +239,7 @@ export function ShareDialog({
                     clipRule="evenodd"
                   />
                 </svg>
-                Copy as Markdown
+                {copyButtonLabel}
               </>
             )}
           </button>
@@ -246,9 +298,7 @@ export function ShareDialog({
                   : "var(--eco-coral)",
             }}
           >
-            {copyStatus === "success"
-              ? "Copied locally as markdown."
-              : "Copy failed on this browser. Try again."}
+            {copyStatusMessage}
           </p>
         )}
 
