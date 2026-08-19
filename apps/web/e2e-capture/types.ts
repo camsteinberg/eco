@@ -232,6 +232,14 @@ export type ShotRecord = {
   project: string;
   viewport: ViewportName;
   theme: ThemeName;
+  /**
+   * The OS-level scheme this shot was taken under.
+   *
+   * Load-bearing for the generated index, not decoration: the two system-theme
+   * projects BOTH record `theme: 'system'`, so theme alone cannot tell their
+   * shots apart and an index keyed on it silently drops one of the pair.
+   */
+  colorScheme: "light" | "dark";
   motion: MotionName;
   fontSize: FontSizeName;
   tier: CaptureTier;

@@ -57,6 +57,18 @@ for (const shot of shots) {
 }
 
 const VIEWPORTS = ["desktop", "tablet", "mobile"];
+
+/**
+ * The column a shot belongs in.
+ *
+ * NOT simply `theme`: the two system-theme projects both record
+ * `theme: 'system'` and differ only in the OS scheme they emulate, so keying on
+ * theme collapsed them into one cell and dropped a shot from the index
+ * entirely (caught by comparing linked paths against the PNGs on disk —
+ * 777 links for 779 files).
+ */
+const columnFor = (row) =>
+  row.theme === "system" ? `system-${row.colorScheme ?? "?"}` : row.theme;
 const escapeHtml = (value) =>
   String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
@@ -138,7 +150,7 @@ for (const [group, entries] of [...byGroup.entries()].sort()) {
     }
     lines.push("");
 
-    const themes = [...new Set(rows.map((row) => row.theme))].sort();
+    const themes = [...new Set(rows.map(columnFor))].sort();
     const extraProjects = rows.filter((row) => row.motion !== "no-preference" || row.fontSize !== "default");
 
     lines.push(`| viewport | ${themes.join(" | ")} |`, `| --- | ${themes.map(() => "---").join(" | ")} |`);
@@ -147,7 +159,7 @@ for (const [group, entries] of [...byGroup.entries()].sort()) {
         const match = rows.find(
           (row) =>
             row.viewport === viewport
-            && row.theme === theme
+            && columnFor(row) === theme
             && row.motion === "no-preference"
             && row.fontSize === "default",
         );
@@ -202,7 +214,32 @@ for (const [group, groupGaps] of [...gapsByGroup.entries()].sort()) {
   }
 }
 
-writeFileSync(join(runDir, "INDEX.md"), `${lines.join("\n")}\n`);
+const indexBody = `${lines.join("\n")}\n`;
+writeFileSync(join(runDir, "INDEX.md"), indexBody);
+
+/**
+ * Every shot must be reachable from the index.
+ *
+ * An index that quietly omits a shot is worse than a missing index: the run
+ * looks complete and the state is simply never reviewed. This exact bug shipped
+ * once — the two system-theme projects share `theme: 'system'`, so a table keyed
+ * on theme rendered one cell and dropped the other shot. Comparing what was
+ * linked against what was recorded is the cheap check that would have caught it,
+ * so it now runs on every build.
+ */
+const linked = new Set(
+  [...indexBody.matchAll(/\]\((shots\/[^)]+)\)/g)].map((match) => match[1]),
+);
+const unlinked = shots.map(relativeShot).filter((path) => !linked.has(path));
+
+if (unlinked.length > 0) {
+  console.error(
+    `\n[capture] INDEX.md links ${String(linked.size)} shots but the run recorded `
+      + `${String(shots.length)} — ${String(unlinked.length)} would never be reviewed:`,
+  );
+  for (const path of unlinked.slice(0, 20)) console.error(`  ${path}`);
+  process.exit(1);
+}
 
 // ── contact sheets ──────────────────────────────────────────────────────────
 

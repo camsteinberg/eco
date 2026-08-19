@@ -297,6 +297,7 @@ function recordShot(entry: StateEntry, ctx: CaptureContext, path: string): void 
     project: ctx.project,
     viewport: ctx.viewport,
     theme: ctx.theme,
+    colorScheme: ctx.colorScheme,
     motion: ctx.motion,
     fontSize: ctx.fontSize,
     tier: entry.tier,
