@@ -266,13 +266,25 @@ export function ChatSurface(props: ChatSurfaceProps) {
       {/* Drop zone overlay */}
       {isDragging && (
         <div
-          className="absolute inset-0 z-50 flex items-center justify-center rounded-2xl border-2 border-dashed"
+          // pointer-events-none: the drag handlers live on the surface itself,
+          // so an overlay that swallowed dragover/drop would fight the very
+          // gesture it is announcing.
+          className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center rounded-2xl border-2 border-dashed"
           style={{
             backgroundColor: "rgba(var(--eco-primary-rgb, 45, 90, 61), 0.08)",
             borderColor: "var(--eco-primary)",
           }}
         >
-          <div className="flex flex-col items-center gap-2">
+          {/* An opaque chip, not bare glyph-on-tint: the overlay does paint
+              above the suggested prompts (measured), but a translucent label
+              over card copy still reads as tangled with it. */}
+          <div
+            className="flex flex-col items-center gap-2 rounded-2xl border px-6 py-5 shadow-sm"
+            style={{
+              backgroundColor: "var(--eco-surface-elevated)",
+              borderColor: "color-mix(in srgb, var(--eco-primary) 30%, var(--eco-border))",
+            }}
+          >
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-10 w-10" style={{ color: "var(--eco-primary)" }}>
               <path fillRule="evenodd" d="M11.47 2.47a.75.75 0 011.06 0l4.5 4.5a.75.75 0 01-1.06 1.06l-3.22-3.22V16.5a.75.75 0 01-1.5 0V4.81L8.03 8.03a.75.75 0 01-1.06-1.06l4.5-4.5zM3 15.75a.75.75 0 01.75.75v2.25a1.5 1.5 0 001.5 1.5h13.5a1.5 1.5 0 001.5-1.5V16.5a.75.75 0 011.5 0v2.25a3 3 0 01-3 3H5.25a3 3 0 01-3-3V16.5a.75.75 0 01.75-.75z" clipRule="evenodd" />
             </svg>
