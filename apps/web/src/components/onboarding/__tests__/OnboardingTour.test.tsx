@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Bos Computing LLC
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { render, screen, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
@@ -32,9 +32,37 @@ vi.mock("driver.js/dist/driver.css", () => ({}));
 import { OnboardingTour } from "../OnboardingTour";
 import { getOnboardingStore } from "../../../stores/onboardingStore";
 
+/**
+ * The tour points at real elements and drops any step whose target is not
+ * mounted, so a test that expects the tour to run has to put the targets on the
+ * page first. Each test gets all of them; the ones about step filtering clear
+ * that and mount only what they mean to prove.
+ */
+function mountTourTargets(...targets: string[]): void {
+  for (const target of targets) {
+    const el = document.createElement("div");
+    el.setAttribute("data-tour-target", target);
+    document.body.appendChild(el);
+  }
+}
+
+function clearTourTargets(): void {
+  for (const el of Array.from(document.querySelectorAll("[data-tour-target]"))) {
+    el.remove();
+  }
+}
+
+const ALL_TOUR_TARGETS = ["model-selector", "impact-footer"];
+
+function stepElements(config: Record<string, unknown> | null): string[] {
+  const steps = config?.steps as Array<{ element: string }> | undefined;
+  return (steps ?? []).map((step) => step.element);
+}
+
 describe("OnboardingTour", () => {
   beforeEach(() => {
     localStorage.clear();
+    mountTourTargets(...ALL_TOUR_TARGETS);
     capturedConfig = null;
     navigationMock.searchParams = new URLSearchParams();
     mockDrive.mockClear();
@@ -45,6 +73,10 @@ describe("OnboardingTour", () => {
     if (store) {
       store.setState({ hasCompletedOnboarding: true, step: "complete" });
     }
+  });
+
+  afterEach(() => {
+    clearTourTargets();
   });
 
   it("renders welcome overlay when localStorage has no tour-completed key", async () => {
@@ -85,7 +117,7 @@ describe("OnboardingTour", () => {
     expect(mockDrive).not.toHaveBeenCalled();
   });
 
-  it('driver config has popoverClass "eco-tour-popover" and 3 steps', async () => {
+  it('driver config has popoverClass "eco-tour-popover" and the two real steps', async () => {
     const user = userEvent.setup();
     await act(async () => {
       render(<OnboardingTour />);
@@ -93,7 +125,39 @@ describe("OnboardingTour", () => {
     await user.click(screen.getByText(/show me around/i));
     expect(capturedConfig).not.toBeNull();
     expect(capturedConfig!.popoverClass).toBe("eco-tour-popover");
-    expect(capturedConfig!.steps).toHaveLength(3);
+    expect(stepElements(capturedConfig)).toEqual([
+      '[data-tour-target="model-selector"]',
+      '[data-tour-target="impact-footer"]',
+    ]);
+  });
+
+  it("drops only the steps whose target is not mounted", async () => {
+    clearTourTargets();
+    mountTourTargets("model-selector");
+
+    const user = userEvent.setup();
+    await act(async () => {
+      render(<OnboardingTour />);
+    });
+    await user.click(screen.getByText(/show me around/i));
+
+    expect(stepElements(capturedConfig)).toEqual(['[data-tour-target="model-selector"]']);
+    expect(mockDrive).toHaveBeenCalled();
+  });
+
+  it("does not start a tour when none of its targets are mounted", async () => {
+    clearTourTargets();
+
+    const user = userEvent.setup();
+    await act(async () => {
+      render(<OnboardingTour />);
+    });
+    await user.click(screen.getByText(/show me around/i));
+
+    expect(capturedConfig).toBeNull();
+    expect(mockDrive).not.toHaveBeenCalled();
+    // The offer stands on the next visit rather than being silently consumed.
+    expect(localStorage.getItem("eco-tour-completed")).toBeNull();
   });
 
   it("onDestroyed callback marks tour as completed", async () => {
