@@ -174,8 +174,10 @@ function ResetPasswordForm() {
               aria-describedby={error ? "reset-password-error" : undefined}
               aria-invalid={error ? "true" : "false"}
               autoComplete="new-password"
-              className={`block w-full rounded-xl border bg-[var(--eco-surface)] px-4 py-3 pr-10 text-base text-[var(--eco-text)] placeholder-[var(--eco-text-secondary)] transition-all duration-150 ease focus:border-[var(--eco-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--eco-primary)]/20 ${
-                error ? "border-[var(--eco-coral)]" : "border-[var(--eco-border)]"
+              className={`block w-full rounded-xl border bg-[var(--eco-surface)] px-4 py-3 pr-10 text-base text-[var(--eco-text)] placeholder-[var(--eco-text-secondary)] transition-all duration-150 ease focus:outline-none ${
+                error
+                  ? "border-[var(--eco-coral)] focus:border-[var(--eco-coral)] focus:ring-2 focus:ring-[var(--eco-coral)]/20"
+                  : "border-[var(--eco-border)] focus:border-[var(--eco-primary)] focus:ring-2 focus:ring-[var(--eco-primary)]/20"
               }`}
               placeholder="At least 8 characters"
             />
@@ -213,8 +215,10 @@ function ResetPasswordForm() {
             aria-describedby={error ? "reset-password-error" : undefined}
             aria-invalid={error ? "true" : "false"}
             autoComplete="new-password"
-            className={`mt-1.5 block w-full rounded-xl border bg-[var(--eco-surface)] px-4 py-3 text-base text-[var(--eco-text)] placeholder-[var(--eco-text-secondary)] transition-all duration-150 ease focus:border-[var(--eco-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--eco-primary)]/20 ${
-              error ? "border-[var(--eco-coral)]" : "border-[var(--eco-border)]"
+            className={`mt-1.5 block w-full rounded-xl border bg-[var(--eco-surface)] px-4 py-3 text-base text-[var(--eco-text)] placeholder-[var(--eco-text-secondary)] transition-all duration-150 ease focus:outline-none ${
+              error
+                ? "border-[var(--eco-coral)] focus:border-[var(--eco-coral)] focus:ring-2 focus:ring-[var(--eco-coral)]/20"
+                : "border-[var(--eco-border)] focus:border-[var(--eco-primary)] focus:ring-2 focus:ring-[var(--eco-primary)]/20"
             }`}
             placeholder="Repeat your password"
           />
