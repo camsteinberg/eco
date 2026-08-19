@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Bos Computing LLC
 
-import { describe, it, expect, beforeEach } from 'vitest'
-import { getSeason, SEASONAL_OVERRIDES, applySeasonalOverrides } from '../season'
-import type { Season } from '../season'
+import { describe, it, expect } from 'vitest'
+import { getSeason } from '../season'
 
 describe('season', () => {
   describe('getSeason', () => {
@@ -34,49 +33,6 @@ describe('season', () => {
         const date = new Date(2026, month, 15)
         expect(getSeason(date)).toBe('winter')
       }
-    })
-  })
-
-  describe('SEASONAL_OVERRIDES', () => {
-    it('has entries for all 4 seasons', () => {
-      const seasons: Season[] = ['spring', 'summer', 'autumn', 'winter']
-      for (const season of seasons) {
-        expect(SEASONAL_OVERRIDES[season]).toBeDefined()
-      }
-    })
-
-    it('each season override has light and dark mode variants', () => {
-      const seasons: Season[] = ['spring', 'summer', 'autumn', 'winter']
-      for (const season of seasons) {
-        expect(SEASONAL_OVERRIDES[season].light).toBeDefined()
-        expect(SEASONAL_OVERRIDES[season].dark).toBeDefined()
-        expect(typeof SEASONAL_OVERRIDES[season].light).toBe('object')
-        expect(typeof SEASONAL_OVERRIDES[season].dark).toBe('object')
-      }
-    })
-  })
-
-  describe('applySeasonalOverrides', () => {
-    beforeEach(() => {
-      // Clear any CSS variables set on document root
-      const style = document.documentElement.style
-      style.removeProperty('--eco-primary')
-      style.removeProperty('--eco-primary-soft')
-    })
-
-    it('applies seasonal CSS variable overrides to document root', () => {
-      applySeasonalOverrides('light')
-      const style = document.documentElement.style
-      // Should have set --eco-primary based on current season
-      expect(style.getPropertyValue('--eco-primary')).toBeTruthy()
-      expect(style.getPropertyValue('--eco-primary-soft')).toBeTruthy()
-    })
-
-    it('applies dark mode variants when resolved is dark', () => {
-      applySeasonalOverrides('dark')
-      const style = document.documentElement.style
-      expect(style.getPropertyValue('--eco-primary')).toBeTruthy()
-      expect(style.getPropertyValue('--eco-primary-soft')).toBeTruthy()
     })
   })
 })

@@ -2,7 +2,6 @@
 // Copyright (C) 2026 Bos Computing LLC
 
 import type { Theme } from '@eco/ui'
-import { applySeasonalOverrides } from './season'
 import { safeStorage, STORAGE_KEYS } from './local-storage'
 
 const VALID_THEMES = new Set<string>(['light', 'dark', 'system'])
@@ -49,5 +48,9 @@ export function applyTheme(resolved: 'light' | 'dark'): void {
     document.documentElement.classList.remove('dark')
   }
   document.documentElement.style.colorScheme = resolved
-  applySeasonalOverrides(resolved)
+  // The brand primary is defined once in CSS. An earlier build set it inline on the
+  // root per calendar season; clear those leftovers so a session that started on the
+  // old code (or restores from bfcache) falls back to the stylesheet value.
+  document.documentElement.style.removeProperty('--eco-primary')
+  document.documentElement.style.removeProperty('--eco-primary-soft')
 }
