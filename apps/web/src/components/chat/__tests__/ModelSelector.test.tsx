@@ -72,7 +72,7 @@ describe("ModelSelector (composer)", () => {
 
   it("lists one row per runnable AI and no Eco Network option", async () => {
     const user = userEvent.setup();
-    render(<ModelSelector variant="composer" />);
+    render(<ModelSelector />);
 
     await user.click(screen.getByTestId("model-selector"));
 
@@ -104,7 +104,7 @@ describe("ModelSelector (composer)", () => {
     });
 
     const user = userEvent.setup();
-    render(<ModelSelector variant="composer" />);
+    render(<ModelSelector />);
 
     await user.click(screen.getByTestId("model-selector"));
 
@@ -126,7 +126,7 @@ describe("ModelSelector (composer)", () => {
     });
 
     const user = userEvent.setup();
-    render(<ModelSelector variant="composer" />);
+    render(<ModelSelector />);
 
     await user.click(screen.getByTestId("model-selector"));
 
@@ -154,7 +154,7 @@ describe("ModelSelector (composer)", () => {
     });
 
     const user = userEvent.setup();
-    render(<ModelSelector variant="composer" />);
+    render(<ModelSelector />);
 
     await user.click(screen.getByTestId("model-selector"));
 
@@ -168,7 +168,7 @@ describe("ModelSelector (composer)", () => {
 
   it("marks the recommended (Qwen3.5) model", async () => {
     const user = userEvent.setup();
-    render(<ModelSelector variant="composer" />);
+    render(<ModelSelector />);
 
     await user.click(screen.getByTestId("model-selector"));
 
@@ -182,7 +182,7 @@ describe("ModelSelector (composer)", () => {
 
   it("sets the active model when a row is selected", async () => {
     const user = userEvent.setup();
-    render(<ModelSelector variant="composer" />);
+    render(<ModelSelector />);
 
     await user.click(screen.getByTestId("model-selector"));
     await user.click(screen.getByText("Eco Compact (Qwen)"));
@@ -194,7 +194,7 @@ describe("ModelSelector (composer)", () => {
   });
 
   it("renders the composer trigger as a pill with a label after mount", async () => {
-    render(<ModelSelector variant="composer" />);
+    render(<ModelSelector />);
 
     const trigger = screen.getByTestId("model-selector");
     expect(trigger).toHaveClass("rounded-full");
@@ -204,5 +204,22 @@ describe("ModelSelector (composer)", () => {
     expect(trigger).toHaveTextContent("Eco");
     expect(trigger).not.toHaveTextContent("Qwen");
     expect(trigger).toHaveAttribute("title", "Eco (Qwen)");
+  });
+
+  // The selector has one mount, in the composer, pinned to the bottom of the
+  // viewport — so the panel is anchored to the trigger's top edge and grows
+  // upward. There is no downward case to choose between.
+  it("anchors the desktop dropdown above the trigger", async () => {
+    const user = userEvent.setup();
+    render(<ModelSelector />);
+
+    await user.click(screen.getByTestId("model-selector"));
+
+    const panel = getListbox().parentElement;
+    expect(panel).not.toBeNull();
+    expect(panel?.style.position).toBe("fixed");
+    expect(panel?.style.top).toBe("");
+    expect(panel?.style.bottom).not.toBe("");
+    expect(panel?.style.transformOrigin).toBe("bottom right");
   });
 });

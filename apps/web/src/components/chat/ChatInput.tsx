@@ -285,7 +285,7 @@ export function ChatInput({
 
         <ResearchToggle />
 
-        <ModelSelector variant="composer" />
+        <ModelSelector />
 
         {isStreaming && onStop ? (
           <button

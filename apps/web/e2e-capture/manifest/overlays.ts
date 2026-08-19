@@ -33,10 +33,6 @@ import { DESKTOP_DEVICE_SEARCH, READY_CHAT_SEARCH, UPGRADE_DECLINED_LOCAL } from
  *   the one path that does not touch the cache — see `overlays.upgrade-ready`.
  *   `boosted` (the bottom-centre "Eco just got a boost" pill, 6s) has no such
  *   door and is genuinely uncaptured.
- * - **The model dropdown opening DOWNWARD.** `ModelSelector` is mounted once,
- *   by `ChatInput`, at the bottom of the viewport, so the portal always flips
- *   above its trigger. The below-trigger branch of `updateDropdownPosition` is
- *   live code with no mount point that reaches it.
  *
  * ── One thing these shots inherit from the machine ────────────────────────
  *
@@ -163,14 +159,6 @@ export const overlaysGaps: CaptureGap[] = [
       + "reverted-to-download when the bytes are missing. The lane holds every weight request open by design, so a "
       + "staged-with-bytes device cannot exist here without downloading gigabytes per shot. Genuinely uncaptured. "
       + "(`ready` IS captured, through the one path that does not touch the cache — see overlays.upgrade-ready.)",
-  },
-  {
-    id: "overlays.model-dropdown-downward",
-    group: "overlays",
-    surface: "The model dropdown opening DOWNWARD",
-    reason:
-      "ModelSelector is mounted once, by ChatInput, at the bottom of the viewport, so the portal always flips above its "
-      + "trigger. The below-trigger branch of updateDropdownPosition is live code with no mount point that reaches it.",
   },
 ];
 
@@ -404,7 +392,7 @@ export const overlaysStates: StateEntry[] = [
     notes:
       "The pointer twin of the mobile bottom sheet (pilot.model-selector-sheet): a portalled panel "
       + "measured against the trigger. Its only mount is in the composer, at the bottom of the "
-      + "window, so it always opens upward.",
+      + "window, so it is anchored above the trigger — the one direction the component has.",
   },
 
   // ── The upgrade card ────────────────────────────────────────────────────

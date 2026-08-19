@@ -39,9 +39,7 @@ vi.mock("../../easter-eggs/LeafAnimation", () => ({
 // catalog reads) are exercised by their own suites. Here we only assert that
 // ChatInput renders them in the composer row.
 vi.mock("../ModelSelector", () => ({
-  ModelSelector: (props: { variant?: string }) => (
-    <div data-testid="model-selector" data-variant={props.variant} />
-  ),
+  ModelSelector: () => <div data-testid="model-selector" />,
 }));
 
 vi.mock("../ResearchToggle", () => ({
@@ -123,13 +121,12 @@ describe("ChatInput", () => {
     const messageInput = screen.getByLabelText("Message input");
 
     // The old composer controls are back: a disabled "coming soon" research
-    // pill and the composer-variant model selector.
+    // pill and the model selector, whose only mount this is.
     const researchToggle = screen.getByTestId("research-toggle");
     const modelSelector = screen.getByTestId("model-selector");
     expect(researchToggle).toBeInTheDocument();
     expect(researchToggle).toBeDisabled();
     expect(modelSelector).toBeInTheDocument();
-    expect(modelSelector).toHaveAttribute("data-variant", "composer");
 
     // Privacy-tier selection stays gone — every turn is on-device in v1.0.
     expect(screen.queryByTestId("privacy-tier-selector")).not.toBeInTheDocument();
