@@ -389,8 +389,25 @@ export const setupGateStates: StateEntry[] = [
     search: `eco-force-download=cache&${resumingSlot(SMALL_CPU_MODEL)}&${CPU_ONLY}`,
     tier: "page",
     realism: "seeded",
-    assert: [{ text: "We tried a few options" }],
-    notes: "eco-force-download=cache, opfs and hosting all land here: the cascade replaces the failure reason with its own exhausted copy, so the three render identically.",
+    assert: [
+      { text: "We tried a few options" },
+      { text: "This can happen on some devices" },
+    ],
+    notes: "eco-force-download=cache and opfs land here. A browser cache / OPFS write failure arrives as a plain Error with no distinguishing type, so the ladder reports no reason code and the subtitle claims nothing about the cause — compare error-exhausted-hosting, which does know.",
+  },
+  {
+    id: "setup-gate.error-exhausted-hosting",
+    group: "setup-gate",
+    title: "Setup error — the model host could not be reached",
+    route: "/chat",
+    search: `eco-force-download=hosting&${resumingSlot(SMALL_CPU_MODEL)}&${CPU_ONLY}`,
+    tier: "page",
+    realism: "seeded",
+    assert: [
+      { text: "We tried a few options" },
+      { text: "couldn't reach the model host" },
+    ],
+    notes: "eco-force-download=hosting raises a DownloadFailedError, which the ladder tags 'network-or-host' and carries through exhaustion. Until that code existed this rendered identically to error-exhausted-multi-model — blaming device luck for a hosting failure. The headline is shared; the subtitle is the whole difference.",
   },
   {
     id: "setup-gate.error-exhausted-one-model",

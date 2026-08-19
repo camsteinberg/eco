@@ -48,13 +48,14 @@ import { READY_CHAT_SEARCH, UPGRADE_DECLINED_LOCAL } from "./pilot";
  *    therefore shows the actions row WITHOUT it. `reply-controls-deepen` binds
  *    the 1.2B (2048) to photograph the other half of that rule.
  *
- * 3. A missing conversation is reported as a clipboard failure. Both share
- *    errors below are reached by deleting the conversation record while the
- *    dialog is open — a real race (the chat is deleted elsewhere, then Export is
- *    pressed). The export path says the honest thing; the copy path catches the
- *    same "Conversation not found" and renders "Copy failed on this browser.
- *    Try again.", which is about a browser that is working fine. Photographed as
- *    it behaves rather than papered over.
+ * 3. A missing conversation used to be reported as a clipboard failure. Both
+ *    share errors below are reached by deleting the conversation record while
+ *    the dialog is open — a real race (the chat is deleted elsewhere, then
+ *    Export is pressed). The copy path caught the same read failure the export
+ *    path did and rendered "Copy failed on this browser. Try again.", which was
+ *    about a browser that was working fine. `exportConversationAsMarkdown` now
+ *    throws a typed `ConversationNotFoundError`, so both paths name the real
+ *    cause; these two entries photograph the corrected copy.
  *
  * ── Two surfaces deliberately NOT captured ────────────────────────────────
  *
@@ -595,7 +596,7 @@ export const chatInteractionsStates: StateEntry[] = [
   ),
   onSeededChat(
     "share-copy-error",
-    "Share conversation — the copy failed",
+    "Share conversation — the conversation is gone",
     [{ selector: ASSISTANT_ROW }],
     {
       clock: { mode: "paused", advanceMs: 2_000 },
@@ -603,29 +604,35 @@ export const chatInteractionsStates: StateEntry[] = [
         await openShareDialog(page);
         await deleteActiveConversationRecord(page);
         await page.getByRole("button", { name: "Copy as Markdown" }).click();
-        await expect(page.getByText("Copy failed on this browser. Try again.")).toBeVisible();
+        await expect(
+          page.getByText("Eco can't find this conversation on this device."),
+        ).toBeVisible();
       },
       notes:
         "Reached without faking the clipboard: the copy path reads the conversation back out of "
         + "IndexedDB first, and a chat deleted while the dialog is open makes that read throw. "
-        + "The copy it then shows blames the browser for something the browser did not do — a "
-        + "real defect, photographed rather than worked around.",
+        + "The read now throws a typed ConversationNotFoundError, so the dialog names the real "
+        + "cause and the button reads 'Nothing to copy' rather than offering a retry that would "
+        + "fail the same way. A genuine clipboard denial still gets 'Copy failed on this browser'.",
     },
   ),
   onSeededChat(
     "share-download-error",
-    "Share conversation — the export failed",
+    "Share conversation — the export found nothing to export",
     [{ selector: ASSISTANT_ROW }],
     {
       prepare: async (page) => {
         await openShareDialog(page);
         await deleteActiveConversationRecord(page);
         await page.getByRole("button", { name: "Export as JSON" }).click();
-        await expect(page.locator(SHARE_ERROR)).toContainText("Eco could not create the JSON export");
+        await expect(page.locator(SHARE_ERROR)).toContainText(
+          "Eco can't find this conversation on this device",
+        );
       },
       notes:
-        "The same race as share-copy-error, down the export path — which words it honestly and "
-        + "offers a way out. Worth seeing the two side by side.",
+        "The same race as share-copy-error, down the export path. Both now say the same true "
+        + "thing; the export alert previously said 'Try again or copy Markdown instead', which "
+        + "pointed at a path that fails identically. Worth seeing the two side by side.",
     },
   ),
 

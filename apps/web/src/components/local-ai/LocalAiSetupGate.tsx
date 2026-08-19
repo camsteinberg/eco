@@ -72,6 +72,7 @@ export function LocalAiSetupGate({
     return (
       <SetupErrorState
         reason={setup.errorReason ?? 'Setup failed'}
+        reasonCode={setup.errorReasonCode ?? undefined}
         exhausted={setup.errorExhausted}
         triedModelCount={setup.errorTriedModelCount}
         onTryAgain={() => {

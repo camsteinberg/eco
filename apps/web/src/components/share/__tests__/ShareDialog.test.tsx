@@ -13,13 +13,24 @@ vi.mock("../../../lib/share", () => ({
   downloadShareableHTML: vi.fn(() => Promise.resolve()),
 }));
 
-vi.mock("../../../lib/export", () => ({
-  exportConversationAsJSON: vi.fn(() => Promise.resolve('{"test": true}')),
-  downloadFile: vi.fn(),
-}));
+// `ConversationNotFoundError` is a real class the dialog narrows on, so it has
+// to survive the mock — an `instanceof` against a stubbed-away constructor
+// would throw and quietly turn every failure into the clipboard branch.
+vi.mock("../../../lib/export", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../lib/export")>();
+  return {
+    ConversationNotFoundError: actual.ConversationNotFoundError,
+    exportConversationAsJSON: vi.fn(() => Promise.resolve('{"test": true}')),
+    downloadFile: vi.fn(),
+  };
+});
 
 import { copyConversationAsMarkdown, downloadShareableHTML } from "../../../lib/share";
-import { exportConversationAsJSON, downloadFile } from "../../../lib/export";
+import {
+  ConversationNotFoundError,
+  exportConversationAsJSON,
+  downloadFile,
+} from "../../../lib/export";
 
 const defaultProps = {
   open: true,
@@ -106,6 +117,46 @@ describe("ShareDialog", () => {
 
     expect(screen.getByText("Try copy again")).toBeInTheDocument();
     expect(screen.getByText("Copy failed on this browser. Try again.")).toBeInTheDocument();
+  });
+
+  it("does not blame the browser when the conversation record is gone", async () => {
+    vi.useRealTimers();
+    vi.mocked(copyConversationAsMarkdown).mockRejectedValueOnce(
+      new ConversationNotFoundError("conv-123"),
+    );
+    const user = userEvent.setup();
+    render(<ShareDialog {...defaultProps} />);
+
+    await user.click(screen.getByRole("button", { name: "Copy as Markdown" }));
+
+    expect(
+      screen.getByText("Eco can't find this conversation on this device. It may have been deleted."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Copy failed on this browser. Try again.")).not.toBeInTheDocument();
+    // Retrying re-reads the same missing record, so the button must not offer it.
+    expect(screen.queryByText("Try copy again")).not.toBeInTheDocument();
+    expect(screen.getByText("Nothing to copy")).toBeInTheDocument();
+    expect(
+      screen.getByText("This conversation is no longer saved on this device."),
+    ).toBeInTheDocument();
+  });
+
+  it("reports a missing conversation on the JSON export path too", async () => {
+    vi.useRealTimers();
+    vi.mocked(exportConversationAsJSON).mockRejectedValueOnce(
+      new ConversationNotFoundError("conv-123"),
+    );
+    const user = userEvent.setup();
+    render(<ShareDialog {...defaultProps} />);
+
+    await user.click(screen.getByRole("button", { name: "Export as JSON" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Eco can't find this conversation on this device.",
+    );
+    // "Try again or copy Markdown instead" would send the user down a path that
+    // fails the same way.
+    expect(screen.queryByText(/copy Markdown instead/)).not.toBeInTheDocument();
   });
 
   it("Download as HTML button calls downloadShareableHTML", async () => {

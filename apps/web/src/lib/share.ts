@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Bos Computing LLC
 
 import { openEcoDB, getActiveBranch } from "./db";
-import { exportConversationAsMarkdown, downloadFile } from "./export";
+import { ConversationNotFoundError, exportConversationAsMarkdown, downloadFile } from "./export";
 import { copyTextWithFallback } from "./clipboard";
 
 const CLIPBOARD_WRITE_TIMEOUT_MS = 1500;
@@ -52,7 +52,7 @@ export async function generateShareableHTML(
   const db = await openEcoDB();
   const conversation = await db.get("conversations", conversationId);
   if (!conversation) {
-    throw new Error("Conversation not found");
+    throw new ConversationNotFoundError(conversationId);
   }
 
   const branch = await getActiveBranch(

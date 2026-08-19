@@ -804,9 +804,9 @@ export const settingsStates: StateEntry[] = [
     prepare: async (page) => {
       await page.locator("#settings-name").fill("Sam Rivera");
       await page.getByRole("button", { name: "Save", exact: true }).click();
-      await expect(page.getByText("Failed to save profile")).toBeVisible();
+      await expect(page.getByText("We couldn't save your name. Please try again.")).toBeVisible();
     },
-    notes: "A 500 on the PATCH. The message is the thrown text, and Save stays put so the edit is never lost — worth a designer's eye, it is the least designed string in settings.",
+    notes: "A 500 on the PATCH. The line is written copy, not the thrown text — whatever failed underneath, the person reads the same honest sentence — and Save stays put so the edit is never lost.",
   },
   {
     id: "settings.account-delete-confirm",

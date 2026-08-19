@@ -119,6 +119,51 @@ describe('runSetupCascade', () => {
     expect(res.kind).toBe('exhausted');
     if (res.kind === 'exhausted') {
       expect(res.reason).toBe(storageReason); // not the generic SETUP_EXHAUSTED_REASON
+      expect(res.reasonCode).toBe('insufficient-storage');
+    }
+  });
+
+  it('carries a network/host code out of exhaustion, since the reason text is replaced', async () => {
+    const h = harness({
+      runAttempt: async () => ({
+        ok: false, phase: 'download', reason: 'HTTP 500 fetching weights', reasonCode: 'network-or-host',
+      }),
+    });
+    const res = await runSetupCascade(h.opts);
+    expect(res.kind).toBe('exhausted');
+    if (res.kind === 'exhausted') {
+      // The internal text is deliberately not shown...
+      expect(res.reason).toBe(SETUP_EXHAUSTED_REASON);
+      // ...so the code is the only thing left that knows a host, not this
+      // device, is what failed.
+      expect(res.reasonCode).toBe('network-or-host');
+    }
+  });
+
+  it('leaves the code undefined when the last failure had no identifiable cause', async () => {
+    const h = harness({
+      runAttempt: async () => ({
+        ok: false, phase: 'download', reason: "Couldn't write the model file to the browser cache.",
+      }),
+    });
+    const res = await runSetupCascade(h.opts);
+    expect(res.kind).toBe('exhausted');
+    if (res.kind === 'exhausted') {
+      expect(res.reasonCode).toBeUndefined();
+    }
+  });
+
+  it('reports the LAST failure code, not the first', async () => {
+    const h = harness({
+      runAttempt: async (m) => m.id === 'c'
+        ? { ok: false, phase: 'download', reason: 'HTTP 503', reasonCode: 'network-or-host' }
+        : { ok: false, phase: 'download', reason: 'no space', reasonCode: 'insufficient-storage' },
+    });
+    const res = await runSetupCascade(h.opts);
+    expect(res.kind).toBe('exhausted');
+    if (res.kind === 'exhausted') {
+      expect(res.reason).toBe(SETUP_EXHAUSTED_REASON);
+      expect(res.reasonCode).toBe('network-or-host');
     }
   });
 
