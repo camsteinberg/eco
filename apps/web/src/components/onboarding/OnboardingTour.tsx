@@ -17,7 +17,7 @@ import { WelcomeOverlay } from "./WelcomeOverlay";
 /**
  * OnboardingTour manages the first-run experience:
  * 1. Shows a welcome overlay on first visit
- * 2. Launches a 3-step driver.js tour when user clicks "Show me around"
+ * 2. Launches a 2-step driver.js tour when user clicks "Show me around"
  * 3. Manages discovery dot activation based on tour completion vs skip
  *
  * State is persisted via lib/onboarding.ts localStorage helpers.
@@ -64,16 +64,6 @@ export function OnboardingTour() {
         },
       },
       {
-        element: '[aria-label="Privacy information"]',
-        popover: {
-          title: "See your protection",
-          description:
-            "This badge shows how the next response is protected. Eco keeps the setting out of your way and shows the current mode here.",
-          side: "bottom" as const,
-          align: "end" as const,
-        },
-      },
-      {
         element: '[data-tour-target="impact-footer"]',
         popover: {
           title: "Track impact quietly",
@@ -84,7 +74,14 @@ export function OnboardingTour() {
         },
       },
     ];
+    // A step whose target is not on screen cannot be pointed at, so it is
+    // dropped. If nothing the tour talks about is mounted there is no tour to
+    // run: bail without marking it completed, so the offer comes back on the
+    // next visit instead of an empty popover opening in the corner.
     const availableSteps = steps.filter((step) => document.querySelector(step.element));
+    if (availableSteps.length === 0) {
+      return;
+    }
 
     const driverInstance = driver({
       popoverClass: "eco-tour-popover",
@@ -104,7 +101,7 @@ export function OnboardingTour() {
         markFeatureDiscovered("attestation");
         markFeatureDiscovered("impact");
       },
-      steps: availableSteps.length > 0 ? availableSteps : steps,
+      steps: availableSteps,
     });
 
     driverRef.current = driverInstance;

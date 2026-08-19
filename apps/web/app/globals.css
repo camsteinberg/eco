@@ -458,6 +458,8 @@ button:disabled,
   font-family: var(--font-serif, "Fraunces", serif) !important;
   font-size: 1.125rem !important;
   color: var(--color-text-primary) !important;
+  /* Keeps the headline clear of the close glyph in the corner. */
+  padding-right: 28px !important;
 }
 
 .eco-tour-popover .driver-popover-description {
@@ -466,8 +468,15 @@ button:disabled,
   color: var(--color-text-secondary) !important;
 }
 
-.eco-tour-popover .driver-popover-next-btn,
-.eco-tour-popover .driver-popover-close-btn {
+/*
+ * driver.js gives every footer button `text-shadow: 1px 1px 0 #fff`, which on
+ * our own button colours renders as a doubled, smeared label.
+ */
+.eco-tour-popover .driver-popover-footer button {
+  text-shadow: none !important;
+}
+
+.eco-tour-popover .driver-popover-next-btn {
   background-color: var(--color-primary) !important;
   color: white !important;
   border: none !important;
@@ -478,9 +487,43 @@ button:disabled,
   cursor: pointer !important;
 }
 
-.eco-tour-popover .driver-popover-next-btn:hover,
-.eco-tour-popover .driver-popover-close-btn:hover {
+.eco-tour-popover .driver-popover-next-btn:hover {
   background-color: var(--color-primary-hover) !important;
+}
+
+/*
+ * Close is a bare × glyph inside the card, like every other dismiss control in
+ * the product. driver.js positions it absolutely at the popover's corner, so
+ * the filled-pill treatment the next button gets made it overhang the card and
+ * sit on top of the step's own headline.
+ */
+.eco-tour-popover .driver-popover-close-btn {
+  top: 12px !important;
+  right: 12px !important;
+  width: 20px !important;
+  height: 20px !important;
+  padding: 4px !important;
+  line-height: 20px !important;
+  background-color: transparent !important;
+  color: var(--color-text-secondary) !important;
+  border: none !important;
+  border-radius: 9999px !important;
+  font-size: 1rem !important;
+  font-weight: 400 !important;
+  cursor: pointer !important;
+}
+
+.eco-tour-popover .driver-popover-close-btn:hover {
+  background-color: var(--color-surface) !important;
+  color: var(--color-text-primary) !important;
+}
+
+/* driver.js focuses this button when a step opens, so focus is an outline
+   rather than a fill — a fill would read as a permanently hovered control. */
+.eco-tour-popover .driver-popover-close-btn:focus-visible {
+  color: var(--color-text-primary) !important;
+  outline: 2px solid var(--color-primary) !important;
+  outline-offset: 1px !important;
 }
 
 .eco-tour-popover .driver-popover-prev-btn {
