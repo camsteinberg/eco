@@ -4,6 +4,7 @@
 import type { StateEntry } from "../types";
 import { pilotStates } from "./pilot";
 import { routesStates } from "./routes";
+import { settingsStates } from "./settings";
 import { setupGateStates } from "./setup-gate";
 
 /**
@@ -20,6 +21,7 @@ const GROUPS: Record<string, StateEntry[]> = {
   pilot: pilotStates,
   routes: routesStates,
   "setup-gate": setupGateStates,
+  settings: settingsStates,
 };
 
 /**
