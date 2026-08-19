@@ -6,9 +6,10 @@
 /**
  * ModelUpgradeCard — the consent-driven upgrade surfaces (instant-start 2b).
  *
- * One quiet floating card, bottom-right above the help button, that walks the
- * the growth-stage motif with the upgrade machine — the glyph encodes
- * the machine's real state, not decoration:
+ * One quiet card — floating top-right on roomy screens, in the document flow
+ * above the greeting on narrow ones — that walks the growth-stage motif with
+ * the upgrade machine. The glyph encodes the machine's real state, not
+ * decoration:
  *
  *   offer       → sprout   ("a stronger AI is available — want it?")
  *   downloading → seedling (growing in the background; chat never pauses)
@@ -31,6 +32,7 @@ import {
   SproutIllustration,
 } from "@eco/ui";
 import type { ModelConfig } from "../../local-ai/types";
+import { useMediaQuery } from "../../hooks/useMediaQuery";
 import type {
   ModelUpgradeUi,
   UseModelUpgradeReturn,
@@ -63,6 +65,11 @@ export function ModelUpgradeCard({ upgrade, isStreaming }: ModelUpgradeCardProps
   // container-relative and strand the card off-position.
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
+  // Below `sm` a 340px card covers the entire column — measured: it erased the
+  // greeting and clipped the suggestion tiles. There is no floating position
+  // that fits, so the card stops floating: it renders where ChatSurface placed
+  // it (in flow, above the greeting/transcript) and pushes content down.
+  const inFlow = useMediaQuery("(max-width: 639px)");
   if (!mounted) return null;
 
   if (ui.kind === "boosted") {
@@ -72,8 +79,8 @@ export function ModelUpgradeCard({ upgrade, isStreaming }: ModelUpgradeCardProps
     );
   }
 
-  return createPortal(
-    <FloatingCardShell visible={ui.kind !== "hidden"} ui={ui}>
+  const card = (
+    <FloatingCardShell visible={ui.kind !== "hidden"} ui={ui} inFlow={inFlow}>
       {ui.kind === "offer" && (
         <CardBody
           glyph={<SproutIllustration size={46} className="text-[var(--eco-primary)]" />}
@@ -81,11 +88,16 @@ export function ModelUpgradeCard({ upgrade, isStreaming }: ModelUpgradeCardProps
           titleHint={ui.target.friendlyName}
           body={`Eco can bring it in quietly while you chat — about ${downloadSizeCopy(ui.target)}, stored on your device.`}
         >
-          <div className="mt-3 flex items-center gap-2">
-            <Button size="sm" onClick={upgrade.accept}>
+          {/* Side by side these two labels need ~266px against the ~249px the
+              card has, so both wrapped mid-phrase ("Download in / background",
+              "Not / now"), and nowrap alone would overflow instead. Stacking
+              fits whatever length the copy takes; the ready card's shorter pair
+              still sits on one line. */}
+          <div className="mt-3 flex flex-col items-stretch gap-2">
+            <Button size="sm" className="whitespace-nowrap" onClick={upgrade.accept}>
               Download in background
             </Button>
-            <Button size="sm" variant="ghost" onClick={upgrade.decline}>
+            <Button size="sm" variant="ghost" className="whitespace-nowrap" onClick={upgrade.decline}>
               Not now
             </Button>
           </div>
@@ -120,13 +132,14 @@ export function ModelUpgradeCard({ upgrade, isStreaming }: ModelUpgradeCardProps
           <div className="mt-3 flex items-center gap-2">
             <Button
               size="sm"
+              className="whitespace-nowrap"
               onClick={upgrade.swapNow}
               disabled={isStreaming}
               title={isStreaming ? "Eco will switch after this reply finishes" : undefined}
             >
               Switch now
             </Button>
-            <Button size="sm" variant="ghost" onClick={upgrade.notNow}>
+            <Button size="sm" variant="ghost" className="whitespace-nowrap" onClick={upgrade.notNow}>
               Later
             </Button>
           </div>
@@ -151,15 +164,16 @@ export function ModelUpgradeCard({ upgrade, isStreaming }: ModelUpgradeCardProps
           body={ui.deferral.message}
         >
           <div className="mt-3">
-            <Button size="sm" variant="ghost" onClick={upgrade.dismiss}>
+            <Button size="sm" variant="ghost" className="whitespace-nowrap" onClick={upgrade.dismiss}>
               Okay
             </Button>
           </div>
         </CardBody>
       )}
-    </FloatingCardShell>,
-    document.body,
+    </FloatingCardShell>
   );
+
+  return inFlow ? card : createPortal(card, document.body);
 }
 
 // ─── Shell + shared pieces ──────────────────────────────────────────────────
@@ -167,10 +181,13 @@ export function ModelUpgradeCard({ upgrade, isStreaming }: ModelUpgradeCardProps
 function FloatingCardShell({
   visible,
   ui,
+  inFlow,
   children,
 }: {
   visible: boolean;
   ui: ModelUpgradeUi;
+  /** Narrow screens: render in the document flow instead of floating. */
+  inFlow: boolean;
   children: React.ReactNode;
 }) {
   const reducedMotion = useReducedMotion();
@@ -188,12 +205,17 @@ function FloatingCardShell({
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={reducedMotion ? { opacity: 0 } : { opacity: 0, y: -10, scale: 0.98 }}
           transition={reducedMotion ? { duration: 0 } : CARD_SPRING}
-          // Top-right, below the chat header. Bottom-anchored positions can
-          // ALWAYS overlap the Send button somewhere (the empty state centers
-          // the composer, so on ~1280px windows a bottom-right card intercepts
-          // clicks — caught by the launch e2e). A consent card that blocks
-          // sending would betray the whole slice; top-right never can.
-          className="fixed right-4 top-[72px] z-40 w-[calc(100vw-2rem)] max-w-[340px] rounded-2xl border shadow-lg sm:w-[340px] md:right-6 md:top-20"
+          // Floating: top-right, below the chat header. Bottom-anchored
+          // positions can ALWAYS overlap the Send button somewhere (the empty
+          // state centers the composer, so on ~1280px windows a bottom-right
+          // card intercepts clicks — caught by the launch e2e). A consent card
+          // that blocks sending would betray the whole slice; top-right never
+          // can. In flow (narrow screens) it floats over nothing at all.
+          className={
+            inFlow
+              ? "relative mb-4 w-full rounded-2xl border shadow-sm"
+              : "fixed right-4 top-[72px] z-40 w-[calc(100vw-2rem)] max-w-[340px] rounded-2xl border shadow-lg sm:w-[340px] md:right-6 md:top-20"
+          }
           style={{
             backgroundColor: "var(--eco-surface-elevated)",
             borderColor: "var(--eco-border)",

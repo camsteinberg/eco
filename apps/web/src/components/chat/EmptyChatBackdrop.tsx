@@ -166,9 +166,11 @@ export function EmptyChatBackdrop() {
         <PineIllustration size={92} style={{ opacity: 0.11 }} />
       </div>
 
-      {/* Breathing sprout — lower-right (only animated element) */}
+      {/* Breathing sprout — lower-right (only animated element).
+          Hidden below sm: at 375px its 140px canvas crosses the trust strip's
+          copy, and decoration must never read as part of the sentence. */}
       <div
-        className="breathe-soft absolute bottom-[8%] right-[6%]"
+        className="breathe-soft absolute bottom-[8%] right-[6%] hidden sm:block"
         style={{
           transform: "rotate(6deg)",
           ["--eco-breathe-min" as string]: "0.11",

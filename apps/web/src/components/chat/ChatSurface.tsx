@@ -49,6 +49,28 @@ function QuestionMarkIcon({ className }: { className?: string }) {
   );
 }
 
+/**
+ * The floating "open the guide" button.
+ *
+ * Positioning is the caller's job, and it differs by branch: in a conversation
+ * the button hangs off the composer bar's top edge, so it clears the composer
+ * at every height it can autogrow to; the empty state keeps it pinned to the
+ * surface, where there is no bottom-anchored composer to collide with.
+ */
+function HelpGuideButton({ className }: { className: string }) {
+  return (
+    <button
+      type="button"
+      onClick={() => window.dispatchEvent(new Event(ECO_OPEN_GUIDE_EVENT))}
+      className={`absolute z-40 flex h-11 w-11 cursor-pointer items-center justify-center rounded-full border border-[var(--eco-border)] bg-[var(--eco-surface-elevated)]/90 text-[var(--eco-text-secondary)] shadow-md backdrop-blur-sm transition-all duration-200 hover:scale-105 active:scale-95 hover:border-[var(--eco-primary)]/40 hover:bg-[var(--eco-surface-elevated)] hover:text-[var(--eco-primary)] hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--eco-primary)] focus-visible:ring-offset-2 ${className}`}
+      aria-label="Open Eco guide"
+      title="Open Eco guide"
+    >
+      <QuestionMarkIcon className="h-5 w-5" />
+    </button>
+  );
+}
+
 function AttachmentDropError({ message, className = "" }: { message: string; className?: string }) {
   return (
     <div className={className}>
@@ -154,6 +176,13 @@ export type ChatSurfaceProps = {
   onDragLeave: (e: DragEvent) => void;
   onDragOver: (e: DragEvent) => void;
   onDrop: (e: DragEvent) => void;
+
+  /**
+   * The consent-driven model upgrade surface. Passed in rather than mounted as
+   * a sibling because on narrow screens the card leaves its portal and renders
+   * in normal flow, above the greeting/transcript, instead of floating over it.
+   */
+  upgradeCard?: React.ReactNode;
 };
 
 /**
@@ -231,6 +260,7 @@ export function ChatSurface(props: ChatSurfaceProps) {
     onDragLeave,
     onDragOver,
     onDrop,
+    upgradeCard,
   } = props;
 
   return (
@@ -244,13 +274,25 @@ export function ChatSurface(props: ChatSurfaceProps) {
       {/* Drop zone overlay */}
       {isDragging && (
         <div
-          className="absolute inset-0 z-50 flex items-center justify-center rounded-2xl border-2 border-dashed"
+          // pointer-events-none: the drag handlers live on the surface itself,
+          // so an overlay that swallowed dragover/drop would fight the very
+          // gesture it is announcing.
+          className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center rounded-2xl border-2 border-dashed"
           style={{
             backgroundColor: "rgba(var(--eco-primary-rgb, 45, 90, 61), 0.08)",
             borderColor: "var(--eco-primary)",
           }}
         >
-          <div className="flex flex-col items-center gap-2">
+          {/* An opaque chip, not bare glyph-on-tint: the overlay does paint
+              above the suggested prompts (measured), but a translucent label
+              over card copy still reads as tangled with it. */}
+          <div
+            className="flex flex-col items-center gap-2 rounded-2xl border px-6 py-5 shadow-sm"
+            style={{
+              backgroundColor: "var(--eco-surface-elevated)",
+              borderColor: "color-mix(in srgb, var(--eco-primary) 30%, var(--eco-border))",
+            }}
+          >
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-10 w-10" style={{ color: "var(--eco-primary)" }}>
               <path fillRule="evenodd" d="M11.47 2.47a.75.75 0 011.06 0l4.5 4.5a.75.75 0 01-1.06 1.06l-3.22-3.22V16.5a.75.75 0 01-1.5 0V4.81L8.03 8.03a.75.75 0 01-1.06-1.06l4.5-4.5zM3 15.75a.75.75 0 01.75.75v2.25a1.5 1.5 0 001.5 1.5h13.5a1.5 1.5 0 001.5-1.5V16.5a.75.75 0 011.5 0v2.25a3 3 0 01-3 3H5.25a3 3 0 01-3-3V16.5a.75.75 0 01.75-.75z" clipRule="evenodd" />
             </svg>
@@ -268,6 +310,9 @@ export function ChatSurface(props: ChatSurfaceProps) {
           {/* Mobile: top-align with a small offset so the composer clears the fold.
               sm+ keeps the original vertical-centering offset (desktop unchanged). */}
           <div className="mx-auto flex w-full max-w-2xl flex-col items-center px-4 pt-6 sm:pt-[calc(50vh-15rem)]">
+            {/* Upgrade slot. Empty (and hidden) whenever the card is floating
+                in its portal, which is every viewport wide enough for it. */}
+            <div className="w-full empty:hidden">{upgradeCard}</div>
             {validationProtectionBanner && (
               <div
                 role="status"
@@ -329,6 +374,7 @@ export function ChatSurface(props: ChatSurfaceProps) {
             isOpen={searchOpen}
             onClose={onCloseSearch}
           />
+          <div className="px-4 pt-3 empty:hidden">{upgradeCard}</div>
           <div className="min-h-0 flex-1 overflow-hidden">
             <MessageList
               messages={messages}
@@ -424,6 +470,11 @@ export function ChatSurface(props: ChatSurfaceProps) {
             data-eco-composer-bar
             className="relative border-t border-[var(--eco-border)]/40 px-3 sm:px-4 pt-3 sm:pt-5 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:pb-[calc(1.25rem+env(safe-area-inset-bottom))]"
           >
+            {/* Anchored to the composer bar's top edge rather than the surface:
+                a fixed bottom offset collides with the composer as soon as the
+                textarea autogrows, and at tablet widths the centered composer
+                reaches the right edge the button used to sit in. */}
+            <HelpGuideButton className="bottom-[calc(100%+0.5rem)] right-4 md:right-6" />
             <div className="mx-auto max-w-2xl">
               {droppedAttachmentError ? (
                 <AttachmentDropError message={droppedAttachmentError} className="mb-3" />
@@ -434,16 +485,11 @@ export function ChatSurface(props: ChatSurfaceProps) {
         </>
       )}
 
-      {/* Help guide floating button */}
-      <button
-        type="button"
-        onClick={() => window.dispatchEvent(new Event(ECO_OPEN_GUIDE_EVENT))}
-        className="absolute z-40 flex h-11 w-11 cursor-pointer items-center justify-center rounded-full border border-[var(--eco-border)] bg-[var(--eco-surface-elevated)]/90 text-[var(--eco-text-secondary)] shadow-md backdrop-blur-sm transition-all duration-200 hover:scale-105 active:scale-95 hover:border-[var(--eco-primary)]/40 hover:bg-[var(--eco-surface-elevated)] hover:text-[var(--eco-primary)] hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--eco-primary)] focus-visible:ring-offset-2 bottom-[80px] right-4 md:bottom-5 md:right-6"
-        aria-label="Open Eco guide"
-        title="Open Eco guide"
-      >
-        <QuestionMarkIcon className="h-5 w-5" />
-      </button>
+      {/* Help guide floating button — the empty state has no bottom-anchored
+          composer bar to hang it from, so it stays pinned to the surface. */}
+      {messages.length === 0 && (
+        <HelpGuideButton className="bottom-[80px] right-4 md:bottom-5 md:right-6" />
+      )}
     </div>
   );
 }

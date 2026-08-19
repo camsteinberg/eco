@@ -56,3 +56,20 @@ describe("Toast durationMs", () => {
     expect(screen.queryByText("hello")).not.toBeInTheDocument();
   });
 });
+
+describe("Toast container", () => {
+  it("caps its width and keeps clear of the chat surface's help button", () => {
+    const { container } = render(
+      <ToastProvider>
+        <Fire />
+      </ToastProvider>,
+    );
+    const stack = container.querySelector("div.fixed");
+
+    // Without a cap a long notice (the retired-model one) becomes a single
+    // ~980px line; the right offset clears the 68px lane the help button owns.
+    expect(stack?.className).toContain("w-80");
+    expect(stack?.className).toContain("max-w-[calc(100vw-6rem)]");
+    expect(stack?.className).toContain("right-[4.75rem]");
+  });
+});

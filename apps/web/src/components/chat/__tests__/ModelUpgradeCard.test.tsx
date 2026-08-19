@@ -17,6 +17,12 @@ import type {
   UseModelUpgradeReturn,
 } from '../../../hooks/local-ai/useModelUpgrade';
 
+/** Drives the narrow-screen branch: below `sm` the card stops floating. */
+let mockIsNarrow = false;
+vi.mock('../../../hooks/useMediaQuery', () => ({
+  useMediaQuery: () => mockIsNarrow,
+}));
+
 const TARGET = {
   id: 'candidate/qwen3.5-2b-onnx',
   friendlyName: 'Qwen 3.5',
@@ -36,6 +42,7 @@ function upgradeStub(ui: ModelUpgradeUi): UseModelUpgradeReturn {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockIsNarrow = false;
 });
 
 afterEach(() => {
@@ -109,6 +116,30 @@ describe('ModelUpgradeCard', () => {
     expect(screen.getByText(/1\.5 GB of free space/)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /okay/i }));
     expect(upgrade.dismiss).toHaveBeenCalledTimes(1);
+  });
+
+  // A 340px card over a 375px column erased the greeting and clipped the
+  // suggestion tiles. Below `sm` the card leaves its portal and renders where
+  // ChatSurface placed it — above the greeting, in the flow.
+  it('floats in a body portal on roomy screens', () => {
+    const { container } = render(
+      <ModelUpgradeCard upgrade={upgradeStub({ kind: 'offer', target: TARGET })} isStreaming={false} />,
+    );
+    const card = screen.getByTestId('model-upgrade-card');
+
+    expect(container.contains(card)).toBe(false);
+    expect(card.className).toContain('fixed');
+  });
+
+  it('renders in the document flow on narrow screens', () => {
+    mockIsNarrow = true;
+    const { container } = render(
+      <ModelUpgradeCard upgrade={upgradeStub({ kind: 'offer', target: TARGET })} isStreaming={false} />,
+    );
+    const card = screen.getByTestId('model-upgrade-card');
+
+    expect(container.contains(card)).toBe(true);
+    expect(card.className).not.toContain('fixed');
   });
 
   it('boosted: shows the boost note and auto-dismisses', () => {

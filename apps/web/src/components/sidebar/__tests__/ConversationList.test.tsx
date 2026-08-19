@@ -256,6 +256,25 @@ describe("ConversationList", () => {
   });
 
   describe("BulkActionsBar", () => {
+    // The bar used to mount only once something was selected, while its first
+    // button reads "Select all" only at a count of zero — so that label shipped
+    // unreachable. The bar now stands for the whole of multi-select.
+    it("offers Select all the moment multi-select is armed, and it selects everything", async () => {
+      const user = userEvent.setup();
+      render(<ConversationList />);
+
+      await user.click(screen.getByLabelText("Select conversations"));
+
+      expect(screen.getByText(/0 selected/i)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /delete selected/i })).toBeDisabled();
+
+      await user.click(screen.getByRole("button", { name: "Select all" }));
+
+      expect(screen.getByText(/4 selected/i)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Deselect" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /delete selected/i })).toBeEnabled();
+    });
+
     it("shows selected count and Delete button when items are selected", async () => {
       const user = userEvent.setup();
       render(<ConversationList />);
