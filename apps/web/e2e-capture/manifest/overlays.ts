@@ -369,9 +369,9 @@ export const overlaysStates: StateEntry[] = [
     assert: [{ text: "is no longer offered" }],
     notes:
       "The only toast with a live caller anywhere in the app. Info styling, and eight seconds "
-      + "rather than the default three because there are two sentences to read. It also sits on "
-      + "top of the chat's floating help button, which is bottom-right too — visible here by "
-      + "comparing this shot with any other chat capture.",
+      + "rather than the default three because there are two sentences to read. It used to land "
+      + "on top of the chat's floating help button in the same bottom-right corner; the toast "
+      + "container is now width-capped and offset clear of the button's lane.",
   },
 
   // ── Model selector ──────────────────────────────────────────────────────
