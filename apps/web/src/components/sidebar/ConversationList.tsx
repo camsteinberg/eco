@@ -435,7 +435,7 @@ export function ConversationList({ variant = "standalone" }: ConversationListPro
               </div>
             ))}
           </nav>
-          {multiSelect && selectedIds.size > 0 && (
+          {multiSelect && (
             <BulkActionsBar
               selectedCount={selectedIds.size}
               onSelectAll={() => {

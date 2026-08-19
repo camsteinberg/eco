@@ -44,10 +44,11 @@ import { READY_CHAT_SEARCH, UPGRADE_DECLINED_LOCAL } from "./pilot";
  *
  * ── One dead affordance, found by reading the code for these states ───────
  *
- * `BulkActionsBar` renders only when `selectedIds.size > 0`, and its first
- * button reads "Select All" only when `selectedCount === 0`. Those conditions
- * cannot both hold, so the Select All label ships but can never appear. The
- * `sidebar.bulk-selected` shot below is the only state that bar has.
+ * `BulkActionsBar` used to render only when `selectedIds.size > 0`, while its
+ * first button reads "Select all" only when `selectedCount === 0` — conditions
+ * that cannot both hold, so that label shipped without ever being reachable.
+ * The bar now mounts for the whole of multi-select, which is what makes the
+ * label real; `sidebar.bulk-mode` is its shot.
  */
 
 /** The standing sidebar column. `Sidebar` is the app's only `<aside>`. */
@@ -183,15 +184,6 @@ export const sidebarGaps: CaptureGap[] = [
     reason:
       "It catches a render throw from Sidebar/ConversationList, and nothing reachable throws there. Faking one means "
       + "patching a component from an init script, which is a screenshot of sabotage rather than of the product.",
-  },
-  {
-    id: "sidebar.bulk-select-all-label",
-    group: "sidebar",
-    surface: "BulkActionsBar's “Select All” label",
-    reason:
-      "A DEAD AFFORDANCE, found by reading the code for these states: the bar renders only when selectedIds.size > 0, and its "
-      + "first button reads 'Select All' only when selectedCount === 0. Those conditions cannot both hold, so the label ships "
-      + "but can never appear. sidebar.bulk-selected is the only state that bar has.",
   },
 ];
 
@@ -413,7 +405,8 @@ export const sidebarStates: StateEntry[] = [
     {
       notes:
         "Edit becomes Done, every row grows a checkbox, and the overflow menus disappear — so the "
-        + "only thing a row can do in this mode is be chosen. No action bar until something is. "
+        + "only thing a row can do in this mode is be chosen. The action bar is already there with "
+        + "nothing selected, which is the one state that can offer Select all. "
         + "Worth a designer's eye: the title row is `justify-between`, so with the menu button gone "
         + "the titles jump to the right edge and the column loses its left alignment.",
     },
@@ -431,7 +424,8 @@ export const sidebarStates: StateEntry[] = [
     {
       notes:
         "The action bar sticks to the bottom of the list with the count, Deselect, Delete and "
-        + "Cancel. Its fourth label, Select All, is unreachable — see this file's header.",
+        + "Cancel. Deselect is where Select all sits in sidebar.bulk-mode — the same button, "
+        + "flipped by the count.",
     },
   ),
   sidebarDetail(
