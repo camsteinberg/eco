@@ -81,7 +81,6 @@
   --eco-neutral-border-muted: #ede7db;
   --eco-neutral-text: #2c2418;
   --eco-neutral-text-secondary: #5a4e3f;
-  --eco-neutral-text-muted: #9a8e80;
 
   /* Soft washes (low-alpha fills for badges, toasts, alerts) */
   --eco-coral-soft: rgba(176, 74, 58, 0.10);
@@ -187,7 +186,6 @@
   --color-neutral-border-muted: var(--eco-neutral-border-muted);
   --color-neutral-text: var(--eco-neutral-text);
   --color-neutral-text-secondary: var(--eco-neutral-text-secondary);
-  --color-neutral-text-muted: var(--eco-neutral-text-muted);
 }
 
 /* ── Dark Theme ───────────────────────────────────────────────────────────── */
@@ -263,7 +261,6 @@
   --eco-neutral-border-muted: #2a2a2a;
   --eco-neutral-text: #ede8e0;
   --eco-neutral-text-secondary: #bbb5ad;
-  --eco-neutral-text-muted: #706b65;
 
   /* Soft washes */
   --eco-coral-soft: rgba(224, 112, 96, 0.14);
@@ -347,7 +344,6 @@
   --color-neutral-border-muted: var(--eco-neutral-border-muted);
   --color-neutral-text: var(--eco-neutral-text);
   --color-neutral-text-secondary: var(--eco-neutral-text-secondary);
-  --color-neutral-text-muted: var(--eco-neutral-text-muted);
 }
 
 /* ── Grain Texture Utility ────────────────────────────────────────────────── */
