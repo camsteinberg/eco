@@ -423,9 +423,9 @@ export const sidebarStates: StateEntry[] = [
     },
     {
       notes:
-        "The action bar sticks to the bottom of the list with the count, Deselect, Delete and "
-        + "Cancel. Deselect is where Select all sits in sidebar.bulk-mode — the same button, "
-        + "flipped by the count.",
+        "The action bar sits under the list with the count, Deselect, Delete and Cancel. "
+        + "Deselect is where Select all sits in sidebar.bulk-mode — the same button, flipped by "
+        + "the count.",
     },
   ),
   sidebarDetail(
@@ -444,8 +444,8 @@ export const sidebarStates: StateEntry[] = [
         "The count is in the title and the consequence is spelled out — 'All selected conversations "
         + "and their messages will be permanently deleted' — which the single-row confirmation does "
         + "not bother to say. Corner-anchored for the same reason as sidebar.row-delete-confirm. "
-        + "Note the action bar behind it: at 280px its four controls do not fit, and Cancel is cut "
-        + "off mid-word.",
+        + "The action bar behind it wraps its controls onto a second row: at 280px the count and "
+        + "three buttons do not fit on one line, and wrapping is how they stay whole.",
     },
   ),
 
