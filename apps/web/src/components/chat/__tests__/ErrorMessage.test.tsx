@@ -384,6 +384,24 @@ describe("ErrorMessage", () => {
     expect(link).toHaveTextContent(/Set up Qwen3 0\.6B/);
   });
 
+  it("renders the capacity Set up label as one text run (flex drops inter-item whitespace)", async () => {
+    recommendationState.current = {
+      slot: "eco-fast",
+      model: { id: "local/qwen3-0.6b", friendlyName: "Qwen3 0.6B" },
+    };
+    render(<ErrorMessage message="No contributor available — capacity busy" />);
+    await waitFor(() => {
+      expect(screen.getByTestId("capacity-local-setup-link")).toBeInTheDocument();
+    });
+    const link = screen.getByTestId("capacity-local-setup-link");
+    expect(link.textContent).toBe("Set up Qwen3 0.6B on this device →");
+    // The link is `inline-flex`, so any whitespace that lives in its own node
+    // is layout the flex container may drop ("Set up Qwen3 0.6Bon this
+    // device"). The label must therefore be a single text node.
+    expect(link.childNodes).toHaveLength(1);
+    expect(link.firstChild?.nodeType).toBe(Node.TEXT_NODE);
+  });
+
   it("does NOT render the Set up link when no manual recommendation exists", async () => {
     recommendationState.current = null;
     render(<ErrorMessage message="No contributor available — capacity busy" />);
@@ -430,6 +448,11 @@ describe("ErrorMessage", () => {
     const link = screen.getByTestId("lighter-model-setup-link");
     expect(link).toHaveAttribute("href", "/settings?tab=models&setup=eco-fast");
     expect(link).toHaveTextContent(/Set up Bonsai Lite/);
+    // Same single-text-run requirement as the capacity branch: this link is
+    // `inline-flex`, and a whitespace-only node between text runs is dropped.
+    expect(link.textContent).toBe("Set up Bonsai Lite on this device →");
+    expect(link.childNodes).toHaveLength(1);
+    expect(link.firstChild?.nodeType).toBe(Node.TEXT_NODE);
   });
 
   it("prefers an already-downloaded lighter webllm candidate over a lighter uncached one (runtime-aware)", async () => {
