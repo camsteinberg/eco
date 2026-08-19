@@ -114,7 +114,7 @@ export function ConversationItem({
         isNested ? "rounded-xl px-2.5 py-2 text-xs" : "rounded-lg px-3 py-2 text-sm",
         isActive && !isMultiSelect
           ? "border-l-2 border-l-[var(--eco-primary)] bg-[var(--eco-primary-soft)] text-[var(--eco-text)]"
-          : "border-l-2 border-l-transparent text-[var(--eco-text)] hover:bg-[var(--eco-primary-soft)]/70",
+          : "border-l-2 border-l-transparent text-[var(--eco-text)] hover:bg-[var(--eco-surface)]",
         isMultiSelect && isSelected
           ? "bg-[var(--eco-primary-soft)]/50"
           : "",
@@ -165,7 +165,7 @@ export function ConversationItem({
             aria-label="Rename conversation"
           />
         ) : (
-          <span className="truncate font-medium">{conversation.title}</span>
+          <span className="min-w-0 flex-1 truncate text-left font-medium">{conversation.title}</span>
         )}
         {!isMultiSelect && !editing && (
           <div ref={menuRef} className="relative">
@@ -273,7 +273,7 @@ export function ConversationItem({
         )}
       </div>
       <div className="flex items-center justify-between">
-        <span className={`${isNested ? "max-w-[8.5rem]" : ""} truncate text-xs text-[var(--eco-text-secondary)]`}>
+        <span className={`${isNested ? "min-w-0 flex-1" : ""} truncate text-xs text-[var(--eco-text-secondary)]`}>
           {preview}
         </span>
         <span className="shrink-0 text-[10px] text-[var(--eco-text-secondary)]">

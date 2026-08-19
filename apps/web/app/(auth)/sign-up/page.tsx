@@ -279,10 +279,10 @@ function SignUpForm() {
                 aria-describedby={fieldErrors.name ? "sign-up-name-error" : undefined}
                 aria-invalid={fieldErrors.name ? "true" : "false"}
                 autoComplete="name"
-                className={`mt-1.5 block w-full rounded-xl border bg-[var(--color-surface)] px-4 py-3 text-base text-[var(--color-text-primary)] placeholder-[var(--color-text-secondary)] transition-all duration-150 ease focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/20 focus:border-[var(--color-primary)] ${
+                className={`mt-1.5 block w-full rounded-xl border bg-[var(--color-surface)] px-4 py-3 text-base text-[var(--color-text-primary)] placeholder-[var(--color-text-secondary)] transition-all duration-150 ease focus:outline-none ${
                   fieldErrors.name
-                    ? "border-[var(--color-danger)]"
-                    : "border-[var(--color-border)]"
+                    ? "border-[var(--color-danger)] focus:border-[var(--color-danger)] focus:ring-2 focus:ring-[var(--color-danger)]/20"
+                    : "border-[var(--color-border)] focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/20"
                 }`}
                 placeholder="Your name"
               />
@@ -320,10 +320,10 @@ function SignUpForm() {
                 aria-describedby={fieldErrors.email ? "sign-up-email-error" : undefined}
                 aria-invalid={fieldErrors.email ? "true" : "false"}
                 autoComplete="email"
-                className={`mt-1.5 block w-full rounded-xl border bg-[var(--color-surface)] px-4 py-3 text-base text-[var(--color-text-primary)] placeholder-[var(--color-text-secondary)] transition-all duration-150 ease focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/20 focus:border-[var(--color-primary)] ${
+                className={`mt-1.5 block w-full rounded-xl border bg-[var(--color-surface)] px-4 py-3 text-base text-[var(--color-text-primary)] placeholder-[var(--color-text-secondary)] transition-all duration-150 ease focus:outline-none ${
                   fieldErrors.email
-                    ? "border-[var(--color-danger)]"
-                    : "border-[var(--color-border)]"
+                    ? "border-[var(--color-danger)] focus:border-[var(--color-danger)] focus:ring-2 focus:ring-[var(--color-danger)]/20"
+                    : "border-[var(--color-border)] focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/20"
                 }`}
                 placeholder="you@example.com"
               />
@@ -362,10 +362,10 @@ function SignUpForm() {
                   aria-describedby={fieldErrors.password ? "sign-up-password-error" : undefined}
                   aria-invalid={fieldErrors.password ? "true" : "false"}
                   autoComplete="new-password"
-                  className={`block w-full rounded-xl border bg-[var(--color-surface)] px-4 py-3 pr-10 text-base text-[var(--color-text-primary)] placeholder-[var(--color-text-secondary)] transition-all duration-150 ease focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/20 focus:border-[var(--color-primary)] ${
+                  className={`block w-full rounded-xl border bg-[var(--color-surface)] px-4 py-3 pr-10 text-base text-[var(--color-text-primary)] placeholder-[var(--color-text-secondary)] transition-all duration-150 ease focus:outline-none ${
                     fieldErrors.password
-                      ? "border-[var(--color-danger)]"
-                      : "border-[var(--color-border)]"
+                      ? "border-[var(--color-danger)] focus:border-[var(--color-danger)] focus:ring-2 focus:ring-[var(--color-danger)]/20"
+                      : "border-[var(--color-border)] focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/20"
                   }`}
                   placeholder="Enter your password"
                 />

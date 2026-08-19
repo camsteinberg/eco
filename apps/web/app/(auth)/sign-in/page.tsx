@@ -264,8 +264,10 @@ function SignInForm() {
                 aria-describedby={fieldErrors.email ? "sign-in-email-error" : undefined}
                 aria-invalid={fieldErrors.email ? "true" : "false"}
                 autoComplete="email"
-                className={`mt-1.5 block w-full rounded-xl border bg-[var(--color-surface)] px-4 py-3 text-base text-[var(--color-text-primary)] placeholder-[var(--color-text-secondary)] transition-all duration-150 ease focus:border-[var(--color-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/20 ${
-                  fieldErrors.email ? "border-[var(--color-danger)]" : "border-[var(--color-border)]"
+                className={`mt-1.5 block w-full rounded-xl border bg-[var(--color-surface)] px-4 py-3 text-base text-[var(--color-text-primary)] placeholder-[var(--color-text-secondary)] transition-all duration-150 ease focus:outline-none ${
+                  fieldErrors.email
+                    ? "border-[var(--color-danger)] focus:border-[var(--color-danger)] focus:ring-2 focus:ring-[var(--color-danger)]/20"
+                    : "border-[var(--color-border)] focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/20"
                 }`}
                 placeholder="you@example.com"
               />
@@ -298,8 +300,10 @@ function SignInForm() {
                   aria-describedby={fieldErrors.password ? "sign-in-password-error" : undefined}
                   aria-invalid={fieldErrors.password ? "true" : "false"}
                   autoComplete="current-password"
-                  className={`block w-full rounded-xl border bg-[var(--color-surface)] px-4 py-3 pr-10 text-base text-[var(--color-text-primary)] placeholder-[var(--color-text-secondary)] transition-all duration-150 ease focus:border-[var(--color-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/20 ${
-                    fieldErrors.password ? "border-[var(--color-danger)]" : "border-[var(--color-border)]"
+                  className={`block w-full rounded-xl border bg-[var(--color-surface)] px-4 py-3 pr-10 text-base text-[var(--color-text-primary)] placeholder-[var(--color-text-secondary)] transition-all duration-150 ease focus:outline-none ${
+                    fieldErrors.password
+                      ? "border-[var(--color-danger)] focus:border-[var(--color-danger)] focus:ring-2 focus:ring-[var(--color-danger)]/20"
+                      : "border-[var(--color-border)] focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/20"
                   }`}
                   placeholder="Enter your password"
                 />

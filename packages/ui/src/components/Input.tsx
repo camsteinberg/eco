@@ -13,15 +13,15 @@ type InputProps = React.InputHTMLAttributes<HTMLInputElement> & {
 };
 
 const baseInputClasses =
-  "block w-full rounded-[var(--eco-radius-md)] border bg-[var(--eco-surface)] px-4 py-3 text-base text-[var(--eco-text)] placeholder-[var(--eco-text-secondary)] focus:border-[var(--eco-primary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--eco-primary)]/20 transition-colors";
+  "block w-full rounded-[var(--eco-radius-md)] border bg-[var(--eco-surface)] px-4 py-3 text-base text-[var(--eco-text)] placeholder-[var(--eco-text-secondary)] focus:outline-none transition-colors";
 
 export const Input = React.forwardRef<HTMLInputElement, InputProps>(
   function Input({ label, error, helpText, id, className = "", ...rest }, ref) {
     const inputClasses = [
       baseInputClasses,
       error
-        ? "border-[var(--eco-danger)]"
-        : "border-[var(--eco-border)]",
+        ? "border-[var(--eco-danger)] focus:border-[var(--eco-danger)] focus-visible:ring-2 focus-visible:ring-[var(--eco-danger)]/20"
+        : "border-[var(--eco-border)] focus:border-[var(--eco-primary)] focus-visible:ring-2 focus-visible:ring-[var(--eco-primary)]/20",
       className,
     ]
       .filter(Boolean)

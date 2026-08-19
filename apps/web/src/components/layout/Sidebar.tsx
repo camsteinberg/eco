@@ -118,7 +118,7 @@ function SidebarNavLink({
         collapsed
           ? `min-h-[44px] min-w-[44px] justify-center p-2 ${
               item.isActive
-                ? 'bg-[var(--eco-primary-soft)] text-[var(--eco-primary)] shadow-sm'
+                ? 'border-l-2 border-l-[var(--eco-primary)] bg-[var(--eco-primary-soft)] text-[var(--eco-primary)] shadow-sm'
                 : 'text-[var(--eco-text-secondary)] hover:bg-[var(--eco-primary-soft)]/60 hover:text-[var(--eco-text)]'
             }`
           : `min-h-11 gap-3 px-3 py-2.5 ${
@@ -591,7 +591,12 @@ export function Sidebar({
               disabled={isSigningOut}
               aria-busy={isSigningOut}
               aria-label={isSigningOut ? 'Signing out' : 'Sign out'}
-              className="cursor-pointer rounded-lg p-2 min-h-[44px] min-w-[44px] md:min-h-0 md:min-w-0 flex items-center justify-center text-[var(--eco-text-secondary)] transition-colors hover:text-[var(--eco-text)] disabled:cursor-wait disabled:opacity-60"
+              className={[
+                "cursor-pointer rounded-lg p-2 min-h-[44px] min-w-[44px] md:min-h-0 md:min-w-0 flex items-center justify-center transition-colors",
+                isSigningOut
+                  ? "bg-[var(--eco-primary-soft)] text-[var(--eco-primary)] disabled:cursor-wait"
+                  : "text-[var(--eco-text-secondary)] hover:text-[var(--eco-text)]",
+              ].join(" ")}
               title={isSigningOut ? 'Signing out' : 'Sign out'}
             >
               <SignOutIcon className="h-5 w-5" />
@@ -607,7 +612,12 @@ export function Sidebar({
               onClick={handleSignOut}
               disabled={isSigningOut}
               aria-busy={isSigningOut}
-              className="w-full cursor-pointer rounded-xl px-3 py-2.5 text-left text-sm text-[var(--eco-text-secondary)] transition-colors hover:bg-[var(--eco-primary-soft)] hover:text-[var(--eco-text)] disabled:cursor-wait disabled:opacity-70"
+              className={[
+                "w-full cursor-pointer rounded-xl px-3 py-2.5 text-left text-sm transition-colors",
+                isSigningOut
+                  ? "bg-[var(--eco-primary-soft)] text-[var(--eco-primary)] disabled:cursor-wait"
+                  : "text-[var(--eco-text-secondary)] hover:bg-[var(--eco-primary-soft)] hover:text-[var(--eco-text)]",
+              ].join(" ")}
             >
               <span className="flex items-center gap-2.5">
                 <SignOutIcon className="h-4 w-4 shrink-0" />

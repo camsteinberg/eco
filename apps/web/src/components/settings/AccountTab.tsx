@@ -181,7 +181,8 @@ export function AccountTab() {
               type="email"
               value={user?.email ?? ''}
               readOnly
-              className="mt-1 w-full rounded-xl border border-[var(--eco-border)] bg-[var(--eco-surface)] px-4 py-3 text-base text-[var(--eco-text-secondary)] outline-none transition-all duration-150 ease"
+              tabIndex={-1}
+              className="mt-1 w-full cursor-default rounded-xl bg-[var(--eco-surface)] px-4 py-3 text-base text-[var(--eco-text-secondary)] outline-none"
             />
           </div>
           {(isDirty || saveSuccess || saveError) && (
@@ -191,7 +192,13 @@ export function AccountTab() {
                   type="button"
                   onClick={handleSave}
                   disabled={saving || !isDirty}
-                  className="cursor-pointer rounded-xl bg-[var(--eco-primary)] px-4 py-2.5 text-base font-medium text-[var(--eco-on-primary)] transition-all duration-150 ease hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                  aria-busy={saving}
+                  className={[
+                    "cursor-pointer rounded-xl px-4 py-2.5 text-base font-medium transition-all duration-150 ease",
+                    saving
+                      ? "bg-[var(--eco-primary-soft)] text-[var(--eco-primary)] disabled:cursor-wait"
+                      : "bg-[var(--eco-primary)] text-[var(--eco-on-primary)] hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50",
+                  ].join(" ")}
                 >
                   {saving ? 'Saving…' : 'Save'}
                 </button>
