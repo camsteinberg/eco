@@ -204,6 +204,7 @@ export function SwitchAIDialog({ open, onClose, currentModel, currentModelReady,
           <Button
             onClick={handleSave}
             variant="primary"
+            loading={state.saving || autoRetrying}
             disabled={state.saving || autoRetrying || !hasChoices || state.selectedId === null}
           >
             {state.saving || autoRetrying ? 'Switching…' : failure ? 'Try again' : 'Save'}

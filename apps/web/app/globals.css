@@ -97,6 +97,10 @@ html.dark {
   dialog:modal {
     margin: auto;
   }
+
+  ::selection {
+    background: color-mix(in srgb, var(--eco-primary) 22%, transparent);
+  }
 }
 
 /* Code surfaces render literal characters.
