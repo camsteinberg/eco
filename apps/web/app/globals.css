@@ -88,6 +88,17 @@ html.dark {
   color-scheme: dark;
 }
 
+/* Native <dialog> centering.
+   Tailwind's preflight zeroes `margin` on every element, which wipes out the
+   UA stylesheet's `dialog:modal { margin: auto }` and pins every modal dialog
+   to the viewport origin. Restoring it inside @layer base beats preflight on
+   specificity while staying overridable by Tailwind margin utilities. */
+@layer base {
+  dialog:modal {
+    margin: auto;
+  }
+}
+
 /* ── Calm scrollbars ─────────────────────────────────────────
    Keep scroll affordances present without the default browser chrome
    cutting through sidebar, settings, modal, and code surfaces. */
