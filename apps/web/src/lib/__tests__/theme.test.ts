@@ -82,12 +82,24 @@ describe('theme', () => {
       expect(document.documentElement.style.colorScheme).toBe('light')
     })
 
-    it('applies seasonal CSS variable overrides to document root', () => {
-      applyTheme('light')
+    it('never sets the brand primary inline on the document root', () => {
+      // The primary is token-defined in CSS. Setting it inline here (as the removed
+      // seasonal override did) forks the brand color by route and calendar month.
+      for (const resolved of ['light', 'dark'] as const) {
+        applyTheme(resolved)
+        const style = document.documentElement.style
+        expect(style.getPropertyValue('--eco-primary')).toBe('')
+        expect(style.getPropertyValue('--eco-primary-soft')).toBe('')
+      }
+    })
+
+    it('clears an inline primary left over from an earlier session', () => {
       const style = document.documentElement.style
-      // applyTheme now calls applySeasonalOverrides, which sets seasonal primary colors
-      expect(style.getPropertyValue('--eco-primary')).toBeTruthy()
-      expect(style.getPropertyValue('--eco-primary-soft')).toBeTruthy()
+      style.setProperty('--eco-primary', '#a67c52')
+      style.setProperty('--eco-primary-soft', '#faf0e6')
+      applyTheme('light')
+      expect(style.getPropertyValue('--eco-primary')).toBe('')
+      expect(style.getPropertyValue('--eco-primary-soft')).toBe('')
     })
   })
 })
