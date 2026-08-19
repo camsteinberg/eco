@@ -635,7 +635,7 @@ export const routesStates: StateEntry[] = [
       await page.waitForLoadState("networkidle", { timeout: 10_000 }).catch(() => undefined);
       await page.context().setOffline(true);
     },
-    assert: [{ text: "Eco needs a connection to open." }],
+    assert: [{ text: "Eco needs a connection to open" }],
     notes:
       "Not the app: a document the service worker itself synthesises when a navigation "
       + "cannot reach the network. It styles itself from prefers-color-scheme, so the "
