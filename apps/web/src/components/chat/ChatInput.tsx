@@ -315,7 +315,7 @@ export function ChatInput({
             type="submit"
             disabled={disabled || !hasContent || hasProcessing}
             aria-label="Send message"
-            className="flex h-8 w-8 min-h-[44px] min-w-[44px] md:min-h-0 md:min-w-0 shrink-0 cursor-pointer items-center justify-center rounded-full text-white transition-all hover:opacity-90 hover:scale-110 active:scale-95 disabled:cursor-not-allowed disabled:opacity-30"
+            className="flex h-8 w-8 min-h-[44px] min-w-[44px] md:min-h-0 md:min-w-0 shrink-0 cursor-pointer items-center justify-center rounded-full text-[var(--eco-on-primary)] transition-all hover:opacity-90 hover:scale-110 active:scale-95 disabled:cursor-not-allowed disabled:opacity-30"
             style={{ backgroundColor: 'var(--eco-accent)' }}
           >
             <svg

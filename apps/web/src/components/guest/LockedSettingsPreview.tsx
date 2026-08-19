@@ -52,7 +52,7 @@ export function LockedSettingsPreview({
         <button
           type="button"
           onClick={() => setDialogOpen(true)}
-          className="inline-flex min-h-11 items-center justify-center rounded-xl px-4 py-2.5 text-sm font-medium text-white transition-all hover:opacity-95"
+          className="inline-flex min-h-11 items-center justify-center rounded-xl px-4 py-2.5 text-sm font-medium text-[var(--eco-on-primary)] transition-all hover:opacity-95"
           style={{ backgroundColor: "var(--eco-primary)" }}
         >
           Sign in

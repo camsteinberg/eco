@@ -135,7 +135,7 @@ export function ConversationItem({
             className={[
               "mr-2 flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors duration-150",
               isSelected
-                ? "border-[var(--eco-primary)] bg-[var(--eco-primary)] text-white"
+                ? "border-[var(--eco-primary)] bg-[var(--eco-primary)] text-[var(--eco-on-primary)]"
                 : "border-[var(--eco-border)] bg-transparent",
             ].join(" ")}
             aria-label={isSelected ? "Deselect conversation" : "Select conversation"}

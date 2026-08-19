@@ -58,7 +58,7 @@
   --eco-code-inline-bg: #ede7db;
   --eco-code-inline-text: #2d5a3d;
   --eco-code-header-bg: #ede7db;
-  --eco-code-header-text: #7a6e5f;
+  --eco-code-header-text: #6f6456; /* 4.69:1 on #ede7db */
   --eco-code-border: #e5ddd0;
   --eco-code-link: #2d5a3d;
   --eco-code-link-decoration: #94c9a3;
@@ -69,7 +69,7 @@
   --eco-syntax-string: #3d7a50; /* accent green — strings, regexp */
   --eco-syntax-function: #3b6f99; /* sky — function/section titles, tag names */
   --eco-syntax-number: #8a5e15; /* amber — numbers, literals */
-  --eco-syntax-comment: #857a68; /* muted — comments, quotes (italic) */
+  --eco-syntax-comment: #6f6659; /* muted — comments, quotes (italic); 4.58:1 on #ede7db */
   --eco-syntax-meta: #6b5e4f; /* earth — meta, symbols, tag punctuation */
   --eco-syntax-addition: #137035; /* success green — diff additions */
   --eco-syntax-deletion: #b04a3a; /* terracotta — diff deletions */
@@ -82,6 +82,28 @@
   --eco-neutral-text: #2c2418;
   --eco-neutral-text-secondary: #5a4e3f;
   --eco-neutral-text-muted: #9a8e80;
+
+  /* Soft washes (low-alpha fills for badges, toasts, alerts) */
+  --eco-coral-soft: rgba(176, 74, 58, 0.10);
+  --eco-sky-soft: rgba(59, 111, 153, 0.10);
+  --eco-mint-soft: rgba(53, 122, 72, 0.10);
+
+  /* Amber border + text (AA on surface) */
+  --eco-amber-border: #c48a2a;
+  --eco-amber-text: #7a4f0a;
+
+  /* Code surface aliases */
+  --eco-code-bg: var(--eco-code-inline-bg);
+  --eco-code-text: var(--eco-code-inline-text);
+
+  /* Semantic aliases for components using shadcn-style token names */
+  --eco-foreground: var(--eco-text);
+  --eco-muted: var(--eco-text-muted);
+  --eco-primary-foreground: var(--eco-on-primary);
+  --eco-surface-hover: var(--eco-primary-soft);
+
+  /* Primary as comma-separated RGB (for rgba() composition) */
+  --eco-primary-rgb: 45, 90, 61;
 
   /* Danger */
   --eco-danger: #b95050;
@@ -242,6 +264,28 @@
   --eco-neutral-text: #ede8e0;
   --eco-neutral-text-secondary: #bbb5ad;
   --eco-neutral-text-muted: #706b65;
+
+  /* Soft washes */
+  --eco-coral-soft: rgba(224, 112, 96, 0.14);
+  --eco-sky-soft: rgba(109, 160, 200, 0.14);
+  --eco-mint-soft: rgba(123, 192, 142, 0.14);
+
+  /* Amber border + text */
+  --eco-amber-border: #d4a853;
+  --eco-amber-text: #d4a853;
+
+  /* Code surface aliases */
+  --eco-code-bg: var(--eco-code-inline-bg);
+  --eco-code-text: var(--eco-code-inline-text);
+
+  /* Semantic aliases */
+  --eco-foreground: var(--eco-text);
+  --eco-muted: var(--eco-text-muted);
+  --eco-primary-foreground: var(--eco-on-primary);
+  --eco-surface-hover: rgba(255, 255, 255, 0.06);
+
+  /* Primary as comma-separated RGB */
+  --eco-primary-rgb: 123, 192, 142;
 
   /* Danger */
   --eco-danger: #e87171;

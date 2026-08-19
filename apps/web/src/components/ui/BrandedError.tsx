@@ -3,7 +3,7 @@
 
 "use client";
 
-import { Button } from "./Button";
+import { Button } from "@eco/ui";
 
 type BrandedErrorProps = {
   title: string;

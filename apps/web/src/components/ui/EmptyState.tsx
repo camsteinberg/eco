@@ -4,7 +4,7 @@
 "use client";
 
 import React from "react";
-import { Button } from "./Button";
+import { Button } from "@eco/ui";
 
 type EmptyStateAction = {
   label: string;
@@ -45,7 +45,7 @@ export function EmptyState({
         (action.href ? (
           <a
             href={action.href}
-            className="inline-flex items-center justify-center font-medium transition-all duration-150 ease cursor-pointer active:scale-[0.98] rounded-full text-white hover:opacity-90 px-3 py-1.5 text-sm"
+            className="inline-flex items-center justify-center font-medium transition-all duration-150 ease cursor-pointer active:scale-[0.98] rounded-full text-[var(--eco-on-primary)] hover:opacity-90 px-3 py-1.5 text-sm"
             style={{ backgroundColor: "var(--eco-primary)" }}
           >
             {action.label}
