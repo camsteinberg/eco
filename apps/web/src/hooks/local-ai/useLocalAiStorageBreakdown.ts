@@ -5,6 +5,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { getCatalog } from '../../local-ai/catalog/catalog';
+import { getDisplayInfo } from '../../local-ai/display';
 import {
   CacheApiStorage,
   ECO_PART_MARKER,
@@ -30,6 +31,7 @@ import type { ModelConfig } from '../../local-ai/types';
 
 export type StorageModelEntry = {
   id: string;
+  /** Branded display name ("Eco Tiny (SmolLM)"), not the raw catalog name. */
   friendlyName: string;
   vendor: string;
   sizeBytes: number;
@@ -130,7 +132,10 @@ async function computeBreakdown(opts: {
         if (bytes <= 0) continue;
         models.push({
           id: model.id,
-          friendlyName: model.friendlyName,
+          // The catalog's own friendlyName is the raw model name ("SmolLM2
+          // 360M"). Primary UI names models the way the rest of the product
+          // does, so the storage cards go through the display boundary too.
+          friendlyName: getDisplayInfo(model.id, model).friendlyName,
           vendor: model.vendor,
           sizeBytes: bytes,
         });

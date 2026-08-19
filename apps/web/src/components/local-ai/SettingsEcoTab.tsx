@@ -3,7 +3,6 @@
 
 'use client';
 
-import { useState } from 'react';
 import { Button } from '@eco/ui';
 import type { ModelConfig } from '../../local-ai/types';
 import type { SlotStatus } from '../../local-ai/lifecycle/slots';
@@ -35,16 +34,10 @@ export type SettingsEcoTabProps = {
    *  "Currently running" card shows a quiet "Setting up on this device…" line
    *  so an interrupted download never reads as a ready model. */
   currentModelStatus?: SlotStatus;
-  /** Storage occupied across all cached models, in bytes. */
-  storageBytes: number | null;
-  /**
-   * Per-model storage breakdown (v7.1). When provided alongside
-   * `storageStatus`, renders the LocalAiStoragePanel instead of the legacy
-   * single-line summary + clear-all button.
-   */
-  storageBreakdown?: StorageBreakdown | null;
-  /** Loading state for the storageBreakdown fetch. Required when storageBreakdown is meaningful. */
-  storageStatus?: 'loading' | 'ready';
+  /** Per-model storage breakdown. Null until the first measurement lands. */
+  storageBreakdown: StorageBreakdown | null;
+  /** Loading state for the storageBreakdown fetch. */
+  storageStatus: 'loading' | 'ready';
   /** Open the SwitchAIDialog. */
   onSwitchAI(): void;
   /** Show the "What works today" / diagnostic surface. */
@@ -58,7 +51,6 @@ export type SettingsEcoTabProps = {
 export function SettingsEcoTab({
   currentModel,
   currentModelStatus,
-  storageBytes,
   storageBreakdown,
   storageStatus,
   onSwitchAI,
@@ -66,25 +58,12 @@ export function SettingsEcoTab({
   onClearCache,
   onSwitchOffEco,
 }: SettingsEcoTabProps) {
-  const [clearing, setClearing] = useState(false);
-  const [clearConfirm, setClearConfirm] = useState(false);
   // The mono provenance line ("ONNX Community · 1.1 GB") is a technical
   // detail — keep it out of the calm default view, surfacing only when the
   // user has opted into technical details (Settings → Appearance, C-08).
   const showTechnicalDetails = useSettingsStore((s) => s.showTechnicalDetails);
   const groundingEnabled = useSettingsStore((s) => s.groundingEnabled);
   const setGroundingEnabled = useSettingsStore((s) => s.setGroundingEnabled);
-
-  const clearCache = async (): Promise<void> => {
-    if (!currentModel) return;
-    setClearing(true);
-    try {
-      await onClearCache(currentModel.id);
-    } finally {
-      setClearing(false);
-      setClearConfirm(false);
-    }
-  };
 
   if (!currentModel) {
     return (
@@ -168,41 +147,11 @@ export function SettingsEcoTab({
       </SettingsSection>
 
       <SettingsSection title="Storage on this device">
-        {storageBreakdown !== undefined && storageStatus ? (
-          <LocalAiStoragePanel
-            status={storageStatus}
-            breakdown={storageBreakdown}
-            onClearModel={onClearCache}
-          />
-        ) : (
-          <div className="text-sm">
-            <p className="text-[var(--eco-text-secondary)]">
-              Eco is using {storageBytes !== null ? formatBytes(storageBytes) : '—'} on this device.
-            </p>
-            <div className="mt-4 flex flex-row gap-3">
-              {!clearConfirm ? (
-                <Button onClick={() => setClearConfirm(true)} variant="secondary">
-                  Clear cache
-                </Button>
-              ) : (
-                <>
-                  <Button onClick={clearCache} variant="primary" disabled={clearing}>
-                    {clearing ? 'Clearing…' : `Yes, clear ${getDisplayInfo(currentModel.id, currentModel).friendlyName}`}
-                  </Button>
-                  <Button onClick={() => setClearConfirm(false)} variant="secondary">
-                    Cancel
-                  </Button>
-                </>
-              )}
-            </div>
-            {clearConfirm && (
-              <p className="mt-2 text-xs text-[var(--eco-text-muted)]">
-                Eco will re-download {getDisplayInfo(currentModel.id, currentModel).friendlyName} (about{' '}
-                {Math.round(currentModel.sizeGB * 45)} seconds) the next time you chat.
-              </p>
-            )}
-          </div>
-        )}
+        <LocalAiStoragePanel
+          status={storageStatus}
+          breakdown={storageBreakdown}
+          onClearModel={onClearCache}
+        />
       </SettingsSection>
 
       <SettingsSection title="Technical details">
@@ -290,13 +239,6 @@ function CurrentModelCard({
       )}
     </div>
   );
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(0)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
 function describeRuntime(model: ModelConfig): string {

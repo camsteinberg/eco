@@ -9,7 +9,7 @@ import { useChatStore } from "../../stores/chatStore";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { BottomSheet } from "../ui/BottomSheet";
 import { getCatalog } from "../../local-ai/catalog/catalog";
-import { getDisplayInfo } from "../../local-ai/display";
+import { dedupeByDisplayName, getDisplayInfo } from "../../local-ai/display";
 import { canServe, listCatalog, recommend } from "../../local-ai/index";
 import { useDeviceProfile } from "../../hooks/local-ai/useDeviceProfile";
 import { getSlotForModel } from "../../local-ai/lifecycle/slots";
@@ -21,15 +21,9 @@ import { useModelUpgradeUi } from "../../hooks/local-ai/useModelUpgrade";
 
 type DropdownPosition = {
   left: number;
-  top?: number;
-  bottom?: number;
+  bottom: number;
   width: number;
   maxHeight: number;
-  transformOrigin: "top right" | "bottom right";
-};
-
-type ModelSelectorProps = {
-  variant?: "header" | "composer";
 };
 
 /**
@@ -45,8 +39,12 @@ type ModelSelectorProps = {
  *
  * The recommended entry carries a quiet "Recommended" tag. There is no network
  * fetch and no remote-compute option — every choice runs on-device.
+ *
+ * Its one mount is `ChatInput`'s composer row, pinned to the bottom of the
+ * viewport: on a pointer device the panel is portalled and anchored ABOVE the
+ * trigger, on a touch layout it is a bottom sheet.
  */
-export function ModelSelector({ variant = "header" }: ModelSelectorProps) {
+export function ModelSelector() {
   const selectedModel = useChatStore((s) => s.selectedModel);
   const setSelectedModel = useChatStore((s) => s.setSelectedModel);
   const [open, setOpen] = useState(false);
@@ -56,7 +54,6 @@ export function ModelSelector({ variant = "header" }: ModelSelectorProps) {
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [dropdownPosition, setDropdownPosition] = useState<DropdownPosition | null>(null);
   const isMobile = useMediaQuery("(max-width: 767px)");
-  const isComposer = variant === "composer";
 
   // Reactive device profile: recomputes the instant the async adapter probe
   // resolves (shader-f16 / working-adapter verdict), so the recommendation and
@@ -95,27 +92,14 @@ export function ModelSelector({ variant = "header" }: ModelSelectorProps) {
       Math.max(rect.right - width, margin),
       Math.max(margin, window.innerWidth - width - margin),
     );
-    const below = window.innerHeight - rect.bottom - margin;
-    const above = rect.top - margin;
-
-    if (below < 220 && above > below) {
-      setDropdownPosition({
-        left,
-        bottom: Math.max(margin, window.innerHeight - rect.top + 8),
-        width,
-        maxHeight: Math.max(160, above - 8),
-        transformOrigin: "bottom right",
-      });
-      return;
-    }
-
-    const top = Math.min(rect.bottom + 8, window.innerHeight - margin);
+    // The trigger lives in the composer, at the bottom of the window, so the
+    // panel always opens upward: it is anchored to the trigger's top edge and
+    // grows into the space above it.
     setDropdownPosition({
       left,
-      top,
+      bottom: Math.max(margin, window.innerHeight - rect.top + 8),
       width,
-      maxHeight: Math.max(160, window.innerHeight - top - margin),
-      transformOrigin: "top right",
+      maxHeight: Math.max(160, rect.top - margin - 8),
     });
   }, []);
 
@@ -185,18 +169,26 @@ export function ModelSelector({ variant = "header" }: ModelSelectorProps) {
   // currently-selected model is exempted so it always stays visible. Device
   // probing is client-only, so before mount we render the full catalog to keep
   // the first paint stable, then narrow to the runnable set once mounted.
+  //
+  // Builds of the same model share one branded name (the f16 and int4 1.2B are
+  // both "Eco Fast (Liquid)"), so the runnable set is deduped by display name
+  // before it is rendered — otherwise a device that can serve both offers two
+  // identical-looking rows. The selected build wins, then the recommended one.
   const models = useMemo(() => {
-    if (!hasMounted) return getCatalog();
-    try {
-      if (!canServe(profile)) return [];
-      const { available } = listCatalog(profile, {
-        currentlyBoundModelId: resolvedSelectedId,
-      });
-      return available.map((entry) => entry.model);
-    } catch {
-      return getCatalog();
-    }
-  }, [hasMounted, resolvedSelectedId, profile]);
+    const runnable = (): ModelConfig[] => {
+      if (!hasMounted) return getCatalog();
+      try {
+        if (!canServe(profile)) return [];
+        const { available } = listCatalog(profile, {
+          currentlyBoundModelId: resolvedSelectedId,
+        });
+        return available.map((entry) => entry.model);
+      } catch {
+        return getCatalog();
+      }
+    };
+    return dedupeByDisplayName(runnable(), [resolvedSelectedId, recommendedId]);
+  }, [hasMounted, resolvedSelectedId, recommendedId, profile]);
 
   const currentModel = models.find((m) => m.id === resolvedSelectedId) ?? null;
   // One identity in the composer: the model is always "Eco". Its branded name
@@ -304,11 +296,9 @@ export function ModelSelector({ variant = "header" }: ModelSelectorProps) {
         type="button"
         ref={triggerRef}
         onClick={() => setOpen(!open)}
-        className={`flex min-h-[44px] items-center gap-1.5 border text-xs font-medium text-[var(--eco-text-secondary)] transition-colors hover:text-[var(--eco-text)] sm:max-w-[12rem] md:min-h-0 ${
-          isComposer
-            ? "max-w-[7.5rem] rounded-full border-[var(--eco-border)]/80 bg-[var(--eco-surface)]/70 px-2.5 py-2 hover:bg-[var(--eco-primary-soft)]/35 sm:max-w-[9rem]"
-            : "max-w-[8.5rem] rounded-md border-[var(--eco-border)] px-2.5 py-1.5 hover:bg-[var(--eco-surface-elevated)]"
-        }`}
+        // Exactly the class list the composer variant produced — this commit
+        // removes an unused variant, it does not restyle the trigger.
+        className="flex min-h-[44px] items-center gap-1.5 border text-xs font-medium text-[var(--eco-text-secondary)] transition-colors hover:text-[var(--eco-text)] sm:max-w-[12rem] md:min-h-0 max-w-[7.5rem] rounded-full border-[var(--eco-border)]/80 bg-[var(--eco-surface)]/70 px-2.5 py-2 hover:bg-[var(--eco-primary-soft)]/35 sm:max-w-[9rem]"
         data-testid="model-selector"
         data-tour-target="model-selector"
         aria-expanded={open}
@@ -331,7 +321,7 @@ export function ModelSelector({ variant = "header" }: ModelSelectorProps) {
           )}
         </motion.span>
         <span
-          className={`min-w-0 truncate ${isComposer ? "hidden sm:inline" : ""}`}
+          className="min-w-0 truncate hidden sm:inline"
         >
           {displayName}
         </span>
@@ -368,11 +358,10 @@ export function ModelSelector({ variant = "header" }: ModelSelectorProps) {
           style={{
             position: "fixed",
             left: dropdownPosition.left,
-            top: dropdownPosition.top,
             bottom: dropdownPosition.bottom,
             width: dropdownPosition.width,
             maxHeight: dropdownPosition.maxHeight,
-            transformOrigin: dropdownPosition.transformOrigin,
+            transformOrigin: "bottom right",
           }}
         >
           {modelList}

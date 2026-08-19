@@ -111,6 +111,48 @@ export function getDisplayInfo(
 }
 
 /**
+ * Collapse models that render as the same branded name into one row.
+ *
+ * Several catalog entries are the SAME model in different builds — the f16 and
+ * plain-int4 1.2B both brand as "Eco Fast (Liquid)" on purpose, because the
+ * choice between them is a graphics-hardware detail, not a choice a person
+ * should be asked to make. A device that can serve both therefore renders two
+ * visually identical rows, which reads as a bug.
+ *
+ * `preferredIds` decides which build survives, in order — pass the selected id
+ * first, then the recommended one, so the surviving row is the one the rest of
+ * the UI is already talking about. Otherwise the first build in list order
+ * wins. Group order follows first appearance, so the list does not reshuffle
+ * when the selection changes.
+ */
+export function dedupeByDisplayName<T extends ModelConfig>(
+  models: readonly T[],
+  preferredIds: readonly (string | null | undefined)[] = [],
+): T[] {
+  // Map preserves insertion order, so grouping alone keeps first-appearance order.
+  const groups = new Map<string, T[]>();
+  for (const model of models) {
+    const { friendlyName } = getDisplayInfo(model.id, model);
+    const group = groups.get(friendlyName);
+    if (group) {
+      group.push(model);
+    } else {
+      groups.set(friendlyName, [model]);
+    }
+  }
+
+  const kept: T[] = [];
+  for (const group of groups.values()) {
+    const preferred = preferredIds
+      .map((id) => group.find((model) => model.id === id))
+      .find((model): model is T => model !== undefined);
+    const winner = preferred ?? group[0];
+    if (winner) kept.push(winner);
+  }
+  return kept;
+}
+
+/**
  * The model to present as "currently running": the one the chat's current
  * selection resolves to, matching how dispatch resolves a selection into a
  * slot. Only when the selection resolves to an empty slot does it fall back

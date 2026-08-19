@@ -30,7 +30,8 @@ describe('SettingsEcoTab — default state', () => {
     render(
       <SettingsEcoTab
         currentModel={MODEL}
-        storageBytes={null}
+        storageBreakdown={null}
+        storageStatus="loading"
         onSwitchAI={() => undefined}
         onClearCache={async () => undefined}
       />,
@@ -43,7 +44,8 @@ describe('SettingsEcoTab — default state', () => {
     render(
       <SettingsEcoTab
         currentModel={MODEL}
-        storageBytes={null}
+        storageBreakdown={null}
+        storageStatus="loading"
         onSwitchAI={() => undefined}
         onClearCache={async () => undefined}
       />,
@@ -61,7 +63,8 @@ describe('SettingsEcoTab — default state', () => {
     render(
       <SettingsEcoTab
         currentModel={MODEL}
-        storageBytes={null}
+        storageBreakdown={null}
+        storageStatus="loading"
         onSwitchAI={() => undefined}
         onClearCache={async () => undefined}
       />,
@@ -73,7 +76,8 @@ describe('SettingsEcoTab — default state', () => {
     render(
       <SettingsEcoTab
         currentModel={MODEL}
-        storageBytes={null}
+        storageBreakdown={null}
+        storageStatus="loading"
         onSwitchAI={() => undefined}
         onClearCache={async () => undefined}
       />,
@@ -85,7 +89,8 @@ describe('SettingsEcoTab — default state', () => {
     render(
       <SettingsEcoTab
         currentModel={MODEL}
-        storageBytes={null}
+        storageBreakdown={null}
+        storageStatus="loading"
         onSwitchAI={() => undefined}
         onClearCache={async () => undefined}
       />,
@@ -95,23 +100,21 @@ describe('SettingsEcoTab — default state', () => {
     expect(screen.getByText(MODEL.id)).toBeInTheDocument();
   });
 
-  it('clear cache requires a confirm step', async () => {
-    const onClear = vi.fn(async () => undefined);
+  // The section title and the panel's own heading both said "Storage on this
+  // device", one directly under the other.
+  it('prints the storage section title exactly once', () => {
     render(
       <SettingsEcoTab
         currentModel={MODEL}
-        storageBytes={1_000_000}
+        storageBreakdown={null}
+        storageStatus="loading"
         onSwitchAI={() => undefined}
-        onClearCache={onClear}
+        onClearCache={async () => undefined}
       />,
     );
-    fireEvent.click(screen.getByRole('button', { name: /clear cache/i }));
-    expect(screen.getByText(/Eco will re-download/i)).toBeInTheDocument();
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /yes, clear/i }));
-    });
-    expect(onClear).toHaveBeenCalledWith(MODEL.id);
+    expect(screen.getAllByText(/Storage on this device/i)).toHaveLength(1);
   });
+
 });
 
 describe('SettingsEcoTab — grounding toggle (#5 S5)', () => {
@@ -124,7 +127,8 @@ describe('SettingsEcoTab — grounding toggle (#5 S5)', () => {
     render(
       <SettingsEcoTab
         currentModel={MODEL}
-        storageBytes={null}
+        storageBreakdown={null}
+        storageStatus="loading"
         onSwitchAI={() => undefined}
         onClearCache={async () => undefined}
       />,
@@ -140,7 +144,8 @@ describe('SettingsEcoTab — grounding toggle (#5 S5)', () => {
     render(
       <SettingsEcoTab
         currentModel={MODEL}
-        storageBytes={null}
+        storageBreakdown={null}
+        storageStatus="loading"
         onSwitchAI={() => undefined}
         onClearCache={async () => undefined}
       />,
@@ -154,7 +159,8 @@ describe('SettingsEcoTab — grounding toggle (#5 S5)', () => {
     render(
       <SettingsEcoTab
         currentModel={MODEL}
-        storageBytes={null}
+        storageBreakdown={null}
+        storageStatus="loading"
         onSwitchAI={() => undefined}
         onClearCache={async () => undefined}
       />,
@@ -167,7 +173,8 @@ describe('SettingsEcoTab — grounding toggle (#5 S5)', () => {
     render(
       <SettingsEcoTab
         currentModel={MODEL}
-        storageBytes={null}
+        storageBreakdown={null}
+        storageStatus="loading"
         onSwitchAI={() => undefined}
         onClearCache={async () => undefined}
       />,
@@ -186,7 +193,8 @@ describe('SettingsEcoTab — empty state', () => {
     render(
       <SettingsEcoTab
         currentModel={null}
-        storageBytes={null}
+        storageBreakdown={null}
+        storageStatus="loading"
         onSwitchAI={() => undefined}
         onClearCache={async () => undefined}
       />,
@@ -199,7 +207,8 @@ describe('SettingsEcoTab — empty state', () => {
     render(
       <SettingsEcoTab
         currentModel={null}
-        storageBytes={null}
+        storageBreakdown={null}
+        storageStatus="loading"
         onSwitchAI={onSwitch}
         onClearCache={async () => undefined}
       />,
@@ -212,7 +221,8 @@ describe('SettingsEcoTab — empty state', () => {
     render(
       <SettingsEcoTab
         currentModel={null}
-        storageBytes={null}
+        storageBreakdown={null}
+        storageStatus="loading"
         onSwitchAI={() => undefined}
         onClearCache={async () => undefined}
       />,
@@ -226,7 +236,8 @@ describe('SettingsEcoTab — ready state with model', () => {
     render(
       <SettingsEcoTab
         currentModel={MODEL}
-        storageBytes={null}
+        storageBreakdown={null}
+        storageStatus="loading"
         onSwitchAI={() => undefined}
         onClearCache={async () => undefined}
       />,
@@ -240,7 +251,8 @@ describe('SettingsEcoTab — ready state with model', () => {
     render(
       <SettingsEcoTab
         currentModel={MODEL}
-        storageBytes={null}
+        storageBreakdown={null}
+        storageStatus="loading"
         onSwitchAI={onSwitch}
         onClearCache={async () => undefined}
       />,
@@ -254,7 +266,8 @@ describe('SettingsEcoTab — ready state with model', () => {
       <SettingsEcoTab
         currentModel={MODEL}
         currentModelStatus="preparing"
-        storageBytes={null}
+        storageBreakdown={null}
+        storageStatus="loading"
         onSwitchAI={() => undefined}
         onClearCache={async () => undefined}
       />,
@@ -267,7 +280,8 @@ describe('SettingsEcoTab — ready state with model', () => {
       <SettingsEcoTab
         currentModel={MODEL}
         currentModelStatus="ready"
-        storageBytes={null}
+        storageBreakdown={null}
+        storageStatus="loading"
         onSwitchAI={() => undefined}
         onClearCache={async () => undefined}
       />,
@@ -276,29 +290,18 @@ describe('SettingsEcoTab — ready state with model', () => {
   });
 });
 
-describe('SettingsEcoTab — storage display (legacy fallback)', () => {
-  it('shows formatted storage bytes when provided', () => {
+describe('SettingsEcoTab — storage', () => {
+  it('renders the per-model storage panel', () => {
     render(
       <SettingsEcoTab
         currentModel={MODEL}
-        storageBytes={2_500_000_000}
+        storageBreakdown={null}
+        storageStatus="loading"
         onSwitchAI={() => undefined}
         onClearCache={async () => undefined}
       />,
     );
-    expect(screen.getByText(/Eco is using 2.3 GB/i)).toBeInTheDocument();
-  });
-
-  it('shows dash when storageBytes is null', () => {
-    render(
-      <SettingsEcoTab
-        currentModel={MODEL}
-        storageBytes={null}
-        onSwitchAI={() => undefined}
-        onClearCache={async () => undefined}
-      />,
-    );
-    expect(screen.getByText(/Eco is using — on this device/i)).toBeInTheDocument();
+    expect(screen.getByTestId('local-ai-storage-panel')).toBeInTheDocument();
   });
 });
 
@@ -308,7 +311,8 @@ describe('SettingsEcoTab — optional callbacks', () => {
     render(
       <SettingsEcoTab
         currentModel={MODEL}
-        storageBytes={null}
+        storageBreakdown={null}
+        storageStatus="loading"
         onSwitchAI={() => undefined}
         onClearCache={async () => undefined}
         onShowDiagnostic={onDiag}
@@ -323,7 +327,8 @@ describe('SettingsEcoTab — optional callbacks', () => {
     render(
       <SettingsEcoTab
         currentModel={MODEL}
-        storageBytes={null}
+        storageBreakdown={null}
+        storageStatus="loading"
         onSwitchAI={() => undefined}
         onClearCache={async () => undefined}
       />,
@@ -336,7 +341,8 @@ describe('SettingsEcoTab — optional callbacks', () => {
     render(
       <SettingsEcoTab
         currentModel={MODEL}
-        storageBytes={null}
+        storageBreakdown={null}
+        storageStatus="loading"
         onSwitchAI={() => undefined}
         onClearCache={async () => undefined}
         onSwitchOffEco={onOff}
@@ -352,44 +358,13 @@ describe('SettingsEcoTab — optional callbacks', () => {
     render(
       <SettingsEcoTab
         currentModel={MODEL}
-        storageBytes={null}
+        storageBreakdown={null}
+        storageStatus="loading"
         onSwitchAI={() => undefined}
         onClearCache={async () => undefined}
       />,
     );
     fireEvent.click(screen.getByRole('button', { name: /show technical details/i }));
     expect(screen.queryByText(/switch off eco/i)).toBeNull();
-  });
-});
-
-describe('SettingsEcoTab — clear cache confirm/cancel', () => {
-  it('cancel button dismisses the confirm step', () => {
-    render(
-      <SettingsEcoTab
-        currentModel={MODEL}
-        storageBytes={1_000_000}
-        onSwitchAI={() => undefined}
-        onClearCache={async () => undefined}
-      />,
-    );
-    fireEvent.click(screen.getByRole('button', { name: /clear cache/i }));
-    expect(screen.getByText(/Eco will re-download/i)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
-    expect(screen.queryByText(/Eco will re-download/i)).toBeNull();
-    expect(screen.getByRole('button', { name: /clear cache/i })).toBeInTheDocument();
-  });
-
-  it('confirm text includes the display name and estimated time', () => {
-    render(
-      <SettingsEcoTab
-        currentModel={MODEL}
-        storageBytes={null}
-        onSwitchAI={() => undefined}
-        onClearCache={async () => undefined}
-      />,
-    );
-    fireEvent.click(screen.getByRole('button', { name: /clear cache/i }));
-    // Display-mapped name for Qwen3; estimated time: Math.round(0.57 * 45) = 26 seconds
-    expect(screen.getByText(/re-download Eco Compact \(Qwen\).*26 seconds/)).toBeInTheDocument();
   });
 });
