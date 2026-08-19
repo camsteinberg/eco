@@ -81,7 +81,26 @@ describe("Button", () => {
     render(<Button size="lg">Large</Button>);
     const button = screen.getByRole("button");
     expect(button.className).toContain("px-6");
-    expect(button.className).toContain(
+  });
+
+  it("applies pill radius to primary and danger variants", () => {
+    const { rerender } = render(<Button variant="primary">Primary</Button>);
+    expect(screen.getByRole("button").className).toContain(
+      "rounded-[var(--eco-radius-full)]",
+    );
+    rerender(<Button variant="danger">Danger</Button>);
+    expect(screen.getByRole("button").className).toContain(
+      "rounded-[var(--eco-radius-full)]",
+    );
+  });
+
+  it("applies small radius to secondary and ghost variants", () => {
+    const { rerender } = render(<Button variant="secondary">Secondary</Button>);
+    expect(screen.getByRole("button").className).toContain(
+      "rounded-[var(--eco-radius-sm)]",
+    );
+    rerender(<Button variant="ghost">Ghost</Button>);
+    expect(screen.getByRole("button").className).toContain(
       "rounded-[var(--eco-radius-sm)]",
     );
   });

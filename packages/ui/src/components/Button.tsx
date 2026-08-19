@@ -17,19 +17,19 @@ type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
 
 const variantClasses: Record<Variant, string> = {
   primary:
-    "bg-[var(--eco-primary)] text-[var(--eco-on-primary)] hover:bg-[var(--eco-primary-hover)]",
+    "bg-[var(--eco-primary)] text-[var(--eco-on-primary)] hover:bg-[var(--eco-primary-hover)] rounded-[var(--eco-radius-full)]",
   secondary:
-    "border border-[var(--eco-primary)] text-[var(--eco-primary)] hover:bg-[var(--eco-primary-soft)]",
+    "border border-[var(--eco-primary)] text-[var(--eco-primary)] hover:bg-[var(--eco-primary-soft)] rounded-[var(--eco-radius-sm)]",
   ghost:
-    "text-[var(--eco-text-secondary)] hover:text-[var(--eco-text)] hover:bg-[var(--eco-surface-elevated)]",
+    "text-[var(--eco-text-secondary)] hover:text-[var(--eco-text)] hover:bg-[var(--eco-surface-elevated)] rounded-[var(--eco-radius-sm)]",
   danger:
-    "bg-[var(--eco-coral)] text-[var(--eco-on-primary)] hover:opacity-90",
+    "bg-[var(--eco-coral)] text-[var(--eco-on-primary)] hover:opacity-90 rounded-[var(--eco-radius-full)]",
 };
 
 const sizeClasses: Record<Size, string> = {
-  sm: "px-3 py-1.5 text-sm rounded-[var(--eco-radius-sm)]",
-  md: "px-5 py-2.5 text-sm rounded-[var(--eco-radius-sm)]",
-  lg: "px-6 py-3 text-base rounded-[var(--eco-radius-sm)]",
+  sm: "px-3 py-1.5 text-sm",
+  md: "px-5 py-2.5 text-sm",
+  lg: "px-6 py-3 text-base",
 };
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
