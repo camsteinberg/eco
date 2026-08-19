@@ -53,8 +53,13 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   return (
     <ToastContext.Provider value={{ toast: addToast }}>
       {children}
-      {/* Toast container */}
-      <div className="fixed bottom-4 right-4 z-[100] flex flex-col gap-2">
+      {/* Toast container. `w-80` matches the @eco/ui viewport this shadows —
+          without a cap a long notice (the retired-model one) stretches into a
+          single ~980px line. `right-[4.75rem]` keeps the stack clear of the
+          chat surface's floating help button, which owns the 68px lane at the
+          right edge; the width cap keeps that offset from overflowing on a
+          375px screen. */}
+      <div className="fixed bottom-4 right-[4.75rem] z-[100] flex w-80 max-w-[calc(100vw-6rem)] flex-col gap-2">
         {toasts.map((t) => (
           <ToastItem key={t.id} toast={t} onDismiss={removeToast} />
         ))}
@@ -107,7 +112,7 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
           setIsExiting(true)
           setTimeout(() => onDismiss(toast.id), 200)
         }}
-        className="ml-2 text-[var(--eco-text-secondary)] hover:text-[var(--eco-text)]"
+        className="ml-2 shrink-0 self-start text-[var(--eco-text-secondary)] hover:text-[var(--eco-text)]"
         aria-label="Dismiss"
       >
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
