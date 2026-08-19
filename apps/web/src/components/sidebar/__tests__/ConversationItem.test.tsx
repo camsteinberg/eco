@@ -61,6 +61,38 @@ describe("ConversationItem", () => {
     expect(screen.getByText("Hello, how can I help?")).toBeInTheDocument();
   });
 
+  it("renders a Markdown preview as plain text", () => {
+    // Previews are stored, so this must be fixed at render: a preview written
+    // by an earlier version is already in IndexedDB with its syntax intact.
+    renderItem({
+      conversation: { ...mockConversation, preview: "## Watering a container garden" },
+    });
+    expect(screen.getByText("Watering a container garden")).toBeInTheDocument();
+    expect(screen.queryByText(/^##/)).not.toBeInTheDocument();
+  });
+
+  it("flattens a multi-line Markdown preview to one line", () => {
+    renderItem({
+      conversation: { ...mockConversation, preview: "**Basil**\n- water daily" },
+    });
+    expect(screen.getByText("Basil water daily")).toBeInTheDocument();
+  });
+
+  it("shows the placeholder only for a missing preview, not an empty one", () => {
+    // An error-turn conversation stores an empty preview and has always
+    // rendered blank; stripping must not turn that into a placeholder.
+    renderItem({ conversation: { ...mockConversation, preview: "" } });
+    expect(screen.queryByText("New conversation")).not.toBeInTheDocument();
+
+    renderItem({ conversation: { ...mockConversation, preview: undefined } });
+    expect(screen.getByText("New conversation")).toBeInTheDocument();
+  });
+
+  it("renders nothing rather than raw syntax when a preview is only Markdown", () => {
+    renderItem({ conversation: { ...mockConversation, preview: "## " } });
+    expect(screen.queryByText(/#/)).not.toBeInTheDocument();
+  });
+
   it("shows kebab menu button on hover area", () => {
     renderItem();
     const menuBtn = screen.getByRole("button", { name: "Conversation menu" });

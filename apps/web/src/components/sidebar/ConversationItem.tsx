@@ -6,6 +6,7 @@
 import { useState, useRef, useEffect } from "react";
 import type { Conversation } from "../../lib/types/conversation";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
+import { stripMarkdown } from "../../lib/markdown-plain-text";
 import { timeAgo } from "../../lib/time";
 
 type ConversationItemProps = {
@@ -81,7 +82,11 @@ export function ConversationItem({
     setEditing(false);
   }
 
-  const preview = conversation.preview ?? "New conversation";
+  // Strip Markdown at render, not only where previews are written: previews
+  // persisted by earlier versions are already in storage, and the write-side
+  // strip can never reach them. The `??` placeholder keeps its exact previous
+  // behaviour — an empty preview still renders empty, not as a placeholder.
+  const preview = stripMarkdown(conversation.preview ?? "New conversation");
   const isNested = variant === "nested";
 
   return (
