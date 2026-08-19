@@ -63,7 +63,7 @@ export function WelcomeCard({
   return (
     <div
       data-eco-welcome-card
-      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto px-4 py-8"
+      className="fixed inset-0 z-50 flex items-center-safe justify-center overflow-y-auto px-4 py-8"
       style={{ background: 'color-mix(in srgb, var(--eco-surface) 88%, transparent)', backdropFilter: 'blur(6px)' }}
       role="dialog"
       aria-modal="true"

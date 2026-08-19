@@ -562,7 +562,7 @@ function MarkdownRendererImpl({ content, isStreaming = false, hasCitations = fal
   }, [isStreaming, shouldReduce, shouldAnimate, hasCitations]);
 
   return (
-    <div className="eco-chat-markdown text-[15px] leading-7 text-[var(--eco-text)]">
+    <div className="eco-chat-markdown text-[0.9375rem] leading-7 text-[var(--eco-text)]">
       <ReactMarkdown
         remarkPlugins={remarkPlugins}
         rehypePlugins={finalRehypePlugins}
