@@ -29,13 +29,13 @@ export function useToast() {
 const typeStyles: Record<ToastType, string> = {
   success: 'border-[var(--eco-mint)]/20 bg-[var(--eco-mint-soft)]',
   error: 'border-[var(--eco-coral)]/20 bg-[var(--eco-coral-soft)]',
-  info: 'border-[var(--eco-sky)]/20 bg-[var(--eco-sky-soft)]',
+  info: 'border-[var(--eco-border)] bg-[var(--eco-surface-elevated)]',
 }
 
 const typeTextStyles: Record<ToastType, string> = {
   success: 'text-[var(--eco-mint)]',
   error: 'text-[var(--eco-coral)]',
-  info: 'text-[var(--eco-sky)]',
+  info: 'text-[var(--eco-text-secondary)]',
 }
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {

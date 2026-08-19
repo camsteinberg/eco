@@ -5,10 +5,11 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
-import { Button, Modal, SeedlingIllustration } from '@eco/ui';
+import { Button, Modal, SeedlingIllustration, WarningTriangle } from '@eco/ui';
 import type { ModelConfig } from '../../local-ai/types';
 import { getDisplayInfo } from '../../local-ai/display';
 import { BotanicalAnimation } from './BotanicalAnimation';
+import { ProgressBar } from '../ui/ProgressBar';
 import type {
   FailedConfidence,
   SwitchAIResult,
@@ -366,7 +367,7 @@ function FailureNotice(props: {
       }}
     >
       <div className="flex items-start gap-2">
-        <Leaf />
+        <WarningTriangle className="mt-0.5 h-[18px] w-[18px] shrink-0" />
         <div className="flex flex-col gap-1">
           <span className="font-medium">{headline}</span>
           <span style={{ color: 'var(--eco-text-secondary)' }}>{lead}</span>
@@ -408,7 +409,7 @@ function NetworkNotice({ failedName }: { failedName: string }) {
         border: '1px solid var(--eco-warning)',
       }}
     >
-      <Leaf />
+      <WarningTriangle className="mt-0.5 h-[18px] w-[18px] shrink-0" />
       <div className="flex flex-col gap-1">
         <span className="font-medium">{`Your connection dropped while downloading ${failedName}.`}</span>
         <span style={{ color: 'var(--eco-text-secondary)' }}>
@@ -505,8 +506,6 @@ function loadPhaseLabel(phase: string | null): string {
 function LoadingProgress({ progress, phase }: { progress: number; phase: string | null }) {
   const pct = Math.round(progress * 100);
   const label = loadPhaseLabel(phase);
-  // Map the load fraction to a BotanicalAnimation phase:
-  // 0-95% → downloading (seed/sprout), 95-100% → smoke (sapling)
   const botanicalPhase = progress >= 0.95 ? 'smoke' as const : 'downloading' as const;
 
   return (
@@ -516,24 +515,11 @@ function LoadingProgress({ progress, phase }: { progress: number; phase: string 
       aria-label={`Loading: ${pct}%`}
     >
       <BotanicalAnimation phase={botanicalPhase} percent={pct} size={120} />
-      <div className="flex flex-col items-center gap-1 w-full max-w-xs">
-        <div
-          className="w-full h-1.5 rounded-full overflow-hidden"
-          style={{ background: 'var(--eco-border-muted)' }}
-        >
-          <motion.div
-            className="h-full rounded-full"
-            style={{ background: 'var(--eco-primary)' }}
-            animate={{ width: `${Math.max(pct, 2)}%` }}
-            transition={{ type: 'spring', stiffness: 120, damping: 26 }}
-          />
-        </div>
-        <span
-          className="text-xs"
-          style={{ color: 'var(--eco-text-secondary)', fontFamily: 'var(--eco-font-body)' }}
-        >
-          {label} {pct > 0 ? `${pct}%` : ''}
-        </span>
+      <div className="w-full max-w-xs">
+        <ProgressBar
+          percent={pct}
+          label={`${label}${pct > 0 ? ` ${pct}%` : ''}`}
+        />
       </div>
     </div>
   );

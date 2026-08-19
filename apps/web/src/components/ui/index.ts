@@ -7,3 +7,4 @@ export { Badge } from "./Badge";
 export { EmptyState } from "./EmptyState";
 export { ConfirmDialog } from "./ConfirmDialog";
 export { ToastProvider, useToast } from "./Toast";
+export { ProgressBar } from "./ProgressBar";

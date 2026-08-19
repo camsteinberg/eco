@@ -44,6 +44,7 @@ export {
   PineIllustration,
   LeafIllustration,
   WiltedPlantIllustration,
+  WarningTriangle,
 } from "./illustrations/index.js";
 
 // Patterns

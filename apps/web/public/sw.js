@@ -102,6 +102,7 @@ function offlineNavigationResponse() {
         font-family: Georgia, "Times New Roman", serif;
         font-size: 28px;
         line-height: 1.1;
+        text-align: center;
       }
       p {
         margin: 0;
@@ -129,7 +130,7 @@ function offlineNavigationResponse() {
   </head>
   <body>
     <main>
-      <h1>Eco needs a connection to open.</h1>
+      <h1>Eco needs a connection to open</h1>
       <p>If Eco was already open, your local conversation can keep working there. Reconnect and refresh to load the app shell again.</p>
       <button onclick="window.location.reload()">Try again</button>
     </main>

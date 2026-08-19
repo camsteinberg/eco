@@ -6,6 +6,7 @@
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { BotanicalAnimation } from './BotanicalAnimation';
 import { GerminatingComposer } from '../chat/GerminatingComposer';
+import { ProgressBar } from '../ui/ProgressBar';
 
 /**
  * Welcome + setup wait — the v1.0 first-touch surface.
@@ -132,7 +133,13 @@ export function WelcomeSetup({
           >
             {statusCopy}
           </p>
-          <SetupProgressBar phase={phase} percent={percent} />
+          <div className="w-full max-w-[260px]">
+            <ProgressBar
+              percent={phase === 'done' ? 100 : phase === 'smoke' ? Math.max(percent, 96) : percent}
+              ariaLabel="Setup progress"
+              working={phase === 'smoke'}
+            />
+          </div>
         </div>
 
         {priorAttemptFailed && (
@@ -221,64 +228,6 @@ export function WelcomeSetup({
   );
 }
 
-/**
- * The concrete progress signal. Determinate throughout so the fill never resets
- * between phases: while downloading it tracks the monotonic aggregate
- * byte-percent (so it never ticks backward like a time estimate would); in the
- * smoke phase (download done, model loading — no reliable percentage) it holds
- * near-full and gently pulses to show it is still working, rather than snapping
- * back or freezing; at done it fills. No bytes/KB/s or raw percentage text —
- * the fill is the signal.
- */
-function SetupProgressBar({
-  phase,
-  percent,
-}: {
-  phase: WelcomeSetupProps['phase'];
-  percent: number;
-}) {
-  const reducedMotion = useReducedMotion();
-  const pct = Math.max(0, Math.min(100, percent));
-  const fillPct = phase === 'done' ? 100 : phase === 'smoke' ? Math.max(pct, 96) : pct;
-  // The cold model load has no byte progress, so a gentle opacity pulse on the
-  // (near-full) fill signals "still working" without the bar resetting.
-  const working = phase === 'smoke' && !reducedMotion;
-
-  return (
-    <div
-      role="progressbar"
-      aria-label="Setup progress"
-      aria-valuemin={0}
-      aria-valuemax={100}
-      aria-valuenow={Math.round(fillPct)}
-      style={{
-        width: '100%',
-        maxWidth: 260,
-        height: 8,
-        borderRadius: 'var(--eco-radius-full, 9999px)',
-        overflow: 'hidden',
-        background: 'color-mix(in srgb, var(--eco-primary) 13%, transparent)',
-      }}
-    >
-      <motion.div
-        aria-hidden="true"
-        style={{
-          height: '100%',
-          borderRadius: 'inherit',
-          background: 'var(--eco-primary)',
-        }}
-        initial={false}
-        animate={{ width: `${String(fillPct)}%`, opacity: working ? [1, 0.55, 1] : 1 }}
-        transition={{
-          width: reducedMotion ? { duration: 0 } : { type: 'spring', stiffness: 80, damping: 20 },
-          opacity: working
-            ? { duration: 1.6, repeat: Infinity, ease: 'easeInOut' }
-            : { duration: 0.2 },
-        }}
-      />
-    </div>
-  );
-}
 
 const VALUE_PILLARS: ReadonlyArray<{
   title: string;

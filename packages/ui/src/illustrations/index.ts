@@ -21,3 +21,4 @@ export { SeedlingIllustration } from './SeedlingIllustration.js';
 export { PineIllustration } from './PineIllustration.js';
 export { LeafIllustration } from './LeafIllustration.js';
 export { WiltedPlantIllustration } from './WiltedPlantIllustration.js';
+export { WarningTriangle } from './WarningTriangle.js';
