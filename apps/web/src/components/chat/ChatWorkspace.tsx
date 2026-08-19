@@ -23,10 +23,7 @@ import { OnboardingTour } from "../onboarding/OnboardingTour";
 import { LocalInferenceErrorBoundary } from "./LocalInferenceErrorBoundary";
 import { ValidationHarnessCrashSentinel } from "./ValidationHarnessCrashSentinel";
 import { normalizePendingChatPrompt } from "../../lib/pending-chat-prompt";
-
-function trimTerminalPunctuation(message: string): string {
-  return message.replace(/[.!?]+$/u, "");
-}
+import { attachValidationError, attachReadError } from "../../lib/attachment-errors";
 
 export function ChatWorkspace() {
   const { messages, isStreaming, streamPhase, error, sendMessage, editMessage, regenerateMessage, retryMessage, contextDividerIndex, activeToolCalls, stopGeneration } = useChat();
@@ -109,9 +106,7 @@ export function ChatWorkspace() {
       Array.from(droppedFiles).forEach(async (file) => {
         const validationError = validateFile(file);
         if (validationError) {
-          setDroppedAttachmentError(
-            `Could not attach ${validationError.filename}: ${validationError.error}.`,
-          );
+          setDroppedAttachmentError(attachValidationError(validationError.filename, validationError.error));
           return;
         }
 
@@ -125,9 +120,7 @@ export function ChatWorkspace() {
         } catch (err) {
           const message = err instanceof Error ? err.message : "Extraction failed";
           updateFileAttachment(id, { status: "error", errorMessage: message });
-          setDroppedAttachmentError(
-            `Could not read ${file.name}: ${trimTerminalPunctuation(message)}. Remove it or choose another file before sending.`,
-          );
+          setDroppedAttachmentError(attachReadError(file.name, message));
         }
       });
     },

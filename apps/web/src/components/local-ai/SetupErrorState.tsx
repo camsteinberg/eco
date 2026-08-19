@@ -189,7 +189,7 @@ export function SetupErrorState({
             Try again
           </Button>
           <Button onClick={handleCopy} variant="secondary">
-            {copied ? 'Copied' : 'Copy what happened'}
+            {copied ? 'Copied!' : 'Copy what happened'}
           </Button>
           <Button onClick={onTellUsMore} variant="secondary" aria-label="Open diagnostic info">
             Tell us more

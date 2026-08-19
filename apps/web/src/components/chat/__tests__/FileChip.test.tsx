@@ -37,11 +37,11 @@ describe("FileChip", () => {
     expect(screen.getByText("Unsupported file type")).toBeInTheDocument();
   });
 
-  it("shows the On-Device badge for a completed attachment with no Eco Network copy", () => {
+  it("shows the On-device badge for a completed attachment with no Eco Network copy", () => {
     render(<FileChip {...defaultProps} />);
     // v1.0 is on-device only — every attachment is read locally, so the badge
-    // reads On-Device with no Eco Network / "On network" wording.
-    expect(screen.getByText("On-Device")).toBeInTheDocument();
+    // reads On-device with no Eco Network / "On network" wording.
+    expect(screen.getByText("On-device")).toBeInTheDocument();
     expect(screen.queryByText(/On network/i)).toBeNull();
     expect(screen.queryByTitle(/Eco Network/i)).toBeNull();
   });

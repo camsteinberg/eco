@@ -89,11 +89,6 @@ export function AppearanceTab() {
           description="Soft tones when sending and receiving messages."
           control={
             <div className="flex items-center gap-3">
-              <SettingsSwitch
-                checked={soundsEnabled}
-                onChange={setSoundsEnabled}
-                ariaLabel="Toggle sound effects"
-              />
               <button
                 type="button"
                 onClick={() => playMessageSent(true)}
@@ -102,6 +97,11 @@ export function AppearanceTab() {
               >
                 Preview
               </button>
+              <SettingsSwitch
+                checked={soundsEnabled}
+                onChange={setSoundsEnabled}
+                ariaLabel="Toggle sound effects"
+              />
             </div>
           }
         />

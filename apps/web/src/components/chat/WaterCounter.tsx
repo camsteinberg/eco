@@ -180,7 +180,7 @@ export function WaterCounter({
                 clipRule="evenodd"
               />
             </svg>
-            <span>On-Device</span>
+            <span>On-device</span>
           </span>
         )}
 

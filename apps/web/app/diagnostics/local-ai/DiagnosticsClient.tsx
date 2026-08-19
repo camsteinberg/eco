@@ -457,7 +457,7 @@ export function DiagnosticsClient() {
         {/* Actions bar */}
         <div className="mb-6 flex flex-wrap gap-3">
           <Button onClick={handleCopy} variant="primary">
-            {copied ? 'Copied' : 'Copy as JSON'}
+            {copied ? 'Copied!' : 'Copy as JSON'}
           </Button>
           <Button onClick={handleDownload} variant="secondary">
             Download .json

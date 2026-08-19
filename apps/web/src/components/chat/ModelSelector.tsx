@@ -298,7 +298,7 @@ export function ModelSelector() {
         onClick={() => setOpen(!open)}
         // Exactly the class list the composer variant produced — this commit
         // removes an unused variant, it does not restyle the trigger.
-        className="flex min-h-[44px] items-center gap-1.5 border text-xs font-medium text-[var(--eco-text-secondary)] transition-colors hover:text-[var(--eco-text)] sm:max-w-[12rem] md:min-h-0 max-w-[7.5rem] rounded-full border-[var(--eco-border)]/80 bg-[var(--eco-surface)]/70 px-2.5 py-2 hover:bg-[var(--eco-primary-soft)]/35 sm:max-w-[9rem]"
+        className="flex min-h-[44px] items-center gap-1.5 border text-xs font-medium text-[var(--eco-text-secondary)] transition-colors hover:text-[var(--eco-text)] sm:max-w-[12rem] md:min-h-0 max-w-[7.5rem] rounded-full border-[var(--eco-border)] bg-[var(--eco-surface)]/70 px-2.5 py-2 hover:bg-[var(--eco-primary-soft)]/35 sm:max-w-[9rem]"
         data-testid="model-selector"
         data-tour-target="model-selector"
         aria-expanded={open}
@@ -308,7 +308,7 @@ export function ModelSelector() {
       >
         <motion.span
           key={isUpgrading ? "growing" : "settled"}
-          className="inline-flex shrink-0 text-[var(--eco-primary)]"
+          className="inline-flex shrink-0 text-[var(--eco-primary)] [&_svg]:stroke-[2.5] sm:[&_svg]:stroke-[1.5]"
           aria-hidden="true"
           initial={reducedMotion ? false : { scale: 0.72, opacity: 0.5 }}
           animate={{ scale: 1, opacity: 1 }}

@@ -7,6 +7,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { BotanicalAnimation } from './BotanicalAnimation';
 import { GerminatingComposer } from '../chat/GerminatingComposer';
 import { ProgressBar } from '../ui/ProgressBar';
+import { VALUE_PILLARS } from '../../lib/value-pillars';
 
 /**
  * Welcome + setup wait — the v1.0 first-touch surface.
@@ -229,61 +230,6 @@ export function WelcomeSetup({
 }
 
 
-const VALUE_PILLARS: ReadonlyArray<{
-  title: string;
-  body: string;
-  icon: React.ReactNode;
-}> = [
-  {
-    title: 'Private',
-    body: 'Your conversations stay on your device.',
-    icon: (
-      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-        <path
-          d="M10 2a4 4 0 00-4 4v2H5a2 2 0 00-2 2v6a2 2 0 002 2h10a2 2 0 002-2v-6a2 2 0 00-2-2h-1V6a4 4 0 00-4-4zm-2 6V6a2 2 0 114 0v2H8z"
-          fill="currentColor"
-        />
-      </svg>
-    ),
-  },
-  {
-    title: 'On-device',
-    body: 'The model runs on your machine, not a server.',
-    icon: (
-      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-        <rect x="6" y="6" width="8" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.25" />
-        <rect x="8.75" y="8.75" width="2.5" height="2.5" rx="0.5" fill="currentColor" />
-        <path
-          d="M8.5 3v3M11.5 3v3M8.5 14v3M11.5 14v3M3 8.5h3M3 11.5h3M14 8.5h3M14 11.5h3"
-          stroke="currentColor"
-          strokeWidth="1.25"
-          strokeLinecap="round"
-        />
-      </svg>
-    ),
-  },
-  {
-    title: 'Waterless',
-    body: 'Designed to avoid data-center water waste.',
-    icon: (
-      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-        <path
-          d="M10 2C10 2 4 8 4 12.5C4 15.5376 6.46243 18 9.5 18C12.5376 18 15 15.5376 15 12.5C15 8 10 2 10 2Z"
-          stroke="currentColor"
-          strokeWidth="1.25"
-          strokeLinejoin="round"
-        />
-        <path
-          d="M6 5l8 8M6 13l8-8"
-          stroke="currentColor"
-          strokeWidth="1.25"
-          strokeLinecap="round"
-          opacity="0.55"
-        />
-      </svg>
-    ),
-  },
-];
 
 function statusCopyFor(
   phase: WelcomeSetupProps['phase'],
