@@ -48,7 +48,7 @@ export function PublicNav() {
 
           <Link
             href={appHref}
-            className="inline-flex min-h-11 items-center justify-center rounded-full px-5 py-2.5 text-sm font-medium text-white transition-all hover:opacity-95"
+            className="inline-flex min-h-11 items-center justify-center rounded-full px-5 py-2.5 text-sm font-medium text-[var(--eco-on-primary)] transition-all hover:opacity-95"
             style={{ backgroundColor: "var(--eco-primary)" }}
           >
             Start chatting

@@ -53,7 +53,7 @@ export function AppearanceTab() {
               aria-pressed={theme === t.id}
               className={`min-h-11 sm:min-h-0 sm:h-9 rounded-md px-4 text-sm font-medium transition-colors motion-reduce:transition-none ${
                 theme === t.id
-                  ? 'bg-[var(--eco-primary)] text-white'
+                  ? 'bg-[var(--eco-primary)] text-[var(--eco-on-primary)]'
                   : 'bg-[var(--eco-surface-elevated)] text-[var(--eco-text-secondary)] hover:text-[var(--eco-text)]'
               }`}
             >
@@ -73,7 +73,7 @@ export function AppearanceTab() {
               aria-pressed={fontSize === size}
               className={`min-h-11 sm:min-h-0 sm:h-9 rounded-md px-4 text-sm font-medium transition-colors motion-reduce:transition-none ${
                 fontSize === size
-                  ? 'bg-[var(--eco-primary)] text-white'
+                  ? 'bg-[var(--eco-primary)] text-[var(--eco-on-primary)]'
                   : 'bg-[var(--eco-surface-elevated)] text-[var(--eco-text-secondary)] hover:text-[var(--eco-text)]'
               }`}
             >

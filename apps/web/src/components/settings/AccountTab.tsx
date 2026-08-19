@@ -191,7 +191,7 @@ export function AccountTab() {
                   type="button"
                   onClick={handleSave}
                   disabled={saving || !isDirty}
-                  className="cursor-pointer rounded-xl bg-[var(--eco-primary)] px-4 py-2.5 text-base font-medium text-white transition-all duration-150 ease hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="cursor-pointer rounded-xl bg-[var(--eco-primary)] px-4 py-2.5 text-base font-medium text-[var(--eco-on-primary)] transition-all duration-150 ease hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {saving ? 'Saving…' : 'Save'}
                 </button>

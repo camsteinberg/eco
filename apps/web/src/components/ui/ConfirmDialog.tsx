@@ -90,7 +90,7 @@ export function ConfirmDialog({
             type="button"
             onClick={onConfirm}
             disabled={confirmDisabled}
-            className="rounded-lg px-3 py-1.5 text-sm font-medium text-white transition-all duration-150 hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+            className="rounded-lg px-3 py-1.5 text-sm font-medium text-[var(--eco-on-primary)] transition-all duration-150 hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
             style={{
               backgroundColor: destructive
                 ? "var(--eco-coral)"

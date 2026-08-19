@@ -86,7 +86,7 @@ export function AccountRequiredDialog({
         <div className="mt-6 flex flex-col gap-3 sm:flex-row">
           <Link
             href={signUpHref}
-            className="inline-flex min-h-11 flex-1 items-center justify-center rounded-full px-5 py-3 text-sm font-medium text-white transition-all hover:opacity-95"
+            className="inline-flex min-h-11 flex-1 items-center justify-center rounded-full px-5 py-3 text-sm font-medium text-[var(--eco-on-primary)] transition-all hover:opacity-95"
             style={{ backgroundColor: "var(--eco-primary)" }}
           >
             Create free account

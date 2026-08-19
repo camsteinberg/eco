@@ -88,7 +88,7 @@ export class LocalInferenceErrorBoundary extends React.Component<Props, State> {
                 <button
                   type="button"
                   onClick={this.dismissBoundary}
-                  className="rounded-lg px-5 py-2 text-sm font-medium text-white transition-colors"
+                  className="rounded-lg px-5 py-2 text-sm font-medium text-[var(--eco-on-primary)] transition-colors"
                   style={{ backgroundColor: "var(--eco-primary)" }}
                 >
                   Try on-device again

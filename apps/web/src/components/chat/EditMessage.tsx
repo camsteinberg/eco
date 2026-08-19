@@ -63,7 +63,7 @@ export function EditMessage({ content, onSave, onCancel }: EditMessageProps) {
           type="button"
           onClick={() => onSave(trimmedValue)}
           disabled={isDisabled}
-          className="rounded-lg px-3 py-1.5 text-sm text-white transition-colors disabled:opacity-40"
+          className="rounded-lg px-3 py-1.5 text-sm text-[var(--eco-on-primary)] transition-colors disabled:opacity-40"
           style={{ backgroundColor: "var(--eco-primary)" }}
           aria-label="Save & Submit"
         >

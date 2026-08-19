@@ -6,7 +6,7 @@
 import { useRef, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { EcoLogo } from "../../../src/components/EcoLogo";
-import { Button } from "../../../src/components/ui/Button";
+import { Button } from "@eco/ui";
 import Link from "next/link";
 import {
   buildAuthPageHref,
@@ -220,7 +220,7 @@ function ResetPasswordForm() {
           />
         </div>
 
-        <Button type="submit" variant="primary" size="lg" fullWidth loading={loading}>
+        <Button type="submit" variant="primary" size="lg" className="w-full" loading={loading}>
           Reset password
         </Button>
       </form>

@@ -196,7 +196,7 @@ export function BillingTab() {
                 type="button"
                 onClick={handleUpgrade}
                 disabled={loading}
-                className="bg-[var(--eco-primary)] px-4 py-2 text-sm font-medium text-white transition-colors hover:opacity-90 disabled:opacity-50"
+                className="bg-[var(--eco-primary)] px-4 py-2 text-sm font-medium text-[var(--eco-on-primary)] transition-colors hover:opacity-90 disabled:opacity-50"
                 style={{ borderRadius: 'var(--eco-radius-md)' }}
               >
                 Become a Supporter

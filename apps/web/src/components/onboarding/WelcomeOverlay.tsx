@@ -74,7 +74,7 @@ export function WelcomeOverlay({ onStart, onSkip }: WelcomeOverlayProps) {
           <button
             type="button"
             onClick={onStart}
-            className="cursor-pointer rounded-full px-6 py-2.5 text-sm font-medium text-white transition-colors"
+            className="cursor-pointer rounded-full px-6 py-2.5 text-sm font-medium text-[var(--eco-on-primary)] transition-colors"
             style={{
               backgroundColor: "var(--eco-primary)",
             }}

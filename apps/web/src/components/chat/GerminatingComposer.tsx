@@ -72,7 +72,7 @@ export function GerminatingComposer({ ready = false }: GerminatingComposerProps)
               type="button"
               disabled
               aria-label="Send message"
-              className="flex h-8 w-8 min-h-[44px] min-w-[44px] md:min-h-0 md:min-w-0 shrink-0 items-center justify-center rounded-full text-white disabled:cursor-not-allowed"
+              className="flex h-8 w-8 min-h-[44px] min-w-[44px] md:min-h-0 md:min-w-0 shrink-0 items-center justify-center rounded-full text-[var(--eco-on-primary)] disabled:cursor-not-allowed"
               style={{ backgroundColor: "var(--eco-accent)" }}
             >
               <svg

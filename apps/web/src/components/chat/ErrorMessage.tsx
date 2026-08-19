@@ -427,7 +427,7 @@ export function ErrorMessage({
           type="button"
           onClick={() => onPrepareLocalModel(localReadiness.modelId)}
           disabled={isPreparing || localPrepareState?.status === "ready"}
-          className="mt-1 inline-flex min-h-11 items-center justify-center rounded-full px-5 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90"
+          className="mt-1 inline-flex min-h-11 items-center justify-center rounded-full px-5 py-2 text-sm font-medium text-[var(--eco-on-primary)] transition-opacity hover:opacity-90"
           style={{
             backgroundColor: "var(--eco-primary)",
             opacity: isPreparing || localPrepareState?.status === "ready" ? 0.72 : 1,
@@ -451,7 +451,7 @@ export function ErrorMessage({
         <button
           type="button"
           onClick={handleRetry}
-          className="mt-1 inline-flex min-h-11 items-center justify-center rounded-full px-5 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90"
+          className="mt-1 inline-flex min-h-11 items-center justify-center rounded-full px-5 py-2 text-sm font-medium text-[var(--eco-on-primary)] transition-opacity hover:opacity-90"
           style={{ backgroundColor: "var(--eco-primary)" }}
           aria-label="Try again"
         >
