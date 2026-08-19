@@ -153,16 +153,69 @@ const STORAGE_PANEL = '[data-testid="local-ai-storage-panel"]';
 // ── Warm-up navigations (entry `mock` hooks) ────────────────────────────────
 
 /**
+ * Has the settings store's encrypted write for `key` actually reached the disk?
+ *
+ * `setShowTechnicalDetails` (and every sibling in settingsStore.ts) updates React
+ * synchronously and then fires the persist as a FLOATING promise —
+ * `void safeSettingsWrite(...)`, which encrypts and puts into the `eco-settings`
+ * database. Nothing in the DOM reports when that lands, so a reload issued right
+ * after the click can beat it and the setting is silently lost.
+ *
+ * The row itself is the only honest signal. The stored VALUE is ciphertext, but
+ * the KEY is plaintext, and its presence is all we need.
+ *
+ * Opened only if the database already exists: a bare `indexedDB.open(name)` on a
+ * missing database CREATES it at version 1 with no object stores, which would
+ * then satisfy the app's own `openDB(name, 1, { upgrade })` without ever running
+ * the upgrade — breaking the very store we are waiting on.
+ */
+async function settingPersisted(page: Page, key: string): Promise<boolean> {
+  return page.evaluate(async (settingKey: string) => {
+    const databases = await indexedDB.databases();
+    if (!databases.some((entry) => entry.name === "eco-settings")) return false;
+
+    return new Promise<boolean>((resolve) => {
+      const open = indexedDB.open("eco-settings");
+      open.onerror = () => resolve(false);
+      open.onsuccess = () => {
+        const db = open.result;
+        if (!db.objectStoreNames.contains("settings")) {
+          db.close();
+          resolve(false);
+          return;
+        }
+        const request = db.transaction("settings", "readonly").objectStore("settings").getKey(settingKey);
+        request.onerror = () => {
+          db.close();
+          resolve(false);
+        };
+        request.onsuccess = () => {
+          const found = request.result !== undefined;
+          db.close();
+          resolve(found);
+        };
+      };
+    });
+  }, key);
+}
+
+/**
  * Turn the app's own "Show technical details" switch on and prove it persisted.
  *
  * The setting lives in encrypted IndexedDB, so this is the only way to reach it
  * without writing ciphertext by hand — and the reload is the proof the write
  * landed, so the capture's own navigation cannot photograph a half-saved state.
+ *
+ * The wait between the click and the reload is not belt-and-braces: without it
+ * this helper was the single largest source of flake in the full-grid run on
+ * 2026-08-19 (5 of 6 flaky entries, across four projects — both states that use
+ * it). The reload was racing the write.
  */
 async function technicalDetailsOn(page: Page): Promise<void> {
   await page.goto("/settings?tab=appearance");
   const toggle = page.getByRole("switch", { name: "Toggle technical details" });
   await toggle.click();
+  await expect.poll(async () => settingPersisted(page, "show-technical-details")).toBe(true);
   await page.reload();
   await expect(page.getByRole("switch", { name: "Toggle technical details" }))
     .toHaveAttribute("aria-checked", "true");

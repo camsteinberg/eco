@@ -191,7 +191,11 @@ export const axesStates: StateEntry[] = [
       + "reduce and a motion.div under no-preference whose growth transform is PERCENT-driven "
       + "rather than time-driven — at 0% it rests at scale(0.9) translateY(6px) and STAYS there, "
       + "so no amount of animation freezing flattens it. Measured 3682 differing pixels against "
-      + "its twin and 0 across three separate runs.",
+      + "its twin and 0 across three separate runs. Note the surface this lands on: the seeded "
+      + "slot keys steer the gate into the RESUME path, so the copy reads \"Finishing your model "
+      + "download…\" and the no-preference control shot is pixel-identical to "
+      + "setup-gate.setup-resuming — which is the baseline the reduce variant is compared against, "
+      + "and is listed as an expected twin in check-capture-coverage.mjs.",
   },
   {
     id: "axes.reduce-sidebar-empty",

@@ -51,6 +51,47 @@ function entryIdFromPath(path) {
   return path.split("/").at(-1)?.replace(/\.png$/, "") ?? path;
 }
 
+/**
+ * Pairs that are SUPPOSED to be pixel-identical.
+ *
+ * The axis sweep shoots each of its states at the variant point AND at the
+ * control point (motion `no-preference`, font size `default`) so the pair can be
+ * compared. At that control point the state is, by construction, the same state
+ * another group already owns — so the two ids agree exactly, which is the
+ * evidence the axis does nothing there, not a sign one of them failed to render.
+ *
+ * Each pair was confirmed by opening both images. Anything NOT listed here still
+ * fails the run: a dark shot that came out light because the theme seed did not
+ * land looks exactly like this, and that is the case this check exists for.
+ */
+const EXPECTED_TWINS = [
+  {
+    ids: ["axes.reduce-setup-botanical", "setup-gate.setup-resuming"],
+    reason:
+      "the axis control point. Both reach the same WelcomeSetup surface — the legacy slot keys "
+      + "the axes entry seeds steer the gate into the resume path, so both render "
+      + "\"Finishing your model download…\" at percent 0. Verified by eye 2026-08-19. The reduce "
+      + "variant is the shot that carries this entry's finding.",
+  },
+  {
+    ids: ["axes.font-chat-conversation", "chat-surface.conversation"],
+    reason: "the axis control point — font size `default` IS the state chat-surface already owns.",
+  },
+  {
+    ids: ["axes.font-content-page", "routes.transparency"],
+    reason: "the axis control point — font size `default` IS the state routes already owns.",
+  },
+];
+
+/** Is this set of duplicate paths a pair we expect to be identical? */
+function expectedTwinFor(paths) {
+  const ids = [...new Set(paths.map(entryIdFromPath))].sort();
+  return EXPECTED_TWINS.find(
+    (twin) =>
+      twin.ids.length === ids.length && [...twin.ids].sort().every((id, index) => id === ids[index]),
+  );
+}
+
 function outputBase() {
   return process.env.ECO_CAPTURE_OUT ?? join(homedir(), "eco-artifacts", "ui-baseline");
 }
@@ -144,9 +185,20 @@ for (const [path, absolute] of onDisk) {
  * actually rendered — most often a dark shot that came out light because the
  * theme seed did not land, or a `prepare` that silently did nothing.
  */
-const duplicates = [...byHash.values()]
+const allDuplicates = [...byHash.values()]
   .filter((paths) => paths.length > 1)
   .map((paths) => paths.sort());
+
+const duplicates = [];
+const expectedTwins = [];
+for (const paths of allDuplicates) {
+  const twin = expectedTwinFor(paths);
+  if (twin) {
+    expectedTwins.push(`${paths.join("  ==  ")} — ${twin.reason}`);
+  } else {
+    duplicates.push(paths);
+  }
+}
 
 const report = (label, items) => {
   if (items.length === 0) return;
@@ -161,6 +213,11 @@ report("MISSING — expected but not captured", missing);
 report("ORPHAN — captured but not in the manifest", orphan);
 report("ZERO_BYTE — file exists but is empty", zeroByte);
 report("DUPLICATE — different ids, identical pixels", duplicates);
+
+if (expectedTwins.length > 0) {
+  console.log(`\nexpected twins (${String(expectedTwins.length)}) — identical by design, each verified by eye:`);
+  for (const item of expectedTwins) console.log(`  ${item}`);
+}
 
 if (explainedSmall.length > 0) {
   console.log(`\nsmall but explained (${String(explainedSmall.length)}) — element crops already reviewed:`);

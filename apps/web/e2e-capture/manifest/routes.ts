@@ -625,6 +625,14 @@ export const routesStates: StateEntry[] = [
       await page.waitForFunction(() => Boolean(navigator.serviceWorker.controller), undefined, {
         timeout: 30_000,
       });
+      // Controlling the client is not the same as being done. Cutting the
+      // network while the worker is still precaching — or while the warm-up
+      // page still has requests in flight — aborts them, and the abort has
+      // landed on the capture's own navigation instead
+      // (`net::ERR_ABORTED at /chat`, once in the full-grid run on 2026-08-19).
+      // Wait for an activated worker and a quiet page, then pull the plug.
+      await page.evaluate(() => navigator.serviceWorker.ready.then(() => undefined));
+      await page.waitForLoadState("networkidle", { timeout: 10_000 }).catch(() => undefined);
       await page.context().setOffline(true);
     },
     assert: [{ text: "Eco needs a connection to open." }],
