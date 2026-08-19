@@ -309,6 +309,74 @@ function branchPoint(): IdbSeed {
   };
 }
 
+// ─── Sidebar history ────────────────────────────────────────────────────────
+
+/**
+ * A conversation placed at a chosen distance from the frozen clock.
+ *
+ * Every other seed here answers "what does one conversation look like"; these
+ * answer "what does a HISTORY look like". `ConversationList` buckets by
+ * `updatedAt` — Today, Yesterday, Previous 7 Days, Older, with pinned rows
+ * lifted above all four — so the only way to photograph its group headers is to
+ * own that field. `minutesAgo` is an offset from `CAPTURE_CLOCK_MS`, the same
+ * instant `capture.ts` freezes `Date.now()` to, which is also what `timeAgo()`
+ * subtracts from: "12m ago" and "12d ago" render identically on every run.
+ *
+ * An entry names as many of these as it wants in one `seed.idb`; each is
+ * written by its own document-start script, in the order given, and the LAST
+ * one named becomes the active conversation (see `ACTIVE_CONVERSATION_KEY` in
+ * capture.ts). That is how a state chooses which row carries the active
+ * treatment without touching any other row.
+ *
+ * The word "winter" is deliberately planted in three of the replies below: the
+ * sidebar's search shows one result per conversation, so a single-match query
+ * would photograph a one-row list and prove nothing about the highlighting.
+ */
+function historyConversation(
+  id: string,
+  title: string,
+  ask: string,
+  reply: string,
+  options: { minutesAgo: number; pinned?: boolean },
+): IdbSeed {
+  const updatedAt = CAPTURE_CLOCK_MS - options.minutesAgo * MINUTE;
+  return {
+    conversation: {
+      id,
+      title,
+      createdAt: updatedAt - 12 * MINUTE,
+      updatedAt,
+      activeLeafId: `${id}-assistant`,
+      preview: reply.slice(0, 80),
+      pinnedAt: options.pinned === true ? updatedAt : null,
+    },
+    messages: [
+      {
+        id: `${id}-user`,
+        conversationId: id,
+        parentId: null,
+        role: "user",
+        content: ask,
+        createdAt: updatedAt - MINUTE,
+        status: "complete",
+      },
+      {
+        id: `${id}-assistant`,
+        conversationId: id,
+        parentId: `${id}-user`,
+        role: "assistant",
+        content: reply,
+        createdAt: updatedAt,
+        status: "complete",
+        inferenceMethod: "local",
+      },
+    ],
+  };
+}
+
+/** One calendar day, in the `minutesAgo` unit above. */
+const DAY_IN_MINUTES = 24 * 60;
+
 // ─── The seeds ──────────────────────────────────────────────────────────────
 
 const MARKDOWN_REPLY = `## Watering a container garden
@@ -485,6 +553,48 @@ export const IDB_SEEDS = {
   "conversation-long": longTranscript(),
 
   "conversation-branches": branchPoint(),
+
+  // ── Sidebar history: one conversation per date group ─────────────────────
+
+  "history-pinned": historyConversation(
+    "capture-history-pinned",
+    "Repotting a fiddle-leaf fig",
+    "My fiddle-leaf fig has roots coming out of the drainage holes. Time to repot?",
+    "Roots at the drainage holes mean yes, but go up only one pot size — about 5cm wider. A fig moved into a container much larger than its root ball sits in wet compost it cannot drink, and root rot follows within a season.\n\nDo it in spring or early summer while it is actively growing. Repotting in winter asks the plant to recover during the months it has the least light to do it with.",
+    { minutesAgo: 40, pinned: true },
+  ),
+
+  "history-older": historyConversation(
+    "capture-history-older",
+    "A reading list for winter",
+    "Give me five books to read over winter — nothing bleak.",
+    "Winter reading works best when the book is warmer than the weather, so all five below are generous rather than grim.\n\nStart with Penelope Fitzgerald's *The Bookshop* for its dry humour, then Laurie Lee's *Cider with Rosie* for the sunlight. *A Month in the Country* by J. L. Carr is the perfect short one. Add *The Enchanted April* and, if you want something with real momentum, *The Blue Flower*.",
+    { minutesAgo: 12 * DAY_IN_MINUTES },
+  ),
+
+  "history-week": historyConversation(
+    "capture-history-week",
+    "Choosing a bike for commuting",
+    "What kind of bike should I buy for a five-mile commute?",
+    "A steel or aluminium hybrid with mudguards, a rack and 35mm-plus tyres will beat anything sportier over five miles a day. The comfort comes from tyre volume and an upright position, not from the frame material people argue about.\n\nSpend the money on the parts that fail in winter: hydraulic disc brakes, a hub dynamo light, and tyres with a puncture belt. Everything else can be replaced later, when you know what actually annoys you.",
+    { minutesAgo: 3 * DAY_IN_MINUTES },
+  ),
+
+  "history-yesterday": historyConversation(
+    "capture-history-yesterday",
+    "Bread without a stand mixer",
+    "Can I make decent bread without a stand mixer?",
+    "Yes, and for most loaves the mixer is the slower route. A wet dough left alone does the kneading for you: mix flour, water and salt, wait half an hour, then fold the dough over itself four times every thirty minutes for two hours.\n\nThat builds the same gluten a mixer would, with about four minutes of actual work. The one thing a mixer genuinely wins at is enriched dough — brioche is miserable by hand.",
+    { minutesAgo: DAY_IN_MINUTES },
+  ),
+
+  "history-today": historyConversation(
+    "capture-history-today",
+    "Sharpening kitchen knives",
+    "How do I sharpen kitchen knives properly at home?",
+    "A whetstone and about ten minutes will do more for your cooking than a new knife. Soak a 1000-grit stone, hold the blade at roughly fifteen degrees, and draw it across the stone from heel to tip until a burr forms along the whole edge — then repeat on the other side and finish on 3000 grit.\n\nPull-through sharpeners grind away far more steel than they need to. Keep a honing rod by the board for daily use and save the stone for two or three times a year, or once over the winter if you cook less.",
+    { minutesAgo: 12 },
+  ),
 
   // ── Grounding: cited, uncertain, and the once-per-chat disclosure ────────
 

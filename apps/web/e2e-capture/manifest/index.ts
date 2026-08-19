@@ -3,10 +3,12 @@
 
 import type { StateEntry } from "../types";
 import { chatSurfaceStates } from "./chat-surface";
+import { overlaysStates } from "./overlays";
 import { pilotStates } from "./pilot";
 import { routesStates } from "./routes";
 import { settingsStates } from "./settings";
 import { setupGateStates } from "./setup-gate";
+import { sidebarStates } from "./sidebar";
 
 /**
  * The manifest: every UI state the capture lane knows how to shoot.
@@ -24,6 +26,8 @@ const GROUPS: Record<string, StateEntry[]> = {
   "setup-gate": setupGateStates,
   "chat-surface": chatSurfaceStates,
   settings: settingsStates,
+  sidebar: sidebarStates,
+  overlays: overlaysStates,
 };
 
 /**
