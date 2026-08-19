@@ -235,8 +235,29 @@ describe('AccountTab', () => {
     await user.click(screen.getByText('Save'))
 
     await waitFor(() => {
-      expect(screen.getByText('Failed to save profile')).toBeInTheDocument()
+      expect(screen.getByText("We couldn't save your name. Please try again.")).toBeInTheDocument()
     })
+  })
+
+  it('never renders a raw internal error message when the profile save throws', async () => {
+    const user = userEvent.setup()
+    mockFetch((...a: unknown[]) => {
+      if (url(a).includes('/v1/auth/profile') && opts(a).method === 'PATCH') {
+        return Promise.reject(new Error('NetworkError when attempting to fetch resource.'))
+      }
+      return Promise.resolve({ ok: true, json: async () => ({}) })
+    })
+
+    render(<AccountTab />)
+    const nameInput = screen.getByDisplayValue('Alice')
+    await user.clear(nameInput)
+    await user.type(nameInput, 'Bob')
+    await user.click(screen.getByText('Save'))
+
+    await waitFor(() => {
+      expect(screen.getByText("We couldn't save your name. Please try again.")).toBeInTheDocument()
+    })
+    expect(screen.queryByText(/NetworkError/)).not.toBeInTheDocument()
   })
 
   // --- Data export ---
@@ -295,7 +316,9 @@ describe('AccountTab', () => {
     await user.click(within(dialog).getByRole('button', { name: /delete my account/i }))
 
     expect(
-      await screen.findByText('Failed to delete account'),
+      await screen.findByText(
+        "We couldn't delete your account. Nothing was changed — please try again.",
+      ),
     ).toBeInTheDocument()
   })
 

@@ -21,6 +21,15 @@ import { SettingsSection } from './SettingsSection'
 
 const DELETE_PROGRESS_VISIBILITY_MS = 900
 
+// Both of these surfaces used to render `err.message` verbatim, which meant any
+// lower-level failure (a fetch TypeError, a thrown internal sentinel) reached the
+// user as a raw developer string. What went wrong internally is not what the
+// person needs to read; these two lines are, and they stay honest about the fact
+// that nothing was saved / nothing was deleted.
+const PROFILE_SAVE_ERROR = "We couldn't save your name. Please try again."
+const DELETE_ACCOUNT_ERROR =
+  "We couldn't delete your account. Nothing was changed — please try again."
+
 async function waitForNextPaint(): Promise<void> {
   if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
     await Promise.resolve()
@@ -91,12 +100,12 @@ export function AccountTab() {
         body: JSON.stringify({ name: nextName }),
         credentials: 'include',
       })
-      if (!res.ok) throw new Error('Failed to save profile')
+      if (!res.ok) throw new Error(`Profile PATCH failed with ${res.status}`)
       setName(nextName)
       setSavedName(nextName)
       setSaveSuccess(true)
-    } catch (err) {
-      setSaveError(err instanceof Error ? err.message : 'Failed to save profile')
+    } catch {
+      setSaveError(PROFILE_SAVE_ERROR)
     } finally {
       setSaving(false)
     }
@@ -113,7 +122,7 @@ export function AccountTab() {
         method: 'DELETE',
         credentials: 'include',
       })
-      if (!res.ok) throw new Error('Failed to delete account')
+      if (!res.ok) throw new Error(`Account DELETE failed with ${res.status}`)
       await Promise.all([
         waitForMinimumDuration(deleteStartedAt, DELETE_PROGRESS_VISIBILITY_MS),
         // Bound best-effort local cleanup so a stalled browser-storage /
@@ -122,12 +131,10 @@ export function AccountTab() {
         bestEffortSignOut(),
       ])
       window.location.replace('/')
-    } catch (err) {
+    } catch {
       setAccountDeletionInProgress(false)
       setDeleteLoading(false)
-      setDeleteAccountError(
-        err instanceof Error ? err.message : 'Failed to delete account. Please try again.',
-      )
+      setDeleteAccountError(DELETE_ACCOUNT_ERROR)
     }
   }
 
