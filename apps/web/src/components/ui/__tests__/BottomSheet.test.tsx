@@ -175,15 +175,41 @@ describe("BottomSheet", () => {
     expect(screen.getByText("Hello")).toBeInTheDocument();
   });
 
-  it("has md:hidden class (only visible on mobile)", () => {
+  it("hides from md up by default", () => {
     render(
       <BottomSheet open={true} onClose={vi.fn()}>
         <p>Content</p>
       </BottomSheet>
     );
-    // The outer wrapper should have md:hidden
-    const wrapper = screen.getByRole("dialog").closest('[class*="md:hidden"]');
-    expect(wrapper).toBeTruthy();
+    const host = screen.getByRole("dialog").parentElement;
+    expect(host).toHaveClass("md:hidden");
+    expect(host).not.toHaveClass("lg:hidden");
+  });
+
+  it("hides from lg up when hiddenFrom is lg, so the sheet survives tablet widths", () => {
+    render(
+      <BottomSheet open={true} onClose={vi.fn()} hiddenFrom="lg">
+        <p>Content</p>
+      </BottomSheet>
+    );
+    const host = screen.getByRole("dialog").parentElement;
+    expect(host).toHaveClass("lg:hidden");
+    expect(host).not.toHaveClass("md:hidden");
+  });
+
+  it("renders into document.body rather than its parent, so ancestor stacking contexts cannot trap it", () => {
+    const { container } = render(
+      <div style={{ transform: "translateZ(0)", zIndex: 1 }}>
+        <BottomSheet open={true} onClose={vi.fn()} title="Navigation">
+          <p>Sheet content</p>
+        </BottomSheet>
+      </div>
+    );
+
+    const dialog = screen.getByRole("dialog", { name: "Navigation" });
+    expect(dialog).toBeInTheDocument();
+    expect(container.contains(dialog)).toBe(false);
+    expect(dialog.parentElement?.parentElement).toBe(document.body);
   });
 
   it("constrains long content to an internal scroll body", () => {

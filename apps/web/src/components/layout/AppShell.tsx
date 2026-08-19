@@ -298,11 +298,21 @@ export function AppShell({ children }: AppShellProps) {
         </SidebarErrorBoundary>
       </div>
 
-      {/* Mobile sidebar — bottom sheet on small viewports.
+      {/* Drawer sidebar — everywhere the standing column is not.
+          `hiddenFrom="lg"` has to match the column's `hidden lg:block` above
+          and the header hamburger's `lg:hidden`: with the sheet's default
+          `md:hidden` the three disagreed between 768px and 1023px, where the
+          hamburger was visible but opened a sheet CSS had already hidden,
+          leaving no way to reach navigation or history at tablet widths.
           BottomSheet provides the title bar + close X; Sidebar suppresses
           its own header chrome via the `embedded` prop to avoid the
           double-header / double-close-X duplication. */}
-      <BottomSheet open={sidebarOpen} onClose={() => setSidebarOpen(false)} title="Navigation">
+      <BottomSheet
+        open={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+        title="Navigation"
+        hiddenFrom="lg"
+      >
         <SidebarErrorBoundary>
           <Sidebar
             onNewChat={handleNewChat}

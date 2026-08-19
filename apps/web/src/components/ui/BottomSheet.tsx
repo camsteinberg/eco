@@ -3,23 +3,57 @@
 
 "use client"
 
-import { useEffect, useId, useRef, useCallback } from "react"
+import { useEffect, useId, useRef, useCallback, useState } from "react"
+import { createPortal } from "react-dom"
+
+/**
+ * The breakpoint at which the sheet stops being the right affordance and the
+ * surface it stands in for takes over.
+ */
+type BottomSheetHiddenFrom = "md" | "lg"
+
+/**
+ * Tailwind only generates the utilities it can see spelled out in source, so
+ * both variants are literal strings here — an interpolated `${x}:hidden` would
+ * compile to nothing and leave the sheet visible at every width.
+ */
+const HIDDEN_FROM_CLASS: Record<BottomSheetHiddenFrom, string> = {
+  md: "md:hidden",
+  lg: "lg:hidden",
+}
 
 type BottomSheetProps = {
   open: boolean
   onClose: () => void
   title?: string
+  /**
+   * Viewport floor above which the sheet is hidden. Defaults to `"md"` (hidden
+   * from 768px up); pass `"lg"` when the sheet also has to cover the tablet
+   * range, because the surface replacing it only appears at 1024px.
+   */
+  hiddenFrom?: BottomSheetHiddenFrom
   children: React.ReactNode
 }
 
 /**
- * Mobile bottom sheet overlay. Renders a backdrop with a sheet that slides up
- * from the bottom of the viewport. Hidden on md+ viewports via `md:hidden`.
+ * Bottom sheet overlay. Renders a backdrop with a sheet that slides up from the
+ * bottom of the viewport, hidden from `hiddenFrom` up (`md` by default).
+ *
+ * Rendered through a portal on `document.body` so the sheet's z-index is
+ * resolved against the page root: inline, any transformed or z-indexed ancestor
+ * created a stacking context the sheet could not escape, and lower-z overlays
+ * that portal to the body painted over it.
  *
  * Supports swipe-to-dismiss: dragging down > 100px when the sheet's scroll
  * position is at the top dismisses the sheet.
  */
-export function BottomSheet({ open, onClose, title, children }: BottomSheetProps) {
+export function BottomSheet({
+  open,
+  onClose,
+  title,
+  hiddenFrom = "md",
+  children,
+}: BottomSheetProps) {
   const sheetRef = useRef<HTMLDivElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
   const closeButtonRef = useRef<HTMLButtonElement>(null)
@@ -29,9 +63,18 @@ export function BottomSheet({ open, onClose, title, children }: BottomSheetProps
   const currentTranslateY = useRef<number>(0)
   const swipeActive = useRef<boolean>(false)
   const firstMoveChecked = useRef<boolean>(false)
+  // Portals need a DOM: hold the first render (server render and hydration
+  // pass) at null, then mount for real on the client.
+  const [hasMounted, setHasMounted] = useState(false)
 
   useEffect(() => {
-    if (!open) return
+    setHasMounted(true)
+  }, [])
+
+  useEffect(() => {
+    // `hasMounted` is a dependency, not just a guard: the sheet's DOM does not
+    // exist on the render that opens it, so focus has to wait for the portal.
+    if (!open || !hasMounted) return
 
     previouslyFocusedRef.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : null
@@ -80,7 +123,7 @@ export function BottomSheet({ open, onClose, title, children }: BottomSheetProps
       previouslyFocusedRef.current?.focus()
       previouslyFocusedRef.current = null
     }
-  }, [onClose, open])
+  }, [hasMounted, onClose, open])
 
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
     const touch = e.touches[0]
@@ -138,10 +181,10 @@ export function BottomSheet({ open, onClose, title, children }: BottomSheetProps
     firstMoveChecked.current = false
   }, [onClose])
 
-  if (!open) return null
+  if (!open || !hasMounted) return null
 
-  return (
-    <div className="fixed inset-0 z-50 overflow-hidden md:hidden">
+  return createPortal(
+    <div className={`fixed inset-0 z-50 overflow-hidden ${HIDDEN_FROM_CLASS[hiddenFrom]}`}>
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-[var(--eco-scrim)]"
@@ -205,6 +248,7 @@ export function BottomSheet({ open, onClose, title, children }: BottomSheetProps
           {children}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
