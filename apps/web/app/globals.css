@@ -99,6 +99,20 @@ html.dark {
   }
 }
 
+/* Code surfaces render literal characters.
+   JetBrains Mono (the --eco-font-mono stack) ships programming ligatures, so
+   `->`, `=>`, `!=` and `<=` are drawn as single arrow/comparison glyphs. In
+   prose that is a nicety; in code it is a correctness bug, because what the
+   reader sees stops matching what Copy puts on the clipboard. */
+@layer base {
+  code,
+  pre,
+  kbd,
+  samp {
+    font-variant-ligatures: none;
+  }
+}
+
 /* ── Calm scrollbars ─────────────────────────────────────────
    Keep scroll affordances present without the default browser chrome
    cutting through sidebar, settings, modal, and code surfaces. */
