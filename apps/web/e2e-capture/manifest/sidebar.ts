@@ -17,19 +17,17 @@ import { READY_CHAT_SEARCH, UPGRADE_DECLINED_LOCAL } from "./pilot";
  *
  * ── Where the sidebar actually exists ─────────────────────────────────────
  *
- * `AppShell` renders it twice and shows neither in the middle: the standing
- * column is `hidden lg:block` (≥1024px) and the drawer is a `BottomSheet`,
- * which is `md:hidden` (<768px). The lane's tablet projects sit at 768px —
- * inside the gap — so between 768 and 1023px the header's hamburger is visible,
- * `lg:hidden`, and toggles a sheet that is `display: none`. Measured at 768px on
- * 2026-08-19, against the same running app these captures use: the hamburger
- * reports visible, the click lands, the sheet's host computes to `display: none`,
- * and the standing column is not visible either. There is no way to reach
- * navigation or history at that width. At 375px the same click shows the sheet.
+ * `AppShell` renders it twice: the standing column is `hidden lg:block`
+ * (≥1024px), and below that the header's `lg:hidden` hamburger opens the same
+ * Sidebar inside a `BottomSheet`. The sheet is hidden from `lg` up, so the two
+ * meet exactly at 1024px and the whole range below it has navigation.
  *
- * That is a product bug, not a lane limitation, so nothing here is shot at the
- * tablet viewport — the entries carry explicit `axes.viewports` rather than
- * pretending the tier system chose it.
+ * They used to disagree: the sheet defaulted to `md:hidden` (<768px), which
+ * left 768–1023px with a visible hamburger that opened a sheet CSS had already
+ * hidden, and no standing column either. The lane's tablet projects sit at
+ * 768px, so that dead range is why most entries here still carry an explicit
+ * `axes.viewports` instead of leaving the choice to the tier system —
+ * `sidebar.tablet-drawer` is the state that now covers it.
  *
  * ── Two states with no honest trigger ─────────────────────────────────────
  *
@@ -194,17 +192,6 @@ export const sidebarGaps: CaptureGap[] = [
       "A DEAD AFFORDANCE, found by reading the code for these states: the bar renders only when selectedIds.size > 0, and its "
       + "first button reads 'Select All' only when selectedCount === 0. Those conditions cannot both hold, so the label ships "
       + "but can never appear. sidebar.bulk-selected is the only state that bar has.",
-  },
-  {
-    id: "sidebar.tablet-navigation",
-    group: "sidebar",
-    surface: "Any sidebar or history surface between 768px and 1023px",
-    reason:
-      "A PRODUCT BUG, not a lane limitation. AppShell's standing column is `hidden lg:block` (≥1024px) and the drawer is a "
-      + "BottomSheet that is `md:hidden` (<768px), so the lane's 768px tablet projects fall in the gap: measured 2026-08-19, "
-      + "the header's hamburger reports visible, the click lands, and the sheet's host computes to display:none while the "
-      + "standing column is not visible either. Nothing in this group is shot at the tablet viewport, and the entries carry "
-      + "explicit axes.viewports rather than pretending the tier system chose it.",
   },
 ];
 
@@ -544,5 +531,27 @@ export const sidebarStates: StateEntry[] = [
       "The same Sidebar, embedded in a BottomSheet that supplies the title bar and close control, "
       + "so its own header is suppressed. It covers the chat rather than sitting beside it, and "
       + "the history scrolls inside the sheet.",
+  }),
+  populatedSidebar("tablet-drawer", "The drawer at tablet width, open", {
+    axes: { viewports: ["tablet"] },
+    capture: { mode: "viewport" },
+    assert: [{ role: "button", name: "Toggle sidebar" }],
+    prepare: async (page) => {
+      // A click, not a tap: the tablet projects do not set hasTouch, so this is
+      // the gesture that viewport actually sends.
+      await page.locator('[aria-label="Toggle sidebar"]').first().click();
+      await expect(page.locator('[data-testid="sheet-title"]')).toHaveText("Navigation");
+      // Two sidebars are mounted here as well — the standing column, which CSS
+      // hides below `lg`, and this one — so the list has to be found inside the
+      // sheet rather than on the page.
+      await expect(
+        page.locator('[data-testid="bottom-sheet-body"]').locator(LIST),
+      ).toBeVisible();
+    },
+    notes:
+      "768–1023px used to have no navigation at all: the standing column starts at lg and the "
+      + "drawer stopped at md, so the hamburger opened a sheet CSS had already hidden. The sheet "
+      + "now runs to lg, and this is the state that proves it — a full-width drawer over the chat, "
+      + "the widest the sheet ever gets.",
   }),
 ];
