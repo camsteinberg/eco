@@ -414,7 +414,7 @@ export function ConversationList({ variant = "standalone" }: ConversationListPro
             {pinned.length > 0 && (
               <div>
                 <h3 className={isNested
-                  ? "px-2 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--eco-text-secondary)]/65"
+                  ? "px-2 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--eco-text-secondary)]"
                   : "px-3 py-2 font-serif text-xs font-medium uppercase tracking-wider text-[var(--eco-text-secondary)]"}
                 >
                   Pinned
@@ -426,7 +426,7 @@ export function ConversationList({ variant = "standalone" }: ConversationListPro
               <div key={group}>
                 <h3
                   className={isNested
-                    ? `px-2 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--eco-text-secondary)]/65 ${groupIdx === 0 && pinned.length === 0 ? '' : 'mt-2'}`
+                    ? `px-2 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--eco-text-secondary)] ${groupIdx === 0 && pinned.length === 0 ? '' : 'mt-2'}`
                     : `px-3 py-2 font-serif text-xs font-medium uppercase tracking-wider text-[var(--eco-text-secondary)] ${groupIdx === 0 && pinned.length === 0 ? '' : 'mt-4'}`}
                 >
                   {group}

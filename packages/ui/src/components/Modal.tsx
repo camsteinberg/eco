@@ -65,7 +65,7 @@ export const Modal = forwardRef<HTMLDivElement, ModalProps>(
                     exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.96 }}
                     transition={getTransition("modal", shouldReduceMotion)}
                   >
-                    <Dialog.Title className="font-[var(--eco-font-display)] text-lg text-[var(--eco-text)] pr-8">
+                    <Dialog.Title className="font-[family-name:var(--eco-font-display)] font-medium text-lg text-[var(--eco-text)] pr-8">
                       {title}
                     </Dialog.Title>
                     {description && (

@@ -98,7 +98,7 @@ export function WelcomeCard({
 
         {/* Mission + water story */}
         <p
-          className="mx-auto mt-3 max-w-lg text-center text-[15px] leading-normal"
+          className="mx-auto mt-3 max-w-lg text-center text-sm leading-normal"
           style={{ color: 'var(--eco-text-secondary)' }}
         >
           Most AI runs in data centers. Your messages get sent there to be answered, and the
@@ -123,7 +123,7 @@ export function WelcomeCard({
         {/* Model choice */}
         <div className="mt-5">
           <div className="text-center">
-            <p className="text-sm font-semibold" style={{ color: 'var(--eco-text)' }}>
+            <p className="text-base font-semibold" style={{ color: 'var(--eco-text)' }}>
               {single ? 'Your model' : 'Pick the model that fits your device'}
             </p>
             <p className="mt-0.5 text-xs" style={{ color: 'var(--eco-text-muted)' }}>

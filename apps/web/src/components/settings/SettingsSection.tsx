@@ -35,7 +35,7 @@ export function SettingsSection({
         </div>
       ) : null}
       <section className={className ?? undefined}>
-        <h2 className="font-display text-xl tracking-tight text-[var(--eco-text)]">
+        <h2 className="font-display font-medium text-xl tracking-tight text-[var(--eco-text)]">
           {title}
         </h2>
         {description ? (

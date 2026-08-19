@@ -34,7 +34,7 @@ export function EmptyState({
         {illustration}
       </div>
       <div className="flex flex-col gap-2">
-        <h3 className="font-serif text-xl text-[var(--eco-text)]">
+        <h3 className="font-[family-name:var(--eco-font-display)] font-medium text-xl text-[var(--eco-text)]">
           {title}
         </h3>
         <p className="text-sm text-[var(--eco-text-secondary)] max-w-sm">

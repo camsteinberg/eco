@@ -308,7 +308,7 @@ export function MessageList({
       {/* The extra mobile bottom padding is a belt for the re-anchor above:
           it keeps the last row's actions off the footer's top edge even in the
           frame before a resize lands. */}
-      <div ref={contentRef} className="flex flex-col gap-4 px-4 pb-8 pt-4 md:px-6 md:py-6">
+      <div ref={contentRef} className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-4 pb-8 pt-4 md:px-6 md:py-6">
         <p className="sr-only" role="status" aria-live="polite">
           {isStreaming
             ? `Assistant response ${streamPhase ? `${streamPhase.replace(/-/g, " ")}` : "streaming"}`

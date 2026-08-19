@@ -273,7 +273,7 @@ const staticComponents: Components = {
   ),
   blockquote: ({ children, ...props }) => (
     <blockquote
-      className="my-4 rounded-xl border border-[var(--eco-border)]/60 bg-[var(--eco-primary-soft)]/15 px-4 py-3 text-[var(--eco-neutral-text-muted)]"
+      className="my-4 rounded-xl border border-[var(--eco-border)]/60 bg-[var(--eco-primary-soft)]/15 px-4 py-3 text-[var(--eco-text-muted)]"
       {...props}
     >
       {children}
@@ -286,7 +286,7 @@ const staticComponents: Components = {
     <h2 className="mb-2.5 mt-5 font-[family-name:var(--eco-font-display)] text-xl font-semibold tracking-[-0.01em]" {...props}>{children}</h2>
   ),
   h3: ({ children, ...props }) => (
-    <h3 className="mb-1.5 mt-4 text-base font-semibold" {...props}>{children}</h3>
+    <h3 className="mb-1.5 mt-4 font-[family-name:var(--eco-font-display)] text-base font-semibold" {...props}>{children}</h3>
   ),
   h4: ({ children, ...props }) => (
     <h4 className="mb-1 mt-3 text-sm font-semibold uppercase tracking-[0.08em] text-[var(--eco-text-muted)]" {...props}>{children}</h4>
@@ -398,7 +398,7 @@ function createStreamingComponents(
     p: withFadeIn("p", "my-2 leading-7"),
     h1: withFadeIn("h1", "mb-3 mt-5 font-[family-name:var(--eco-font-display)] text-2xl font-semibold tracking-[-0.01em]"),
     h2: withFadeIn("h2", "mb-2.5 mt-5 font-[family-name:var(--eco-font-display)] text-xl font-semibold tracking-[-0.01em]"),
-    h3: withFadeIn("h3", "mb-1.5 mt-4 text-base font-semibold"),
+    h3: withFadeIn("h3", "mb-1.5 mt-4 font-[family-name:var(--eco-font-display)] text-base font-semibold"),
     h4: withFadeIn("h4", "mb-1 mt-3 text-sm font-semibold uppercase tracking-[0.08em] text-[var(--eco-text-muted)]"),
     li: withFadeIn("li", "pl-1 marker:text-[var(--eco-text-muted)]"),
   };

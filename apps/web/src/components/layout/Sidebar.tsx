@@ -211,7 +211,7 @@ function SidebarNavSection({ title, items, collapsed, onNavigate, showTrailingAr
   return (
     <div className={collapsed ? 'space-y-1' : 'space-y-2'}>
       {!collapsed && (
-        <p className="px-3 text-[12px] font-medium text-[var(--eco-text-secondary)]/80">
+        <p className="px-3 text-[12px] font-medium text-[var(--eco-text-secondary)]">
           {title}
         </p>
       )}
@@ -501,7 +501,7 @@ export function Sidebar({
             <SidebarNavSection title="Workspace" items={[chatItem, ...workspaceItems]} collapsed onNavigate={onClose} />
           ) : (
             <div className="space-y-2">
-              <p className="px-3 text-[12px] font-medium text-[var(--eco-text-secondary)]/80">
+              <p className="px-3 text-[12px] font-medium text-[var(--eco-text-secondary)]">
                 Workspace
               </p>
               <div className="space-y-1">
