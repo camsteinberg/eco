@@ -15,6 +15,7 @@ import {
 import { setAccountDeletionInProgress } from '../../lib/account-lifecycle'
 import { useSupporterMembership } from '../../hooks/useSupporterMembership'
 import { ConfirmDialog } from '../ui/ConfirmDialog'
+import { ErrorLine } from '../ui/ErrorNotice'
 import { DataExportButton } from './DataExportButton'
 import { buildSettingsHref } from './settingsNavigation'
 import { SettingsSection } from './SettingsSection'
@@ -213,7 +214,7 @@ export function AccountTab() {
                 </div>
               )}
               {saveError && (
-                <span className="text-sm text-[var(--eco-coral)]">{saveError}</span>
+                <ErrorLine>{saveError}</ErrorLine>
               )}
             </div>
           )}
@@ -234,7 +235,7 @@ export function AccountTab() {
         <button
           type="button"
           onClick={() => setShowDeleteConfirm(true)}
-          className="mt-4 cursor-pointer rounded-xl border border-[var(--eco-coral)] px-4 py-2.5 text-sm font-medium text-[var(--eco-coral)] transition-colors hover:bg-[var(--eco-coral)]/10"
+          className="mt-4 cursor-pointer rounded-xl border border-[var(--eco-coral)] px-4 py-2.5 text-sm font-medium text-[var(--eco-coral)] transition-colors hover:bg-[var(--eco-coral-soft)]"
         >
           Delete account
         </button>

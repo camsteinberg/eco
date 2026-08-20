@@ -1129,7 +1129,7 @@ export function EvalHarnessPanel() {
             className="mt-3 rounded-lg p-3 text-sm"
             style={{
               background: 'var(--eco-error-soft, rgba(199, 92, 74, 0.1))',
-              color: 'var(--eco-coral, #c75c4a)',
+              color: 'var(--eco-coral)',
               fontFamily: 'var(--eco-font-mono)',
             }}
           >
@@ -1313,7 +1313,7 @@ export function EvalHarnessPanel() {
                     : 'var(--eco-primary-soft)',
                 color:
                   captureNote.tone === 'error'
-                    ? 'var(--eco-coral, #c75c4a)'
+                    ? 'var(--eco-coral)'
                     : 'var(--eco-text-secondary)',
                 fontFamily: 'var(--eco-font-mono)',
               }}
@@ -1397,7 +1397,7 @@ export function EvalHarnessPanel() {
                     : 'var(--eco-primary-soft)',
                 color:
                   judgeNote.tone === 'error'
-                    ? 'var(--eco-coral, #c75c4a)'
+                    ? 'var(--eco-coral)'
                     : 'var(--eco-text-secondary)',
                 fontFamily: 'var(--eco-font-mono)',
               }}
@@ -1551,7 +1551,7 @@ export function EvalHarnessPanel() {
                 className="rounded-lg p-3 text-xs leading-relaxed"
                 style={{
                   background: 'var(--eco-error-soft, rgba(199, 92, 74, 0.1))',
-                  color: 'var(--eco-coral, #c75c4a)',
+                  color: 'var(--eco-coral)',
                   fontFamily: 'var(--eco-font-mono)',
                 }}
               >

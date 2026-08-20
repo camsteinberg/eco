@@ -54,7 +54,7 @@ export function BulkActionsBar({
           type="button"
           onClick={onDelete}
           disabled={selectedCount === 0}
-          className="whitespace-nowrap rounded px-2 py-1 text-xs font-medium text-[var(--eco-coral)] transition-colors duration-150 hover:bg-[var(--eco-coral)]/10 disabled:opacity-40"
+          className="whitespace-nowrap rounded px-2 py-1 text-xs font-medium text-[var(--eco-coral)] transition-colors duration-150 hover:bg-[var(--eco-coral-soft)] disabled:opacity-40"
           aria-label="Delete selected"
         >
           Delete

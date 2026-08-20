@@ -5,6 +5,7 @@
 
 import { useCallback, useId, useState, type ReactNode } from 'react'
 import { EcoLogo } from '../EcoLogo'
+import { ErrorLine } from '../ui/ErrorNotice'
 import { ConversationList } from '../sidebar/ConversationList'
 import { ThemeToggle } from '../nav/ThemeToggle'
 import {
@@ -625,9 +626,9 @@ export function Sidebar({
               </span>
             </button>
             {signOutError ? (
-              <p className="mt-2 rounded-lg border border-[var(--eco-coral)]/20 bg-[var(--eco-coral)]/10 px-3 py-2 text-xs leading-5 text-[var(--eco-coral)]" role="alert">
+              <ErrorLine size="xs" className="mt-2 px-3">
                 {signOutError}
-              </p>
+              </ErrorLine>
             ) : null}
             <div className="mt-3 flex items-center justify-end">
               <ThemeToggle />

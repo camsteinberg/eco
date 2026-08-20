@@ -5,6 +5,7 @@
 
 import { useRef, useState, useCallback, useEffect } from "react";
 import { FileChip } from "./FileChip";
+import { ErrorLine } from "../ui/ErrorNotice";
 import { ModelSelector } from "./ModelSelector";
 import { ResearchToggle } from "./ResearchToggle";
 import { useChatStore } from "../../stores/chatStore";
@@ -215,18 +216,7 @@ export function ChatInput({
 
       {attachmentError ? (
         <div className="px-4 pt-3">
-          <p
-            role="alert"
-            aria-live="assertive"
-            className="rounded-2xl border px-3 py-2 text-xs leading-relaxed"
-            style={{
-              backgroundColor: "var(--eco-coral-soft)",
-              borderColor: "color-mix(in srgb, var(--eco-coral) 28%, var(--eco-border))",
-              color: "var(--eco-coral)",
-            }}
-          >
-            {attachmentError}
-          </p>
+          <ErrorLine size="xs">{attachmentError}</ErrorLine>
         </div>
       ) : null}
 

@@ -18,6 +18,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Button, Modal, SproutIllustration } from "@eco/ui";
+import { ErrorLine } from "../ui/ErrorNotice";
 import { buildCapturedFailure, FAILURE_TAGS } from "../../local-ai/eval/capture";
 import type { CaptureSourceMessage, FailureTag } from "../../local-ai/eval/capture";
 import { saveCapture } from "../../local-ai/eval/capture-store";
@@ -163,10 +164,10 @@ export function FlagFailureDialog({
           />
 
           {phase === "error" && (
-            <p role="alert" className="mt-2 text-sm text-[var(--eco-coral)]">
+            <ErrorLine className="mt-2">
               Couldn&apos;t capture this reply — it needs a completed answer with a
               preceding question.
-            </p>
+            </ErrorLine>
           )}
 
           <div className="mt-4 flex items-center justify-between gap-3">

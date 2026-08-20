@@ -66,8 +66,8 @@ type PickerModel = { id: string; friendlyName: string };
 
 const OUTCOME_STYLE: Record<SustainedProbeRecord['outcome'], { label: string; fg: string; bg: string }> = {
   completed: { label: 'Completed', fg: 'var(--eco-success, #2d5a3d)', bg: 'var(--eco-success-soft, rgba(45, 90, 61, 0.1))' },
-  error: { label: 'Errored', fg: 'var(--eco-error, #c75c4a)', bg: 'var(--eco-error-soft, rgba(199, 92, 74, 0.12))' },
-  killed: { label: 'Tab killed', fg: 'var(--eco-error, #c75c4a)', bg: 'var(--eco-error-soft, rgba(199, 92, 74, 0.12))' },
+  error: { label: 'Errored', fg: 'var(--eco-error)', bg: 'var(--eco-error-soft)' },
+  killed: { label: 'Tab killed', fg: 'var(--eco-error)', bg: 'var(--eco-error-soft)' },
 };
 
 const CARD: CSSProperties = {
@@ -545,7 +545,7 @@ export function SustainedProbePanel() {
       {killedNote && (
         <div
           className="mb-4 rounded-lg px-3 py-2 text-sm"
-          style={{ background: 'var(--eco-error-soft, rgba(199, 92, 74, 0.12))', color: 'var(--eco-error, #c75c4a)' }}
+          style={{ background: 'var(--eco-error-soft)', color: 'var(--eco-error)' }}
           role="status"
         >
           {killedNote}
@@ -555,7 +555,7 @@ export function SustainedProbePanel() {
       {deathNote && (
         <div
           className="mb-4 rounded-lg px-3 py-2 text-sm"
-          style={{ background: 'var(--eco-error-soft, rgba(199, 92, 74, 0.12))', color: 'var(--eco-error, #c75c4a)' }}
+          style={{ background: 'var(--eco-error-soft)', color: 'var(--eco-error)' }}
           role="status"
         >
           {deathNote}
@@ -814,7 +814,7 @@ function RecordCard({ record }: { record: SustainedProbeRecord }) {
         {record.error && (
           <>
             <dt style={LABEL}>Note</dt>
-            <dd style={{ ...MONO, color: 'var(--eco-error, #c75c4a)' }}>{record.error}</dd>
+            <dd style={{ ...MONO, color: 'var(--eco-error)' }}>{record.error}</dd>
           </>
         )}
       </dl>
@@ -847,7 +847,7 @@ function TurnTable({ turns, caption }: { turns: SustainedProbeTurn[]; caption: s
               <td className="py-1 pr-4">{t.completionTokens ?? '—'}</td>
               <td className="py-1 pr-4">{t.tokensPerSecond ?? '—'}</td>
               <td className="py-1 pr-4">{t.ttftMs != null ? `${t.ttftMs}ms` : '—'}</td>
-              <td className="py-1 pr-4" style={{ color: t.error ? 'var(--eco-error, #c75c4a)' : undefined }}>
+              <td className="py-1 pr-4" style={{ color: t.error ? 'var(--eco-error)' : undefined }}>
                 {t.error ? 'yes' : '—'}
               </td>
             </tr>

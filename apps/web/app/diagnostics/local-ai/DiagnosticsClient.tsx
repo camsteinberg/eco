@@ -43,8 +43,8 @@ const VERDICT_STYLE: Record<
 > = {
   ok: { label: 'Working', fg: 'var(--eco-success, #2d5a3d)', bg: 'var(--eco-success-soft, rgba(45, 90, 61, 0.1))' },
   slow: { label: 'Slow', fg: 'var(--eco-amber, #d4a853)', bg: 'var(--eco-warning-soft, rgba(212, 168, 83, 0.14))' },
-  'fast-fail': { label: 'Blocked', fg: 'var(--eco-error, #c75c4a)', bg: 'var(--eco-error-soft, rgba(199, 92, 74, 0.12))' },
-  'http-error': { label: 'Server error', fg: 'var(--eco-error, #c75c4a)', bg: 'var(--eco-error-soft, rgba(199, 92, 74, 0.12))' },
+  'fast-fail': { label: 'Blocked', fg: 'var(--eco-error)', bg: 'var(--eco-error-soft)' },
+  'http-error': { label: 'Server error', fg: 'var(--eco-error)', bg: 'var(--eco-error-soft)' },
 };
 
 // ─── Component ────────────────────────────────────────────────────────────
@@ -532,8 +532,8 @@ export function DiagnosticsClient() {
             <p
               className="mt-4 rounded-lg px-3 py-2 text-sm"
               style={{
-                background: 'var(--eco-error-soft, rgba(199, 92, 74, 0.12))',
-                color: 'var(--eco-error, #c75c4a)',
+                background: 'var(--eco-error-soft)',
+                color: 'var(--eco-error)',
                 fontFamily: 'var(--eco-font-body)',
               }}
             >
@@ -687,7 +687,7 @@ export function DiagnosticsClient() {
                               : 'var(--eco-error-soft, rgba(180, 60, 60, 0.1))',
                             color: entry.outcome === 'smoke-pass'
                               ? 'var(--eco-success, #2d5a3d)'
-                              : 'var(--eco-error, #b43c3c)',
+                              : 'var(--eco-error)',
                           }}
                         >
                           {entry.outcome === 'smoke-pass' ? 'pass' : 'fail'}

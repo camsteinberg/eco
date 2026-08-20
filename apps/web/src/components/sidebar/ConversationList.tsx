@@ -7,6 +7,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { FernIllustration } from "@eco/ui";
 import { LeafIllustration } from "../illustrations/LeafIllustration";
+import { ErrorNotice } from "../ui/ErrorNotice";
 import { useRouter, usePathname } from "next/navigation";
 import { useConversationStore } from "../../stores/conversationStore";
 import { ConversationItem } from "./ConversationItem";
@@ -242,24 +243,15 @@ export function ConversationList({ variant = "standalone" }: ConversationListPro
   }, []);
 
   const recoverableFailureAlert = (persistenceError || exportError) ? (
-    <div
-      role="alert"
-      className="mx-1 rounded-xl border border-[var(--eco-coral)]/20 bg-[var(--eco-coral)]/10 px-3 py-2 text-xs leading-5 text-[var(--eco-coral)]"
-    >
-      <div className="flex items-start justify-between gap-2">
-        <p>{exportError ?? persistenceError}</p>
-        <button
-          type="button"
-          onClick={() => {
-            setExportError(null);
-            clearPersistenceError();
-          }}
-          className="shrink-0 rounded-lg px-2 py-1 font-medium hover:bg-[var(--eco-coral)]/10"
-        >
-          Dismiss
-        </button>
-      </div>
-    </div>
+    <ErrorNotice
+      compact
+      className="mx-1"
+      lead={exportError ?? persistenceError}
+      onDismiss={() => {
+        setExportError(null);
+        clearPersistenceError();
+      }}
+    />
   ) : null;
 
   if (conversations.length === 0) {

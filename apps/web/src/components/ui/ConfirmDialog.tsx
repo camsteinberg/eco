@@ -4,6 +4,7 @@
 "use client";
 
 import { useRef, useEffect } from "react";
+import { ErrorLine } from "./ErrorNotice";
 
 type ConfirmDialogProps = {
   open: boolean;
@@ -70,12 +71,7 @@ export function ConfirmDialog({
           {message}
         </p>
         {errorMessage ? (
-          <p
-            role="alert"
-            className="mt-3 rounded-lg border border-[var(--eco-coral)]/20 bg-[var(--eco-coral)]/10 px-3 py-2 text-sm text-[var(--eco-coral)]"
-          >
-            {errorMessage}
-          </p>
+          <ErrorLine className="mt-3">{errorMessage}</ErrorLine>
         ) : null}
         <div className="mt-5 flex justify-end gap-2">
           <button

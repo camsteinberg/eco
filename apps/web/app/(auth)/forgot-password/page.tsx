@@ -6,6 +6,7 @@
 import { Suspense, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { EcoLogo } from "../../../src/components/EcoLogo";
+import { ErrorLine } from "../../../src/components/ui/ErrorNotice";
 import { Button } from "@eco/ui";
 import Link from "next/link";
 import {
@@ -137,9 +138,9 @@ function ForgotPasswordForm() {
           ) : (
             <>
               {error && (
-                <div id="forgot-password-error" role="alert" className="mt-4 rounded-xl px-4 py-2.5 text-sm" style={{ backgroundColor: 'var(--eco-coral-soft)', color: 'var(--eco-coral)' }}>
+                <ErrorLine id="forgot-password-error" className="mt-4">
                   {error}
-                </div>
+                </ErrorLine>
               )}
 
               <p className="mt-4 text-center text-sm text-[var(--eco-text-secondary)]">

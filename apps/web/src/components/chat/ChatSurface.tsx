@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { springPresets, WarningTriangle } from "@eco/ui";
 import { timeGreeting } from "./greeting";
+import { ErrorLine, ErrorNotice } from "../ui/ErrorNotice";
 import { MessageList } from "./MessageList";
 import type { AssistantReplyControl } from "./MessageActions";
 import type { LocalModelPrepareState } from "./ErrorMessage";
@@ -72,19 +73,35 @@ function HelpGuideButton({ className }: { className: string }) {
 }
 
 function AttachmentDropError({ message, className = "" }: { message: string; className?: string }) {
+  return <ErrorLine size="xs" className={className}>{message}</ErrorLine>;
+}
+
+function ValidationProtectionNotice({
+  banner,
+  className = "",
+}: {
+  banner: NonNullable<ValidationProtectionBanner>;
+  className?: string;
+}) {
+  const warning = banner.tone === "warning";
   return (
-    <div className={className}>
-      <p
-        role="alert"
-        aria-live="assertive"
-        className="rounded-2xl border px-3 py-2 text-xs leading-relaxed"
-        style={{
-          backgroundColor: "var(--eco-coral-soft)",
-          borderColor: "color-mix(in srgb, var(--eco-coral) 28%, var(--eco-border))",
-          color: "var(--eco-coral)",
-        }}
-      >
-        {message}
+    <div
+      role="status"
+      aria-live="polite"
+      className={`rounded-xl border px-4 py-3 text-sm ${className}`}
+      style={{
+        backgroundColor: warning
+          ? "var(--eco-coral-soft)"
+          : "color-mix(in srgb, var(--eco-amber) 10%, transparent)",
+        borderColor: warning
+          ? "color-mix(in srgb, var(--eco-coral) 28%, var(--eco-border))"
+          : "color-mix(in srgb, var(--eco-amber) 26%, var(--eco-border))",
+        color: "var(--eco-text)",
+      }}
+    >
+      <p className="font-medium">{banner.title}</p>
+      <p className="mt-1 text-xs leading-relaxed" style={{ color: "var(--eco-text-secondary)" }}>
+        {banner.body}
       </p>
     </div>
   );
@@ -314,27 +331,10 @@ export function ChatSurface(props: ChatSurfaceProps) {
                 in its portal, which is every viewport wide enough for it. */}
             <div className="w-full empty:hidden">{upgradeCard}</div>
             {validationProtectionBanner && (
-              <div
-                role="status"
-                aria-live="polite"
-                className="mb-4 w-full rounded-xl border px-4 py-3 text-sm"
-                style={{
-                  backgroundColor:
-                    validationProtectionBanner.tone === "warning"
-                      ? "color-mix(in srgb, var(--eco-coral-soft) 70%, white)"
-                      : "color-mix(in srgb, var(--eco-amber) 10%, transparent)",
-                  borderColor:
-                    validationProtectionBanner.tone === "warning"
-                      ? "color-mix(in srgb, var(--eco-coral) 28%, var(--eco-border))"
-                      : "color-mix(in srgb, var(--eco-amber) 26%, var(--eco-border))",
-                  color: "var(--eco-text)",
-                }}
-              >
-                <p className="font-medium">{validationProtectionBanner.title}</p>
-                <p className="mt-1 text-xs leading-relaxed" style={{ color: "var(--eco-text-secondary)" }}>
-                  {validationProtectionBanner.body}
-                </p>
-              </div>
+              <ValidationProtectionNotice
+                banner={validationProtectionBanner}
+                className="mb-4 w-full"
+              />
             )}
             <ValidationSelectedModelNotice
               banner={validationSelectedModelBanner}
@@ -421,27 +421,10 @@ export function ChatSurface(props: ChatSurfaceProps) {
           )}
 
           {validationProtectionBanner && (
-            <div
-              role="status"
-              aria-live="polite"
-              className="mx-4 mb-2 rounded-xl border px-4 py-3 text-sm"
-              style={{
-                backgroundColor:
-                  validationProtectionBanner.tone === "warning"
-                    ? "color-mix(in srgb, var(--eco-coral-soft) 70%, white)"
-                    : "color-mix(in srgb, var(--eco-amber) 10%, transparent)",
-                borderColor:
-                  validationProtectionBanner.tone === "warning"
-                    ? "color-mix(in srgb, var(--eco-coral) 28%, var(--eco-border))"
-                    : "color-mix(in srgb, var(--eco-amber) 26%, var(--eco-border))",
-                color: "var(--eco-text)",
-              }}
-            >
-              <p className="font-medium">{validationProtectionBanner.title}</p>
-              <p className="mt-1 text-xs leading-relaxed" style={{ color: "var(--eco-text-secondary)" }}>
-                {validationProtectionBanner.body}
-              </p>
-            </div>
+            <ValidationProtectionNotice
+              banner={validationProtectionBanner}
+              className="mx-4 mb-2"
+            />
           )}
 
           <ValidationSelectedModelNotice
@@ -450,15 +433,7 @@ export function ChatSurface(props: ChatSurfaceProps) {
           />
 
           {error && (
-            <div
-              role="alert"
-              className="mx-4 mb-2 rounded-xl px-4 py-3 text-sm"
-              style={{ backgroundColor: 'var(--eco-coral-soft)', color: 'var(--eco-coral)' }}
-            >
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <span>{error}</span>
-              </div>
-            </div>
+            <ErrorNotice className="mx-4 mb-2" lead={error} />
           )}
 
           {/* Impact footer */}

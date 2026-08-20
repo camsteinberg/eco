@@ -10,6 +10,7 @@ import type { ModelConfig } from '../../local-ai/types';
 import { getDisplayInfo } from '../../local-ai/display';
 import { BotanicalAnimation } from './BotanicalAnimation';
 import { ProgressBar } from '../ui/ProgressBar';
+import { ErrorNotice } from '../ui/ErrorNotice';
 import type {
   FailedConfidence,
   SwitchAIResult,
@@ -357,37 +358,26 @@ function FailureNotice(props: {
   const lead = 'This can happen with certain hardware configurations. We can try the next best fit for your device.';
 
   return (
-    <div
-      role="alert"
-      className="rounded-[var(--eco-radius-md)] px-4 py-3 text-sm flex flex-col gap-3"
-      style={{
-        background: 'var(--eco-warning-soft)',
-        color: 'var(--eco-text)',
-        border: '1px solid var(--eco-warning)',
-      }}
-    >
-      <div className="flex items-start gap-2">
-        <WarningTriangle className="mt-0.5 h-[18px] w-[18px] shrink-0" />
-        <div className="flex flex-col gap-1">
-          <span className="font-medium">{headline}</span>
-          <span style={{ color: 'var(--eco-text-secondary)' }}>{lead}</span>
-        </div>
-      </div>
-      <div className="flex flex-row flex-wrap gap-2 ml-7">
-        {failure.suggested ? (
-          <Button
-            variant="primary"
-            disabled={saving}
-            onClick={() => { void onTrySuggested(failure.suggested as ModelConfig); }}
-          >
-            {`Try ${getDisplayInfo(failure.suggested.id, failure.suggested).friendlyName}`}
+    <ErrorNotice
+      lead={headline}
+      detail={lead}
+      actions={
+        <>
+          {failure.suggested ? (
+            <Button
+              variant="primary"
+              disabled={saving}
+              onClick={() => { void onTrySuggested(failure.suggested as ModelConfig); }}
+            >
+              {`Try ${getDisplayInfo(failure.suggested.id, failure.suggested).friendlyName}`}
+            </Button>
+          ) : null}
+          <Button variant="secondary" disabled={saving} onClick={onPickAnother}>
+            Pick another
           </Button>
-        ) : null}
-        <Button variant="secondary" disabled={saving} onClick={onPickAnother}>
-          Pick another
-        </Button>
-      </div>
-    </div>
+        </>
+      }
+    />
   );
 }
 
