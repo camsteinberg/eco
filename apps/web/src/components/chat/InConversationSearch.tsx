@@ -154,10 +154,9 @@ export function InConversationSearch({
         onKeyDown={handleKeyDown}
         placeholder="Search in conversation..."
         autoFocus
-        className="flex-1 rounded-md border px-3 py-1.5 text-sm outline-none"
+        className="flex-1 rounded-md border border-[var(--eco-border)] px-3 py-1.5 text-sm transition-all duration-150 focus:border-[var(--eco-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--eco-primary)]/20"
         style={{
           backgroundColor: "var(--eco-surface)",
-          borderColor: "var(--eco-border)",
           color: "var(--eco-text)",
         }}
         aria-label="Search in conversation"

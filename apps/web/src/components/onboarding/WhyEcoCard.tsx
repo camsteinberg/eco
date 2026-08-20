@@ -13,7 +13,7 @@ import { VALUE_PILLARS } from "../../lib/value-pillars";
  */
 export function WhyEcoCard() {
   return (
-    <div className="flex w-full max-w-2xl flex-col items-center gap-2 opacity-90">
+    <div className="flex w-full max-w-2xl flex-col items-center gap-2">
       <div className="flex w-full flex-col gap-2 px-4 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         {VALUE_PILLARS.map((pillar, i) => (
           <div key={pillar.title} className="flex items-center gap-4">

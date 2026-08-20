@@ -272,7 +272,7 @@ function CardBody({
 function DownloadProgress({ percent }: { percent: number }) {
   return (
     <div className="mt-3">
-      <ProgressBar percent={percent} label={`${percent}%`} />
+      <ProgressBar percent={percent} label={`${percent}%`} ariaLabel="Download progress" />
     </div>
   );
 }

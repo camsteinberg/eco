@@ -37,7 +37,7 @@ const shortcutSections: readonly ShortcutSection[] = [
     label: "Navigation",
     items: [
       { keys: [mod, "F"], description: "Search in conversation" },
-      { keys: [mod, "B"], description: "Collapse sidebar" },
+      { keys: [mod, "B"], description: "Collapse sidebar to icons" },
       { keys: [mod, "Shift", "S"], description: "Toggle sidebar" },
     ],
   },

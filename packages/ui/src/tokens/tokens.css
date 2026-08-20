@@ -24,7 +24,7 @@
   /* Text */
   --eco-text: #2c2418;
   --eco-text-secondary: #6b5e4f;
-  --eco-text-muted: #766a5c; /* AA: 4.64:1 on surface (was #9a8e80 at 2.82:1) */
+  --eco-text-muted: #736759; /* AA: 4.85:1 on surface, 4.62:1 on the tinted blockquote fill (was #766a5c at 4.64/4.42:1) */
 
   /* Accent */
   --eco-accent: #3d7a50; /* AA: 4.52:1 on surface (was #4a8f5f at 3.44:1) */

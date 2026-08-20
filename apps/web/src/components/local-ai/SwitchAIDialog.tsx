@@ -509,6 +509,7 @@ function LoadingProgress({ progress, phase }: { progress: number; phase: string 
         <ProgressBar
           percent={pct}
           label={`${label}${pct > 0 ? ` ${pct}%` : ''}`}
+          ariaLabel="Model setup progress"
         />
       </div>
     </div>
