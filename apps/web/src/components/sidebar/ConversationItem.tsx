@@ -110,11 +110,16 @@ export function ConversationItem({
         }
       }}
       className={[
-        "group flex cursor-pointer flex-col gap-0.5 transition-all duration-150 ease",
+        // The transparent left border is a gutter, not a line: it holds the
+        // space the active row's marker sits in, so nothing shifts when the
+        // selection moves. The marker itself is a pseudo-element rather than a
+        // coloured border, because a border follows the row's 28px radius and
+        // renders as a crescent around the pill's cap instead of a rail.
+        "group relative flex cursor-pointer flex-col gap-0.5 border-l-2 border-l-transparent transition-all duration-150 ease",
         isNested ? "rounded-xl px-2.5 py-2 text-xs" : "rounded-lg px-3 py-2 text-sm",
         isActive && !isMultiSelect
-          ? "border-l-2 border-l-[var(--eco-primary)] bg-[var(--eco-primary-soft)] text-[var(--eco-text)]"
-          : "border-l-2 border-l-transparent text-[var(--eco-text)] hover:bg-[var(--eco-surface)]",
+          ? "bg-[var(--eco-primary-soft)] text-[var(--eco-text)] before:absolute before:inset-y-3 before:left-1 before:w-0.5 before:rounded-full before:bg-[var(--eco-primary)]"
+          : "text-[var(--eco-text)] hover:bg-[var(--eco-surface)]",
         isMultiSelect && isSelected
           ? "bg-[var(--eco-primary-soft)]/50"
           : "",
@@ -161,7 +166,9 @@ export function ConversationItem({
               }
             }}
             onClick={(e) => e.stopPropagation()}
-            className="w-full rounded border border-[var(--eco-border)] bg-[var(--eco-surface-elevated)] px-1 py-0.5 text-sm text-[var(--eco-text)]"
+            className={`w-full border border-[var(--eco-border)] bg-[var(--eco-surface-elevated)] px-2 py-0.5 text-sm text-[var(--eco-text)] ${
+              isNested ? "rounded-xl" : "rounded-lg"
+            }`}
             aria-label="Rename conversation"
           />
         ) : (
@@ -272,8 +279,9 @@ export function ConversationItem({
           </div>
         )}
       </div>
-      <div className="flex items-center justify-between">
-        <span className={`${isNested ? "min-w-0 flex-1" : ""} truncate text-xs text-[var(--eco-text-secondary)]`}>
+      {/* pl-6 clears the checkbox above, so both lines share one left edge. */}
+      <div className={`flex items-center justify-between gap-2 ${isMultiSelect ? "pl-6" : ""}`}>
+        <span className="min-w-0 flex-1 truncate text-xs text-[var(--eco-text-secondary)]">
           {preview}
         </span>
         <span className="shrink-0 text-[10px] text-[var(--eco-text-secondary)]">

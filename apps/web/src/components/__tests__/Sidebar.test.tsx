@@ -311,11 +311,11 @@ describe('Sidebar', () => {
     mockPathname = '/impact'
     render(<Sidebar onNewChat={vi.fn()} />)
     const learnLink = screen.getByText('Learn').closest('a')!
-    expect(learnLink.className).toContain('border-l-2')
+    expect(learnLink.className).toContain('before:bg-[var(--eco-primary)]')
     expect(learnLink.className).toContain('text-[var(--eco-primary)]')
 
     const chatLink = screen.getByText('Chat').closest('a')!
-    expect(chatLink.className).not.toContain('border-l-2')
+    expect(chatLink.className).not.toContain('before:bg-[var(--eco-primary)]')
     mockPathname = '/chat'
   })
 
@@ -324,10 +324,10 @@ describe('Sidebar', () => {
     mockSearchParams = new URLSearchParams('tab=models')
     render(<Sidebar onNewChat={vi.fn()} />)
     const modelsLink = screen.getByText('Models').closest('a')!
-    expect(modelsLink.className).toContain('border-l-2')
+    expect(modelsLink.className).toContain('before:bg-[var(--eco-primary)]')
 
     const supportLink = screen.getByText('Support').closest('a')!
-    expect(supportLink.className).not.toContain('border-l-2')
+    expect(supportLink.className).not.toContain('before:bg-[var(--eco-primary)]')
     mockPathname = '/chat'
     mockSearchParams = new URLSearchParams()
   })
@@ -386,7 +386,7 @@ describe('Sidebar', () => {
       render(<Sidebar onNewChat={vi.fn()} />)
 
       const modelsLink = screen.getByText('Models').closest('a')!
-      expect(modelsLink.className).toContain('border-l-2')
+      expect(modelsLink.className).toContain('before:bg-[var(--eco-primary)]')
       expect(modelsLink).toHaveAttribute('aria-current', 'page')
 
       mockPathname = '/chat'

@@ -109,22 +109,27 @@ function SidebarNavLink({
   onNavigate?: () => void
   showTrailingArrow?: boolean
 }) {
+  // The active marker is drawn rather than bordered: a left border follows the
+  // row's radius, which at this height is a semicircular cap, so it rendered as
+  // a crescent around the pill instead of a rail. Collapsed, the row is a
+  // circle with no straight edge to mark at all — there the filled bubble and
+  // the primary icon carry the state on their own.
   return (
     <Link
       href={item.href}
       onClick={onNavigate}
       aria-current={item.currentAria}
       aria-label={collapsed ? item.label : undefined}
-      className={`group flex items-center rounded-xl text-sm transition-colors motion-reduce:transition-none ${
+      className={`group relative flex items-center rounded-xl text-sm transition-colors motion-reduce:transition-none ${
         collapsed
           ? `min-h-[44px] min-w-[44px] justify-center p-2 ${
               item.isActive
-                ? 'border-l-2 border-l-[var(--eco-primary)] bg-[var(--eco-primary-soft)] text-[var(--eco-primary)] shadow-sm'
+                ? 'bg-[var(--eco-primary-soft)] text-[var(--eco-primary)] shadow-sm'
                 : 'text-[var(--eco-text-secondary)] hover:bg-[var(--eco-primary-soft)]/60 hover:text-[var(--eco-text)]'
             }`
           : `min-h-11 gap-3 px-3 py-2.5 ${
               item.isActive
-                ? 'border-l-2 border-[var(--eco-primary)] bg-[var(--eco-primary-soft)] text-[var(--eco-primary)]'
+                ? 'bg-[var(--eco-primary-soft)] text-[var(--eco-primary)] before:absolute before:inset-y-3 before:left-1 before:w-0.5 before:rounded-full before:bg-[var(--eco-primary)]'
                 : 'text-[var(--eco-text-secondary)] hover:bg-[var(--eco-primary-soft)]/60 hover:text-[var(--eco-text)]'
             }`
       }`}
@@ -173,9 +178,9 @@ function SidebarChatDisclosure({ item, open, controlsId, onOpenChange, onNavigat
           href={item.href}
           onClick={onNavigate}
           aria-current={item.currentAria}
-          className={`flex min-h-11 min-w-0 flex-1 items-center gap-3 rounded-l-xl px-3 py-2.5 transition-colors motion-reduce:transition-none ${
+          className={`relative flex min-h-11 min-w-0 flex-1 items-center gap-3 rounded-l-xl px-3 py-2.5 transition-colors motion-reduce:transition-none ${
             item.isActive
-              ? 'border-l-2 border-[var(--eco-primary)]'
+              ? 'before:absolute before:inset-y-3 before:left-1 before:w-0.5 before:rounded-full before:bg-[var(--eco-primary)]'
               : ''
           }`}
         >

@@ -48,6 +48,13 @@ function renderItem(overrides = {}) {
   return { ...result, ...props };
 }
 
+/** The row itself — `getByRole("button")` also matches the kebab inside it. */
+function rowElement(): HTMLElement {
+  const row = screen.getByText("Test Conversation").closest('[role="button"]');
+  if (!(row instanceof HTMLElement)) throw new Error("conversation row not found");
+  return row;
+}
+
 /** Helper to open the kebab dropdown menu */
 async function openMenu(user: ReturnType<typeof userEvent.setup>) {
   const menuBtn = screen.getByRole("button", { name: "Conversation menu" });
@@ -331,6 +338,36 @@ describe("ConversationItem", () => {
 
       // onToggleSelect is called (possibly multiple times due to event propagation)
       expect(onToggleSelect).toHaveBeenCalled();
+    });
+
+    it("indents the preview line by the checkbox, so both lines share a left edge", () => {
+      renderItem({ isMultiSelect: true, isSelected: false, onToggleSelect: vi.fn() });
+
+      const preview = screen.getByText("Hello, how can I help?");
+      expect(preview.parentElement).toHaveClass("pl-6");
+    });
+  });
+
+  describe("the active row's marker", () => {
+    // A coloured left border follows the row's radius, which at 28px on a 48px
+    // row is a semicircular cap — so the "rail" rendered as a crescent with two
+    // blunt ends. The marker is drawn instead, and the border stays transparent
+    // on every row so nothing shifts when the selection moves.
+    it("is drawn rather than bordered", () => {
+      renderItem({ isActive: true });
+
+      const row = rowElement();
+      expect(row.className).toContain("border-l-transparent");
+      expect(row.className).not.toContain("border-l-[var(--eco-primary)]");
+      expect(row.className).toContain("before:bg-[var(--eco-primary)]");
+    });
+
+    it("is absent on a row that is not active", () => {
+      renderItem({ isActive: false });
+
+      const row = rowElement();
+      expect(row.className).toContain("border-l-transparent");
+      expect(row.className).not.toContain("before:bg-[var(--eco-primary)]");
     });
   });
 });
