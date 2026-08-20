@@ -63,14 +63,14 @@ export function WelcomeCard({
   return (
     <div
       data-eco-welcome-card
-      className="fixed inset-0 z-50 flex items-center-safe justify-center overflow-y-auto px-4 py-8"
+      className="fixed inset-0 z-50 flex items-center-safe justify-center overflow-y-auto px-4 py-4 sm:py-8"
       style={{ background: 'color-mix(in srgb, var(--eco-surface) 88%, transparent)', backdropFilter: 'blur(6px)' }}
       role="dialog"
       aria-modal="true"
       aria-label="Welcome to Eco — choose your model"
     >
       <motion.div
-        className="grain-subtle relative w-full max-w-xl rounded-3xl px-7 py-6 sm:px-10 sm:py-6"
+        className="grain-subtle relative w-full max-w-xl rounded-3xl px-7 py-5 sm:px-10 sm:py-6"
         style={{
           background: 'var(--eco-surface-elevated)',
           border: '1px solid var(--eco-border)',
@@ -96,18 +96,19 @@ export function WelcomeCard({
           </p>
         </div>
 
-        {/* Mission + water story */}
+        {/* Mission + water story. The subtitle above already says the model runs
+            here, and the comparison caption below already says on-device answers
+            use no cooling water — this line carries only the part neither does:
+            why data centers spend water at all. */}
         <p
-          className="mx-auto mt-3 max-w-lg text-center text-sm leading-normal"
+          className="mx-auto mt-2.5 max-w-lg text-center text-sm leading-normal sm:mt-3"
           style={{ color: 'var(--eco-text-secondary)' }}
         >
-          Most AI runs in data centers. Your messages get sent there to be answered, and the
-          servers are cooled with water. Eco runs the model on your device instead, so your
-          messages stay here and answering them uses none of that cooling water.
+          Data centers answer your messages on their servers, and cool those servers with water.
         </p>
 
         {/* The signature: water comparison visual */}
-        <div className="mt-4">
+        <div className="mt-3 sm:mt-4">
           <WaterComparison />
           <div className="mt-1.5 text-center">
             <a
@@ -121,7 +122,7 @@ export function WelcomeCard({
         </div>
 
         {/* Model choice */}
-        <div className="mt-5">
+        <div className="mt-4 sm:mt-5">
           <div className="text-center">
             <p className="text-base font-semibold" style={{ color: 'var(--eco-text)' }}>
               {single ? 'Your model' : 'Pick the model that fits your device'}
@@ -153,7 +154,7 @@ export function WelcomeCard({
         <button
           type="button"
           onClick={() => selected && onChoose(selected.id)}
-          className="mt-4 flex min-h-12 w-full items-center justify-center gap-2 rounded-full px-6 text-base font-semibold transition-transform active:scale-[0.99]"
+          className="mt-3 flex min-h-12 w-full items-center justify-center gap-2 rounded-full px-6 text-base font-semibold transition-transform active:scale-[0.99] sm:mt-4"
           style={{ background: 'var(--eco-primary)', color: 'var(--eco-on-primary)' }}
         >
           {single ? `Start with ${selected?.name ?? 'Eco'}` : `Start with ${selected?.name ?? ''}`}
@@ -184,21 +185,13 @@ function ModelChoiceTile({
       onClick={onSelect}
       role={selectable ? 'radio' : undefined}
       aria-checked={selectable ? selected : undefined}
-      className="relative flex flex-col rounded-2xl px-4 py-3.5 text-left transition-colors"
+      className="flex flex-col rounded-2xl px-4 py-3.5 text-left transition-colors"
       style={{
         background: selected ? 'var(--eco-primary-soft)' : 'var(--eco-surface)',
         border: `1.5px solid ${selected ? 'var(--eco-primary)' : 'var(--eco-border)'}`,
         cursor: selectable ? 'pointer' : 'default',
       }}
     >
-      {recommended && (
-        <span
-          className="absolute -top-2.5 right-3 rounded-full px-2 py-0.5 text-[10px] font-medium"
-          style={{ background: 'var(--eco-primary-soft)', color: 'var(--eco-primary)' }}
-        >
-          Recommended
-        </span>
-      )}
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-base font-semibold" style={{ color: 'var(--eco-text)' }}>
           {choice.name}
@@ -207,6 +200,21 @@ function ModelChoiceTile({
           {choice.sizeLabel}
         </span>
       </div>
+      {/* In-flow like every other "Recommended" tag in the product, so the tile's
+          border stays unbroken. Neutral, not primary: the primary hue belongs to
+          the selected tile alone, and the two must not read as rival approvals
+          when the person picks the other model. */}
+      {recommended && (
+        <span
+          className="mt-1.5 inline-flex w-fit items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium"
+          style={{
+            background: 'color-mix(in srgb, var(--eco-text-muted) 14%, transparent)',
+            color: 'var(--eco-text-secondary)',
+          }}
+        >
+          Recommended
+        </span>
+      )}
       <p className="mt-1.5 text-[13px] leading-snug" style={{ color: 'var(--eco-text-secondary)' }}>
         {choice.tagline}
       </p>

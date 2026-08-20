@@ -55,13 +55,28 @@ describe('WelcomeSetup', () => {
     const { rerender } = render(
       <WelcomeSetup phase="downloading" percent={30} etaSeconds={60} reassuranceIndex={0} />,
     );
-    expect(screen.getByText(/run on your device/i)).toBeInTheDocument();
-    rerender(<WelcomeSetup phase="downloading" percent={30} etaSeconds={60} reassuranceIndex={1} />);
     expect(screen.getByText(/open source/i)).toBeInTheDocument();
     // A later index carries a process-narration line — guards the content mix
     // so the rotation can't silently collapse back to promise-only lines.
-    rerender(<WelcomeSetup phase="downloading" percent={30} etaSeconds={60} reassuranceIndex={4} />);
+    rerender(<WelcomeSetup phase="downloading" percent={30} etaSeconds={60} reassuranceIndex={2} />);
     expect(screen.getByText(/saving it to your device/i)).toBeInTheDocument();
+    rerender(<WelcomeSetup phase="downloading" percent={30} etaSeconds={60} reassuranceIndex={7} />);
+    expect(screen.getByText(/supporters chip in/i)).toBeInTheDocument();
+  });
+
+  // The three-pillar row directly above already states that chats stay on this
+  // device. Rotation lines that only restate it spend a slot saying nothing new,
+  // so they were dropped — this keeps them from drifting back in.
+  it('does not restate the Private pillar verbatim in the rotation', () => {
+    for (let index = 0; index < 8; index += 1) {
+      const { unmount } = render(
+        <WelcomeSetup phase="downloading" percent={30} etaSeconds={60} reassuranceIndex={index} />,
+      );
+      const card = screen.getByLabelText('Reassurance message');
+      expect(card).not.toHaveTextContent(/^Your conversations run on your device\.$/);
+      expect(card).not.toHaveTextContent(/^Your chats stay on this device, not our servers\.$/);
+      unmount();
+    }
   });
 
   it('shows a progress bar but no raw bytes/percent/speed text', () => {

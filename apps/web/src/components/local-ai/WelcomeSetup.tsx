@@ -60,15 +60,15 @@ export type WelcomeSetupProps = {
 // The wait runs 2–10 minutes; a 4-line loop (32s) empties fast and reads as
 // "stuck" on the back 80%. Blend three registers — the privacy promise, gentle
 // process-narration (labor illusion: name the real work), and warmth — so the
-// rotation carries the whole wait without obvious repetition. Keep indices 0–1
-// fixed; they are the load-bearing first impression (and unit-test-locked).
+// rotation carries the whole wait without obvious repetition. Keep index 0
+// fixed; it is the load-bearing first impression (and unit-test-locked).
+// Lines that only restate the Private pillar rendered directly above don't
+// earn a slot — the rotation has to say something the page doesn't already.
 const REASSURANCE_COPY = [
   // — the promise —
-  'Your conversations run on your device.',
   'Eco is open source — your AI, your trust.',
   // — what's happening (names the wait as the reason it's private) —
   'Downloading your AI so it never has to leave your device.',
-  'Your chats stay on this device, not our servers.',
   'Saving it to your device — no cloud, no sign-in, no catch.',
   // — the warmth / values —
   "Private, by how it's built — not by promise.",

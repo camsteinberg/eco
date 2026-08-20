@@ -96,7 +96,15 @@ function GateForm() {
         <div style={{ display: "flex", justifyContent: "center" }}>
           <EcoLogo size="lg" />
         </div>
-        <h1 style={{ fontSize: "1.5rem", fontWeight: 600, textAlign: "center", margin: 0 }}>
+        <h1
+          style={{
+            fontFamily: "var(--eco-font-display)",
+            fontSize: "1.5rem",
+            fontWeight: 600,
+            textAlign: "center",
+            margin: 0,
+          }}
+        >
           Early access
         </h1>
         <p
@@ -107,7 +115,7 @@ function GateForm() {
             margin: 0,
           }}
         >
-          Enter your access password to continue to Eco&apos;s local-first chat launch.
+          Eco&apos;s local-first chat launch is in private preview.
         </p>
         {gateConfigured === false ? (
           <div role="status" aria-live="polite" style={{ display: "grid", gap: "1rem" }}>
@@ -160,15 +168,11 @@ function GateForm() {
               placeholder="Password"
               autoFocus
               required
-              style={{
-                padding: "0.75rem 1rem",
-                borderRadius: "8px",
-                border: `1px solid ${error ? "var(--eco-coral)" : "var(--eco-border)"}`,
-                fontSize: "1rem",
-                outline: "none",
-                background: "var(--eco-surface-elevated)",
-                color: "var(--eco-text)",
-              }}
+              className={`block w-full rounded-xl border bg-[var(--eco-surface-elevated)] px-4 py-3 text-base text-[var(--eco-text)] placeholder-[var(--eco-text-secondary)] transition-all duration-150 ease focus:outline-none ${
+                error
+                  ? "border-[var(--eco-coral)] focus:border-[var(--eco-coral)] focus:ring-2 focus:ring-[var(--eco-coral)]/20"
+                  : "border-[var(--eco-border)] focus:border-[var(--eco-primary)] focus:ring-2 focus:ring-[var(--eco-primary)]/20"
+              }`}
             />
             <p id="gate-password-help" style={{ fontSize: "0.75rem", margin: "-0.5rem 0 0", color: "var(--eco-text-secondary)" }}>
               The gate protects this preview; local AI remains available after access.

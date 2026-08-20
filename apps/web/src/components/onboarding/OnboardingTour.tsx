@@ -68,7 +68,7 @@ export function OnboardingTour() {
         popover: {
           title: "Track impact quietly",
           description:
-            "Eco estimates water, energy, and CO₂ savings so you can see the difference without leaving the conversation.",
+            "Eco estimates water, energy, and CO2 savings so you can see the difference without leaving the conversation.",
           side: "top" as const,
           align: "center" as const,
         },
