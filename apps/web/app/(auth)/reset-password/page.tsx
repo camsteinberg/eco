@@ -6,6 +6,7 @@
 import { useRef, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { EcoLogo } from "../../../src/components/EcoLogo";
+import { ErrorLine } from "../../../src/components/ui/ErrorNotice";
 import { Button } from "@eco/ui";
 import Link from "next/link";
 import {
@@ -153,9 +154,9 @@ function ResetPasswordForm() {
     <>
       <CardHeading>Set new password</CardHeading>
       {error && (
-        <div id="reset-password-error" role="alert" className="mt-4 rounded-xl px-4 py-2.5 text-sm" style={{ backgroundColor: 'var(--eco-coral-soft)', color: 'var(--eco-coral)' }}>
+        <ErrorLine id="reset-password-error" className="mt-4">
           {error}
-        </div>
+        </ErrorLine>
       )}
 
       <form noValidate onSubmit={handleSubmit} className="mt-6 space-y-4">

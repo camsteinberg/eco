@@ -7,7 +7,8 @@ import { useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useSupporterMembership } from '../../hooks/useSupporterMembership'
 import { PricingCard } from '../pricing/PricingCard'
-import { BrandedError } from '../ui/BrandedError'
+import { Button } from '@eco/ui'
+import { ErrorNotice } from '../ui/ErrorNotice'
 import { SettingsSection } from './SettingsSection'
 
 function getTrustedBillingRedirect(url: unknown): string | null {
@@ -205,23 +206,27 @@ export function BillingTab() {
           ) : null}
         </div>
         {error && (
-          <div className="mt-4">
-            <BrandedError
-              title="Billing hiccup"
-              description={error}
-              action={{
-                label: 'Try again',
-                onClick: () => {
+          <ErrorNotice
+            className="mt-4"
+            lead="Billing hiccup"
+            detail={error}
+            actions={
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => {
                   setError(null)
                   if (lastActionRef.current === 'manage') {
                     void handleManage()
                   } else {
                     void handleUpgrade()
                   }
-                },
-              }}
-            />
-          </div>
+                }}
+              >
+                Try again
+              </Button>
+            }
+          />
         )}
       </SettingsSection>
 

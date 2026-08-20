@@ -49,8 +49,8 @@
   --eco-amber-soft: rgba(212, 168, 83, 0.12); /* amber hue wash (matches --eco-amber base #d4a853) */
   --eco-warning: #9a4a02; /* AA: 5.52:1 on surface (was #d97706 at 2.81:1) */
   --eco-warning-soft: rgba(245, 158, 11, 0.1);
-  --eco-error: #dc2626;
-  --eco-error-soft: rgba(239, 68, 68, 0.1);
+  --eco-error: var(--eco-coral); /* one failure hue: error aliases coral (see --eco-danger) */
+  --eco-error-soft: var(--eco-coral-soft);
   --eco-info: #2563eb;
   --eco-info-soft: rgba(59, 130, 246, 0.1);
 
@@ -229,8 +229,8 @@
   --eco-amber-soft: rgba(212, 168, 83, 0.16); /* amber hue wash, slightly stronger for dark surfaces */
   --eco-warning: #fbbf24;
   --eco-warning-soft: rgba(245, 158, 11, 0.1);
-  --eco-error: #f87171;
-  --eco-error-soft: rgba(239, 68, 68, 0.1);
+  --eco-error: var(--eco-coral); /* one failure hue: error aliases coral (see --eco-danger) */
+  --eco-error-soft: var(--eco-coral-soft);
   --eco-info: #60a5fa;
   --eco-info-soft: rgba(59, 130, 246, 0.1);
 

@@ -28,7 +28,7 @@ export function useToast() {
 
 const typeStyles: Record<ToastType, string> = {
   success: 'border-[var(--eco-mint)]/20 bg-[var(--eco-mint-soft)]',
-  error: 'border-[var(--eco-coral)]/20 bg-[var(--eco-coral-soft)]',
+  error: 'border-[color-mix(in_srgb,var(--eco-coral)_28%,var(--eco-border))] bg-[var(--eco-coral-soft)]',
   info: 'border-[var(--eco-border)] bg-[var(--eco-surface-elevated)]',
 }
 

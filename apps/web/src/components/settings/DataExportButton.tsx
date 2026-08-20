@@ -6,6 +6,7 @@
 import { useState } from 'react'
 import { useSession } from '../../lib/auth'
 import { exportUserData } from '../../lib/data-export'
+import { ErrorLine } from '../ui/ErrorNotice'
 
 type ExportState = 'idle' | 'exporting' | 'done' | 'error'
 type ExportReceipt = {
@@ -84,9 +85,7 @@ export function DataExportButton() {
       ) : null}
 
       {state === 'error' && errorMessage ? (
-        <p aria-live="polite" className="text-sm text-[var(--eco-coral)]">
-          {errorMessage}
-        </p>
+        <ErrorLine>{errorMessage}</ErrorLine>
       ) : null}
     </div>
   )

@@ -5,6 +5,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { copyConversationAsMarkdown, downloadShareableHTML } from "../../lib/share";
+import { ErrorNotice } from "../ui/ErrorNotice";
 import {
   ConversationNotFoundError,
   exportConversationAsJSON,
@@ -315,21 +316,12 @@ export function ShareDialog({
         )}
 
         {downloadError && (
-          <div
-            role="alert"
-            className="mt-3 rounded-xl border border-[var(--eco-coral)]/20 bg-[var(--eco-coral)]/10 px-3 py-2 text-xs leading-5 text-[var(--eco-coral)]"
-          >
-            <div className="flex items-start justify-between gap-2">
-              <p>{downloadError}</p>
-              <button
-                type="button"
-                onClick={() => setDownloadError(null)}
-                className="shrink-0 rounded-lg px-2 py-1 font-medium hover:bg-[var(--eco-coral)]/10"
-              >
-                Dismiss
-              </button>
-            </div>
-          </div>
+          <ErrorNotice
+            compact
+            className="mt-3"
+            lead={downloadError}
+            onDismiss={() => setDownloadError(null)}
+          />
         )}
 
         {/* Divider */}

@@ -509,7 +509,7 @@ export const chatInteractionsStates: StateEntry[] = [
       await attach(page, [
         { name: "quarterly.pdf", mimeType: "application/pdf", buffer: Buffer.from("not a pdf") },
       ]);
-      await expect(page.locator(ATTACHMENT_ALERT)).toContainText("Could not read quarterly.pdf");
+      await expect(page.locator(ATTACHMENT_ALERT)).toContainText("Eco couldn't read quarterly.pdf");
     },
     notes:
       "Both halves of the failure at once: the chip goes red with its own message, and the "
@@ -544,7 +544,7 @@ export const chatInteractionsStates: StateEntry[] = [
           textFile(`note-${name}.md`, `# Note ${String(index + 1)}\n\nContainer volume matters.\n`),
         ),
       );
-      await expect(page.locator(ATTACHMENT_ALERT)).toContainText("max 5 files per message");
+      await expect(page.locator(ATTACHMENT_ALERT)).toContainText("Eco can attach up to 5 files per message");
       await expect(page.locator(ON_DEVICE_BADGE)).toHaveCount(5);
     },
     notes: "Five chips accepted, the sixth refused by name — the limit is stated, not silent.",

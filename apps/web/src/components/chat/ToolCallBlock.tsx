@@ -113,7 +113,7 @@ export function ToolCallBlock({ name, status, input, output, summary, defaultCol
             viewBox="0 0 20 20"
             fill="currentColor"
             className="h-4 w-4 shrink-0"
-            style={{ color: "var(--eco-success, #22c55e)" }}
+            style={{ color: "var(--eco-success)" }}
             aria-hidden="true"
           >
             <path
@@ -128,7 +128,7 @@ export function ToolCallBlock({ name, status, input, output, summary, defaultCol
             viewBox="0 0 20 20"
             fill="currentColor"
             className="h-4 w-4 shrink-0"
-            style={{ color: "var(--eco-danger, #ef4444)" }}
+            style={{ color: "var(--eco-danger)" }}
             aria-hidden="true"
           >
             <path

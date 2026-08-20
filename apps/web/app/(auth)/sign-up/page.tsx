@@ -7,6 +7,7 @@ import { Suspense, useState, useEffect, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { signUp, signIn, useSession } from "../../../src/lib/auth";
 import { EcoLogo } from "../../../src/components/EcoLogo";
+import { ErrorLine } from "../../../src/components/ui/ErrorNotice";
 import { Button } from "@eco/ui";
 import Link from "next/link";
 import {
@@ -235,11 +236,7 @@ function SignUpForm() {
 
           {/* General error banner */}
           {error && (
-            <div
-              role="alert"
-              className="relative mt-4 rounded-xl px-4 py-2.5 text-sm"
-              style={{ backgroundColor: 'var(--color-danger-soft)', color: 'var(--color-danger)' }}
-            >
+            <ErrorLine className="relative mt-4">
               {error.type === "duplicate-email" ? (
                 <>
                   An account with this email already exists.{" "}
@@ -253,7 +250,7 @@ function SignUpForm() {
               ) : (
                 error.text
               )}
-            </div>
+            </ErrorLine>
           )}
 
           <form noValidate onSubmit={handleSubmit} className="relative mt-6 space-y-4">

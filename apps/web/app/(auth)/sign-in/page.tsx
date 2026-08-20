@@ -7,6 +7,7 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { signIn, useSession } from "../../../src/lib/auth";
 import { EcoLogo } from "../../../src/components/EcoLogo";
+import { ErrorLine } from "../../../src/components/ui/ErrorNotice";
 import { Button } from "@eco/ui";
 import Link from "next/link";
 import {
@@ -229,7 +230,7 @@ function SignInForm() {
           )}
 
           {error && (
-            <div role="alert" className="relative mt-4 rounded-xl px-4 py-2.5 text-sm" style={{ backgroundColor: 'var(--color-danger-soft)', color: 'var(--color-danger)' }}>
+            <ErrorLine className="relative mt-4">
               {error.type === "invalid-credentials" ? (
                 <>
                   That email or password doesn&apos;t match. Try again, or{" "}
@@ -244,7 +245,7 @@ function SignInForm() {
               ) : (
                 error.text
               )}
-            </div>
+            </ErrorLine>
           )}
 
           <form noValidate onSubmit={handleSubmit} className="relative mt-6 space-y-4">
