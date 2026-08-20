@@ -3,6 +3,8 @@
 
 "use client";
 
+import { useEffect, useRef } from "react";
+
 type BulkActionsBarProps = {
   selectedCount: number;
   onSelectAll: () => void;
@@ -26,6 +28,13 @@ type BulkActionsBarProps = {
  * to the end of the list it floated at the scrollport's bottom edge and sat on
  * top of whichever row happened to be there (measured 2026-08-19). In normal
  * flow it lands under the last row and covers nothing at any scroll offset.
+ *
+ * Which is why it scrolls itself into view when it mounts: the list is longer
+ * than the sidebar's scrollport well before it is worth bulk-editing, so
+ * arriving in normal flow means arriving below the fold — measured 2026-08-20
+ * at 1440x900 with five conversations, where entering multi-select left the
+ * action row sliced by the scrollport's bottom edge and none of its three
+ * controls legible.
  */
 export function BulkActionsBar({
   selectedCount,
@@ -34,8 +43,19 @@ export function BulkActionsBar({
   onDelete,
   onCancel,
 }: BulkActionsBarProps) {
+  const barRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const bar = barRef.current;
+    // JSDOM does not implement scrollIntoView.
+    if (bar && typeof bar.scrollIntoView === "function") {
+      bar.scrollIntoView({ block: "nearest" });
+    }
+  }, []);
+
   return (
     <div
+      ref={barRef}
       className="mt-1 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 border-t border-[var(--eco-border)] bg-[var(--eco-surface-elevated)] px-3 py-2"
       aria-label="Bulk actions"
     >

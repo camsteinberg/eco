@@ -275,6 +275,34 @@ describe("ConversationList", () => {
       expect(screen.getByRole("button", { name: /delete selected/i })).toBeEnabled();
     });
 
+    // The list is taller than the sidebar's scrollport long before it is worth
+    // bulk-editing, so a bar that only joins the end of the flow arrives below
+    // the fold with none of its controls readable.
+    it("brings itself into view when multi-select is armed", async () => {
+      const user = userEvent.setup();
+      const scrollIntoView = vi.fn();
+      // jsdom does not implement scrollIntoView, so there is nothing to spy on.
+      const original = Object.getOwnPropertyDescriptor(Element.prototype, "scrollIntoView");
+      Object.defineProperty(Element.prototype, "scrollIntoView", {
+        value: scrollIntoView,
+        configurable: true,
+        writable: true,
+      });
+
+      try {
+        render(<ConversationList />);
+        await user.click(screen.getByLabelText("Select conversations"));
+
+        expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest" });
+      } finally {
+        if (original) {
+          Object.defineProperty(Element.prototype, "scrollIntoView", original);
+        } else {
+          delete (Element.prototype as Partial<Element>).scrollIntoView;
+        }
+      }
+    });
+
     it("shows selected count and Delete button when items are selected", async () => {
       const user = userEvent.setup();
       render(<ConversationList />);
@@ -342,6 +370,19 @@ describe("ConversationList", () => {
       expect(mockStoreState.removeMultiple).toHaveBeenCalledWith(
         expect.arrayContaining([expect.any(String)])
       );
+    });
+  });
+
+  describe("empty history", () => {
+    // Inside the sidebar the empty state shares one scroller with the whole
+    // nav, and a heading that repeats what the line below it already says costs
+    // the Trust links their place on a 900px-tall screen.
+    it("says it once in the nested sidebar", () => {
+      mockStoreState.conversations = [];
+      render(<ConversationList variant="nested" />);
+
+      expect(screen.getByText("Your conversations will gather here.")).toBeInTheDocument();
+      expect(screen.queryByText("No conversations yet")).not.toBeInTheDocument();
     });
   });
 

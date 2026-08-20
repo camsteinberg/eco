@@ -259,13 +259,15 @@ export function ConversationList({ variant = "standalone" }: ConversationListPro
       <div className={isNested ? "flex flex-col gap-2" : "flex flex-col gap-2 px-2 py-2"}>
         {recoverableFailureAlert}
         <div className={isNested
-          ? "flex flex-col items-center gap-3 px-4 py-6 text-center"
+          ? "flex flex-col items-center gap-2 px-4 py-3 text-center"
           : "flex flex-col items-center gap-3 px-3 py-8 text-center text-sm text-[var(--eco-text-secondary)]"}
         >
           {isNested ? (
+            // Kept short on purpose: this block sits between the nav's Workspace
+            // and Trust groups inside one scroller, and every pixel it takes is a
+            // pixel of navigation pushed below the fold on a 900px-tall screen.
             <>
-              <LeafIllustration className="h-12 w-12" style={{ color: "var(--eco-primary)" }} />
-              <p className="text-xs font-medium text-[var(--eco-text)]">No conversations yet</p>
+              <LeafIllustration className="h-8 w-8" style={{ color: "var(--eco-primary)" }} />
               <p className="text-xs text-[var(--eco-text-secondary)]">Your conversations will gather here.</p>
             </>
           ) : (
