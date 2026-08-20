@@ -111,6 +111,11 @@ export const pilotStates: StateEntry[] = [
     title: "Chat — empty state with a ready model",
     route: "/chat",
     search: READY_CHAT_SEARCH,
+    // This was the one chat state WITHOUT the upgrade suppression, and on the
+    // 2026-08-20 run the offer card landed before the shutter — the shot came
+    // out byte-identical to overlays.upgrade-offer, which is that card's own
+    // state. Suppressed here like every other chat capture.
+    seed: { local: UPGRADE_DECLINED_LOCAL },
     tier: "page",
     realism: "seeded",
     clock: { mode: "fixed" },

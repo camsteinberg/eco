@@ -54,7 +54,9 @@ import { BOTANICAL } from "./setup-gate";
  * pair (light / dark, threshold 8/255):
  *
  *   reduce-setup-botanical        3682 / 3677   KEPT
- *   reduce-sidebar-empty            31 /   31   KEPT — element shot, 0.012%
+ *   reduce-sidebar-empty            31 /   31   KEPT then — deleted 2026-08-20,
+ *                                                twins converged after the M4
+ *                                                sidebar refactor (note below)
  *   reduce-loading-cursor           34 /   34   deleted, see below
  *   reduce-chat-empty               32 /   31   deleted — diff was the sidebar
  *   reduce-model-selector-open      32 /   32   deleted — diff was the sidebar
@@ -197,33 +199,15 @@ export const axesStates: StateEntry[] = [
       + "setup-gate.setup-resuming — which is the baseline the reduce variant is compared against, "
       + "and is listed as an expected twin in check-capture-coverage.mjs.",
   },
-  {
-    id: "axes.reduce-sidebar-empty",
-    group: "axes",
-    title: "Sidebar — the empty-conversations sprout",
-    route: "/chat",
-    search: READY_CHAT_SEARCH,
-    seed: { local: UPGRADE_DECLINED_LOCAL },
-    tier: "component",
-    realism: "seeded",
-    axes: REDUCE_AXES,
-    // The 16px sprout would be a rounding error in a 1440px frame; shot on the
-    // sidebar itself so a reviewer can actually see the thing being compared.
-    // `aside` is unambiguous on desktop — the mobile sidebar lives inside a
-    // BottomSheet, which returns null while closed.
-    capture: { mode: "element", selector: "aside" },
-    assert: [{ text: "Your conversations will gather here." }],
-    notes:
-      "ConversationList renders a plain <svg> under reduce and a motion.svg otherwise "
-      + "(ConversationList.tsx:80-106). What the pair actually shows is a defect rather than a "
-      + "motion design: the sprout's paths are drawn for a 120-unit viewBox at stroke-width 2.5, "
-      + "so at width=16 the strokes land under a third of a pixel. The motion.svg gets its own "
-      + "compositing layer and its sub-pixel coverage accumulates into a faint green nub; the "
-      + "plain svg rounds away to NOTHING. The empty sidebar therefore has no illustration at "
-      + "all for a reader who has asked for less motion, and barely one for everyone else. "
-      + "No prepare: the recent-chats disclosure is open by default (`useState(true)`), which "
-      + "also means its button reads 'Hide recent chats', not 'Show'.",
-  },
+  // `axes.reduce-sidebar-empty` was deleted 2026-08-20, by the same pixel rule
+  // that deleted the other nine candidates. The entry existed because the old
+  // 16px sprout's reduce branch (a plain <svg>) rounded away to NOTHING while
+  // the motion.svg kept a faint nub — a defect, and a 31px twin difference.
+  // The M4 sidebar refactor replaced it with SidebarFern (ConversationList.tsx):
+  // a 64px FernIllustration whose reduce branch is a static span at opacity-50
+  // and whose animated branch settles at the same scale/opacity — measured on
+  // the 2026-08-20 full run as BYTE-identical to its no-preference twin and to
+  // sidebar.empty-list. The defect is fixed and the axis does nothing here.
 
   // ── Font size: three surfaces that scale differently ────────────────────
   {

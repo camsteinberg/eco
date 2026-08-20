@@ -81,6 +81,39 @@ const EXPECTED_TWINS = [
     ids: ["axes.font-content-page", "routes.transparency"],
     reason: "the axis control point — font size `default` IS the state routes already owns.",
   },
+  // The four below first collided on the 2026-08-20 run: they were always the
+  // same surface, but Motion settle noise kept their bytes apart until the M4
+  // polish PRs made these renders byte-stable. Each verified by eye 2026-08-20.
+  {
+    ids: ["axes.system-chat-empty", "pilot.chat-empty-ready"],
+    reason:
+      "three paths, one state: the stored-theme workhorse shot and the eco-theme-unset shot (in "
+      + "both its projects) agree exactly, which IS the system axis's finding — the app follows "
+      + "the operating system to the same pixels. Collided once pilot.chat-empty-ready gained the "
+      + "same upgrade suppression the axes entry always had.",
+  },
+  {
+    ids: ["axes.system-settings-appearance", "routes.settings-guest-appearance"],
+    reason:
+      "the same appearance tab: a guest stores no eco-theme, so the guest default IS the "
+      + "system-theme state the axes entry photographs.",
+  },
+  {
+    ids: [
+      "axes.font-settings-appearance",
+      "axes.system-settings-appearance",
+      "routes.settings-guest-appearance",
+    ],
+    reason:
+      "the light-theme triple point: the font-size control shot (default) and the system-theme "
+      + "shot are both, by construction, the guest appearance tab routes already owns.",
+  },
+  {
+    ids: ["axes.system-settings-appearance", "settings.appearance-theme-system"],
+    reason:
+      "the same appearance tab reached from both directions — eco-theme unset (axes) and the "
+      + "System radio selected (settings) render identically, which is what the radio promises.",
+  },
 ];
 
 /** Is this set of duplicate paths a pair we expect to be identical? */
