@@ -141,6 +141,15 @@ describe('AccountTab', () => {
     expect(screen.getByDisplayValue('alice@eco.network')).toBeInTheDocument()
   })
 
+  it('keeps the read-only email in a bordered field like the name field', async () => {
+    await renderAccountTabAndWaitForInitialEffects()
+
+    // The email is de-emphasised (recessed fill, secondary text) but still reads
+    // as a field — without a border its value floats under orphaned padding.
+    const email = screen.getByDisplayValue('alice@eco.network')
+    expect(email).toHaveClass('border', 'border-[var(--eco-border)]')
+  })
+
   it('renders profile heading', async () => {
     await renderAccountTabAndWaitForInitialEffects()
     expect(screen.getByText('Profile')).toBeInTheDocument()
@@ -218,6 +227,22 @@ describe('AccountTab', () => {
       screen.getByText(/^Saved\.$/i),
     ).toBeInTheDocument()
   }, 10000)
+
+  it('states the save succeeded as a quiet line, not a card', async () => {
+    const user = userEvent.setup()
+    mockFetch(() => Promise.resolve({ ok: true, json: async () => ({ ok: true }) }))
+
+    render(<AccountTab />)
+    const nameInput = screen.getByDisplayValue('Alice')
+    await user.clear(nameInput)
+    await user.type(nameInput, 'Bob')
+    await user.click(screen.getByText('Save'))
+
+    const saved = await screen.findByRole('status')
+    expect(saved).toHaveTextContent(/^Saved\.$/)
+    // Success and failure share one anatomy: a single line beside the field.
+    expect(saved.className).not.toMatch(/\b(border|bg-|rounded-)/)
+  })
 
   it('shows error when profile save fails', async () => {
     const user = userEvent.setup()

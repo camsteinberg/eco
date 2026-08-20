@@ -78,7 +78,10 @@ export function ConfirmDialog({
             type="button"
             onClick={onCancel}
             disabled={cancelDisabled}
-            className="rounded-lg border border-[var(--eco-border)] px-3 py-1.5 text-sm font-medium text-[var(--eco-text)] transition-colors hover:bg-[var(--eco-primary-soft)] active:scale-[0.98]"
+            // rounded-full, not rounded-lg: at this button height Eco's 24px
+            // lg radius clamps to a pill anyway, so full states the rendered
+            // shape instead of depending on the clamp surviving a size change.
+            className="rounded-full border border-[var(--eco-border)] px-3 py-1.5 text-sm font-medium text-[var(--eco-text)] transition-colors hover:bg-[var(--eco-primary-soft)] active:scale-[0.98]"
           >
             Cancel
           </button>
@@ -86,7 +89,7 @@ export function ConfirmDialog({
             type="button"
             onClick={onConfirm}
             disabled={confirmDisabled}
-            className="rounded-lg px-3 py-1.5 text-sm font-medium text-[var(--eco-on-primary)] transition-all duration-150 hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+            className="rounded-full px-3 py-1.5 text-sm font-medium text-[var(--eco-on-primary)] transition-all duration-150 hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
             style={{
               backgroundColor: destructive
                 ? "var(--eco-coral)"

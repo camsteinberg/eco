@@ -33,7 +33,7 @@ describe("SidebarErrorBoundary", () => {
     expect(screen.getByText("Sidebar content")).toBeDefined();
   });
 
-  it('shows "Reload sidebar" button when child throws', () => {
+  it('shows a person-first recovery message and button when child throws', () => {
     shouldThrow = true;
 
     render(
@@ -43,11 +43,15 @@ describe("SidebarErrorBoundary", () => {
     );
 
     expect(screen.queryByTestId("sidebar-content")).toBeNull();
-    expect(screen.getByText("Reload sidebar")).toBeDefined();
-    expect(screen.getByText("Sidebar encountered an error")).toBeDefined();
+    expect(screen.getByText("Show my chats")).toBeDefined();
+    expect(
+      screen.getByText("Your chats are safe \u2014 this list didn't load.")
+    ).toBeDefined();
+    // The copy speaks to the person; it never names an internal component.
+    expect(screen.queryByText(/sidebar/i)).toBeNull();
   });
 
-  it('clicking "Reload sidebar" resets and renders children again', () => {
+  it('clicking the recovery button resets and renders children again', () => {
     shouldThrow = true;
 
     render(
@@ -56,14 +60,14 @@ describe("SidebarErrorBoundary", () => {
       </SidebarErrorBoundary>
     );
 
-    expect(screen.getByText("Reload sidebar")).toBeDefined();
+    expect(screen.getByText("Show my chats")).toBeDefined();
 
     // Stop throwing so re-render succeeds
     shouldThrow = false;
 
-    fireEvent.click(screen.getByText("Reload sidebar"));
+    fireEvent.click(screen.getByText("Show my chats"));
 
     expect(screen.getByTestId("sidebar-content")).toBeDefined();
-    expect(screen.queryByText("Reload sidebar")).toBeNull();
+    expect(screen.queryByText("Show my chats")).toBeNull();
   });
 });

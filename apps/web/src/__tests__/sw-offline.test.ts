@@ -394,6 +394,48 @@ describe('Service worker offline interception', () => {
     globalThis.fetch = originalFetch;
   });
 
+  it('renders the offline card left-aligned, inside the viewport, on a neutral dark surface', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'));
+
+    let respondedWith: Response | null = null;
+    const navRequest = new Request('https://econetwork.ai/');
+    const event = {
+      request: {
+        url: navRequest.url,
+        mode: 'navigate' as RequestMode,
+        method: 'GET',
+        headers: navRequest.headers,
+        clone: () => navRequest,
+      },
+      respondWith: (r: Response | Promise<Response>) => {
+        if (r instanceof Promise) {
+          r.then((res) => { respondedWith = res ?? null; });
+        } else {
+          respondedWith = r;
+        }
+      },
+    };
+
+    fetchHandler!(event as unknown as Parameters<NonNullable<typeof fetchHandler>>[0]);
+    await vi.waitFor(() => expect(respondedWith).not.toBeNull(), { timeout: 2000 });
+
+    const body = await respondedWith!.text();
+
+    // One alignment for the whole card — centring the heading alone over
+    // left-aligned body copy and button orphaned it.
+    expect(body).not.toContain('text-align: center');
+
+    // Without border-box the 32px padding sits outside the width cap, so the
+    // card renders 393px wide and overflows a 375px screen.
+    expect(body).toContain('box-sizing: border-box');
+
+    // Dark cards everywhere else in the app are neutral, not warm brown.
+    expect(body).toContain('main { background: #242424; border-color: #333333; }');
+
+    globalThis.fetch = originalFetch;
+  });
+
   it('caches successful static assets', async () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = vi.fn().mockResolvedValue(
