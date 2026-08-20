@@ -71,17 +71,12 @@ function tabWalk(focusSelector: string, styledSelector = focusSelector) {
   };
 }
 
-export const controlsGaps: CaptureGap[] = [
-  {
-    id: "controls.badge",
-    group: "controls",
-    surface: "Badge — packages/ui/src/components/Badge.tsx and its app-side copy apps/web/src/components/ui/Badge.tsx",
-    reason:
-      "Both copies are exported from their barrels but rendered nowhere in the product (usage sweep, 2026-08-20: "
-      + "no JSX site imports either one). The lane photographs product surfaces, not synthetic galleries, so an "
-      + "isolated Badge shot would require mounting one by editing src/ — the line this lane does not cross.",
-  },
-];
+/**
+ * None. The one candidate this group ever declared — the Badge component,
+ * exported from both barrels but rendered nowhere — was deleted outright, so
+ * there is no longer a surface to be missing.
+ */
+export const controlsGaps: CaptureGap[] = [];
 
 export const controlsStates: StateEntry[] = [
   {
