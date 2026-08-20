@@ -7,19 +7,23 @@
  * Pins:
  *   - Return shape parity with buildLocalReadinessFailure (so the useChat
  *     caller's updateMessage(localReadiness: ...) block is unchanged).
- *   - Friendly name in `modelName` (Invariant 10 — no technical IDs).
+ *   - Branded display name in `modelName` (Invariant 10 — no technical IDs,
+ *     and no raw catalog names either).
  *   - Status mapping: preparing → partial, error → downloaded-needs-test,
  *     empty → not-downloaded.
  */
 
 import { describe, expect, it } from 'vitest';
 import { buildLocalReadinessFailureV2, findAutoRetryTarget } from '../chat-turns';
+import { getDisplayInfo } from '../../local-ai/display';
 import type { SlotState } from '../../local-ai/lifecycle/slots';
 import type { ModelConfig } from '../../local-ai/types';
 
 const QWEN3_FRIENDLY: ModelConfig = {
   id: 'local/qwen3-0.6b',
   friendlyName: 'Qwen3',
+  vendor: 'Alibaba',
+  sizeGB: 0.6,
 } as unknown as ModelConfig;
 
 function slot(overrides: Partial<SlotState>): SlotState {
@@ -64,11 +68,16 @@ describe('buildLocalReadinessFailureV2', () => {
     ).toBe('Eco');
   });
 
-  it('renders modelName from friendlyName, never a technical id', () => {
+  it('renders modelName as the branded display name, never a technical id', () => {
     const result = buildLocalReadinessFailureV2({
       slot: slot({ model: QWEN3_FRIENDLY, modelId: QWEN3_FRIENDLY.id, status: 'preparing' }),
     });
-    expect(result.modelName).toBe('Qwen3');
+    // The same mapping the choice surfaces use — an error card is not the one
+    // place a person meets the raw catalog name.
+    expect(result.modelName).toBe(
+      getDisplayInfo(QWEN3_FRIENDLY.id, QWEN3_FRIENDLY).friendlyName,
+    );
+    expect(result.modelName).toBe('Eco Compact (Qwen)');
     expect(result.modelName).not.toContain('q4f16');
     expect(result.modelName).not.toContain('local/');
   });

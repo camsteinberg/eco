@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Bos Computing LLC
 
 import { getModel } from "../local-ai/catalog/catalog";
+import { getDisplayInfo } from "../local-ai/display";
 import { isLocalAiSlot } from "../local-ai/util";
 import { getSlotForModel } from "../local-ai/lifecycle/slots";
 import type { SlotStatus } from "../local-ai/lifecycle/slots";
@@ -47,8 +48,10 @@ export function buildLocalReadinessFailure({
 } {
   const slotLabel = getLocalReadinessSlotLabel(selectedModelChoice, model);
   const localModel = getModel(model);
+  // Branded display name, same mapping the choice surfaces use — the error
+  // path must not be the one place a raw catalog name ("LFM2.5 1.2B") shows up.
   const modelName = localModel
-    ? localModel.friendlyName
+    ? getDisplayInfo(localModel.id, localModel).friendlyName
     : model;
   const message =
     lifecycleStatus === "partial"
@@ -86,7 +89,8 @@ export function buildLocalReadinessFailure({
  *      higher.
  *
  *   2. Honors Invariant 10 (no technical IDs in user copy): renders
- *      `modelName` from `ModelConfig.friendlyName`, not the technical id.
+ *      `modelName` from the display-layer mapping every choice surface uses,
+ *      not the technical id or the raw catalog name.
  *
  * Caller contract: only invoke when `slot.status !== 'ready'`. A 'ready'
  * slot is the happy path and shouldn't reach this builder.
@@ -105,7 +109,9 @@ export function buildLocalReadinessFailureV2({
   // Unified identity — the internal slot never shows in user copy.
   const slotLabel: LocalReadinessSlotLabel = "Eco";
 
-  const modelName = slot.model?.friendlyName ?? slotLabel;
+  const modelName = slot.model
+    ? getDisplayInfo(slot.model.id, slot.model).friendlyName
+    : slotLabel;
 
   const readinessStatus: LocalReadinessStatus =
     slot.status === "preparing"

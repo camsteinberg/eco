@@ -20,7 +20,9 @@ type OfflineDividerProps = {
 };
 
 export function OfflineDivider({
-  message = "Hybrid/offline continuation — finished locally",
+  // Keep this short. The label is `shrink-0`, so copy longer than roughly the
+  // width of this line clips off the right edge at 375px instead of wrapping.
+  message = "Connection dropped — finished on your device",
 }: OfflineDividerProps) {
   return (
     <div

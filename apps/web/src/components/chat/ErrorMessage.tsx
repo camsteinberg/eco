@@ -18,7 +18,9 @@ import {
   LOCAL_GENERATION_REPEATED_MESSAGE,
   LOCAL_RUNTIME_HICCUP_MESSAGE,
   DEVICE_PROTECTION_MESSAGE,
+  TEMPLATE_MISSING_USER_MESSAGE,
 } from "../../local-ai/adapters/error-messages";
+import { getDisplayInfo } from "../../local-ai/display";
 import { MODEL_PREPARING_BUSY_MESSAGE } from "../../lib/local-heavy-work-owner";
 import { CONTEXT_WINDOW_REFUSAL_MESSAGE } from "../../lib/context-window";
 import type { Slot } from "../../local-ai/types";
@@ -55,6 +57,20 @@ const MODEL_PREPARING_TITLE = "Your model is still getting ready";
 // too long for this local model. The honest fix is to shorten, not to "set up."
 const CONTEXT_WINDOW_REFUSAL_TITLE = "This conversation is too long";
 const DEVICE_PROTECTION_TITLE = "Paused to protect your device";
+// A broken chat template is a damaged copy of the model, not a setup step the
+// user skipped — and retrying reads the same broken file, so this card offers
+// the one thing that can work: getting a fresh copy.
+const TEMPLATE_MISSING_TITLE = "This model needs a fresh copy";
+/**
+ * Card body for the template-missing card.
+ *
+ * The marker string itself (`TEMPLATE_MISSING_USER_MESSAGE`) stays byte-stable
+ * — it is what already-saved conversations carry, and what this card matches on
+ * — so the body it renders lives here instead. Its prose "Open Settings → Eco
+ * to re-download it" is dropped because the card now carries a real link.
+ */
+const TEMPLATE_MISSING_BODY =
+  "Eco can't read this model's chat format. Re-downloading it usually fixes this.";
 // The blocker is this device, not necessarily its browser: Eco ships an
 // iPhone/iPad lane and serves Android Chromium, so a browser-shaped headline
 // would be false for both. The body carries the specific reason.
@@ -127,7 +143,9 @@ function detectCapacityNudge(selectedModel: string): CapacityNudge | null {
     const candidates = listCandidates(slotKey, profile);
     if (candidates.length === 0) return null;
     const topModel = candidates[0]!.model;
-    return { slot: slotKey, modelName: topModel.friendlyName };
+    // Branded display name, same as every choice surface — the raw catalog
+    // name ("LFM2.5 1.2B") must not leak into the error path.
+    return { slot: slotKey, modelName: getDisplayInfo(topModel.id, topModel).friendlyName };
   } catch {
     return null;
   }
@@ -169,7 +187,7 @@ async function detectLighterModelNudge(
         break;
       }
     }
-    return { slot: slotKey, modelName: chosen.friendlyName };
+    return { slot: slotKey, modelName: getDisplayInfo(chosen.id, chosen).friendlyName };
   } catch {
     return null;
   }
@@ -224,12 +242,18 @@ export function ErrorMessage({
   // setup" — and, because that title also suppresses Try again, leave the card
   // with no action at all. Classify it by exact string and exempt it.
   const isDeviceProtectionPause = message === DEVICE_PROTECTION_MESSAGE;
+  // Same trap, worst case: the copy says "re-download it", so the setup regex
+  // relabelled a damaged model file as "Eco needs one quick setup" — a title
+  // that also suppresses Try again, leaving the card with no action while its
+  // own body told the user to go to Settings. Classify it by exact string.
+  const isTemplateMissingError = message === TEMPLATE_MISSING_USER_MESSAGE;
   const isLocalSetupError =
     !isBrowserUnsupportedError
     && !isLocalGenerationFailure
     && !isModelPreparingError
     && !isContextWindowRefusal
     && !isDeviceProtectionPause
+    && !isTemplateMissingError
     && (Boolean(localReadiness)
       || Boolean(
         message
@@ -285,6 +309,11 @@ export function ErrorMessage({
         title: DEVICE_PROTECTION_TITLE,
         body: message,
       }
+    : isTemplateMissingError
+    ? {
+        title: TEMPLATE_MISSING_TITLE,
+        body: TEMPLATE_MISSING_BODY,
+      }
     : isLocalGenerationFailure
     ? {
         title: LOCAL_GENERATION_FAILURE_TITLE,
@@ -308,6 +337,24 @@ export function ErrorMessage({
               : message,
       }
     : ERROR_MESSAGES[hashString(message ?? "default") % ERROR_MESSAGES.length]!;
+  /**
+   * Offer Try again only where an unchanged retry could actually succeed.
+   *
+   * Every case excluded here would fail the same way a second time, or fail on
+   * a thing the button cannot change: a busy model has to finish preparing, a
+   * device that lacks the graphics support will still lack it, and a damaged
+   * chat template is read again exactly as-is. Those cards carry their own
+   * honest action (or, for a wait, none) instead.
+   */
+  const retryCanHelp =
+    !isCapacityError
+    && !isLocalSetupError
+    && !isLocalCooldownError
+    && !isContextWindowRefusal
+    && !isModelPreparingError
+    && !isBrowserUnsupportedError
+    && !isTemplateMissingError;
+
   const isPreparing =
     localPrepareState?.status === "checking"
     || localPrepareState?.status === "downloading"
@@ -403,6 +450,16 @@ export function ErrorMessage({
           </a>
         ))}
 
+      {isTemplateMissingError && (
+        <a
+          data-testid="template-missing-models-link"
+          href={MANAGE_MODELS_HREF}
+          className="inline-flex min-h-8 items-center rounded-md text-xs font-medium text-[var(--eco-primary)] underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--eco-primary)]"
+        >
+          Manage Models
+        </a>
+      )}
+
       {isCapacityError && capacityNudge && (
         <a
           data-testid="capacity-local-setup-link"
@@ -447,7 +504,7 @@ export function ErrorMessage({
         </a>
       )}
 
-      {onRetry && !isCapacityError && !isLocalSetupError && !isLocalCooldownError && !isContextWindowRefusal && (
+      {onRetry && retryCanHelp && (
         <button
           type="button"
           onClick={handleRetry}

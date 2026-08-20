@@ -403,7 +403,9 @@ describe('chat helper seams', () => {
 
     expect(failure).toMatchObject({
       message: expect.stringContaining('Eco is only partly downloaded'),
-      modelName: 'Qwen3',
+      // The branded display name, not the raw catalog name — recovery copy
+      // names models the same way every choice surface does.
+      modelName: 'Eco Compact (Qwen)',
       slotId: 'eco-fast',
       slotLabel: 'Eco',
       readinessStatus: 'partial',

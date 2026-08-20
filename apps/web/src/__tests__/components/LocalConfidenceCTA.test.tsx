@@ -36,11 +36,16 @@ describe("LocalConfidenceCTA", () => {
 });
 
 describe("OfflineDivider", () => {
-  it("renders conservative hybrid/offline continuation copy by default", () => {
+  it("says in plain words what happened, without engineering vocabulary", () => {
     render(<OfflineDivider />);
     expect(
-      screen.getByText(/hybrid\/offline continuation/i)
+      screen.getByText(/connection dropped — finished on your device/i)
     ).toBeDefined();
+    // "Hybrid/offline continuation" is how the code talks about this, not how a
+    // person would. It must never reach the screen.
+    expect(screen.queryByText(/hybrid/i)).toBeNull();
+    expect(screen.queryByText(/continuation/i)).toBeNull();
+    // Still no over-claim that the whole turn ran on-device — it did not.
     expect(screen.queryByText(/switched to on-device ai/i)).toBeNull();
   });
 
@@ -51,7 +56,7 @@ describe("OfflineDivider", () => {
 
   it("has muted, centered styling", () => {
     render(<OfflineDivider />);
-    const text = screen.getByText(/hybrid\/offline continuation/i);
+    const text = screen.getByText(/connection dropped/i);
     // The element should exist and be styled as a divider
     expect(text).toBeDefined();
   });
