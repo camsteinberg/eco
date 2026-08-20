@@ -73,11 +73,19 @@ describe('Stage 5a wiring — readiness branch', () => {
     const preparingSlot: SlotState = {
       slot: 'eco-smart',
       modelId: 'local/qwen3-0.6b',
-      model: { id: 'local/qwen3-0.6b', friendlyName: 'Qwen3' } as unknown as ModelConfig,
+      // vendor + sizeGB are type-guaranteed on a real ModelConfig and the
+      // display mapping reads both; the fixture must carry them.
+      model: {
+        id: 'local/qwen3-0.6b',
+        friendlyName: 'Qwen3',
+        vendor: 'Qwen',
+        sizeGB: 0.6,
+      } as unknown as ModelConfig,
       status: 'preparing',
     };
     const failure = buildLocalReadinessFailureV2({ slot: preparingSlot });
-    expect(failure.modelName).toBe('Qwen3');
+    // The branded display name, matching every choice surface.
+    expect(failure.modelName).toBe('Eco Compact (Qwen)');
     expect(failure.readinessStatus).toBe('partial');
     expect(failure.slotId).toBe('eco-smart');
   });
