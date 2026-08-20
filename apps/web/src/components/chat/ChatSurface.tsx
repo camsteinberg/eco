@@ -53,21 +53,25 @@ function QuestionMarkIcon({ className }: { className?: string }) {
 /**
  * The floating "open the guide" button.
  *
- * Positioning is the caller's job, and it differs by branch: in a conversation
- * the button hangs off the composer bar's top edge, so it clears the composer
- * at every height it can autogrow to; the empty state keeps it pinned to the
- * surface, where there is no bottom-anchored composer to collide with.
+ * Size follows the composer's own round-control scale (`h-8` disc, widened to a
+ * 44px tap target below `md`), and the disc itself borrows the composer pill's
+ * surface recipe — an opaque elevated fill over a real border. The previous
+ * translucent fill measured 1.006:1 against the page in dark, which left the
+ * glyph floating with no button under it.
+ *
+ * Positioning — including `display`, so callers can hide the button at
+ * viewports where it has nowhere to sit — is the caller's job.
  */
 function HelpGuideButton({ className }: { className: string }) {
   return (
     <button
       type="button"
       onClick={() => window.dispatchEvent(new Event(ECO_OPEN_GUIDE_EVENT))}
-      className={`absolute z-40 flex h-11 w-11 cursor-pointer items-center justify-center rounded-full border border-[var(--eco-border)] bg-[var(--eco-surface-elevated)]/90 text-[var(--eco-text-secondary)] shadow-md backdrop-blur-sm transition-all duration-200 hover:scale-105 active:scale-95 hover:border-[var(--eco-primary)]/40 hover:bg-[var(--eco-surface-elevated)] hover:text-[var(--eco-primary)] hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--eco-primary)] focus-visible:ring-offset-2 ${className}`}
+      className={`absolute z-40 h-8 w-8 min-h-[44px] min-w-[44px] cursor-pointer items-center justify-center rounded-full border border-[var(--eco-border)] bg-[var(--eco-surface-elevated)] text-[var(--eco-text-secondary)] shadow-sm transition-all duration-200 hover:scale-105 active:scale-95 hover:border-[var(--eco-primary)]/40 hover:text-[var(--eco-primary)] hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--eco-primary)] focus-visible:ring-offset-2 md:min-h-0 md:min-w-0 ${className}`}
       aria-label="Open Eco guide"
       title="Open Eco guide"
     >
-      <QuestionMarkIcon className="h-5 w-5" />
+      <QuestionMarkIcon className="h-5 w-5 md:h-4 md:w-4" />
     </button>
   );
 }
@@ -436,21 +440,34 @@ export function ChatSurface(props: ChatSurfaceProps) {
             <ErrorNotice className="mx-4 mb-2" lead={error} />
           )}
 
-          {/* Impact footer */}
-          <ImpactFooter
-            queryCount={queryCount}
-            onShare={onShare}
-          />
+          {/* Impact footer. The help button rides inside it whenever it has
+              height: the footer already reserves a 68px lane at its right edge
+              for exactly this button, and centring on the band keeps the disc
+              inside the tint instead of straddling its top border (and, under
+              the low-battery notice, the amber strip above it). */}
+          <div className="relative">
+            <ImpactFooter
+              queryCount={queryCount}
+              onShare={onShare}
+            />
+            {queryCount > 0 && (
+              <HelpGuideButton className="flex inset-y-0 my-auto right-4 md:right-6" />
+            )}
+          </div>
 
           <div
             data-eco-composer-bar
             className="relative border-t border-[var(--eco-border)]/40 px-3 sm:px-4 pt-3 sm:pt-5 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:pb-[calc(1.25rem+env(safe-area-inset-bottom))]"
           >
-            {/* Anchored to the composer bar's top edge rather than the surface:
-                a fixed bottom offset collides with the composer as soon as the
-                textarea autogrows, and at tablet widths the centered composer
-                reaches the right edge the button used to sit in. */}
-            <HelpGuideButton className="bottom-[calc(100%+0.5rem)] right-4 md:right-6" />
+            {/* No impact band yet (it counts completed replies, so the first
+                turn and the failed ones render without it) — hang the button
+                off the composer bar's top edge instead. A fixed bottom offset
+                collides with the composer as soon as the textarea autogrows,
+                and at tablet widths the centered composer reaches the right
+                edge the button used to sit in. */}
+            {queryCount <= 0 && (
+              <HelpGuideButton className="flex bottom-[calc(100%+0.5rem)] right-4 md:right-6" />
+            )}
             <div className="mx-auto max-w-2xl">
               {droppedAttachmentError ? (
                 <AttachmentDropError message={droppedAttachmentError} className="mb-3" />
@@ -461,10 +478,17 @@ export function ChatSurface(props: ChatSurfaceProps) {
         </>
       )}
 
-      {/* Help guide floating button — the empty state has no bottom-anchored
-          composer bar to hang it from, so it stays pinned to the surface. */}
+      {/* Help guide floating button. The empty state has no bottom-anchored
+          chrome to hang it from — the whole column scrolls — so it stays pinned
+          to the surface, and it only appears once the surface is wide enough
+          for the column's gutter to hold it. Below `lg` the column reaches the
+          right edge and the disc lands on whatever happens to be there: the
+          send button when the upgrade card lowers the composer, the
+          attachment-limit line otherwise. The empty state is itself the guide
+          (greeting, suggested prompts, trust card), and the button returns as
+          soon as there is a conversation. */}
       {messages.length === 0 && (
-        <HelpGuideButton className="bottom-[80px] right-4 md:bottom-5 md:right-6" />
+        <HelpGuideButton className="hidden lg:flex bottom-5 right-6" />
       )}
     </div>
   );
