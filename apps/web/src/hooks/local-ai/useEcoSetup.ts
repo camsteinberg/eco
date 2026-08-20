@@ -113,8 +113,8 @@ export type UseEcoSetupReturn = EcoSetupState & {
 const REASSURANCE_INTERVAL_MS = 8_000;
 // Must match REASSURANCE_COPY.length in WelcomeSetup.tsx — the rotation blends
 // promise/process/warmth lines so it carries the multi-minute wait without an
-// obvious loop (10 lines × 8s = 80s before any repeat).
-const REASSURANCE_COUNT = 10;
+// obvious loop (8 lines × 8s = 64s before any repeat).
+const REASSURANCE_COUNT = 8;
 
 const INITIAL_STATE: EcoSetupState = {
   status: 'initializing',

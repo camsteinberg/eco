@@ -154,9 +154,11 @@ function failedSlot(modelId: string): string {
   return `eco-validation-slot-eco-fast=${modelId}&eco-validation-slot-status-eco-fast=error`;
 }
 
-/** Indices 0 and 1 of REASSURANCE_COPY (WelcomeSetup.tsx) — unit-test-locked. */
-const REASSURANCE_FIRST = "Your conversations run on your device.";
-const REASSURANCE_SECOND = "Eco is open source — your AI, your trust.";
+/** Indices 0 and 1 of REASSURANCE_COPY (WelcomeSetup.tsx) — unit-test-locked.
+ * The rotation dropped its two Private-pillar restatements, so the first two
+ * entries are now the open-source promise and the download line. */
+const REASSURANCE_FIRST = "Eco is open source — your AI, your trust.";
+const REASSURANCE_SECOND = "Downloading your AI so it never has to leave your device.";
 /** REASSURANCE_INTERVAL_MS in useEcoSetup.ts, plus room for the 0.4s crossfade. */
 const REASSURANCE_ROTATION_MS = 9_000;
 

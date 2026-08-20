@@ -478,6 +478,15 @@ button:disabled,
 
 /* ── Onboarding Tour Theme (driver.js) ────────────────────── */
 
+/* driver.css sets its own Helvetica stack on `.driver-popover *`, which beats
+   anything we put on the root alone — so match its descendant reach and hand
+   the whole popover the product's body font. The title rule below is more
+   specific and keeps the display face. */
+.eco-tour-popover,
+.eco-tour-popover * {
+  font-family: var(--font-sans, var(--eco-font-body)) !important;
+}
+
 .eco-tour-popover {
   background-color: var(--color-surface-raised) !important;
   color: var(--color-text-primary) !important;

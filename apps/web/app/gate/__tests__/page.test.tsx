@@ -34,12 +34,16 @@ describe("GatePage", () => {
   it("uses CSS variables for input styling (no hardcoded colors)", () => {
     render(<GatePage />);
     const input = screen.getByLabelText("Access password");
+    // The field is styled through token-based classes (the standard field
+    // recipe, including a real focus ring), not an inline style.
+    const className = input.getAttribute("class") ?? "";
     const style = input.getAttribute("style") ?? "";
 
-    // Must use CSS variables, not hardcoded hex
-    expect(style).toContain("var(--eco-");
-    expect(style).not.toContain("#d4d4d4");
-    expect(style).not.toContain("#1a1a1a");
+    expect(className).toContain("var(--eco-");
+    expect(className).toContain("focus:ring-2");
+    expect(style).toBe("");
+    expect(className).not.toContain("#d4d4d4");
+    expect(className).not.toContain("#1a1a1a");
   });
 
   it("uses CSS variable for button background (no hardcoded green)", () => {
