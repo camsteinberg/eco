@@ -3,9 +3,7 @@
 
 // Core components
 export { Button } from "./components/Button.js";
-export { Input } from "./components/Input.js";
 export { Card } from "./components/Card.js";
-export { Badge } from "./components/Badge.js";
 export { Toggle } from "./components/Toggle.js";
 export { Toast, ToastProvider, useToast } from "./components/Toast.js";
 export type { ToastType, ToastItem } from "./components/Toast.js";
@@ -46,10 +44,3 @@ export {
   WiltedPlantIllustration,
   WarningTriangle,
 } from "./illustrations/index.js";
-
-// Patterns
-export { EmptyState } from "./patterns/EmptyState.js";
-export {
-  FeedbackToast,
-  useFeedbackToast,
-} from "./patterns/FeedbackToast.js";
