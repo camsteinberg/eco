@@ -33,6 +33,19 @@ describe("WhyEcoCard", () => {
     expect(link.getAttribute("href")).toBe("/impact");
   });
 
+  it("stays quiet through type and colour, never a blanket opacity", () => {
+    // A wrapper opacity dims the text tokens along with everything else, which
+    // put the descriptions under AA (4.36:1) and cost the titles three points
+    // of contrast. The block reads quiet from its own small type and muted
+    // colour instead.
+    const { container } = render(<WhyEcoCard />);
+    for (const el of container.querySelectorAll("*")) {
+      // getAttribute, not className: the pillar icons are SVG elements, whose
+      // className is an SVGAnimatedString rather than a string.
+      expect(el.getAttribute("class") ?? "").not.toMatch(/\bopacity-\d/);
+    }
+  });
+
   it("does not read from localStorage (no onboarding gating)", () => {
     // WhyEcoCard should render unconditionally -- no localStorage access
     localStorage.clear();
