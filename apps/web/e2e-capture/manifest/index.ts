@@ -5,6 +5,7 @@ import type { CaptureGap, StateEntry } from "../types";
 import { axesGaps, axesStates } from "./axes";
 import { chatInteractionsGaps, chatInteractionsStates } from "./chat-interactions";
 import { chatSurfaceGaps, chatSurfaceStates } from "./chat-surface";
+import { controlsGaps, controlsStates } from "./controls";
 import { overlaysGaps, overlaysStates } from "./overlays";
 import { pilotGaps, pilotStates } from "./pilot";
 import { routesGaps, routesStates } from "./routes";
@@ -32,6 +33,7 @@ const GROUPS: Record<string, StateEntry[]> = {
   sidebar: sidebarStates,
   overlays: overlaysStates,
   axes: axesStates,
+  controls: controlsStates,
 };
 
 /**
@@ -53,6 +55,7 @@ const GAPS: Record<string, CaptureGap[]> = {
   sidebar: sidebarGaps,
   overlays: overlaysGaps,
   axes: axesGaps,
+  controls: controlsGaps,
 };
 
 /**
