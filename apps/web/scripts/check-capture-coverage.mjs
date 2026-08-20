@@ -92,6 +92,21 @@ const EXPECTED_TWINS = [
       + "the operating system to the same pixels. Collided once pilot.chat-empty-ready gained the "
       + "same upgrade suppression the axes entry always had.",
   },
+  // Sha-identity is noise-fragile in BOTH directions: the trio above sometimes
+  // shrinks to just the axes pair when the workhorse shot picks up a few dozen
+  // pixels of Motion settle noise. The pair alone is the same finding.
+  {
+    ids: ["axes.system-chat-empty"],
+    reason:
+      "one id, two projects: the stored-dark/light and OS-scheme shots agree exactly — the "
+      + "system axis's finding, standing alone when settle noise separates the pilot twin.",
+  },
+  {
+    ids: ["axes.font-settings-appearance", "settings.appearance-font-compact"],
+    reason:
+      "the axis variant point IS the state settings already owns: the compact font-size "
+      + "appearance tab, reached via the axes project and via the settings entry's own seed.",
+  },
   {
     ids: ["axes.system-settings-appearance", "routes.settings-guest-appearance"],
     reason:
