@@ -244,9 +244,12 @@ export const sidebarStates: StateEntry[] = [
   populatedSidebar("row-active", "The row you are reading", {
     capture: { mode: "element", selector: LIST },
     notes:
-      "The rows alone, so the active treatment is legible: a left border in the primary colour "
-      + "and a soft fill, on the conversation the pane is showing. Every other row carries a "
-      + "transparent border of the same width, so nothing shifts when the selection moves.",
+      "The rows alone, so the active treatment is legible: a soft fill, and a short rail in the "
+      + "primary colour drawn just inside the left edge, on the conversation the pane is showing. "
+      + "The rail is drawn rather than bordered because a left border follows the row's 28px "
+      + "radius — a semicircular cap at this height — and rendered as a crescent with two blunt "
+      + "ends. Every row keeps a transparent border of the rail's width as a gutter, so nothing "
+      + "shifts when the selection moves. The nav rows above use the same marker.",
   }),
   sidebarDetail(
     "row-hover",
