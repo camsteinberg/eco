@@ -183,7 +183,7 @@ export function AccountTab() {
               value={user?.email ?? ''}
               readOnly
               tabIndex={-1}
-              className="mt-1 w-full cursor-default rounded-xl bg-[var(--eco-surface)] px-4 py-3 text-base text-[var(--eco-text-secondary)] outline-none"
+              className="mt-1 w-full cursor-default rounded-xl border border-[var(--eco-border)] bg-[var(--eco-surface)] px-4 py-3 text-base text-[var(--eco-text-secondary)] outline-none"
             />
           </div>
           {(isDirty || saveSuccess || saveError) && (
@@ -205,13 +205,13 @@ export function AccountTab() {
                 </button>
               ) : null}
               {saveSuccess && (
-                <div
+                <p
                   role="status"
                   aria-live="polite"
-                  className="rounded-xl border border-[var(--eco-primary)]/25 bg-[var(--eco-primary-soft)] px-3 py-2 text-sm font-medium text-[var(--eco-text)]"
+                  className="text-sm text-[var(--eco-text-secondary)]"
                 >
                   Saved.
-                </div>
+                </p>
               )}
               {saveError && (
                 <ErrorLine>{saveError}</ErrorLine>

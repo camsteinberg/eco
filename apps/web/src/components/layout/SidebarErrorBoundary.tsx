@@ -33,8 +33,8 @@ export class SidebarErrorBoundary extends React.Component<Props, State> {
     if (this.state.hasError) {
       return (
         <div className="flex h-full flex-col items-center justify-center gap-3 p-4">
-          <p className="text-sm text-[var(--eco-text-secondary)]">
-            Sidebar encountered an error
+          <p className="text-center text-sm text-[var(--eco-text-secondary)]">
+            Your chats are safe — this list didn&apos;t load.
           </p>
           <button
             type="button"
@@ -42,7 +42,7 @@ export class SidebarErrorBoundary extends React.Component<Props, State> {
             className="rounded-lg border border-[var(--eco-border)] px-4 py-2 text-sm font-medium transition-colors hover:bg-[var(--eco-surface-elevated)]"
             style={{ color: "var(--eco-primary)" }}
           >
-            Reload sidebar
+            Show my chats
           </button>
         </div>
       );

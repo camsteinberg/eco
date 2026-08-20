@@ -90,6 +90,7 @@ function offlineNavigationResponse() {
         font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       }
       main {
+        box-sizing: border-box;
         width: min(440px, calc(100vw - 48px));
         padding: 32px;
         border: 1px solid rgba(45, 90, 61, 0.16);
@@ -102,7 +103,6 @@ function offlineNavigationResponse() {
         font-family: Georgia, "Times New Roman", serif;
         font-size: 28px;
         line-height: 1.1;
-        text-align: center;
       }
       p {
         margin: 0;
@@ -122,7 +122,7 @@ function offlineNavigationResponse() {
       }
       @media (prefers-color-scheme: dark) {
         body { background: #1a1a1a; color: #ede8e0; }
-        main { background: rgba(38, 35, 30, 0.92); border-color: rgba(123, 192, 142, 0.22); }
+        main { background: #242424; border-color: #333333; }
         p { color: #b8afa3; }
         button { background: #7bc08e; color: #102016; }
       }
