@@ -339,6 +339,15 @@ export const chatSurfaceStates: StateEntry[] = [
     "A user message carrying two files",
     "conversation-files",
     [{ text: "quarterly-spend.csv" }],
+    {
+      // The chat opens scrolled to the bottom, and on mobile that puts the
+      // attachment chips — the pixels this state exists to show — above the
+      // fold (caught on the 2026-08-20 run: both mobile shots opened on the
+      // reply's last line). Anchor the shot to the chip row.
+      prepare: async (page) => {
+        await page.getByText("quarterly-spend.csv").first().scrollIntoViewIfNeeded();
+      },
+    },
   ),
   seededChat(
     "artifact-block",
