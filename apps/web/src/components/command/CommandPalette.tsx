@@ -101,7 +101,7 @@ export function CommandPalette({ open, onClose, onAction }: CommandPaletteProps)
         ? [
             {
               id: "search-conversation",
-              label: "Search current conversation",
+              label: "Search in conversation",
               section: "Actions" as const,
               shortcut: [mod, "F"],
               icon: (

@@ -98,7 +98,7 @@ describe("CommandPalette", () => {
     expect(screen.getByText("New chat")).toBeInTheDocument();
     expect(screen.getByText("Toggle sidebar")).toBeInTheDocument();
     expect(screen.getByText("Toggle theme")).toBeInTheDocument();
-    expect(screen.getByText("Search current conversation")).toBeInTheDocument();
+    expect(screen.getByText("Search in conversation")).toBeInTheDocument();
     expect(screen.getByText("Export as Markdown")).toBeInTheDocument();
     expect(screen.getByText("Export as JSON")).toBeInTheDocument();
     expect(screen.getByText("Keyboard shortcuts")).toBeInTheDocument();
@@ -207,7 +207,7 @@ describe("CommandPalette", () => {
       <CommandPalette open={true} onClose={vi.fn()} onAction={onAction} />
     );
 
-    await user.click(screen.getByText("Search current conversation"));
+    await user.click(screen.getByText("Search in conversation"));
     expect(onAction).toHaveBeenCalledWith("searchConversation");
   });
 

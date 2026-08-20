@@ -81,6 +81,15 @@ describe('ModelUpgradeCard', () => {
     expect(screen.getByText(/keep chatting/i)).toBeTruthy();
   });
 
+  it('downloading: the progress bar is named for the task, not the number', () => {
+    // Without an explicit ariaLabel the bar falls back to its visible label, so
+    // at the start of a download its accessible name was just "0%".
+    const upgrade = upgradeStub({ kind: 'downloading', target: TARGET, percent: 0 });
+    render(<ModelUpgradeCard upgrade={upgrade} isStreaming={false} />);
+
+    expect(screen.getByRole('progressbar', { name: 'Download progress' })).toBeTruthy();
+  });
+
   it('ready: swap and later are wired; swap is disabled mid-generation', () => {
     const upgrade = upgradeStub({ kind: 'ready', target: TARGET });
     const { rerender } = render(<ModelUpgradeCard upgrade={upgrade} isStreaming={false} />);

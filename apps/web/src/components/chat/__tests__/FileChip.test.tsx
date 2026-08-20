@@ -74,4 +74,29 @@ describe("FileChip", () => {
     render(<FileChip {...defaultProps} size={5 * 1024 * 1024} />);
     expect(screen.getByText("5.0MB")).toBeInTheDocument();
   });
+
+  it("keeps the trailing badge whole when the filename is long", () => {
+    // At narrow widths a long name used to squeeze the row until "On-device"
+    // wrapped onto two lines and the pill's cap clipped past the chip edge.
+    // The filename is the only element allowed to shrink.
+    render(
+      <FileChip
+        {...defaultProps}
+        filename="server-2026-08-20-diagnostics-export.txt"
+        truncated={true}
+      />
+    );
+
+    const badge = screen.getByText("On-device");
+    expect(badge.className).toContain("whitespace-nowrap");
+    expect(badge.className).toContain("shrink-0");
+
+    for (const label of ["1KB", "(truncated)"]) {
+      expect(screen.getByText(label).className).toContain("shrink-0");
+    }
+
+    const name = screen.getByTitle("server-2026-08-20-diagnostics-export.txt");
+    expect(name.className).toContain("min-w-0");
+    expect(name.className).toContain("truncate");
+  });
 });

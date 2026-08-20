@@ -153,4 +153,20 @@ describe("InConversationSearch", () => {
     await user.type(input, "{Escape}");
     expect(closeFn).toHaveBeenCalledTimes(1);
   });
+
+  it("shows a focus indicator on the field", () => {
+    // The field sits beside three real buttons (previous, next, close), so a
+    // keyboard user can tab back to it. It used to clear the outline without
+    // putting anything in its place, leaving focus invisible.
+    render(
+      <InConversationSearch messages={messages} isOpen={true} onClose={vi.fn()} />
+    );
+    const input = screen.getByPlaceholderText("Search in conversation...");
+    expect(input.className).toContain("focus:border-[var(--eco-primary)]");
+    expect(input.className).toContain("focus:ring-2");
+    expect(input.className).toContain("focus:ring-[var(--eco-primary)]/20");
+    // An inline borderColor would outrank the focus class, so the resting
+    // border has to stay in the class list.
+    expect(input.getAttribute("style")).not.toContain("border-color");
+  });
 });
