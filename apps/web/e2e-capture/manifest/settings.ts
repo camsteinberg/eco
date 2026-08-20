@@ -311,16 +311,22 @@ const SWITCH_RESULT_TIMEOUT = { timeout: 20_000 };
  *
  * `animations: 'disabled'` only fast-forwards CSS animations; the progress bar
  * and the botanical illustration are Motion springs that keep running under it.
- * The bar has no `initial`, so it springs DOWN from the container's full width
- * to its 2% floor — an early shot caught an 85%-full bar on a download that had
- * not received a byte — and the illustration's growth spring (stiffness 55) is
- * slower still. Two checks, because they answer different questions: the bar
- * really is at the floor, and nothing has moved between two polls.
+ * The illustration's growth spring (stiffness 55) is slow, and an early shot
+ * caught an 85%-full bar on a download that had not received a byte. Two
+ * checks, because they answer different questions: the bar really is at the
+ * floor, and nothing has moved between two polls.
+ *
+ * The bar is the shared `ProgressBar` (role="progressbar"; its Motion fill sets
+ * `style.backgroundColor`). The finder used to match the old hand-rolled bar by
+ * `style.background`, which the CSSOM serializes to "" for a longhand — the
+ * width poll then passed vacuously on its missing-element sentinel and the
+ * signature stayed "" until timeout. Both finders now target the progressbar
+ * role, and a missing bar reports 999 so it FAILS the width check instead of
+ * slipping under it.
  */
 function loadingSurfaceSignature(): string {
-  const fill = Array.from(document.querySelectorAll<HTMLElement>('[role="status"] div'))
-    .find((node) => node.style.background === "var(--eco-primary)");
-  const track = fill?.parentElement;
+  const track = document.querySelector<HTMLElement>('[role="progressbar"]');
+  const fill = track?.firstElementChild instanceof HTMLElement ? track.firstElementChild : null;
   const plant = document.querySelector<HTMLElement>('[role="img"][aria-label^="A botanical"]');
   if (!fill || !track || !plant) return "";
   const width = (fill.getBoundingClientRect().width / track.getBoundingClientRect().width) * 100;
@@ -332,10 +338,9 @@ async function loadingSurfaceSettled(page: Page): Promise<void> {
   await expect
     .poll(async () =>
       page.evaluate(() => {
-        const fill = Array.from(document.querySelectorAll<HTMLElement>('[role="status"] div'))
-          .find((node) => node.style.background === "var(--eco-primary)");
-        const track = fill?.parentElement;
-        if (!fill || !track) return -1;
+        const track = document.querySelector<HTMLElement>('[role="progressbar"]');
+        const fill = track?.firstElementChild instanceof HTMLElement ? track.firstElementChild : null;
+        if (!fill || !track) return 999;
         return (fill.getBoundingClientRect().width / track.getBoundingClientRect().width) * 100;
       }),
     )

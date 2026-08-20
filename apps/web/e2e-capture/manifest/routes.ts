@@ -142,7 +142,8 @@ export const routesGaps: CaptureGap[] = [
     reason:
       "Probed 2026-08-18 two ways and neither reaches the fallback: a client-side navigation with the destination's "
       + "RSC payload held open leaves Next 16 on the CURRENT page (zero .skeleton-shimmer nodes), and a held document "
-      + "navigation simply stays put. Both routes are client components with no server-side suspense, so the fallback "
+      + "navigation simply stays put. The chat page is a server component wrapping its client in its own <Suspense>, but "
+      + "it awaits nothing so it never suspends on the server (settings is a plain client page); either way the fallback "
       + "has no honest trigger from outside; rendering the component directly would photograph a React tree, not the product.",
   },
   {

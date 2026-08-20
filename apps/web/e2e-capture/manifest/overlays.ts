@@ -431,7 +431,12 @@ export const overlaysStates: StateEntry[] = [
     assert: [{ testId: "model-upgrade-card" }],
     prepare: async (page) => {
       await upgradeCardSettled(page, "downloading");
-      await expect(page.getByRole("progressbar", { name: "Download progress" })).toBeVisible();
+      // No name filter: the shared ProgressBar derives its accessible name from
+      // the visible label, so this bar is currently named "0%" — the old
+      // hand-rolled bar said "Download progress". The lane photographs what
+      // ships; the name loss is filed as a Stage 4 finding, not papered over
+      // by asserting the old name.
+      await expect(page.getByRole("progressbar")).toBeVisible();
     },
     notes:
       "An accepted cycle resumed at boot, parked at its first byte because the lane holds weight "
@@ -507,5 +512,26 @@ export const overlaysStates: StateEntry[] = [
       "The download ran out of room, so the cycle settles instead of retrying: a grey sprout, the "
       + "pipeline's own byte-count sentence, and one dismissal. No terminal screen and no 'try "
       + "again' — the device already has a model that works.",
+  },
+  {
+    id: "overlays.account-required-dialog",
+    group: "overlays",
+    title: "Account required — the sign-in dialog over locked settings",
+    route: "/settings",
+    search: "tab=account",
+    tier: "component",
+    realism: "real",
+    // The locked-preview headline stays true behind the open modal, so it
+    // holds in both assertion phases; the dialog itself is prepare's proof.
+    assert: [{ text: "Your account" }],
+    prepare: async (page) => {
+      await page.getByRole("button", { name: "Sign in" }).first().click();
+      await expect(page.getByRole("dialog")).toBeVisible();
+      await expect(page.getByText("Sign in to use your account")).toBeVisible();
+      await expect(page.getByRole("button", { name: "Not now" })).toBeVisible();
+    },
+    notes:
+      "A guest pressing into the account tab meets this native <dialog> (showModal). It had never "
+      + "been photographed — the grid captured the locked pages but not the dialog they open.",
   },
 ];
