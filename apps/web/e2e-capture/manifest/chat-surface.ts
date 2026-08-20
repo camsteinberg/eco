@@ -403,7 +403,7 @@ export const chatSurfaceStates: StateEntry[] = [
     "offline-divider",
     "A reply that finished on-device after a drop",
     "conversation-offline-divider",
-    [{ text: "Hybrid/offline continuation" }],
+    [{ text: "Connection dropped" }],
   ),
 
   // ── The error family ────────────────────────────────────────────────────
@@ -447,7 +447,7 @@ export const chatSurfaceStates: StateEntry[] = [
     "error-template-missing",
     "A model whose chat template is broken",
     "error-template-missing",
-    "Eco needs one quick setup",
+    "This model needs a fresh copy",
   ),
   errorCard(
     "error-generation-failure",

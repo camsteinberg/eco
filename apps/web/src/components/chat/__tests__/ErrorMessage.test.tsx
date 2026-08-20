@@ -10,12 +10,18 @@ import "@testing-library/jest-dom";
 // renders only when a manual recommendation is available for the user's
 // profile. The chat store mock keeps the slot stable as 'eco-fast' so the
 // link's deep-link href is predictable.
-type NudgeModel = { id: string; friendlyName: string; sizeGB?: number; runtime?: string };
+type NudgeModel = {
+  id: string;
+  friendlyName: string;
+  vendor?: string;
+  sizeGB?: number;
+  runtime?: string;
+};
 
 const recommendationState = vi.hoisted(() => ({
   current: null as null | {
     slot: "eco-fast" | "eco-smart";
-    model: { id: string; friendlyName: string; sizeGB?: number };
+    model: { id: string; friendlyName: string; vendor?: string; sizeGB?: number };
   },
   // Multi-candidate list for the lighter-model preference-ordering cases. When
   // set it takes precedence; otherwise `current` drives the single-candidate
@@ -83,7 +89,10 @@ import {
 } from "../../../local-ai/adapters/error-messages";
 import { MODEL_PREPARING_BUSY_MESSAGE } from "../../../lib/local-heavy-work-owner";
 import { CONTEXT_WINDOW_REFUSAL_MESSAGE } from "../../../lib/context-window";
-import { DEVICE_PROTECTION_MESSAGE } from "../../../local-ai/adapters/error-messages";
+import {
+  DEVICE_PROTECTION_MESSAGE,
+  TEMPLATE_MISSING_USER_MESSAGE,
+} from "../../../local-ai/adapters/error-messages";
 
 describe("ErrorMessage", () => {
   beforeEach(() => {
@@ -330,22 +339,56 @@ describe("ErrorMessage", () => {
     // Must NOT use the generic "Eco needs one quick setup" wording — that
     // reads as "you need to do something" rather than "we don't support this".
     expect(screen.queryByText(/Eco needs one quick setup/i)).not.toBeInTheDocument();
+    // Try again cannot succeed here: the same device still lacks the support.
+    // The body already names what does work, so that is the only honest path.
+    expect(screen.queryByRole("button", { name: /try again/i })).not.toBeInTheDocument();
   });
 
   it("falls back to a device-neutral line when the marker carries no guidance", () => {
     render(<ErrorMessage onRetry={() => {}} message="browser-local-ai-not-supported" />);
     expect(screen.getByRole("heading")).toHaveTextContent("Eco can't run on this device yet");
     expect(screen.getByText(/this device can't do that yet/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /try again/i })).not.toBeInTheDocument();
+  });
+
+  // ─── The template-missing dead end ────────────────────────────────────────
+  it("gives a broken chat template its own headline instead of the setup one", () => {
+    render(<ErrorMessage onRetry={() => {}} message={TEMPLATE_MISSING_USER_MESSAGE} />);
+    // The setup regex traps any message containing "download", and this copy
+    // says "re-download it" — so a damaged model file used to be relabelled as
+    // a setup step the user skipped.
+    expect(screen.getByRole("heading")).toHaveTextContent("This model needs a fresh copy");
+    expect(screen.queryByText(/Eco needs one quick setup/i)).not.toBeInTheDocument();
+  });
+
+  it("gives the template-missing card a real way to Manage Models", () => {
+    render(<ErrorMessage onRetry={() => {}} message={TEMPLATE_MISSING_USER_MESSAGE} />);
+    // The old card was a dead end: no button, and a body that told the user in
+    // prose to go to Settings without taking them there.
+    const link = screen.getByTestId("template-missing-models-link");
+    expect(link).toHaveAttribute("href", "/settings?tab=models");
+    // Re-running the same turn re-reads the same broken template, so Try again
+    // is not offered — the link is the one action that can help.
+    expect(screen.queryByRole("button", { name: /try again/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/Re-downloading it usually fixes this/i)).toBeInTheDocument();
+  });
+
+  it("does not show the template-missing link on unrelated download-shaped errors", () => {
+    render(<ErrorMessage onRetry={() => {}} message="Eco Fast is only partly downloaded." />);
+    expect(screen.queryByTestId("template-missing-models-link")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading")).toHaveTextContent("Eco needs one quick setup");
   });
 
   // ─── Bundle: headline classes that must NOT read as "one quick setup" ─────
-  it("titles a still-preparing model honestly and keeps Try again", () => {
+  it("titles a still-preparing model honestly and offers no action to wait with", () => {
     render(<ErrorMessage onRetry={() => {}} message={MODEL_PREPARING_BUSY_MESSAGE} />);
     expect(screen.getByRole("heading")).toHaveTextContent("Your model is still getting ready");
     // A model already warming up is not a setup task the user skipped.
     expect(screen.queryByText(/Eco needs one quick setup/i)).not.toBeInTheDocument();
-    // Waiting then retrying is the right action here, so Try again stays.
-    expect(screen.getByRole("button", { name: /try again/i })).toBeInTheDocument();
+    // The body says to wait for it to finish, so a filled Try again contradicts
+    // the copy — and pressing it now would hit the same busy model. Like the
+    // cooldown card, this one is honest about having no action.
+    expect(screen.queryByRole("button", { name: /try again/i })).not.toBeInTheDocument();
   });
 
   it("titles a context-window refusal honestly and drops the re-refusing Try again", () => {
@@ -373,7 +416,7 @@ describe("ErrorMessage", () => {
   it("renders a Set up <model> link in the capacity branch when a manual recommendation exists", async () => {
     recommendationState.current = {
       slot: "eco-fast",
-      model: { id: "local/qwen3-0.6b", friendlyName: "Qwen3 0.6B" },
+      model: { id: "local/qwen3-0.6b", friendlyName: "Qwen3 0.6B", vendor: "Alibaba", sizeGB: 0.6 },
     };
     render(<ErrorMessage message="No contributor available — capacity busy" />);
     await waitFor(() => {
@@ -381,22 +424,24 @@ describe("ErrorMessage", () => {
     });
     const link = screen.getByTestId("capacity-local-setup-link");
     expect(link).toHaveAttribute("href", "/settings?tab=models&setup=eco-fast");
-    expect(link).toHaveTextContent(/Set up Qwen3 0\.6B/);
+    // The branded name every choice surface shows — not the raw catalog name.
+    expect(link).toHaveTextContent(/Set up Eco Compact \(Qwen\)/);
+    expect(link).not.toHaveTextContent(/Qwen3 0\.6B/);
   });
 
   it("renders the capacity Set up label as one text run (flex drops inter-item whitespace)", async () => {
     recommendationState.current = {
       slot: "eco-fast",
-      model: { id: "local/qwen3-0.6b", friendlyName: "Qwen3 0.6B" },
+      model: { id: "local/qwen3-0.6b", friendlyName: "Qwen3 0.6B", vendor: "Alibaba", sizeGB: 0.6 },
     };
     render(<ErrorMessage message="No contributor available — capacity busy" />);
     await waitFor(() => {
       expect(screen.getByTestId("capacity-local-setup-link")).toBeInTheDocument();
     });
     const link = screen.getByTestId("capacity-local-setup-link");
-    expect(link.textContent).toBe("Set up Qwen3 0.6B on this device →");
+    expect(link.textContent).toBe("Set up Eco Compact (Qwen) on this device →");
     // The link is `inline-flex`, so any whitespace that lives in its own node
-    // is layout the flex container may drop ("Set up Qwen3 0.6Bon this
+    // is layout the flex container may drop ("Set up Eco Compact (Qwen)on this
     // device"). The label must therefore be a single text node.
     expect(link.childNodes).toHaveLength(1);
     expect(link.firstChild?.nodeType).toBe(Node.TEXT_NODE);
@@ -415,7 +460,7 @@ describe("ErrorMessage", () => {
   it("does NOT render the Set up link for non-capacity errors even when a recommendation exists", async () => {
     recommendationState.current = {
       slot: "eco-fast",
-      model: { id: "local/qwen3-0.6b", friendlyName: "Qwen3 0.6B" },
+      model: { id: "local/qwen3-0.6b", friendlyName: "Qwen3 0.6B", vendor: "Alibaba", sizeGB: 0.6 },
     };
     // Generic error message — does NOT match the capacity regex.
     render(<ErrorMessage message="Something else went wrong." />);
@@ -438,7 +483,12 @@ describe("ErrorMessage", () => {
     recommendationState.current = {
       slot: "eco-fast",
       // Strictly lighter than the current (sizeGB 3) slot model.
-      model: { id: "local/bonsai-lite", friendlyName: "Bonsai Lite", sizeGB: 1 },
+      model: {
+        id: "local/bonsai-lite",
+        friendlyName: "Bonsai Lite",
+        vendor: "Eco",
+        sizeGB: 1,
+      },
     };
     render(<ErrorMessage onRetry={() => {}} message={LOCAL_GENERATION_REPEATED_MESSAGE} />);
     expect(screen.getByRole("heading")).toHaveTextContent("That reply hit a snag");
@@ -455,14 +505,40 @@ describe("ErrorMessage", () => {
     expect(link.firstChild?.nodeType).toBe(Node.TEXT_NODE);
   });
 
+  it("brands the lighter-model name the same way the choice surfaces do", async () => {
+    recommendationState.current = {
+      slot: "eco-fast",
+      // A catalogued model, lighter than the current (sizeGB 3) slot model.
+      model: {
+        id: "candidate/lfm2.5-350m-onnx",
+        friendlyName: "LFM2.5 350M",
+        vendor: "Liquid AI",
+        sizeGB: 0.4,
+      },
+    };
+    render(<ErrorMessage onRetry={() => {}} message={LOCAL_GENERATION_REPEATED_MESSAGE} />);
+    await waitFor(() => {
+      expect(screen.getByTestId("lighter-model-setup-link")).toBeInTheDocument();
+    });
+    const link = screen.getByTestId("lighter-model-setup-link");
+    expect(link).toHaveTextContent(/Set up Eco Light \(Liquid\)/);
+    expect(link).not.toHaveTextContent(/LFM2\.5 350M/);
+  });
+
   it("prefers an already-downloaded lighter webllm candidate over a lighter uncached one (runtime-aware)", async () => {
     // Two lighter candidates; the second is a webllm model already in WebLLM's
     // cache. A bare Eco-cache probe would miss it and offer the first (a
     // download); the runtime-aware probe must pick the cached webllm one for the
     // one-tap switch.
     recommendationState.list = [
-      { id: "local/onnx-lite", friendlyName: "Onnx Lite", sizeGB: 1.5 },
-      { id: "local/webllm-lite", friendlyName: "WebLLM Lite", sizeGB: 2, runtime: "webllm" },
+      { id: "local/onnx-lite", friendlyName: "Onnx Lite", vendor: "Eco", sizeGB: 1.5 },
+      {
+        id: "local/webllm-lite",
+        friendlyName: "WebLLM Lite",
+        vendor: "Eco",
+        sizeGB: 2,
+        runtime: "webllm",
+      },
     ];
     vi.mocked(isModelDownloaded).mockImplementation(
       async (m) => (m as { id: string }).id === "local/webllm-lite",
