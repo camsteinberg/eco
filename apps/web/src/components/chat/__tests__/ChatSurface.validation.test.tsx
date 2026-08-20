@@ -134,3 +134,53 @@ describe("ChatSurface validation harness banners", () => {
     expect(banner).toHaveTextContent("Requested profile: quick temp 0.18 cap 256 top_p 0.72 top_k 64");
   });
 });
+
+describe("ChatSurface help guide button", () => {
+  const conversation = [
+    {
+      id: "user-1",
+      role: "user" as const,
+      content: "Hello.",
+      createdAt: new Date("2026-06-17T00:00:00.000Z").getTime(),
+    },
+  ];
+
+  function helpButton() {
+    return screen.getByRole("button", { name: /open eco guide/i });
+  }
+
+  it("centres the button on the impact band once the band has height", () => {
+    // The band reserves a 68px lane at its right edge for this button. Centring
+    // on the band keeps the disc inside the tint; the previous offset from the
+    // composer bar left it straddling the band's top border.
+    render(<ChatSurface {...makeProps({ messages: conversation, queryCount: 2 })} />);
+    expect(helpButton()).toHaveClass("inset-y-0", "my-auto");
+  });
+
+  it("hangs the button off the composer bar when there is no impact band", () => {
+    // queryCount counts completed replies, so the first turn and the failed
+    // ones render without a band to sit on.
+    render(<ChatSurface {...makeProps({ messages: conversation, queryCount: 0 })} />);
+    expect(helpButton()).toHaveClass("bottom-[calc(100%+0.5rem)]");
+  });
+
+  it("keeps the empty state's button out of the viewports where the column reaches the edge", () => {
+    // Below lg the empty-state column runs to the right edge, so a surface-pinned
+    // disc lands on the send button (upgrade card open) or the attachment-limit line.
+    render(<ChatSurface {...makeProps()} />);
+    expect(helpButton()).toHaveClass("hidden", "lg:flex");
+  });
+
+  it("paints an opaque disc so the glyph never floats without a button under it", () => {
+    render(<ChatSurface {...makeProps({ messages: conversation, queryCount: 2 })} />);
+    const button = helpButton();
+    expect(button).toHaveClass("bg-[var(--eco-surface-elevated)]");
+    expect(button).toHaveClass("border", "border-[var(--eco-border)]");
+    expect(button.className).not.toContain("bg-[var(--eco-surface-elevated)]/90");
+  });
+
+  it("keeps a full-size tap target below md while fitting the band above it", () => {
+    render(<ChatSurface {...makeProps({ messages: conversation, queryCount: 2 })} />);
+    expect(helpButton()).toHaveClass("h-8", "w-8", "min-h-[44px]", "min-w-[44px]", "md:min-h-0");
+  });
+});

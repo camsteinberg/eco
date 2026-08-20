@@ -833,4 +833,13 @@ button:disabled,
     padding-bottom: 8rem;
   }
 }
+/* Everywhere else the notice renders (policies, articles, marketing) there is no
+   bottom-anchored chrome to lift — the page simply ends under the notice, which
+   left the closing lines of the privacy policy unreadable. Reserving scroll room
+   below the document lets that content be scrolled out from under the notice.
+   The reserved strip carries the page background, which is what already sits
+   behind the footer, so it reads as the page ending slightly lower. */
+html.eco-page-cookie-notice body {
+  padding-bottom: calc(6.5rem + env(safe-area-inset-bottom));
+}
 
