@@ -42,7 +42,7 @@ import { BOTANICAL } from "./setup-gate";
  *   target is identical either way and the lane photographs settled pages, so
  *   the entrance is over before the shutter. ChatSurface, SuggestedPrompts,
  *   GroundingNotice, CitationBlock, ModelSelector, ModelUpgradeCard,
- *   GerminatingComposer, UncertaintyNote, WelcomeCard, BelowFloorScreen and
+ *   UncertaintyNote, WelcomeCard, BelowFloorScreen and
  *   DetailsDisclosure are all this shape.
  * - `motion-reduce:transition-none` on a `transition-colors` / `transition-
  *   transform` class removes a transition, not a resting style — and
