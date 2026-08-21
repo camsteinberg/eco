@@ -90,7 +90,7 @@ export function LocalAiSetupGate({
     // here on a device that can serve at least one model.
     return (
       <WelcomeCard
-        choices={toWelcomeChoices(setup.choiceOffer.models)}
+        choices={toWelcomeChoices(setup.choiceOffer.choices.map((c) => c.model))}
         recommendedId={setup.choiceOffer.recommendedId}
         onChoose={(id) => setup.choose(id)}
       />

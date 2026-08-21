@@ -26,9 +26,23 @@
 import type { DeviceProfile, ModelConfig, Slot } from '../types';
 import { recommend } from './recommend';
 
+/**
+ * One offered model, with the slot it was recommended FOR.
+ *
+ * The slot is not decoration: it is where a pick BINDS. The offer is built from
+ * two independent slot recommendations, so dropping the slot here forced every
+ * consumer to re-guess it — and the first-run runner guessed wrong, writing a
+ * deliberate "deeper" pick into eco-fast and leaving eco-smart empty.
+ */
+export type FirstRunChoiceEntry = {
+  model: ModelConfig;
+  /** The slot this model was recommended for, and the slot a pick binds. */
+  slot: Slot;
+};
+
 export type FirstRunChoiceOffer = {
-  /** Device-appropriate models to offer, best-first (1–2). */
-  models: ModelConfig[];
+  /** Device-appropriate choices to offer, best-first (1–2). */
+  choices: FirstRunChoiceEntry[];
   /** Which offered model carries the "Recommended" badge / preselection. */
   recommendedId: string;
 };
@@ -37,6 +51,7 @@ export type FirstRunChoiceOffer = {
  * Derive the first-run model offer for a device. `slot` is the slot being set
  * up (eco-fast), whose recommendation is the everyday option; the deeper option
  * comes from the eco-smart recommendation when it resolves to a different model.
+ * Each entry carries its own slot, so a pick binds where it was recommended.
  *
  * Callers reach this only after the below-floor gate, so `recommend(slot, …)`
  * for the everyday pick is assumed to succeed; the deeper lookup is guarded
@@ -64,6 +79,12 @@ export function deriveFirstRunChoices(slot: Slot, profile: DeviceProfile): First
   // recommendedId is always the everyday pick — the deeper model is offered as a
   // visible tile but never auto-preselected, so instant-start is preserved (FR-1).
   return deeper
-    ? { models: [everyday, deeper], recommendedId: everyday.id }
-    : { models: [everyday], recommendedId: everyday.id };
+    ? {
+        choices: [
+          { model: everyday, slot },
+          { model: deeper, slot: 'eco-smart' },
+        ],
+        recommendedId: everyday.id,
+      }
+    : { choices: [{ model: everyday, slot }], recommendedId: everyday.id };
 }

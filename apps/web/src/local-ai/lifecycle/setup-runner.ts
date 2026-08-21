@@ -34,7 +34,11 @@ import { isBelowFloor } from '../device/below-floor';
 import { recommend } from '../index';
 import { nextInCascade } from '../selection/cascade';
 import { NoAssignableModelError, starterModelForSlot } from '../selection/recommend';
-import { deriveFirstRunChoices, type FirstRunChoiceOffer } from '../selection/first-run-choices';
+import {
+  deriveFirstRunChoices,
+  type FirstRunChoiceEntry,
+  type FirstRunChoiceOffer,
+} from '../selection/first-run-choices';
 import { recordEvidence } from '../evidence/ledger';
 import { resolveSetupProfile } from '../device/profile';
 import {
@@ -70,7 +74,8 @@ export type SetupSeams = {
   resolveProfile: () => Promise<DeviceProfile>;
   isBelowFloor: (profile: DeviceProfile) => boolean;
   getSlot: (slot: Slot) => SlotState;
-  setSlot: (slot: Slot, model: ModelConfig) => void;
+  /** `null` releases the slot — used when a demotion abandons a bound pick. */
+  setSlot: (slot: Slot, model: ModelConfig | null) => void;
   setSlotStatus: (slot: Slot, status: SlotStatus) => void;
   recommend: (slot: Slot, profile: DeviceProfile) => ModelConfig;
   nextInCascade: typeof nextInCascade;
@@ -104,8 +109,12 @@ export type SetupRunnerOptions = {
    * user a choice of model and awaits their pick, using it as the first pick
    * (which bypasses starter-first — an explicit choice is never downgraded).
    * Omitted (tests, non-first-run) → the runner auto-recommends as before.
+   *
+   * Resolves with the chosen ENTRY, not a bare model: the entry carries the
+   * slot the pick binds, which is the whole reason a deeper pick now lands on
+   * eco-smart instead of being written over the everyday slot.
    */
-  requestChoice?: (offer: FirstRunChoiceOffer) => Promise<ModelConfig>;
+  requestChoice?: (offer: FirstRunChoiceOffer) => Promise<FirstRunChoiceEntry>;
   seams?: Partial<SetupSeams>;
 };
 
@@ -172,10 +181,10 @@ async function requestFirstRunChoice(
   slot: Slot,
   profile: DeviceProfile,
   seams: SetupSeams,
-  requestChoice: (offer: FirstRunChoiceOffer) => Promise<ModelConfig>,
-): Promise<ModelConfig | null> {
+  requestChoice: (offer: FirstRunChoiceOffer) => Promise<FirstRunChoiceEntry>,
+): Promise<FirstRunChoiceEntry | null> {
   const offer = seams.deriveFirstRunChoices(slot, profile);
-  if (offer.models.length === 0) return null;
+  if (offer.choices.length === 0) return null;
   return requestChoice(offer);
 }
 
@@ -363,6 +372,11 @@ export async function executeSetup(
   actions: SetupRunnerActions,
   options: SetupRunnerOptions = {},
 ): Promise<void> {
+  // The slot being SET UP. Distinct from the slot a pick BINDS: the first-run
+  // offer is built from two slot recommendations, so a deliberate "deeper" pick
+  // belongs to eco-smart even though eco-fast is the slot this run started for.
+  // Collapsing the two is what wrote a deeper pick into eco-fast and left
+  // eco-smart empty.
   const slot: Slot = options.slot ?? 'eco-fast';
   const seams: SetupSeams = { ...DEFAULT_SEAMS, ...options.seams };
 
@@ -411,6 +425,13 @@ export async function executeSetup(
     current.status === 'preparing' && current.model ? current.model : null;
   if (resumeModel) actions.markResuming();
 
+  // The slot the run's current pick is bound to — where the terminal status
+  // write lands. Starts at the slot being set up and moves only when a pick
+  // belongs elsewhere; `hasBound` distinguishes "not bound yet" from "bound to
+  // the setup slot", so a first bind never clears a slot it never wrote.
+  let boundSlot: Slot = slot;
+  let hasBound = false;
+
   let result;
   try {
     // A fresh, unbound slot on a servable device: offer the user a model choice
@@ -430,8 +451,11 @@ export async function executeSetup(
     // cascade's recommend contract is sync, so the choice has to happen out here.
     const firstPick =
       resumeModel
-      ?? chosenFirstPick
+      ?? chosenFirstPick?.model
       ?? await chooseFirstPick(slot, profile, seams, resolveStarterFirst(options));
+    // Where the FIRST pick binds. A user's choice binds the slot it was offered
+    // for; a resumed or auto-recommended pick binds the slot being set up.
+    const firstPickSlot: Slot = resumeModel ? slot : chosenFirstPick?.slot ?? slot;
     result = await runSetupCascade({
       slot,
       profile,
@@ -441,7 +465,18 @@ export async function executeSetup(
       recordFailure: (model) => seams.recordEvidence({ modelId: model.id, profile, outcome: 'smoke-fail' }),
       recordSuccess: (model) => seams.recordEvidence({ modelId: model.id, profile, outcome: 'smoke-pass' }),
       onSelect: (model, info) => {
-        seams.setSlot(slot, model);
+        // A DEMOTION is the ladder finding something smaller that runs here —
+        // never the "strongest model for this device". It binds the slot being
+        // set up (eco-fast), so a fallback can't be enshrined as the main model.
+        const target: Slot = info.kind === 'demote' ? slot : firstPickSlot;
+        // Demoting away from a chosen slot must not leave its pick behind:
+        // setSlot flips a slot to 'preparing' the moment it binds, so an
+        // abandoned deeper pick would sit there forever claiming to be on its
+        // way. Release it instead — nothing downloaded, so nothing is owed.
+        if (hasBound && boundSlot !== target) seams.setSlot(boundSlot, null);
+        boundSlot = target;
+        hasBound = true;
+        seams.setSlot(target, model);
         if (info.kind === 'demote') actions.markFindingFit();
       },
     });
@@ -455,16 +490,18 @@ export async function executeSetup(
       actions.setBelowFloor('no-assignable-model');
       return;
     }
-    seams.setSlotStatus(slot, 'error');
+    seams.setSlotStatus(boundSlot, 'error');
     actions.setError(err instanceof Error ? err.message : 'Could not pick a model.');
     return;
   }
 
+  // Status lands on the slot the winning model actually bound — the chosen
+  // slot for a first-run pick, the setup slot for everything else.
   if (result.kind === 'ready') {
-    seams.setSlotStatus(slot, 'ready');
+    seams.setSlotStatus(boundSlot, 'ready');
     actions.setReady(result.model);
   } else {
-    seams.setSlotStatus(slot, 'error');
+    seams.setSlotStatus(boundSlot, 'error');
     // How many models the ladder actually tried. On a one-model platform (iOS,
     // or an f16-less low-memory Android) that is exactly one, and the error
     // surface must not claim we "tried a few options".
