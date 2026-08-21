@@ -1540,6 +1540,29 @@ describe('downloadByPlan — storage headroom', () => {
     expect(await storage.get({ modelId: MODEL_ID, url: a.url })).toBeNull();
   });
 
+  it('states the shortfall in the same decimal GB the model tiles show', async () => {
+    // The sentence the user reads has to be reconcilable with the size on the
+    // tile they just tapped (~1.7 GB), so both are decimal GB. Dividing by
+    // 2^30 while printing "GB" quoted a number that matched nothing.
+    const error = new InsufficientStorageError(1_700_000_000, 400_000_000);
+
+    expect(error.message).toBe(
+      'Eco needs about 1.7 GB of free space for this model, but only about 0.4 GB is available on this device.',
+    );
+    expect(error.requiredBytes).toBe(1_700_000_000);
+    expect(error.availableBytes).toBe(400_000_000);
+  });
+
+  it('claims no available figure when the failure origin had none', async () => {
+    const error = new InsufficientStorageError(1_700_000_000);
+
+    expect(error.message).toBe(
+      'Eco ran out of free space while setting up this model. It needs about 1.7 GB.',
+    );
+    expect(error.message).not.toContain('—');
+    expect(error.availableBytes).toBeUndefined();
+  });
+
   it('proceeds when the estimate shows enough room', async () => {
     const a = { url: 'https://test/a.bin', body: byteArr(1, 2, 3, 4, 5) };
     const result = await downloadByPlan(makePlan([a]), {

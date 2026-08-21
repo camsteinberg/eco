@@ -492,16 +492,89 @@ describe("ModelSelector — a model that isn't here downloads in place", () => {
     pullFor(DEEP_ID, {
       kind: "deferred",
       slot: "eco-smart",
-      deferral: { code: "insufficient-storage", message: "Eco needs about 1 GB more room." },
+      // The shape production actually emits: the download pipeline's own
+      // sentence, plus the figures behind it.
+      deferral: {
+        code: "insufficient-storage",
+        message:
+          "Eco needs about 1.7 GB of free space for this model, but only about 0.4 GB is available on this device.",
+        requiredBytes: 1_700_000_000,
+        availableBytes: 400_000_000,
+      },
     });
 
     const user = await openSelector();
     const deeper = tileNamed("Eco Deeper");
-    expect(within(deeper).getByText("Eco needs about 1 GB more room.")).toBeInTheDocument();
+    expect(within(deeper).getByText("Not enough space for this model")).toBeInTheDocument();
+    expect(
+      within(deeper).getByText(/It needs about 1\.7 GB free, and about 0\.4 GB is available\./),
+    ).toBeInTheDocument();
+    expect(within(deeper).getByText(/Free up space, then tap to try again/)).toBeInTheDocument();
 
     await tapTile(user, "Eco Deeper");
     expect(within(tileNamed("Eco Deeper")).getByRole("button", { name: "Download" }))
       .toBeInTheDocument();
+  });
+
+  it("says only what it knows when the browser never reported free space", async () => {
+    // A mid-write quota error carries what was still to write and nothing
+    // else. The tile must not invent an "available" figure.
+    pullFor(DEEP_ID, {
+      kind: "deferred",
+      slot: "eco-smart",
+      deferral: {
+        code: "insufficient-storage",
+        message: "Eco ran out of free space while setting up this model. It needs about 1.7 GB.",
+        requiredBytes: 1_700_000_000,
+      },
+    });
+
+    await openSelector();
+
+    const deeper = tileNamed("Eco Deeper");
+    expect(within(deeper).getByText("Not enough space for this model")).toBeInTheDocument();
+    expect(within(deeper).getByText("It needs about 1.7 GB.")).toBeInTheDocument();
+    expect(within(deeper).queryByText(/is available/)).not.toBeInTheDocument();
+  });
+
+  it("falls back to the record's own sentence when it carries no figures", async () => {
+    // A record persisted before the figures were carried still has to say
+    // something true.
+    pullFor(DEEP_ID, {
+      kind: "deferred",
+      slot: "eco-smart",
+      deferral: {
+        code: "insufficient-storage",
+        message: "Eco ran out of free space while setting up this model.",
+      },
+    });
+
+    await openSelector();
+
+    expect(
+      within(tileNamed("Eco Deeper")).getByText(
+        "Eco ran out of free space while setting up this model.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps a non-storage deferral as its one plain sentence", async () => {
+    pullFor(DEEP_ID, {
+      kind: "deferred",
+      slot: "eco-smart",
+      deferral: {
+        code: "download-failed",
+        message: "Eco couldn't finish that download. Your current model still works.",
+      },
+    });
+
+    await openSelector();
+
+    const deeper = tileNamed("Eco Deeper");
+    expect(
+      within(deeper).getByText("Eco couldn't finish that download. Your current model still works."),
+    ).toBeInTheDocument();
+    expect(within(deeper).queryByTestId("tile-storage-shortfall")).not.toBeInTheDocument();
   });
 
   it("tells the composer trigger that a model is waiting to be switched to", async () => {

@@ -28,6 +28,7 @@ import {
   useModelUpgradeUi,
   type ModelUpgradeUi,
 } from "../../hooks/local-ai/useModelUpgrade";
+import type { UpgradeDeferral } from "../../local-ai/lifecycle/upgrade";
 
 type DropdownPosition = {
   left: number;
@@ -708,10 +709,60 @@ function TilePullState({
       )}
 
       {pull.kind === "deferred" && (
-        <p className="text-[11px] leading-snug text-[var(--eco-text-secondary)]" role="status">
-          {pull.deferral.message}
-        </p>
+        pull.deferral.code === "insufficient-storage" ? (
+          <StorageShortfall deferral={pull.deferral} />
+        ) : (
+          <p className="text-[11px] leading-snug text-[var(--eco-text-secondary)]" role="status">
+            {pull.deferral.message}
+          </p>
+        )
       )}
+    </div>
+  );
+}
+
+/** Decimal GB, one place — the unit the tile's own size label uses. */
+function formatGB(bytes: number): string {
+  return `${(bytes / 1_000_000_000).toFixed(1)} GB`;
+}
+
+/**
+ * Out of room, said honestly.
+ *
+ * A download that fails for space is not "something went wrong": it is a
+ * quantity the person can act on, and the pipeline knows the numbers. So the
+ * tile names what happened, states the figures it actually has, and says what
+ * to do — the same shape the first-run error surface uses, at tile scale and
+ * in the tile's quiet register (no alarm colour: nothing broke, and the model
+ * that was running still is).
+ *
+ * The available figure is optional on purpose. A mid-write quota error knows
+ * only what it still had to write, so that sentence must not be invented; the
+ * shortfall line simply drops to the half we can stand behind.
+ */
+function StorageShortfall({ deferral }: { deferral: UpgradeDeferral }) {
+  const { requiredBytes, availableBytes } = deferral;
+  const figures = requiredBytes == null
+    ? null
+    : availableBytes == null
+      ? `It needs about ${formatGB(requiredBytes)}.`
+      : `It needs about ${formatGB(requiredBytes)} free, and about `
+        + `${formatGB(availableBytes)} is available.`;
+
+  return (
+    <div role="status" data-testid="tile-storage-shortfall">
+      <p className="text-xs font-medium leading-snug text-[var(--eco-text)]">
+        Not enough space for this model
+      </p>
+      <p className="mt-1 text-[11px] leading-snug text-[var(--eco-text-secondary)]">
+        {/* The record's own sentence is the fallback: it is the same honest
+            text, and a record persisted before the figures were carried has
+            nothing else to show. */}
+        {figures ?? deferral.message}
+      </p>
+      <p className="mt-1 text-[11px] leading-snug text-[var(--eco-text-muted)]">
+        Free up space, then tap to try again.
+      </p>
     </div>
   );
 }

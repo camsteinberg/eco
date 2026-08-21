@@ -222,7 +222,15 @@ describe('useModelUpgrade — requesting a pull from a tile', () => {
 
   it('a deferred download surfaces the honest note on the tile', async () => {
     mockReconcile.mockReturnValue(upgradeRecord({ phase: 'accepted' }));
-    const deferral = { code: 'insufficient-storage' as const, message: 'not enough space' };
+    // The whole deferral reaches the tile, figures included — the tile renders
+    // the numbers itself rather than only the sentence.
+    const deferral = {
+      code: 'insufficient-storage' as const,
+      message:
+        'Eco needs about 1.7 GB of free space for this model, but only about 0.4 GB is available on this device.',
+      requiredBytes: 1_700_000_000,
+      availableBytes: 400_000_000,
+    };
     mockRunDownload.mockResolvedValue({ kind: 'deferred', deferral });
 
     const { result } = renderDriver();
