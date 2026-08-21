@@ -102,11 +102,6 @@ vi.mock("../../local-ai/lifecycle/recovery", () => ({
   resolveReadyLocalRecoveryModelId: vi.fn().mockResolvedValue(null),
 }));
 
-let stagedUpgrade = false;
-vi.mock("../../local-ai/lifecycle/upgrade", () => ({
-  hasStagedUpgrade: () => stagedUpgrade,
-}));
-
 vi.mock("../../local-ai/util", async () => {
   const actual = await vi.importActual<typeof import("../../local-ai/util")>(
     "../../local-ai/util",
@@ -115,6 +110,9 @@ vi.mock("../../local-ai/util", async () => {
 });
 
 import { useLocalModelReadiness } from "../useLocalModelReadiness";
+
+/** Where a staged pull persists, if one exists. */
+const STAGED_PULL_KEY = "eco-local-ai-upgrade-v1";
 
 // ── Fixtures ───────────────────────────────────────────────────────────────
 
@@ -151,7 +149,7 @@ describe("useLocalModelReadiness — mount-time warmup", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     selectedModel = "eco-fast";
-    stagedUpgrade = false;
+    localStorage.removeItem(STAGED_PULL_KEY);
     mockGetActiveModel.mockReturnValue(null);
     mockRunSmoke.mockResolvedValue({
       passed: true,
@@ -221,19 +219,31 @@ describe("useLocalModelReadiness — mount-time warmup", () => {
     expect(mockAcquireLocalHeavyWork).not.toHaveBeenCalled();
   });
 
-  it("does NOT warm the starter when an upgrade is staged (boot swap owns the load)", async () => {
-    // Slice 2b: a staged upgrade means the boot path is about to swap to the
-    // stronger model — warming the starter would spend the expensive load +
-    // shader compile on a model that is about to be unloaded, and the held
-    // readiness lease would make the swap wait out its retry budget.
-    stagedUpgrade = true;
+  it("DOES warm the serving model while another one sits staged", async () => {
+    // This used to be skipped: a staged record meant the boot path was about to
+    // swap, so warming the current model would have loaded something that was
+    // about to be unloaded. Nothing swaps at boot any more — staged weights wait
+    // for the user's own "switch now" — so skipping would leave the model they
+    // are actually chatting on cold for the entire session.
+    // The real persisted record, not a seam: the point of the case is that this
+    // hook no longer reads it at all.
+    localStorage.setItem(STAGED_PULL_KEY, JSON.stringify({
+      version: 1,
+      phase: "staged",
+      targetModelId: "candidate/lfm2-2.6b-onnx",
+      targetSlot: "eco-smart",
+      baseModelId: null,
+      deferral: null,
+      swapAttempts: 0,
+      updatedAt: 0,
+    }));
     mockGetSlot.mockReturnValue(slotState({ status: "ready" }));
 
     renderHook(() => useLocalModelReadiness());
     await settle();
 
-    expect(mockRunSmoke).not.toHaveBeenCalled();
-    expect(mockAcquireLocalHeavyWork).not.toHaveBeenCalled();
+    expect(mockRunSmoke).toHaveBeenCalledTimes(1);
+    expect(mockAcquireLocalHeavyWork).toHaveBeenCalledWith("readiness");
   });
 
   it("warms at most once per mount (ref-guarded across re-renders)", async () => {

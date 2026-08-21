@@ -1178,20 +1178,21 @@ describe("useChat — runtime error handling", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 4b. Not-ready guard during an in-flight upgrade (Finding D, messaging half)
+// 4b. Not-ready guard while THIS model is being prepared (Finding D)
 // ═══════════════════════════════════════════════════════════════════════════
 //
-// An interrupted/resuming upgrade leaves the runtime "still preparing" for a
+// An interrupted/resuming pull leaves the runtime "still preparing" for a
 // window. Sends that land there used to return an INCONSISTENT mix: sometimes
 // the honest "preparing, please wait" guard, sometimes the generic
 // "Something went sideways" card — for the SAME not-ready-yet condition. Route
 // the not-ready case to the honest guard consistently, WITHOUT hiding genuine
-// device faults.
+// device faults, and WITHOUT claiming that a pull happening on the other slot
+// says anything about the model actually serving the conversation.
 
-describe("useChat — not-ready guard during an in-flight upgrade", () => {
+describe("useChat — not-ready guard while this model is being prepared", () => {
   beforeEach(() => {
-    // Isolated in-memory upgrade storage so isUpgradeInFlight() reads our
-    // staged record and nothing leaks across tests.
+    // Isolated in-memory upgrade storage so the guard reads our staged record
+    // and nothing leaks across tests.
     const map = new Map<string, string>();
     setUpgradeStorage({
       getItem: (k) => map.get(k) ?? null,
@@ -1205,11 +1206,17 @@ describe("useChat — not-ready guard during an in-flight upgrade", () => {
     setUpgradeStorage(null);
   });
 
-  function stageInFlightUpgrade(): void {
+  /**
+   * A pull in flight. The default slot is eco-fast — the one this fixture's
+   * conversation actually runs on — because that is the case where "still
+   * preparing" describes the failing generation.
+   */
+  function stageInFlightUpgrade(targetSlot: Slot = "eco-fast" as Slot): void {
     const record: UpgradeRecord = {
       version: 1,
       phase: "downloading",
       targetModelId: "candidate/qwen3.5-2b-onnx",
+      targetSlot,
       baseModelId: null,
       deferral: null,
       swapAttempts: 0,
@@ -1282,6 +1289,32 @@ describe("useChat — not-ready guard during an in-flight upgrade", () => {
     // countdown (30s → "about 30 seconds"), never leaking "crash" verbatim.
     expect(assistant.errorMessage).toContain("about 30 seconds");
     expect(assistant.errorMessage).not.toContain("crash");
+    expect(assistant.errorMessage).not.toBe(MODEL_PREPARING_BUSY_MESSAGE);
+  });
+
+  it("does NOT convert a generic failure when the pull is for the OTHER slot", async () => {
+    // The regression this guard used to have: a background pull into eco-smart
+    // relabelled every failure of the eco-fast model the person was chatting on
+    // as "preparing, please wait" — for the whole length of the download. The
+    // conversation's model is ready and its error is real; only the tile is
+    // waiting on anything.
+    stageInFlightUpgrade("eco-smart" as Slot);
+    setScripts([
+      {
+        kind: "error",
+        tokens: [],
+        error: new LocalInferenceStreamError("LOCAL_INFERENCE_FAILED", "boom", true),
+      },
+    ]);
+
+    const { result } = renderHook(() => useChat());
+    await act(async () => {
+      await result.current.sendMessage("hi");
+    });
+
+    const assistant = lastAssistant()!;
+    expect(assistant.status).toBe("error");
+    expect(assistant.errorMessage).toBe(LOCAL_GENERATION_FALLBACK_MESSAGE);
     expect(assistant.errorMessage).not.toBe(MODEL_PREPARING_BUSY_MESSAGE);
   });
 

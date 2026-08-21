@@ -36,7 +36,6 @@ import {
   installValidationConversationHistoryFixture,
 } from "../lib/validation-conversation-history-fixture";
 import { resolveReadyLocalRecoveryModelId } from "../local-ai/lifecycle/recovery";
-import { hasStagedUpgrade } from "../local-ai/lifecycle/upgrade";
 
 export type LocalModelReadiness = {
   /** True when the slot the current selection resolves to is ready — the
@@ -183,6 +182,11 @@ export function useLocalModelReadiness(): LocalModelReadiness {
   // loadModel no-ops), runs under the same heavy-work lease as a user-driven
   // prepare so it can't collide, and swallows every failure silently. A
   // background warm must never surface a chat error or change visible status.
+  //
+  // A staged pull no longer suppresses this. Nothing swaps at boot any more —
+  // staged weights wait for the user's own "switch now" tap, which may never
+  // come — so skipping the warm would leave the model they are ACTUALLY
+  // chatting on cold for the whole session.
   const warmedRef = useRef(false);
   useEffect(() => {
     if (warmedRef.current) return;
@@ -198,16 +202,6 @@ export function useLocalModelReadiness(): LocalModelReadiness {
     // Already resident in the runtime (e.g. a remount) — loadModel would
     // no-op, so skip the redundant smoke entirely.
     if (getActiveModel()?.id === warmModel.id) {
-      warmedRef.current = true;
-      return;
-    }
-
-    // A staged upgrade means useModelUpgrade's boot path is about to swap in
-    // the stronger model — warming the starter now would spend the most
-    // expensive step (weight load + shader compile) on a model that is about
-    // to be unloaded, and the held readiness lease would make the swap wait.
-    // Skip; a failed boot swap falls back to lazy first-message load.
-    if (hasStagedUpgrade()) {
       warmedRef.current = true;
       return;
     }

@@ -56,8 +56,12 @@ import { LocalInferenceStreamError } from "../local-ai/runtime/errors";
 import { buildLocalFallbackMessages, getLocalRuntimeCrashRecovery } from "../lib/chat-recovery";
 import { buildLocalReadinessFailureV2, findAutoRetryTarget } from "../lib/chat-turns";
 import { isValidationHarnessEnabled } from "../lib/validation-harness";
-import { getSlot as getLocalAiSlot, subscribe as subscribeLocalAiSlots } from "../local-ai/lifecycle/slots";
-import { isUpgradeInFlight } from "../local-ai/lifecycle/upgrade";
+import {
+  getSlot as getLocalAiSlot,
+  getSlotForModel as getLocalAiSlotForModel,
+  subscribe as subscribeLocalAiSlots,
+} from "../local-ai/lifecycle/slots";
+import { isUpgradeInFlightForSlot } from "../local-ai/lifecycle/upgrade";
 import { MODEL_PREPARING_BUSY_MESSAGE, getActiveLocalHeavyWorkLease } from "../lib/local-heavy-work-owner";
 import { getActiveModel } from "../local-ai/runtime/lifecycle";
 import { createLocalAiLegacyInference } from "../local-ai/adapters/useChatLegacyShim";
@@ -358,6 +362,26 @@ function errorHasDedicatedLocalMessage(err: unknown): boolean {
 }
 
 /**
+ * True when the model this generation ran on is the one a pull is still
+ * preparing — the only case where "still preparing, please wait" is the honest
+ * reading of a failure.
+ *
+ * A pull now runs in the BACKGROUND, on whichever slot the tapped tile owns,
+ * while the conversation keeps streaming on the other one. Asking "is any
+ * upgrade in flight?" would relabel a genuine fault of the serving model as a
+ * wait, on every send, for as long as the download lasts. So the question is
+ * asked about this generation's own slot: the slot the failing model is bound
+ * to (a swap binds its slot up front, so a mid-swap model resolves to it), or
+ * the slot name itself when the selection never resolved to a model.
+ */
+function upgradeIsPreparingThisModel(modelKey: string): boolean {
+  const slot: LocalAiSlot | null = isLocalAiSlot(modelKey)
+    ? modelKey
+    : getLocalAiSlotForModel(modelKey);
+  return slot !== null && isUpgradeInFlightForSlot(slot);
+}
+
+/**
  * Per-generation overrides a caller may hand to a single regenerate. Both are
  * REQUEST-LOCAL: nothing here is written to the conversation, so the stored
  * user turn and the history every later turn re-renders stay exactly as the
@@ -615,13 +639,14 @@ export function useChat() {
       return;
     }
 
-    // Not-ready-yet: a consent-driven upgrade is still warming the stronger
-    // model. A failure in this window (the runtime was mid-swap, or the model
-    // wasn't loaded yet) is "please wait," not a fault — route it to the SAME
-    // honest "preparing" guard the lease-busy path shows, never the generic
-    // "Something went sideways" card. Genuine device faults (crash, cooldown,
-    // low battery, OOM, missing template) keep their specific guidance below.
-    if (isUpgradeInFlight() && !errorHasDedicatedLocalMessage(err)) {
+    // Not-ready-yet: a pull is still preparing THIS model. A failure in that
+    // window (the runtime was mid-swap, or the model wasn't loaded yet) is
+    // "please wait," not a fault — route it to the SAME honest "preparing"
+    // guard the lease-busy path shows, never the generic "Something went
+    // sideways" card. Genuine device faults (crash, cooldown, low battery, OOM,
+    // missing template) keep their specific guidance below, and a pull for the
+    // OTHER slot leaves this path alone entirely.
+    if (upgradeIsPreparingThisModel(modelKey) && !errorHasDedicatedLocalMessage(err)) {
       updateMessage(assistantId, {
         status: "error",
         errorMessage: MODEL_PREPARING_BUSY_MESSAGE,
