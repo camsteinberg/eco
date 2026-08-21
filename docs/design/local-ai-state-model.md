@@ -31,18 +31,19 @@ usual source of bugs.
   `stores/chatStore.ts`.
 - **Bound model** — the concrete catalog id persisted *in a slot*
   (`eco-local-ai-slot-<slot>`). A slot's binding is what its name resolves to.
-- **Staged model** — a stronger model whose bytes are verified on disk and
-  waiting to be swapped into eco-smart, tracked by the upgrade record
-  (`phase: 'staged'`). Staged is not yet serving; the swap makes it so.
+- **Staged model** — a model whose bytes are verified on disk and waiting to be
+  swapped into the slot its pull record names, tracked by that record
+  (`phase: 'staged'`). Staged is not yet serving; the swap makes it so, and only
+  the user's own "switch now" starts it.
 - **Explicit pick** — a selection the user chose deliberately, flagged by
   `eco-selected-model-explicit = 'true'`. Explicit picks are honored verbatim
   across reloads and are exempt from auto-migration. The auto-default population
   (no explicit flag) is the only population migrations touch.
 - **Starter** — the smallest trustworthy model Stage-A setup binds to eco-fast
   to get a fresh device chatting in ~a minute (currently the LFM2.5-350M rung).
-  The upgrade ladder carries the device *from* the starter *to* the class-best
-  smart model; **eco-fast keeps the starter** — the upgrade only ever binds
-  eco-smart.
+  A pull carries the device from there to whichever model the person taps in the
+  composer's model selector; **the slot it binds is the one the record names**,
+  so the tile that was not tapped keeps what it had.
 
 **Slot ↔ id duality.** A selection or a bound value can be a slot name *or* a
 concrete id. The canonical helpers live in `local-ai/util.ts`:
@@ -177,29 +178,40 @@ nothing resumes. This is Invariant I5.
 
 ---
 
-## 5. Upgrade machine
+## 5. Pull machine
 
 Owned by `lifecycle/upgrade.ts`; persisted under `eco-local-ai-upgrade-v1`. A
 **pure** transition table (`transitionUpgrade`) plus two effectful drivers with
 injectable seams (`runUpgradeDownload`, `performUpgradeSwap`).
 
 ```
-idle ─offer─▶ offered ─accept─▶ accepted ─download-started─▶ downloading
-                │                                                  │
-             decline                                     download-completed
-                │                                                  ▼
-                ▼                                                staged
-            declined ◀──accept re-enter──┐                          │
-                                         │                     swap-started
-   deferred ◀─download-failed────────────┤                          ▼
-       │      (insufficient-storage /     │                     swapping
-       │       download-failed)           │                    │   │   │
-    accept                                │        swap-succeeded  swap-failed  swap-busy
-   re-enter                               │            │          (retry<cap:   (free:
-       └───────────────────────────▶ accepted         ▼           →staged;      →staged,
-                                                     done          else defer)   refund attempt)
+idle ─request─▶ accepted ─download-started─▶ downloading
+                                                   │
+                                          download-completed
+                                                   ▼
+                                                 staged
+                                                   │
+                                              swap-started
+                                                   ▼
+                                                swapping
+                                               │   │   │
+                                 swap-succeeded    swap-failed   swap-busy
+                                       │          (retry<cap:    (free:
+   deferred ◀─download-failed          ▼           →staged;       →staged,
+       ▲   (insufficient-storage /    done         else defer)    refund attempt)
+       │    download-failed)
+       └── request ─▶ accepted   (a settled record never blocks a fresh ask)
+
                           cache-evicted: staged ─▶ accepted  (re-download the evicted bytes)
 ```
+
+**`request` is the only way in.** It carries `targetModelId` and `targetSlot`
+and comes from one place: the model tile's inline confirm. That confirm IS the
+consent, so there is no offered/accept step. It is valid from idle and over any
+settled record (a tile is always re-tappable) and refused while a cycle is
+mid-flight. The `offered`/`declined` phases remain parseable for records written
+before the pair selector; `reconcileUpgradeOnBoot` clears an `offered` one,
+whose surface no longer exists.
 
 **Rejection contract.** Invalid transitions **return the input record
 unchanged** (never throw) — deliberate tolerance of racing events (two tabs,
@@ -211,18 +223,23 @@ burns one attempt and retries via `staged`; at the cap it defers for good. A
 `swap-busy` (runtime busy, nothing attempted) refunds the optimistically-charged
 attempt and returns to `staged`.
 
-**Binds eco-smart only** (Invariant I3). `performUpgradeSwap` calls
-`prepareModelForSlot({ slot: 'eco-smart', … })` — never eco-fast. eco-fast keeps
-the starter, cached, so a failed swap is a pointer move, not a re-download. The
-ledger records `swap-pass`/`swap-fail` for the *upgrade cycle's* result (distinct
-from the load/smoke rows `prepareModelForSlot` writes).
+**Binds the slot the record names** (Invariant I3). `performUpgradeSwap` calls
+`prepareModelForSlot({ slot: record.targetSlot, … })` and never the other slot,
+which keeps its own model bound and cached — so a failed swap is a pointer move,
+not a re-download. The ledger records `swap-pass`/`swap-fail` for the *pull's*
+result (distinct from the load/smoke rows `prepareModelForSlot` writes).
 
-**Boot auto-swap.** `hooks/local-ai/useModelUpgrade.ts` consults
-`hasStagedUpgrade()` and drives the swap after boot; `reconcileUpgradeOnBoot()`
-repairs an interrupted swap by resetting `swapping`→`staged` (the interrupted
-attempt stays counted, so a tab-crashing swap can't retry forever). An
-interrupted **download** stays in `downloading` and resumes via the download
-pipeline's per-file verify-skip.
+**No boot swap.** `hooks/local-ai/useModelUpgrade.ts` reconciles on boot and
+resumes an interrupted download; a `staged` record becomes the tile's quiet
+"ready, switch now" affordance and waits for the tap.
+`reconcileUpgradeOnBoot()` repairs an interrupted swap by resetting
+`swapping`→`staged` (the interrupted attempt stays counted, so a tab-crashing
+swap can't retry forever). An interrupted **download** stays in `downloading`
+and resumes via the download pipeline's per-file verify-skip.
+
+**Per-slot in-flight question.** `isUpgradeInFlightForSlot(slot)` is what the
+chat error surface asks: a pull preparing one slot says nothing about failures
+on the model serving from the other.
 
 ---
 
@@ -317,9 +334,10 @@ Numbered 1:1 with `apps/web/src/local-ai/__tests__/state-invariants.test.ts`.
   *(`local-ai/util.ts`, `lifecycle/slots.ts`)*
 - **I2 — Explicit pick survives rehydration verbatim.** A persisted explicit
   catalog pick hydrates as itself, any prefix. *(`stores/chatStore.ts`)*
-- **I3 — Upgrade binds eco-smart only.** `performUpgradeSwap` targets/binds
-  eco-smart and never mutates eco-fast. *(`lifecycle/upgrade.ts`)*
-- **I4 — Illegal upgrade transitions return the input unchanged** (never throw;
+- **I3 — A pull binds the slot its record names.** `performUpgradeSwap` targets
+  and binds `record.targetSlot`, and never mutates the other slot.
+  *(`lifecycle/upgrade.ts`)*
+- **I4 — Illegal pull transitions return the input unchanged** (never throw;
   only `reset` → null), and swaps cap at `MAX_SWAP_ATTEMPTS`.
   *(`lifecycle/upgrade.ts`)*
 - **I5 — Phantom-pick rule.** Different-id / bind-from-empty forces `preparing`;

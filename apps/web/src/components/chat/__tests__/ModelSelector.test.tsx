@@ -179,9 +179,16 @@ async function tapTile(
   await user.click(body);
 }
 
+/** Every pull state, minus the model — which `pullFor` fills in from the catalog. */
+type PullFixture = Exclude<ModelUpgradeUi, { kind: "hidden" }> extends infer U
+  ? U extends { target: unknown }
+    ? Omit<U, "target">
+    : never
+  : never;
+
 /** A pull in some phase, aimed at one of the fixture models. */
-function pullFor(id: string, ui: Omit<ModelUpgradeUi, "kind" | "target"> & { kind: string }): void {
-  mockPullUi = { ...ui, target: catalogModel(id) } as ModelUpgradeUi;
+function pullFor(id: string, pull: PullFixture): void {
+  mockPullUi = { ...pull, target: catalogModel(id) } as ModelUpgradeUi;
 }
 
 async function openSelector(): Promise<ReturnType<typeof userEvent.setup>> {

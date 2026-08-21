@@ -3,7 +3,7 @@
 
 import { expect, type Page } from "@playwright/test";
 import type { CaptureGap, StateEntry } from "../types";
-import { DESKTOP_DEVICE_SEARCH, READY_CHAT_SEARCH, UPGRADE_DECLINED_LOCAL } from "./pilot";
+import { DESKTOP_DEVICE_SEARCH, READY_CHAT_SEARCH, READY_WASM_CHAT_SEARCH } from "./pilot";
 
 /**
  * W4b — the global overlays.
@@ -11,7 +11,7 @@ import { DESKTOP_DEVICE_SEARCH, READY_CHAT_SEARCH, UPGRADE_DECLINED_LOCAL } from
  * Everything that arrives on top of whatever page you were on: the command
  * palette and the shortcuts sheet, the cookie notice in both its layouts, the
  * offline banner in both its honest wordings, the one toast the product
- * actually fires, the model dropdown, and the consent-driven upgrade card.
+ * actually fires, and the model selector in each of its states.
  *
  * The welcome overlay and the guided tour are NOT here — they belong to the
  * chat-interactions wave, which runs alongside this one.
@@ -24,15 +24,13 @@ import { DESKTOP_DEVICE_SEARCH, READY_CHAT_SEARCH, UPGRADE_DECLINED_LOCAL } from
  *   ship with no product path that fires them. Calling the context from the
  *   console would photograph a component, not a state, so they are left out —
  *   the honest finding is that two thirds of that component is unreachable.
- * - **The upgrade card's `ready` and `boosted` states, at boot.** Both need
- *   weights verified on disk: `performUpgradeSwap` re-checks the cache before
- *   it swaps and returns `reverted-to-download` when the bytes are missing, and
- *   `boosted` only follows a completed swap. The lane holds every weight
- *   request open by design, so a staged-with-bytes device cannot exist here
- *   without downloading gigabytes per shot. `ready` is captured anyway, through
- *   the one path that does not touch the cache — see `overlays.upgrade-ready`.
- *   `boosted` (the bottom-centre "Eco just got a boost" pill, 6s) has no such
- *   door and is genuinely uncaptured.
+ * - **The model tile mid-swap.** "Preparing" only exists while
+ *   `performUpgradeSwap` runs, and that re-checks the weights cache first and
+ *   reverts to downloading when the bytes are missing. The lane holds every
+ *   weight request open by design, so a staged-with-bytes device cannot exist
+ *   here without really downloading the model. The tile's `ready` state IS
+ *   captured, through the one path that does not touch the cache — see
+ *   `overlays.model-tile-ready`.
  *
  * ── One thing these shots inherit from the machine ────────────────────────
  *
@@ -46,8 +44,8 @@ import { DESKTOP_DEVICE_SEARCH, READY_CHAT_SEARCH, UPGRADE_DECLINED_LOCAL } from
 /** The composer — on screen before and after every interaction in this file. */
 const COMPOSER = '[aria-label="Message input"]';
 
-/** The upgrade card's own hook. `data-upgrade-state` carries its phase. */
-const UPGRADE_CARD = '[data-testid="model-upgrade-card"]';
+/** The model tile's pull row. `data-pull-state` carries its phase. */
+const TILE_PULL = '[data-testid="model-tile-pull"]';
 
 /** Conversations, so the palette's recent list has something in it. */
 const HISTORY = [
@@ -58,26 +56,28 @@ const HISTORY = [
 ] as const;
 
 /**
- * A 350M target for the upgrade states.
+ * The deeper half of the pair on the CPU-only desktop profile.
  *
- * The upgrade download runs the pipeline's real storage preflight, which
- * declines under `plan × 1.1`; a Playwright origin reports roughly 0.9–1.1 GB
- * free (measured for `pilot.setup-error-storage`). The device's actual
- * eco-smart recommendation on the forced desktop profile is a 2.6B, which would
- * trip that preflight at random and defer instead of downloading — so these
- * entries name a small target directly. A seeded record's target is used as
- * given: only `planUpgradeOffer` derives one from the device.
+ * A pull runs the pipeline's real storage preflight, which declines under
+ * `plan × 1.1`; a Playwright origin reports roughly 0.9–1.1 GB free (measured
+ * for `pilot.setup-error-storage`). The deeper tile on the forced DESKTOP
+ * profile is a 2.6B, which would trip that preflight at random and defer
+ * instead of downloading. On the CPU-only profile the pair is a 360M and this
+ * 350M, whose plan clears the preflight by roughly 1.5×, so the tile states
+ * below ride that profile. Both ids come from `deriveFirstRunChoices` for that
+ * profile, not from a guess.
  */
-const SMALL_TARGET = "candidate/granite-4.0-350m-onnx";
+const WASM_DEEPER_TARGET = "candidate/granite-4.0-350m-onnx";
 
-/** An upgrade cycle parked in one phase, exactly as the app persists it. */
-function upgradeRecord(phase: string): Record<string, string> {
+/** A pull parked in one phase, exactly as the app persists it. */
+function pullRecord(phase: string): Record<string, string> {
   return {
     "eco-local-ai-upgrade-v1": JSON.stringify({
       version: 1,
       phase,
-      targetModelId: SMALL_TARGET,
-      baseModelId: "local/qwen3-0.6b",
+      targetModelId: WASM_DEEPER_TARGET,
+      targetSlot: "eco-smart",
+      baseModelId: null,
       deferral: null,
       swapAttempts: 0,
       updatedAt: 0,
@@ -85,26 +85,54 @@ function upgradeRecord(phase: string): Record<string, string> {
   };
 }
 
+/** Open the model selector the way a pointer user does. */
+async function openSelector(page: Page): Promise<void> {
+  await page.locator('[data-testid="model-selector"]').first().click();
+  await expect(page.getByRole("listbox", { name: "Select model" })).toBeVisible();
+}
+
+/** Open it the way a phone does — a real tap, not a click. */
+async function tapSelector(page: Page): Promise<void> {
+  await page.locator('[data-testid="model-selector"]').first().tap();
+  await expect(page.locator('[data-testid="sheet-title"]')).toBeVisible();
+}
+
+/** Wait for the tile to be reporting the phase this shot is about. */
+async function tilePullSettled(page: Page, phase: string): Promise<void> {
+  await expect(page.locator(TILE_PULL)).toHaveAttribute("data-pull-state", phase, {
+    timeout: 20_000,
+  });
+}
+
 /**
- * Wait for the upgrade card to stop moving.
+ * Move the record to `staged` from ANOTHER tab.
  *
- * It enters on a Motion spring (`CARD_SPRING`), which `animations: 'disabled'`
- * does not touch — the same finding the settings wave hit with the Switch
- * dialog. Polling the element's own transform and opacity is the only settle
- * signal that does not guess at a duration.
+ * It is the only route to the tile's ready state that does not re-check the
+ * weights cache: the swap path does, finds nothing, and reverts to downloading.
+ * This is the shipping path too — one tab finishes the download, every other
+ * tab's storage listener reflects it.
  */
-async function upgradeCardSettled(page: Page, phase: string): Promise<void> {
-  const card = page.locator(UPGRADE_CARD);
-  await expect(card).toHaveAttribute("data-upgrade-state", phase, { timeout: 20_000 });
-  await expect
-    .poll(async () =>
-      card.evaluate((node) => {
-        const style = getComputedStyle(node);
-        const { a, d } = new DOMMatrixReadOnly(style.transform);
-        return Math.max(Math.abs(a - 1), Math.abs(d - 1), 1 - Number(style.opacity));
-      }),
-    )
-    .toBeLessThan(0.002);
+async function stageFromAnotherTab(page: Page): Promise<void> {
+  const other = await page.context().newPage();
+  try {
+    await other.goto("/privacy");
+    await other.evaluate((record: string) => {
+      window.localStorage.setItem("eco-local-ai-upgrade-v1", record);
+    }, JSON.stringify({
+      version: 1,
+      phase: "staged",
+      targetModelId: WASM_DEEPER_TARGET,
+      targetSlot: "eco-smart",
+      baseModelId: null,
+      deferral: null,
+      swapAttempts: 0,
+      // Distinct from the seeded record's 0, or the write is a no-op and no
+      // storage event fires.
+      updatedAt: 1,
+    }));
+  } finally {
+    await other.close();
+  }
 }
 
 /** Open the command palette the only way the product offers. */
@@ -126,7 +154,7 @@ function paletteState(
     title,
     route: "/chat",
     search: READY_CHAT_SEARCH,
-    seed: { local: UPGRADE_DECLINED_LOCAL, idb: [...HISTORY] },
+    seed: { idb: [...HISTORY] },
     tier: "micro",
     realism: "seeded",
     // Seeded conversations do not render on the dev server (see chat-surface.ts),
@@ -151,14 +179,14 @@ export const overlaysGaps: CaptureGap[] = [
       + "thirds of that component is unreachable.",
   },
   {
-    id: "overlays.upgrade-boosted",
+    id: "overlays.model-tile-swapping",
     group: "overlays",
-    surface: "The upgrade card's `boosted` phase (the bottom-centre “Eco just got a boost” pill, 6s)",
+    surface: "The model tile mid-swap (“Preparing”, with the switch progress bar)",
     reason:
-      "It only follows a completed swap, and performUpgradeSwap re-checks the cache before it swaps — returning "
+      "It exists only while performUpgradeSwap runs, and that re-checks the weights cache before it swaps — returning "
       + "reverted-to-download when the bytes are missing. The lane holds every weight request open by design, so a "
-      + "staged-with-bytes device cannot exist here without downloading gigabytes per shot. Genuinely uncaptured. "
-      + "(`ready` IS captured, through the one path that does not touch the cache — see overlays.upgrade-ready.)",
+      + "staged-with-bytes device cannot exist here without really downloading the model. Genuinely uncaptured. "
+      + "(`ready` IS captured, through the one path that does not touch the cache — see overlays.model-tile-ready.)",
   },
 ];
 
@@ -243,7 +271,6 @@ export const overlaysStates: StateEntry[] = [
     title: "Keyboard shortcuts",
     route: "/chat",
     search: READY_CHAT_SEARCH,
-    seed: { local: UPGRADE_DECLINED_LOCAL },
     tier: "micro",
     realism: "seeded",
     assert: [{ selector: COMPOSER }],
@@ -265,7 +292,6 @@ export const overlaysStates: StateEntry[] = [
     route: "/chat",
     search: READY_CHAT_SEARCH,
     seed: {
-      local: UPGRADE_DECLINED_LOCAL,
       // Removals run last, so this un-suppresses what the base first-run bundle
       // hides in every other capture.
       removeLocal: ["eco-cookie-consent-dismissed"],
@@ -300,7 +326,6 @@ export const overlaysStates: StateEntry[] = [
     title: "Offline, with a model on this device",
     route: "/chat",
     search: READY_CHAT_SEARCH,
-    seed: { local: UPGRADE_DECLINED_LOCAL },
     tier: "component",
     realism: "seeded",
     // Structural, and true in both phases: the banner itself only exists after
@@ -328,7 +353,6 @@ export const overlaysStates: StateEntry[] = [
     // shell route shows it; a settings tab shows it against something calm.
     route: "/settings",
     search: `tab=appearance&${DESKTOP_DEVICE_SEARCH}`,
-    seed: { local: UPGRADE_DECLINED_LOCAL },
     tier: "component",
     realism: "seeded",
     assert: [{ selector: "header" }],
@@ -352,7 +376,6 @@ export const overlaysStates: StateEntry[] = [
     search: READY_CHAT_SEARCH,
     seed: {
       local: {
-        ...UPGRADE_DECLINED_LOCAL,
         // Exactly what lifecycle/self-heal.ts leaves behind when the boot
         // migration retires the model the reader was actually running.
         "eco-local-ai-retired-notice-v1": JSON.stringify({ label: "Eco Compact" }),
@@ -381,7 +404,6 @@ export const overlaysStates: StateEntry[] = [
     title: "Model selector — the desktop dropdown",
     route: "/chat",
     search: READY_CHAT_SEARCH,
-    seed: { local: UPGRADE_DECLINED_LOCAL },
     tier: "micro",
     realism: "seeded",
     assert: [{ testId: "model-selector" }],
@@ -395,123 +417,99 @@ export const overlaysStates: StateEntry[] = [
       + "window, so it is anchored above the trigger — the one direction the component has.",
   },
 
-  // ── The upgrade card ────────────────────────────────────────────────────
+  // ── The model tile's own states ─────────────────────────────────────────
   {
-    id: "overlays.upgrade-offer",
+    id: "overlays.model-tile-dropdown-mobile-sheet",
     group: "overlays",
-    title: "Upgrade — a stronger AI is offered",
+    title: "Model selector — the touch bottom sheet",
     route: "/chat",
-    search: READY_CHAT_SEARCH,
-    // Deliberately no upgrade record: the offer's target is whatever
-    // `recommend('eco-smart', …)` returns for the forced desktop profile, and
-    // seeding one would be asserting that answer instead of reading it.
-    tier: "component",
+    search: READY_WASM_CHAT_SEARCH,
+    tier: "micro",
     realism: "seeded",
-    assert: [{ testId: "model-upgrade-card" }],
-    prepare: async (page) => {
-      await upgradeCardSettled(page, "offer");
-      await expect(page.getByRole("button", { name: "Download in background" })).toBeVisible();
-      await expect(page.getByRole("button", { name: "Not now" })).toBeVisible();
-    },
+    axes: { viewports: ["mobile"] },
+    assert: [{ testId: "model-selector" }],
+    prepare: tapSelector,
     notes:
-      "The one card every other chat capture suppresses, on purpose, so it can be looked at once. "
-      + "Top-right rather than bottom-right — a bottom-anchored consent card can intercept the Send "
-      + "button on some window sizes, which the launch journeys caught. Nothing downloads until "
-      + "the reader says yes, and 'Not now' is remembered rather than re-asked.",
+      "The same tiles as the pointer dropdown, in the layout a phone gets. Here on the CPU-only "
+      + "profile so it is the same pair the two states below move through.",
   },
   {
-    id: "overlays.upgrade-downloading",
+    id: "overlays.model-tile-downloading",
     group: "overlays",
-    title: "Upgrade — downloading in the background",
+    title: "Model tile — downloading in the background",
     route: "/chat",
-    search: READY_CHAT_SEARCH,
-    seed: { local: upgradeRecord("accepted") },
+    search: READY_WASM_CHAT_SEARCH,
+    seed: { local: pullRecord("accepted") },
     tier: "component",
     realism: "seeded",
-    assert: [{ testId: "model-upgrade-card" }],
+    assert: [{ testId: "model-selector" }],
     prepare: async (page) => {
-      await upgradeCardSettled(page, "downloading");
-      // No name filter: the shared ProgressBar derives its accessible name from
-      // the visible label, so this bar is currently named "0%" — the old
-      // hand-rolled bar said "Download progress". The lane photographs what
-      // ships; the name loss is filed as a Stage 4 finding, not papered over
-      // by asserting the old name.
+      await openSelector(page);
+      await tilePullSettled(page, "downloading");
       await expect(page.getByRole("progressbar")).toBeVisible();
     },
     notes:
-      "An accepted cycle resumed at boot, parked at its first byte because the lane holds weight "
-      + "requests open — so the bar reads 0% honestly rather than a different number every run. "
-      + "The copy's whole job is the second line: nothing pauses while this happens.",
+      "A pull the reader asked for in a previous session, resumed at boot and parked at its first "
+      + "byte because the lane holds weight requests open — so the bar reads 0% honestly rather "
+      + "than a different number every run. The tile it happens on is the one that was tapped; the "
+      + "other tile is untouched, and the conversation behind the panel never paused.",
   },
   {
-    id: "overlays.upgrade-ready",
+    id: "overlays.model-tile-downloading-sheet",
     group: "overlays",
-    title: "Upgrade — ready, asking before it switches",
+    title: "Model tile — downloading, in the touch sheet",
     route: "/chat",
-    // A settled cycle, so this tab's boot flow does nothing and leaves the
-    // machine's passive cross-tab listener as the only thing driving the UI.
-    search: READY_CHAT_SEARCH,
-    seed: { local: upgradeRecord("declined") },
+    search: READY_WASM_CHAT_SEARCH,
+    seed: { local: pullRecord("accepted") },
     tier: "component",
     realism: "seeded",
-    assert: [{ selector: COMPOSER }],
+    axes: { viewports: ["mobile"] },
+    assert: [{ testId: "model-selector" }],
     prepare: async (page) => {
-      // The shipping path: another tab finished the download and moved the
-      // record to `staged`; this tab's `storage` listener reflects that as the
-      // ready prompt. It is used here because it is the ONLY route to this
-      // state that does not re-check the weights cache — the boot swap does,
-      // finds nothing, and reverts to downloading (see this file's header).
-      const other = await page.context().newPage();
-      try {
-        await other.goto("/privacy");
-        await other.evaluate((record: string) => {
-          window.localStorage.setItem("eco-local-ai-upgrade-v1", record);
-        }, JSON.stringify({
-          version: 1,
-          phase: "staged",
-          targetModelId: SMALL_TARGET,
-          baseModelId: "local/qwen3-0.6b",
-          deferral: null,
-          swapAttempts: 0,
-          // Distinct from the seeded record's 0, or the write is a no-op and
-          // no storage event fires.
-          updatedAt: 1,
-        }));
-      } finally {
-        await other.close();
-      }
-      await upgradeCardSettled(page, "ready");
-      // Scoped to the card: the composer's disabled research toggle is
-      // labelled "Deeper research mode, coming later", which an unscoped
-      // "Later" lookup also matches.
-      const card = page.locator(UPGRADE_CARD);
-      await expect(card.getByRole("button", { name: "Switch now" })).toBeVisible();
-      await expect(card.getByRole("button", { name: "Later" })).toBeVisible();
+      await tapSelector(page);
+      await tilePullSettled(page, "downloading");
     },
     notes:
-      "Consent asked a second time, at the moment it costs something: the swap takes a few seconds "
-      + "and the card promises the conversation survives it. 'Later works too' is the line that "
-      + "makes Later a real option rather than a delay.",
+      "The phone twin. Worth its own shot because the sheet gives the tile more width than the "
+      + "320px dropdown does, which is where the progress row has to hold up.",
   },
   {
-    id: "overlays.upgrade-deferred",
+    id: "overlays.model-tile-ready",
     group: "overlays",
-    title: "Upgrade — deferred, and honest about why",
+    title: "Model tile — ready, waiting to be switched to",
     route: "/chat",
-    search: `eco-force-download=quota&${READY_CHAT_SEARCH}`,
-    seed: { local: upgradeRecord("accepted") },
+    search: READY_WASM_CHAT_SEARCH,
     tier: "component",
     realism: "seeded",
-    assert: [{ testId: "model-upgrade-card" }],
+    assert: [{ testId: "model-selector" }],
     prepare: async (page) => {
-      await upgradeCardSettled(page, "deferred");
-      await expect(page.getByText("Sticking with your current AI")).toBeVisible();
-      await expect(page.getByRole("button", { name: "Okay" })).toBeVisible();
+      await openSelector(page);
+      await stageFromAnotherTab(page);
+      await tilePullSettled(page, "ready");
+      await expect(page.getByRole("button", { name: /Switch now/ })).toBeVisible();
     },
     notes:
-      "The download ran out of room, so the cycle settles instead of retrying: a grey sprout, the "
-      + "pipeline's own byte-count sentence, and one dismissal. No terminal screen and no 'try "
-      + "again' — the device already has a model that works.",
+      "The whole reason nothing swaps on its own: the bytes are here, and the tile says so and "
+      + "waits. One button, in the tile that asked for it, and no card anywhere on the surface. "
+      + "The composer trigger carries a single dot for the same fact while the panel is closed.",
+  },
+  {
+    id: "overlays.model-tile-ready-sheet",
+    group: "overlays",
+    title: "Model tile — ready, in the touch sheet",
+    route: "/chat",
+    search: READY_WASM_CHAT_SEARCH,
+    tier: "component",
+    realism: "seeded",
+    axes: { viewports: ["mobile"] },
+    assert: [{ testId: "model-selector" }],
+    prepare: async (page) => {
+      await tapSelector(page);
+      await stageFromAnotherTab(page);
+      await tilePullSettled(page, "ready");
+    },
+    notes:
+      "The phone twin of the switch affordance — the one tap that changes which model answers.",
   },
   {
     id: "overlays.account-required-dialog",
