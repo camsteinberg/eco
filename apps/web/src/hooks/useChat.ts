@@ -880,17 +880,25 @@ export function useChat() {
     }
 
     // (c) Belt-and-suspenders: resolve which slot owns this model and verify it
-    // is ready immediately before dispatch. The trailing "eco-fast" default is
-    // now unreachable for on-device ids — normalization above guarantees any
-    // concrete id still here is slot-bound — and must NOT be relied on: it used
-    // to pass an unowned model through on a ready fast slot's readiness verdict.
-    const slotId: LocalAiSlot = isLocalAiSlot(selectedModelChoice)
+    // is ready immediately before dispatch.
+    //
+    // Normalization at the top of this function guarantees any concrete
+    // on-device id still here is slot-bound, so a null lookup means the binding
+    // went away in between — another tab cleared the slot, a removal landed
+    // mid-send. There is no safe guess to make there: the old code fell back to
+    // "eco-fast", which passed an unowned model through on a DIFFERENT model's
+    // readiness verdict, and that is precisely how an undownloaded model reached
+    // the runtime and self-fetched gigabytes mid-turn. So it declines.
+    const slotId: LocalAiSlot | null = isLocalAiSlot(selectedModelChoice)
       ? selectedModelChoice
-      : (getLocalAiSlot("eco-fast").model?.id === model
-          ? "eco-fast"
-          : getLocalAiSlot("eco-smart").model?.id === model
-            ? "eco-smart"
-            : "eco-fast");
+      : getLocalAiSlotForModel(model);
+    if (!slotId) {
+      writeDispatchError(
+        assistantId,
+        "That model isn't set up on this device any more. Pick one from the model menu to keep chatting.",
+      );
+      return { ok: false };
+    }
     const slotState = getLocalAiSlot(slotId);
     if (slotState.status !== "ready" || !slotState.model) {
       const readinessFailure = buildLocalReadinessFailureV2({ slot: slotState });

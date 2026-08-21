@@ -51,6 +51,12 @@ const shared = vi.hoisted(() => {
     generateCalls: [] as GenerateCall[],
     fastSlotState: undefined as SlotState | undefined,
     smartSlotState: undefined as SlotState | undefined,
+    /**
+     * Simulates the binding going away UNDER the send: normalization sees the
+     * id bound, and the pre-dispatch lookup a moment later finds no owner
+     * (another tab cleared the slot, a removal landed mid-send).
+     */
+    bindingVanishes: false,
   };
 });
 
@@ -78,6 +84,7 @@ vi.mock("../../local-ai/lifecycle/slots", () => ({
   getSlot: (slot: Slot): SlotState =>
     slot === "eco-fast" ? shared.fastSlotState! : shared.smartSlotState!,
   getSlotForModel: (modelId: string): Slot | null => {
+    if (shared.bindingVanishes) return null;
     if (shared.fastSlotState?.modelId === modelId) return "eco-fast" as Slot;
     if (shared.smartSlotState?.modelId === modelId) return "eco-smart" as Slot;
     return null;
@@ -150,6 +157,7 @@ beforeEach(() => {
   shared.generateCalls.length = 0;
   shared.fastSlotState = makeSlot("eco-fast", FAST_MODEL_ID, "ready");
   shared.smartSlotState = makeSlot("eco-smart", null, "empty");
+  shared.bindingVanishes = false;
   localStorage.clear();
   resetChatStore("auto");
 });
@@ -198,6 +206,27 @@ describe("unbound concrete selection never reaches generation", () => {
 
     expect(useChatStore.getState().error).toBeNull();
     expect(lastAssistant()?.localReadiness).toBeUndefined();
+  });
+});
+
+// The pre-dispatch slot lookup used to end in `: "eco-fast"`. That arm is
+// unreachable while normalization holds, but it was never a safe default: it
+// approved an unowned model on a DIFFERENT model's readiness verdict. A lookup
+// that finds no owner now declines out loud instead of guessing.
+describe("a binding that vanishes mid-send declines rather than guessing", () => {
+  it("dispatches nothing and says so", async () => {
+    shared.smartSlotState = makeSlot("eco-smart", SMART_MODEL_ID, "ready");
+    resetChatStore(SMART_MODEL_ID);
+    shared.bindingVanishes = true;
+
+    await send();
+
+    expect(dispatchedModelIds()).toEqual([]);
+    const assistant = lastAssistant();
+    expect(assistant?.status).toBe("error");
+    expect(assistant?.errorMessage).toMatch(/isn't set up on this device any more/i);
+    // Never silently served by whatever eco-fast happened to hold.
+    expect(dispatchedModelIds()).not.toContain(FAST_MODEL_ID);
   });
 });
 
