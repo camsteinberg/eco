@@ -3,7 +3,7 @@
 
 'use client';
 
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEcoState } from '../../hooks/local-ai/useEcoState';
 import { useSwitchAI } from '../../hooks/local-ai/useSwitchAI';
@@ -142,6 +142,23 @@ export function LocalAiSettingsAdapter() {
     currentModel,
     onSwitchRequested,
   });
+
+  // Preselect seam for the composer's model selector: tapping an AI it has NOT
+  // downloaded routes here as `/settings?tab=models&switch=<modelId>`, and this
+  // opens the existing Switch dialog already pointed at that model — so the
+  // person lands in the download flow they asked for rather than on a settings
+  // page they must re-navigate. Applies once per param value, and only once the
+  // device probe has produced a list containing that model (the choices are
+  // empty mid-probe), so a slow adapter verdict can't swallow the request.
+  const requestedSwitchId = searchParams.get('switch');
+  const appliedSwitchIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!requestedSwitchId || appliedSwitchIdRef.current === requestedSwitchId) return;
+    if (!switchState.choices.some((choice) => choice.model.id === requestedSwitchId)) return;
+    appliedSwitchIdRef.current = requestedSwitchId;
+    switchState.select(requestedSwitchId);
+    setDialogOpen(true);
+  }, [requestedSwitchId, switchState]);
 
   const onClearCache = useCallback(async (modelId: string) => {
     try {

@@ -305,6 +305,37 @@ export function buildChatRouteRecommendationSnapshot(input: {
 }
 
 /**
+ * Normalize a model *choice* so an UNBOUND concrete on-device id can never
+ * reach generation.
+ *
+ * A concrete catalog id that no slot owns describes bytes nothing has
+ * downloaded or verified. Dispatching it makes the runtime self-fetch gigabytes
+ * mid-turn — silently, with no progress and no consent — while Settings keeps
+ * reporting the first bound slot, so the two surfaces disagree about what is
+ * running. Such a choice is therefore rewritten to `"auto"`, the same "let Eco
+ * choose" state a fresh device carries, and the caller persists that so chat,
+ * readiness, and Settings agree from then on.
+ *
+ * Deliberately narrow:
+ *   - slot names and `"auto"` pass through — they already resolve through slots;
+ *   - a slot-BOUND concrete id passes through — its bytes are accounted for, and
+ *     it keeps resolving to its owning slot exactly as before;
+ *   - a non-on-device id (a stale cloud selection) passes through so the
+ *     dispatch guard can still give it the explicit "runs in the cloud" decline
+ *     rather than quietly swallowing it.
+ *
+ * @internal Exported for unit testing.
+ */
+export function normalizeUnboundModelSelection(choice: string): string {
+  if (choice === "auto" || isLocalAiSlot(choice)) return choice;
+  if (!isLocalAiModel(choice)) return choice;
+  const boundToASlot =
+    getLocalAiSlot("eco-fast").model?.id === choice ||
+    getLocalAiSlot("eco-smart").model?.id === choice;
+  return boundToASlot ? choice : "auto";
+}
+
+/**
  * Local error codes that already resolve to a specific, honest chat message
  * (crash recovery, cooldown, low battery, OOM, missing template). Any other
  * failure — a generic inference error, a timeout, a "no model loaded" while a
@@ -724,8 +755,20 @@ export function useChat() {
 
   function resolveDispatch(
     assistantId: string,
-    selectedModelChoice: string,
+    rawSelectedModelChoice: string,
   ): DispatchResolution {
+    // A concrete on-device id that NO slot owns is never dispatchable — see
+    // `normalizeUnboundModelSelection`. Rewriting it to "auto" HERE, at the one
+    // seam every send / edit / regenerate funnels through, catches the id that
+    // went unbound while the tab was open as well as the one that was persisted
+    // that way. The rewrite is persisted (and drops the explicit flag) so the
+    // readiness hook and Settings re-derive from the same choice. Quiet on
+    // purpose: an error card would ask the user to fix a state they never chose.
+    const selectedModelChoice = normalizeUnboundModelSelection(rawSelectedModelChoice);
+    if (selectedModelChoice !== rawSelectedModelChoice) {
+      useChatStore.getState().setSelectedModel(selectedModelChoice, { explicit: false });
+    }
+
     // (a) Slot selected but not dispatchable.
     if (isLocalAiSlot(selectedModelChoice)) {
       const slotState = getLocalAiSlot(selectedModelChoice);
@@ -803,7 +846,10 @@ export function useChat() {
     }
 
     // (c) Belt-and-suspenders: resolve which slot owns this model and verify it
-    // is ready immediately before dispatch.
+    // is ready immediately before dispatch. The trailing "eco-fast" default is
+    // now unreachable for on-device ids — normalization above guarantees any
+    // concrete id still here is slot-bound — and must NOT be relied on: it used
+    // to pass an unowned model through on a ready fast slot's readiness verdict.
     const slotId: LocalAiSlot = isLocalAiSlot(selectedModelChoice)
       ? selectedModelChoice
       : (getLocalAiSlot("eco-fast").model?.id === model
