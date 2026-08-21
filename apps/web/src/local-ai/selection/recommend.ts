@@ -90,11 +90,12 @@ export const PREFERRED_DEFAULT_MODEL_ID = 'candidate/lfm2.5-1.2b-instruct-onnx';
  * higher cannot see answer quality). Pointing this constant at it re-splits the
  * slots that the 2026-08-09 read had collapsed onto the 1.2B: eco-fast stays the
  * fast everyday default (LFM2.5-1.2B) and eco-smart is the deeper opt-in, which the
- * consent-driven upgrade card (lifecycle/upgrade.ts offers `recommend('eco-smart')`)
- * now surfaces as a genuine "deeper" download.
+ * model selector's pair (`deriveFirstRunChoices`, which asks for
+ * `recommend('eco-smart')`) surfaces as a genuine "deeper" download.
  *
- * The card only ever carries a device UP: the size guard in `planUpgradeOffer`
- * never offers a target that isn't a genuine step up in size, and the 1.2B everyday
+ * The pair only ever offers a device a step UP: the size guard in
+ * `deriveFirstRunChoices`
+ * never offers a deeper tile that isn't a genuine step up in size, and the 1.2B everyday
  * default (0.76GB) → the 2.6B (1.65GB) is a real up-size. A fresh device still
  * chats on the 1.2B first; the deeper model is opt-in, never auto-pushed. Existing
  * 2B users keep their 2B (it stays selectable via Settings). Where the 2.6B is not

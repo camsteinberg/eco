@@ -197,13 +197,6 @@ export type ChatSurfaceProps = {
   onDragLeave: (e: DragEvent) => void;
   onDragOver: (e: DragEvent) => void;
   onDrop: (e: DragEvent) => void;
-
-  /**
-   * The consent-driven model upgrade surface. Passed in rather than mounted as
-   * a sibling because on narrow screens the card leaves its portal and renders
-   * in normal flow, above the greeting/transcript, instead of floating over it.
-   */
-  upgradeCard?: React.ReactNode;
 };
 
 /**
@@ -281,7 +274,6 @@ export function ChatSurface(props: ChatSurfaceProps) {
     onDragLeave,
     onDragOver,
     onDrop,
-    upgradeCard,
   } = props;
 
   return (
@@ -331,9 +323,6 @@ export function ChatSurface(props: ChatSurfaceProps) {
           {/* Mobile: top-align with a small offset so the composer clears the fold.
               sm+ keeps the original vertical-centering offset (desktop unchanged). */}
           <div className="mx-auto flex w-full max-w-2xl flex-col items-center px-4 pt-6 sm:pt-[calc(50vh-15rem)]">
-            {/* Upgrade slot. Empty (and hidden) whenever the card is floating
-                in its portal, which is every viewport wide enough for it. */}
-            <div className="w-full empty:hidden">{upgradeCard}</div>
             {validationProtectionBanner && (
               <ValidationProtectionNotice
                 banner={validationProtectionBanner}
@@ -378,7 +367,6 @@ export function ChatSurface(props: ChatSurfaceProps) {
             isOpen={searchOpen}
             onClose={onCloseSearch}
           />
-          <div className="px-4 pt-3 empty:hidden">{upgradeCard}</div>
           <div className="min-h-0 flex-1 overflow-hidden">
             <MessageList
               messages={messages}

@@ -4,41 +4,36 @@
 'use client';
 
 /**
- * useModelUpgrade — the React driver for the consent-driven upgrade
- * (instant-start slice 2b, Stage B).
+ * useModelUpgrade — the React driver for the in-place model pull.
  *
- * Mounted beside useLocalModelReadiness and enabled only once the chat is
- * ready on the starter. Owns the session orchestration of
- * `lifecycle/upgrade.ts`:
+ * The composer's model selector is the whole surface: tapping a model whose
+ * bytes aren't here confirms in the tile, and this driver runs everything after
+ * that yes, out of the way of the conversation:
  *
- *   - fresh session → offer popup ("a stronger model is available") — the
- *     only path that ever STARTS a heavy download is the user accepting it
- *   - accept → background download (chat keeps working; the 2a lease split
- *     makes the download coexist with generation) → inline "ready — switch
- *     now?" prompt. The swap itself asks first, never mid-generation
- *   - boot with a staged+verified upgrade → swap silently and greet with a
- *     boost note (the user already consented; asking twice is nagging)
- *   - decline / failure → quiet, honest, settled — no terminal screens
+ *   - request → background download (chat keeps working; the 2a lease split
+ *     makes the download coexist with generation), progress on the tile
+ *   - staged → a quiet "ready, switch now" on the tile. NOTHING swaps on its
+ *     own, at boot or otherwise: the person picked the moment to download, so
+ *     they pick the moment their model changes under them too
+ *   - switch now → the audited swap, with its progress on the same tile
+ *   - failure → honest, settled, and re-tappable; no terminal screens
  *
  * All UI state lives in a module store consumed via useSyncExternalStore,
  * so every mounted instance renders the same state, the boot flow runs
  * exactly once per page (immune to strict-mode double-effects and
- * remounts), and a background download outlives the surface that
- * started it. Cross-tab: the persisted record's storage events update
- * passive UI; the 'download' lease already guarantees only one tab
- * transfers.
+ * remounts), and a background download outlives the panel that started it.
+ * Cross-tab: the persisted record's storage events update passive UI; the
+ * 'download' lease already guarantees only one tab transfers.
  */
 
 import { useEffect, useSyncExternalStore } from 'react';
-import type { ModelConfig } from '../../local-ai/types';
+import type { ModelConfig, Slot } from '../../local-ai/types';
 import { getModel } from '../../local-ai/catalog/catalog';
-import { getDeviceProfile } from '../../local-ai/device/profile';
-import { getSlot } from '../../local-ai/lifecycle/slots';
+import type { SwitchProgressEvent } from '../../local-ai/lifecycle/switch-model';
 import {
   UPGRADE_STORAGE_KEY,
   applyUpgradeEvent,
   performUpgradeSwap,
-  planUpgradeOffer,
   readUpgradeRecord,
   reconcileUpgradeOnBoot,
   runUpgradeDownload,
@@ -49,40 +44,24 @@ import { useChatStore } from '../../stores/chatStore';
 
 // ─── UI state ───────────────────────────────────────────────────────────────
 
+/**
+ * What the tile for `target` should be showing. One cycle at a time, so at most
+ * one tile is ever in a pull state; every other tile reads its own slot.
+ */
 export type ModelUpgradeUi =
   | { kind: 'hidden' }
-  | { kind: 'offer'; target: ModelConfig }
-  | { kind: 'downloading'; target: ModelConfig; percent: number }
-  | { kind: 'ready'; target: ModelConfig; notice?: string }
-  | { kind: 'swapping'; target: ModelConfig; atBoot: boolean }
-  | { kind: 'boosted'; target: ModelConfig; atBoot: boolean }
-  | { kind: 'deferred'; deferral: UpgradeDeferral };
+  | { kind: 'downloading'; target: ModelConfig; slot: Slot; percent: number }
+  | { kind: 'ready'; target: ModelConfig; slot: Slot; notice?: string }
+  | { kind: 'swapping'; target: ModelConfig; slot: Slot; percent: number }
+  | { kind: 'deferred'; target: ModelConfig; slot: Slot; deferral: UpgradeDeferral };
 
 export type UseModelUpgradeOptions = {
   /** Gate — the machine only runs once the chat is ready on a local model. */
   enabled: boolean;
 };
 
-export type UseModelUpgradeReturn = {
-  ui: ModelUpgradeUi;
-  /** Consent to the background download (from the offer popup). */
-  accept(): void;
-  /** Settle the cycle — remembered, never re-asked for this target. */
-  decline(): void;
-  /** Dismiss the ready prompt; the staged model boots next session. */
-  notNow(): void;
-  /** Swap the staged model in now (disabled while a reply is streaming). */
-  swapNow(): void;
-  /** Dismiss a transient note (boosted / deferred). */
-  dismiss(): void;
-};
-
 const HIDDEN: ModelUpgradeUi = { kind: 'hidden' };
 
-/** Delay between boot-swap retries while the runtime lease is held. */
-const BOOT_SWAP_RETRY_MS = 3_000;
-/** Boot-swap retry budget (~1 min — outlasts a mount warmup, not a hang). */
-const BOOT_SWAP_MAX_TRIES = 20;
 /**
  * A manual "switch now" that lands on a transient busy (a readiness check or
  * warmup holding the runtime for a beat) gets exactly ONE silent retry after
@@ -96,7 +75,7 @@ const USER_SWAP_BUSY_RETRY_MS = 3_000;
 // ─── Module store ───────────────────────────────────────────────────────────
 
 // Lifetime is intentionally per-page-load: this store only holds transient UI
-// and boot-once flags. The durable upgrade state lives in localStorage
+// and boot-once flags. The durable pull state lives in localStorage
 // (`eco-local-ai-upgrade-v1`), so a fresh load reconciles from there — no
 // production reset (e.g. on sign-out) is needed; only tests reset it.
 let currentUi: ModelUpgradeUi = HIDDEN;
@@ -137,6 +116,11 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** The record's target as a catalog model, when the catalog still carries it. */
+function targetOf(record: UpgradeRecord): ModelConfig | null {
+  return getModel(record.targetModelId);
+}
+
 // ─── Cross-tab passive sync ─────────────────────────────────────────────────
 
 function attachStorageListener(): void {
@@ -149,13 +133,18 @@ function attachStorageListener(): void {
     if (operationActive) return;
     const record = readUpgradeRecord();
     if (!record) return setUi(HIDDEN);
+    const target = targetOf(record);
+    if (!target) return setUi(HIDDEN);
     if (record.phase === 'staged') {
-      const target = getModel(record.targetModelId);
-      if (target) setUi({ kind: 'ready', target });
-      return;
+      return setUi({ kind: 'ready', target, slot: record.targetSlot });
     }
     if (record.phase === 'deferred' && record.deferral) {
-      return setUi({ kind: 'deferred', deferral: record.deferral });
+      return setUi({
+        kind: 'deferred',
+        target,
+        slot: record.targetSlot,
+        deferral: record.deferral,
+      });
     }
     setUi(HIDDEN);
   });
@@ -169,44 +158,31 @@ async function ensureBootFlow(): Promise<void> {
   attachStorageListener();
 
   const record = reconcileUpgradeOnBoot();
-  if (record?.phase === 'staged') {
-    await bootSwap(record);
+  if (!record) return;
+  if (record.phase === 'staged') {
+    // Staged bytes from a previous session: the affordance returns, the swap
+    // does not happen behind the user's back.
+    const target = targetOf(record);
+    if (target) setUi({ kind: 'ready', target, slot: record.targetSlot });
     return;
   }
-  if (record?.phase === 'accepted' || record?.phase === 'downloading') {
-    // The user already consented in a prior session — resume the transfer.
+  if (record.phase === 'accepted' || record.phase === 'downloading') {
+    // The user already asked for this in a prior session — resume the transfer.
     await startDownload(record);
-    return;
   }
-  // Everything else (idle, an undecided offered record, or a settled cycle
-  // whose target may since have moved) funnels through offer eligibility.
-  await maybeOffer();
-}
-
-async function maybeOffer(): Promise<void> {
-  const fast = getSlot('eco-fast');
-  const smart = getSlot('eco-smart');
-  const target = await planUpgradeOffer({
-    profile: getDeviceProfile(),
-    currentModelId: fast.modelId,
-    ecoSmartReadyModelId: smart.status === 'ready' ? smart.modelId : null,
-    record: readUpgradeRecord(),
-  });
-  if (!target) return;
-  applyUpgradeEvent({ type: 'offer', targetModelId: target.id, baseModelId: fast.modelId });
-  setUi({ kind: 'offer', target });
 }
 
 async function startDownload(record: UpgradeRecord): Promise<void> {
-  const target = getModel(record.targetModelId);
+  const target = targetOf(record);
   if (!target) return;
-  setUi({ kind: 'downloading', target, percent: 0 });
+  const slot = record.targetSlot;
+  setUi({ kind: 'downloading', target, slot, percent: 0 });
   operationActive = true;
   try {
     const outcome = await runUpgradeDownload({
       onProgressEvent: (event) => {
         if (event.kind === 'progress' && event.phase === 'downloading') {
-          setUi({ kind: 'downloading', target, percent: event.percent });
+          setUi({ kind: 'downloading', target, slot, percent: event.percent });
         }
       },
     });
@@ -214,10 +190,10 @@ async function startDownload(record: UpgradeRecord): Promise<void> {
       case 'staged':
         // Mid-session completion: ask before swapping — never yank the
         // model out from under a conversation.
-        setUi({ kind: 'ready', target });
+        setUi({ kind: 'ready', target, slot });
         return;
       case 'deferred':
-        setUi({ kind: 'deferred', deferral: outcome.deferral });
+        setUi({ kind: 'deferred', target, slot, deferral: outcome.deferral });
         return;
       default:
         // busy (another tab transfers — its storage event will surface
@@ -229,80 +205,51 @@ async function startDownload(record: UpgradeRecord): Promise<void> {
   }
 }
 
-async function bootSwap(record: UpgradeRecord): Promise<void> {
-  const target = getModel(record.targetModelId);
-  if (!target) return;
-  setUi({ kind: 'swapping', target, atBoot: true });
-  operationActive = true;
-  try {
-    for (let attempt = 0; attempt < BOOT_SWAP_MAX_TRIES; attempt++) {
-      const outcome = await performUpgradeSwap();
-      if (outcome.kind === 'busy') {
-        // Typically the tail of a mount warmup — wait it out briefly.
-        await sleep(BOOT_SWAP_RETRY_MS);
-        continue;
-      }
-      if (outcome.kind === 'swapped') {
-        adoptEcoSmart();
-        setUi({ kind: 'boosted', target, atBoot: true });
-      } else if (outcome.kind === 'reverted-to-download') {
-        const current = readUpgradeRecord();
-        if (current) {
-          operationActive = false;
-          await startDownload(current);
-        }
-      } else if (outcome.kind === 'deferred') {
-        setUi({ kind: 'deferred', deferral: outcome.deferral });
-      } else {
-        // 'failed' (one attempt left) or a phase race: stay silent — the
-        // starter keeps working and the next boot retries within the cap.
-        setUi(HIDDEN);
-      }
-      return;
-    }
-    // Retry budget spent with the runtime still busy — leave the record
-    // staged; the next boot (or a manual swap) picks it up.
-    setUi(HIDDEN);
-  } finally {
-    operationActive = false;
-  }
-}
-
 async function userSwapNow(): Promise<void> {
   if (useChatStore.getState().isStreaming) return;
   const record = readUpgradeRecord();
   if (record?.phase !== 'staged') return;
-  const target = getModel(record.targetModelId);
+  const target = targetOf(record);
   if (!target) return;
-  setUi({ kind: 'swapping', target, atBoot: false });
+  const slot = record.targetSlot;
+  // 'phase' events name the step (load, smoke); only the fractional ones move
+  // the bar, on the same 0..1 scale the download reports.
+  const onProgress = (event: SwitchProgressEvent): void => {
+    if (event.kind === 'phase') return;
+    setUi({ kind: 'swapping', target, slot, percent: event.fraction });
+  };
+  setUi({ kind: 'swapping', target, slot, percent: 0 });
   operationActive = true;
   try {
-    let outcome = await performUpgradeSwap();
+    let outcome = await performUpgradeSwap({ onProgress });
     if (outcome.kind === 'busy') {
       // One silent retry: a transient readiness/warmup collision usually
       // clears within a beat. Keep the calm swapping surface, wait, retry
       // once. A second busy is not transient — fall through to the manual
       // prompt below.
       await sleep(USER_SWAP_BUSY_RETRY_MS);
-      outcome = await performUpgradeSwap();
+      outcome = await performUpgradeSwap({ onProgress });
     }
     switch (outcome.kind) {
       case 'swapped':
-        adoptEcoSmart();
-        setUi({ kind: 'boosted', target, atBoot: false });
+        // The tile now reads "Downloaded · Active" off the slot itself, so the
+        // transient surface has nothing left to say.
+        adoptSlot(slot);
+        setUi(HIDDEN);
         return;
       case 'busy':
-        setUi({ kind: 'ready', target, notice: outcome.message });
+        setUi({ kind: 'ready', target, slot, notice: outcome.message });
         return;
       case 'failed':
         setUi({
           kind: 'ready',
           target,
-          notice: "That didn't go smoothly — your current model is untouched. Try again?",
+          slot,
+          notice: "That didn't go smoothly. Your current model is untouched.",
         });
         return;
       case 'deferred':
-        setUi({ kind: 'deferred', deferral: outcome.deferral });
+        setUi({ kind: 'deferred', target, slot, deferral: outcome.deferral });
         return;
       case 'reverted-to-download': {
         const current = readUpgradeRecord();
@@ -321,62 +268,58 @@ async function userSwapNow(): Promise<void> {
 }
 
 /**
- * Route chat to the upgraded slot. Non-explicit so future device-appropriate
- * default graduations can still move this selection; slot names survive
- * reload via the persisted-selection loader's slot branch.
+ * Route chat to the slot that just took the new model. Explicit: the person
+ * tapped this model in the selector and then tapped switch — the same deliberate
+ * pick the selector records for a model that was already downloaded. The SLOT
+ * name is what's stored, never the model id, so the selection can't outlive the
+ * binding.
  */
-function adoptEcoSmart(): void {
-  useChatStore.getState().setSelectedModel('eco-smart', { persist: true, explicit: false });
+function adoptSlot(slot: Slot): void {
+  useChatStore.getState().setSelectedModel(slot, { persist: true, explicit: true });
 }
 
-function userAccept(): void {
-  const next = applyUpgradeEvent({ type: 'accept' });
-  if (next?.phase === 'accepted') void startDownload(next);
+// ─── Actions (module-level: the selector calls these without a driver) ───────
+
+/**
+ * Start a pull for `modelId` into `slot`, from the tile's inline confirm.
+ *
+ * Exported as a plain function on purpose: the tile that triggers it must not
+ * mount a second driver (which would run a second boot flow), and the download
+ * has to outlive the panel, which closes the moment it starts.
+ */
+export function requestModelPull(slot: Slot, modelId: string): void {
+  const next = applyUpgradeEvent({ type: 'request', targetModelId: modelId, targetSlot: slot });
+  // Refused: a different cycle is already mid-flight (single-record machine).
+  if (next?.phase !== 'accepted' || next.targetModelId !== modelId) return;
+  void startDownload(next);
 }
 
-function userDecline(): void {
-  applyUpgradeEvent({ type: 'decline' });
-  setUi(HIDDEN);
-}
-
-function userNotNow(): void {
-  // The staged record stays — the next session boots on the better model.
-  setUi(HIDDEN);
-}
-
-function userDismiss(): void {
-  setUi(HIDDEN);
+/** Swap the staged model in now. Refused while a reply is streaming. */
+export function swapPulledModelNow(): void {
+  void userSwapNow();
 }
 
 // ─── The hook ───────────────────────────────────────────────────────────────
 
 /**
- * Read-only subscription to the shared upgrade UI state. Unlike
- * `useModelUpgrade`, this NEVER drives the upgrade machine (no boot flow, no
- * downloads) — it only reads the module store. Surfaces that merely REFLECT
- * upgrade progress (e.g. the composer's evolving glyph) use this so they never
- * mount a second driver; the single driver stays `useChatPageEffects`.
+ * Read-only subscription to the shared pull state. Unlike `useModelUpgrade`,
+ * this NEVER drives the machine (no boot flow, no downloads) — it only reads the
+ * module store. Surfaces that merely REFLECT progress (the model tiles, the
+ * composer's evolving glyph) use this so they never mount a second driver; the
+ * single driver stays `useChatPageEffects`.
  */
 export function useModelUpgradeUi(): ModelUpgradeUi {
   return useSyncExternalStore(subscribeUi, getUiSnapshot, getServerSnapshot);
 }
 
-export function useModelUpgrade(options: UseModelUpgradeOptions): UseModelUpgradeReturn {
-  const ui = useSyncExternalStore(subscribeUi, getUiSnapshot, getServerSnapshot);
-
+/**
+ * Mount the single driver: reconcile the persisted record on boot and resume
+ * anything the last session left running. Returns nothing — the surfaces read
+ * `useModelUpgradeUi()` and call the module-level actions.
+ */
+export function useModelUpgrade(options: UseModelUpgradeOptions): void {
   useEffect(() => {
     if (!options.enabled) return;
     void ensureBootFlow();
   }, [options.enabled]);
-
-  return {
-    ui,
-    accept: userAccept,
-    decline: userDecline,
-    notNow: userNotNow,
-    swapNow: () => {
-      void userSwapNow();
-    },
-    dismiss: userDismiss,
-  };
 }

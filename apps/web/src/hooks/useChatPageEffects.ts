@@ -22,10 +22,7 @@ import {
   useLocalModelReadiness,
   type LocalModelReadiness,
 } from "./useLocalModelReadiness";
-import {
-  useModelUpgrade,
-  type UseModelUpgradeReturn,
-} from "./local-ai/useModelUpgrade";
+import { useModelUpgrade } from "./local-ai/useModelUpgrade";
 
 function buildPromptlessChatHref(searchParams: { toString(): string }): string {
   const nextParams = new URLSearchParams(searchParams.toString());
@@ -350,8 +347,6 @@ export type ChatPageEffects = LocalModelReadiness & {
   queryCount: number;
   searchOpen: boolean;
   setSearchOpen: (open: boolean) => void;
-  /** Consent-driven model upgrade state + actions (instant-start slice 2b). */
-  upgrade: UseModelUpgradeReturn;
 };
 
 /**
@@ -363,9 +358,10 @@ export type ChatPageEffects = LocalModelReadiness & {
  */
 export function useChatPageEffects(params: ChatPageEffectsParams): ChatPageEffects {
   const readiness = useLocalModelReadiness();
-  // Stage B: the upgrade machine starts only once the chat is ready on a
-  // local model — it must never compete with first-run setup.
-  const upgrade = useModelUpgrade({ enabled: readiness.localModelReady });
+  // The pull machine's single driver: it resumes an interrupted download and
+  // restores the "ready, switch now" affordance, and it starts only once the
+  // chat is ready on a local model so it never competes with first-run setup.
+  useModelUpgrade({ enabled: readiness.localModelReady });
   useSettingsBootstrap();
   const queryCount = useQueryCount(params.messages, params.isStreaming);
   const { searchOpen, setSearchOpen } = useConversationSearch(params.activeConversationId);
@@ -387,6 +383,5 @@ export function useChatPageEffects(params: ChatPageEffectsParams): ChatPageEffec
     queryCount,
     searchOpen,
     setSearchOpen,
-    upgrade,
   };
 }

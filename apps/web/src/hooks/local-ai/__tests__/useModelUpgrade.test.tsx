@@ -2,13 +2,14 @@
 // Copyright (C) 2026 Bos Computing LLC
 
 /**
- * useModelUpgrade — session orchestration of the consent-driven upgrade.
+ * useModelUpgrade — session orchestration of the in-place model pull.
  *
  * The state machine itself is covered by lifecycle/__tests__/upgrade.test.ts;
- * these tests lock the HOOK's contract at the module boundary: when the boot
- * flow offers / resumes / boot-swaps, that consent gates the download, that
- * the swap routes chat to eco-smart, that streaming blocks a manual swap, and
- * that the boot flow runs exactly once across instances and remounts.
+ * these tests lock the HOOK's contract at the module boundary: that a tile's
+ * request starts the download and nothing else does, that a staged model waits
+ * for the user instead of swapping itself in at boot, that a swap routes chat
+ * to the slot it bound, that streaming blocks a manual swap, and that the boot
+ * flow runs exactly once across instances and remounts.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -19,10 +20,8 @@ import type { UpgradeRecord } from '../../../local-ai/lifecycle/upgrade';
 const mockReconcile = vi.fn();
 const mockReadRecord = vi.fn();
 const mockApplyEvent = vi.fn();
-const mockPlanOffer = vi.fn();
 const mockRunDownload = vi.fn();
 const mockPerformSwap = vi.fn();
-const mockGetSlot = vi.fn();
 const mockGetModel = vi.fn();
 const mockSetSelectedModel = vi.fn();
 
@@ -33,21 +32,12 @@ vi.mock('../../../local-ai/lifecycle/upgrade', () => ({
   reconcileUpgradeOnBoot: (...args: unknown[]) => mockReconcile(...args),
   readUpgradeRecord: (...args: unknown[]) => mockReadRecord(...args),
   applyUpgradeEvent: (...args: unknown[]) => mockApplyEvent(...args),
-  planUpgradeOffer: (...args: unknown[]) => mockPlanOffer(...args),
   runUpgradeDownload: (...args: unknown[]) => mockRunDownload(...args),
   performUpgradeSwap: (...args: unknown[]) => mockPerformSwap(...args),
 }));
 
-vi.mock('../../../local-ai/lifecycle/slots', () => ({
-  getSlot: (...args: unknown[]) => mockGetSlot(...args),
-}));
-
 vi.mock('../../../local-ai/catalog/catalog', () => ({
   getModel: (...args: unknown[]) => mockGetModel(...args),
-}));
-
-vi.mock('../../../local-ai/device/profile', () => ({
-  getDeviceProfile: () => ({ browserClass: 'chromium' }),
 }));
 
 vi.mock('../../../stores/chatStore', () => ({
@@ -56,16 +46,23 @@ vi.mock('../../../stores/chatStore', () => ({
   },
 }));
 
-import { useModelUpgrade, _resetModelUpgradeForTesting } from '../useModelUpgrade';
+import {
+  useModelUpgrade,
+  useModelUpgradeUi,
+  requestModelPull,
+  swapPulledModelNow,
+  _resetModelUpgradeForTesting,
+} from '../useModelUpgrade';
 
 const TARGET = { id: 'target', friendlyName: 'Qwen (test)', sizeGB: 1.4 } as unknown as ModelConfig;
 
 function upgradeRecord(over: Partial<UpgradeRecord> = {}): UpgradeRecord {
   return {
     version: 1,
-    phase: 'offered',
+    phase: 'accepted',
     targetModelId: 'target',
-    baseModelId: 'starter',
+    targetSlot: 'eco-smart',
+    baseModelId: null,
     deferral: null,
     swapAttempts: 0,
     updatedAt: 0,
@@ -73,12 +70,12 @@ function upgradeRecord(over: Partial<UpgradeRecord> = {}): UpgradeRecord {
   };
 }
 
-function fastSlot(modelId: string | null = 'starter') {
-  return { slot: 'eco-fast', modelId, model: modelId ? { id: modelId } : null, status: 'ready' };
-}
-
-function emptySmartSlot() {
-  return { slot: 'eco-smart', modelId: null, model: null, status: 'empty' };
+/** Mount the driver AND read the shared UI, which is how the app is wired. */
+function renderDriver() {
+  return renderHook(() => {
+    useModelUpgrade({ enabled: true });
+    return useModelUpgradeUi();
+  });
 }
 
 beforeEach(() => {
@@ -87,11 +84,7 @@ beforeEach(() => {
   isStreaming = false;
   mockReconcile.mockReturnValue(null);
   mockReadRecord.mockReturnValue(null);
-  mockPlanOffer.mockReturnValue(null);
   mockGetModel.mockImplementation((id: string) => (id === 'target' ? TARGET : null));
-  mockGetSlot.mockImplementation((slot: string) =>
-    slot === 'eco-fast' ? fastSlot() : emptySmartSlot(),
-  );
   mockApplyEvent.mockReturnValue(null);
 });
 
@@ -106,209 +99,210 @@ async function settle() {
   });
 }
 
-describe('useModelUpgrade — gating and boot flow', () => {
+describe('useModelUpgrade — boot flow', () => {
   it('does nothing while disabled', async () => {
     renderHook(() => useModelUpgrade({ enabled: false }));
     await settle();
     expect(mockReconcile).not.toHaveBeenCalled();
   });
 
-  it('offers the recommended upgrade on a fresh session and records the offer', async () => {
-    mockPlanOffer.mockReturnValue(TARGET);
-    const { result } = renderHook(() => useModelUpgrade({ enabled: true }));
+  it('offers nothing on its own — an idle record starts no download', async () => {
+    const { result } = renderDriver();
     await settle();
 
-    expect(result.current.ui).toEqual({ kind: 'offer', target: TARGET });
-    expect(mockApplyEvent).toHaveBeenCalledWith({
-      type: 'offer',
-      targetModelId: 'target',
-      baseModelId: 'starter',
-    });
-    // Consent gate: no download without an accept.
+    expect(result.current).toEqual({ kind: 'hidden' });
+    expect(mockApplyEvent).not.toHaveBeenCalled();
     expect(mockRunDownload).not.toHaveBeenCalled();
   });
 
-  it('stays hidden when there is nothing to offer (convergence / settled cycle)', async () => {
-    mockPlanOffer.mockReturnValue(null);
-    const { result } = renderHook(() => useModelUpgrade({ enabled: true }));
-    await settle();
-    expect(result.current.ui).toEqual({ kind: 'hidden' });
-    expect(mockApplyEvent).not.toHaveBeenCalled();
-  });
-
   it('runs the boot flow exactly once across instances and remounts', async () => {
-    mockPlanOffer.mockReturnValue(TARGET);
-    const first = renderHook(() => useModelUpgrade({ enabled: true }));
-    const second = renderHook(() => useModelUpgrade({ enabled: true }));
+    mockReconcile.mockReturnValue(upgradeRecord({ phase: 'downloading' }));
+    mockRunDownload.mockResolvedValue({ kind: 'staged' });
+
+    const first = renderDriver();
+    const second = renderDriver();
     await settle();
     first.rerender();
     second.rerender();
     await settle();
 
     expect(mockReconcile).toHaveBeenCalledTimes(1);
+    expect(mockRunDownload).toHaveBeenCalledTimes(1);
     // Both instances render the shared module state.
-    expect(first.result.current.ui.kind).toBe('offer');
-    expect(second.result.current.ui.kind).toBe('offer');
+    expect(first.result.current.kind).toBe('ready');
+    expect(second.result.current.kind).toBe('ready');
   });
 
-  it('resumes a consented download from a prior session (no re-ask)', async () => {
+  it('resumes a download the last session started (no re-ask)', async () => {
     mockReconcile.mockReturnValue(upgradeRecord({ phase: 'downloading' }));
     mockRunDownload.mockResolvedValue({ kind: 'staged' });
-    const { result } = renderHook(() => useModelUpgrade({ enabled: true }));
+
+    const { result } = renderDriver();
     await settle();
 
     expect(mockRunDownload).toHaveBeenCalledTimes(1);
-    expect(mockPlanOffer).not.toHaveBeenCalled();
-    await waitFor(() => expect(result.current.ui).toEqual({ kind: 'ready', target: TARGET }));
+    await waitFor(() =>
+      expect(result.current).toEqual({ kind: 'ready', target: TARGET, slot: 'eco-smart' }),
+    );
+  });
+
+  it('a staged model from a prior session WAITS for the user — it never swaps at boot', async () => {
+    mockReconcile.mockReturnValue(upgradeRecord({ phase: 'staged' }));
+
+    const { result } = renderDriver();
+    await settle();
+
+    expect(result.current).toEqual({ kind: 'ready', target: TARGET, slot: 'eco-smart' });
+    // The whole point: no swap ran, and chat was not re-routed behind their back.
+    expect(mockPerformSwap).not.toHaveBeenCalled();
+    expect(mockSetSelectedModel).not.toHaveBeenCalled();
   });
 });
 
-describe('useModelUpgrade — consent + download', () => {
-  it('accept() starts the background download and lands on the ready prompt', async () => {
-    mockPlanOffer.mockReturnValue(TARGET);
-    mockApplyEvent.mockImplementation((event: { type: string }) =>
-      event.type === 'accept' ? upgradeRecord({ phase: 'accepted' }) : upgradeRecord(),
-    );
+describe('useModelUpgrade — requesting a pull from a tile', () => {
+  it('records the request against the slot it names and starts the download', async () => {
+    mockApplyEvent.mockReturnValue(upgradeRecord({ phase: 'accepted', targetSlot: 'eco-fast' }));
     mockRunDownload.mockResolvedValue({ kind: 'staged' });
 
-    const { result } = renderHook(() => useModelUpgrade({ enabled: true }));
+    const { result } = renderDriver();
     await settle();
     await act(async () => {
-      result.current.accept();
+      requestModelPull('eco-fast', 'target');
     });
     await settle();
 
-    expect(mockApplyEvent).toHaveBeenCalledWith({ type: 'accept' });
+    expect(mockApplyEvent).toHaveBeenCalledWith({
+      type: 'request',
+      targetModelId: 'target',
+      targetSlot: 'eco-fast',
+    });
     expect(mockRunDownload).toHaveBeenCalledTimes(1);
-    expect(result.current.ui).toEqual({ kind: 'ready', target: TARGET });
+    expect(result.current).toEqual({ kind: 'ready', target: TARGET, slot: 'eco-fast' });
   });
 
-  it('reflects download progress events', async () => {
-    mockPlanOffer.mockReturnValue(TARGET);
-    mockApplyEvent.mockImplementation((event: { type: string }) =>
-      event.type === 'accept' ? upgradeRecord({ phase: 'accepted' }) : upgradeRecord(),
-    );
-    let capturedOnProgress: ((e: unknown) => void) | undefined;
-    mockRunDownload.mockImplementation(async (opts: { onProgressEvent?: (e: unknown) => void }) => {
-      capturedOnProgress = opts.onProgressEvent;
-      capturedOnProgress?.({ kind: 'progress', phase: 'downloading', percent: 0.4 });
-      return { kind: 'staged' };
-    });
+  it('starts nothing when the machine refuses (a different cycle is mid-flight)', async () => {
+    // The transition table returns the untouched in-flight record.
+    mockApplyEvent.mockReturnValue(upgradeRecord({ phase: 'downloading', targetModelId: 'other' }));
 
-    const { result } = renderHook(() => useModelUpgrade({ enabled: true }));
+    renderDriver();
     await settle();
     await act(async () => {
-      result.current.accept();
+      requestModelPull('eco-smart', 'target');
     });
     await settle();
 
-    expect(capturedOnProgress).toBeDefined();
-    expect(result.current.ui.kind).toBe('ready');
+    expect(mockRunDownload).not.toHaveBeenCalled();
   });
 
-  it('a deferred download surfaces the honest note', async () => {
+  it('reflects download progress on the way to ready', async () => {
+    mockApplyEvent.mockReturnValue(upgradeRecord({ phase: 'accepted' }));
+    const seen: string[] = [];
+    mockRunDownload.mockImplementation(
+      async (opts: { onProgressEvent?: (e: unknown) => void }) => {
+        opts.onProgressEvent?.({ kind: 'progress', phase: 'downloading', percent: 0.4 });
+        return { kind: 'staged' };
+      },
+    );
+
+    const { result } = renderHook(() => {
+      useModelUpgrade({ enabled: true });
+      const ui = useModelUpgradeUi();
+      seen.push(ui.kind === 'downloading' ? `downloading:${String(ui.percent)}` : ui.kind);
+      return ui;
+    });
+    await settle();
+    await act(async () => {
+      requestModelPull('eco-smart', 'target');
+    });
+    await settle();
+
+    expect(seen).toContain('downloading:0.4');
+    expect(result.current.kind).toBe('ready');
+  });
+
+  it('a deferred download surfaces the honest note on the tile', async () => {
     mockReconcile.mockReturnValue(upgradeRecord({ phase: 'accepted' }));
     const deferral = { code: 'insufficient-storage' as const, message: 'not enough space' };
     mockRunDownload.mockResolvedValue({ kind: 'deferred', deferral });
 
-    const { result } = renderHook(() => useModelUpgrade({ enabled: true }));
+    const { result } = renderDriver();
     await settle();
 
-    await waitFor(() => expect(result.current.ui).toEqual({ kind: 'deferred', deferral }));
-  });
-
-  it('decline() settles the cycle and hides', async () => {
-    mockPlanOffer.mockReturnValue(TARGET);
-    const { result } = renderHook(() => useModelUpgrade({ enabled: true }));
-    await settle();
-    await act(async () => {
-      result.current.decline();
-    });
-
-    expect(mockApplyEvent).toHaveBeenCalledWith({ type: 'decline' });
-    expect(result.current.ui).toEqual({ kind: 'hidden' });
-    expect(mockRunDownload).not.toHaveBeenCalled();
-  });
-});
-
-describe('useModelUpgrade — boot swap (staged from a prior session)', () => {
-  it('swaps silently at boot, routes chat to eco-smart, and greets with the boost note', async () => {
-    mockReconcile.mockReturnValue(upgradeRecord({ phase: 'staged' }));
-    mockPerformSwap.mockResolvedValue({ kind: 'swapped', model: TARGET });
-
-    const { result } = renderHook(() => useModelUpgrade({ enabled: true }));
-    await settle();
-
-    await waitFor(() => expect(result.current.ui).toEqual({ kind: 'boosted', target: TARGET, atBoot: true }));
-    expect(mockPerformSwap).toHaveBeenCalledTimes(1);
-    expect(mockSetSelectedModel).toHaveBeenCalledWith('eco-smart', { persist: true, explicit: false });
-    // No prompt at boot — the user consented when they accepted the download.
-    expect(mockPlanOffer).not.toHaveBeenCalled();
-  });
-
-  it('waits out a busy runtime (mount warmup) and retries the boot swap', async () => {
-    vi.useFakeTimers();
-    try {
-      mockReconcile.mockReturnValue(upgradeRecord({ phase: 'staged' }));
-      mockPerformSwap
-        .mockResolvedValueOnce({ kind: 'busy', message: 'warming' })
-        .mockResolvedValueOnce({ kind: 'swapped', model: TARGET });
-
-      const { result } = renderHook(() => useModelUpgrade({ enabled: true }));
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(4_000);
-      });
-
-      expect(mockPerformSwap).toHaveBeenCalledTimes(2);
-      expect(result.current.ui).toEqual({ kind: 'boosted', target: TARGET, atBoot: true });
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('stays silent on a boot-swap failure — the starter keeps working', async () => {
-    mockReconcile.mockReturnValue(upgradeRecord({ phase: 'staged' }));
-    mockPerformSwap.mockResolvedValue({ kind: 'failed', result: { success: false } });
-
-    const { result } = renderHook(() => useModelUpgrade({ enabled: true }));
-    await settle();
-
-    await waitFor(() => expect(result.current.ui).toEqual({ kind: 'hidden' }));
+    await waitFor(() =>
+      expect(result.current).toEqual({
+        kind: 'deferred',
+        target: TARGET,
+        slot: 'eco-smart',
+        deferral,
+      }),
+    );
   });
 
   it('an evicted staged cache re-downloads instead of a doomed load', async () => {
-    mockReconcile.mockReturnValue(upgradeRecord({ phase: 'staged' }));
+    mockReadRecord.mockReturnValue(upgradeRecord({ phase: 'staged' }));
     mockPerformSwap.mockResolvedValue({ kind: 'reverted-to-download' });
-    mockReadRecord.mockReturnValue(upgradeRecord({ phase: 'accepted' }));
     mockRunDownload.mockResolvedValue({ kind: 'staged' });
 
-    const { result } = renderHook(() => useModelUpgrade({ enabled: true }));
+    const { result } = renderDriver();
+    await settle();
+    await act(async () => {
+      swapPulledModelNow();
+    });
     await settle();
 
     await waitFor(() => expect(mockRunDownload).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(result.current.ui).toEqual({ kind: 'ready', target: TARGET }));
+    await waitFor(() =>
+      expect(result.current).toEqual({ kind: 'ready', target: TARGET, slot: 'eco-smart' }),
+    );
   });
 });
 
-describe('useModelUpgrade — manual swap', () => {
-  it('swapNow() swaps a staged upgrade and routes chat to eco-smart', async () => {
-    mockPlanOffer.mockReturnValue(TARGET);
-    mockReadRecord.mockReturnValue(upgradeRecord({ phase: 'staged' }));
+describe('useModelUpgrade — the user-driven swap', () => {
+  it('swaps a staged model and routes chat to the slot it bound', async () => {
+    mockReadRecord.mockReturnValue(upgradeRecord({ phase: 'staged', targetSlot: 'eco-fast' }));
     mockPerformSwap.mockResolvedValue({ kind: 'swapped', model: TARGET });
 
-    const { result } = renderHook(() => useModelUpgrade({ enabled: true }));
+    const { result } = renderDriver();
     await settle();
     await act(async () => {
-      result.current.swapNow();
+      swapPulledModelNow();
     });
     await settle();
 
     expect(mockPerformSwap).toHaveBeenCalledTimes(1);
-    expect(mockSetSelectedModel).toHaveBeenCalledWith('eco-smart', { persist: true, explicit: false });
-    expect(result.current.ui).toEqual({ kind: 'boosted', target: TARGET, atBoot: false });
+    // The SLOT name, never the model id, and explicit: they picked this twice.
+    expect(mockSetSelectedModel).toHaveBeenCalledWith('eco-fast', { persist: true, explicit: true });
+    // The tile reads its state off the slot from here on.
+    expect(result.current).toEqual({ kind: 'hidden' });
   });
 
-  it('auto-retries a manual swap once after a transient busy, then boosts', async () => {
+  it('shows the swap progressing on the tile', async () => {
+    mockReadRecord.mockReturnValue(upgradeRecord({ phase: 'staged' }));
+    const seen: string[] = [];
+    mockPerformSwap.mockImplementation(
+      async (opts: { onProgress?: (e: unknown) => void }) => {
+        opts.onProgress?.({ kind: 'phase', phase: 'loading' });
+        opts.onProgress?.({ kind: 'load', fraction: 0.5 });
+        return { kind: 'swapped', model: TARGET };
+      },
+    );
+
+    renderHook(() => {
+      useModelUpgrade({ enabled: true });
+      const ui = useModelUpgradeUi();
+      seen.push(ui.kind === 'swapping' ? `swapping:${String(ui.percent)}` : ui.kind);
+      return ui;
+    });
+    await settle();
+    await act(async () => {
+      swapPulledModelNow();
+    });
+    await settle();
+
+    expect(seen).toContain('swapping:0.5');
+  });
+
+  it('auto-retries once after a transient busy, then swaps', async () => {
     vi.useFakeTimers();
     try {
       mockReadRecord.mockReturnValue(upgradeRecord({ phase: 'staged' }));
@@ -316,41 +310,43 @@ describe('useModelUpgrade — manual swap', () => {
         .mockResolvedValueOnce({ kind: 'busy', message: 'A readiness check is already running.' })
         .mockResolvedValueOnce({ kind: 'swapped', model: TARGET });
 
-      const { result } = renderHook(() => useModelUpgrade({ enabled: true }));
+      const { result } = renderDriver();
       await act(async () => {
         await Promise.resolve();
       });
       await act(async () => {
-        result.current.swapNow();
+        swapPulledModelNow();
       });
       // First swap resolved busy — waiting on the silent retry timer.
       expect(mockPerformSwap).toHaveBeenCalledTimes(1);
-      expect(result.current.ui).toEqual({ kind: 'swapping', target: TARGET, atBoot: false });
+      expect(result.current.kind).toBe('swapping');
 
       await act(async () => {
         await vi.advanceTimersByTimeAsync(3_000);
       });
-      // The single retry swapped successfully.
       expect(mockPerformSwap).toHaveBeenCalledTimes(2);
-      expect(result.current.ui).toEqual({ kind: 'boosted', target: TARGET, atBoot: false });
-      expect(mockSetSelectedModel).toHaveBeenCalledWith('eco-smart', { persist: true, explicit: false });
+      expect(result.current).toEqual({ kind: 'hidden' });
+      expect(mockSetSelectedModel).toHaveBeenCalledWith('eco-smart', {
+        persist: true,
+        explicit: true,
+      });
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it('falls back to the ready prompt when still busy after the one retry — and never retries again', async () => {
+  it('falls back to the ready affordance when still busy after the one retry — and never retries again', async () => {
     vi.useFakeTimers();
     try {
       mockReadRecord.mockReturnValue(upgradeRecord({ phase: 'staged' }));
       mockPerformSwap.mockResolvedValue({ kind: 'busy', message: 'still busy' });
 
-      const { result } = renderHook(() => useModelUpgrade({ enabled: true }));
+      const { result } = renderDriver();
       await act(async () => {
         await Promise.resolve();
       });
       await act(async () => {
-        result.current.swapNow();
+        swapPulledModelNow();
       });
       await act(async () => {
         await vi.advanceTimersByTimeAsync(3_000);
@@ -358,9 +354,9 @@ describe('useModelUpgrade — manual swap', () => {
 
       // Exactly two swap attempts (original + one retry). Each busy self-
       // refunds its optimistic attempt in performUpgradeSwap, so the retry
-      // never burns one of MAX_SWAP_ATTEMPTS. Then the manual prompt returns.
+      // never burns one of MAX_SWAP_ATTEMPTS.
       expect(mockPerformSwap).toHaveBeenCalledTimes(2);
-      expect(result.current.ui).toMatchObject({ kind: 'ready', target: TARGET, notice: 'still busy' });
+      expect(result.current).toMatchObject({ kind: 'ready', target: TARGET, notice: 'still busy' });
 
       // Single-retry cap: no further attempts as time passes.
       await act(async () => {
@@ -378,21 +374,20 @@ describe('useModelUpgrade — manual swap', () => {
       mockReadRecord.mockReturnValue(upgradeRecord({ phase: 'staged' }));
       mockPerformSwap.mockResolvedValue({ kind: 'failed', result: { success: false } });
 
-      const { result } = renderHook(() => useModelUpgrade({ enabled: true }));
+      const { result } = renderDriver();
       await act(async () => {
         await Promise.resolve();
       });
       await act(async () => {
-        result.current.swapNow();
+        swapPulledModelNow();
       });
       await act(async () => {
         await vi.advanceTimersByTimeAsync(6_000);
       });
 
-      // Real failures bypass the busy retry entirely.
       expect(mockPerformSwap).toHaveBeenCalledTimes(1);
-      expect(result.current.ui).toMatchObject({ kind: 'ready', target: TARGET });
-      expect((result.current.ui as { notice?: string }).notice).toMatch(/untouched/i);
+      expect(result.current).toMatchObject({ kind: 'ready', target: TARGET });
+      expect((result.current as { notice?: string }).notice).toMatch(/untouched/i);
     } finally {
       vi.useRealTimers();
     }
@@ -402,43 +397,24 @@ describe('useModelUpgrade — manual swap', () => {
     isStreaming = true;
     mockReadRecord.mockReturnValue(upgradeRecord({ phase: 'staged' }));
 
-    const { result } = renderHook(() => useModelUpgrade({ enabled: true }));
+    renderDriver();
     await settle();
     await act(async () => {
-      result.current.swapNow();
+      swapPulledModelNow();
     });
 
     expect(mockPerformSwap).not.toHaveBeenCalled();
   });
 
-  it('a failed swap returns to the ready prompt with honest copy — current model untouched', async () => {
-    mockReadRecord.mockReturnValue(upgradeRecord({ phase: 'staged' }));
-    mockPerformSwap.mockResolvedValue({ kind: 'failed', result: { success: false } });
+  it('refuses to swap anything that is not staged', async () => {
+    mockReadRecord.mockReturnValue(upgradeRecord({ phase: 'downloading' }));
 
-    const { result } = renderHook(() => useModelUpgrade({ enabled: true }));
+    renderDriver();
     await settle();
     await act(async () => {
-      result.current.swapNow();
-    });
-    await settle();
-
-    expect(result.current.ui).toMatchObject({ kind: 'ready', target: TARGET });
-    expect((result.current.ui as { notice?: string }).notice).toMatch(/untouched/i);
-  });
-
-  it('notNow() hides the prompt but keeps the staged record for the next boot', async () => {
-    mockReadRecord.mockReturnValue(upgradeRecord({ phase: 'staged' }));
-    mockReconcile.mockReturnValue(upgradeRecord({ phase: 'staged' }));
-    mockPerformSwap.mockResolvedValue({ kind: 'swapped', model: TARGET });
-
-    const { result } = renderHook(() => useModelUpgrade({ enabled: true }));
-    await settle();
-    await act(async () => {
-      result.current.notNow();
+      swapPulledModelNow();
     });
 
-    expect(result.current.ui).toEqual({ kind: 'hidden' });
-    // No decline event — the staged record must survive.
-    expect(mockApplyEvent).not.toHaveBeenCalledWith({ type: 'decline' });
+    expect(mockPerformSwap).not.toHaveBeenCalled();
   });
 });
