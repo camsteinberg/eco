@@ -4,7 +4,7 @@
 import { expect, type Page } from "@playwright/test";
 import { openMenu } from "../capture";
 import type { CaptureGap, StateAssertion, StateEntry } from "../types";
-import { READY_CHAT_SEARCH, UPGRADE_DECLINED_LOCAL } from "./pilot";
+import { READY_CHAT_SEARCH } from "./pilot";
 
 /**
  * W3b — what happens when somebody touches the chat.
@@ -119,7 +119,7 @@ function onSeededChat(
     title,
     route: "/chat",
     search: READY_CHAT_SEARCH,
-    seed: { local: UPGRADE_DECLINED_LOCAL, idb: ["conversation-basic"] },
+    seed: { idb: ["conversation-basic"] },
     tier: "component",
     realism: "seeded",
     // See the header: a conversation already active at mount stays empty on dev.
@@ -141,7 +141,6 @@ function onEmptyChat(
     title,
     route: "/chat",
     search: READY_CHAT_SEARCH,
-    seed: { local: UPGRADE_DECLINED_LOCAL },
     tier: "component",
     realism: "seeded",
     assert: [{ testId: "empty-chat-state" }],
@@ -390,7 +389,7 @@ export const chatInteractionsStates: StateEntry[] = [
       "eco-validation-slot-eco-fast=local/qwen3-0.6b",
       "eco-validation-slot-eco-fast=candidate/lfm2.5-1.2b-instruct-onnx",
     ),
-    seed: { local: UPGRADE_DECLINED_LOCAL, idb: ["conversation-basic"] },
+    seed: { idb: ["conversation-basic"] },
     tier: "micro",
     realism: "seeded",
     server: "prod",
@@ -411,7 +410,6 @@ export const chatInteractionsStates: StateEntry[] = [
   onEmptyChat("composer-draft", "A draft waiting to be sent", {
     seed: {
       local: {
-        ...UPGRADE_DECLINED_LOCAL,
         "eco-composer-draft":
           "What should I check before watering a balcony container in August?",
       },
@@ -422,7 +420,7 @@ export const chatInteractionsStates: StateEntry[] = [
       + "the only state where Send is live without an attachment.",
   }),
   onEmptyChat("composer-autogrown", "A draft at the composer's height ceiling", {
-    seed: { local: { ...UPGRADE_DECLINED_LOCAL, "eco-composer-draft": LONG_DRAFT } },
+    seed: { local: { "eco-composer-draft": LONG_DRAFT } },
     capture: { mode: "element", selector: COMPOSER_FORM },
     prepare: async (page) => {
       // The textarea grows to its scroll height and stops at 192px. Proving the
@@ -656,7 +654,6 @@ export const chatInteractionsStates: StateEntry[] = [
     title: "The guide button, under the pointer",
     route: "/chat",
     search: READY_CHAT_SEARCH,
-    seed: { local: UPGRADE_DECLINED_LOCAL },
     tier: "micro",
     realism: "seeded",
     capture: { mode: "element", selector: '[aria-label="Open Eco guide"]' },
@@ -681,7 +678,7 @@ export const chatInteractionsStates: StateEntry[] = [
     // run until the setup wizard is complete, so removing it (which is what
     // pilot.welcome-first-run does, for the wizard's own intro) would replace
     // this surface with a different one rather than reveal it.
-    seed: { local: UPGRADE_DECLINED_LOCAL, removeLocal: ["eco-tour-completed"] },
+    seed: { removeLocal: ["eco-tour-completed"] },
     tier: "page",
     realism: "seeded",
     assert: [{ role: "button", name: "Show me around" }],

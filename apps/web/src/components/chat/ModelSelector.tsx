@@ -5,10 +5,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { useRouter } from "next/navigation";
 import { useChatStore } from "../../stores/chatStore";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { BottomSheet } from "../ui/BottomSheet";
+import { ProgressBar } from "../ui/ProgressBar";
 import { getModel } from "../../local-ai/catalog/catalog";
 import { getDisplayInfo } from "../../local-ai/display";
 import { canServe } from "../../local-ai/index";
@@ -21,8 +21,13 @@ import type { WelcomeModelChoice } from "../local-ai/WelcomeCard";
 import { isLocalAiSlot } from "../../local-ai/util";
 import type { ModelConfig, Slot } from "../../local-ai/types";
 import { motion, useReducedMotion } from "motion/react";
-import { SaplingIllustration, SeedlingIllustration } from "@eco/ui";
-import { useModelUpgradeUi } from "../../hooks/local-ai/useModelUpgrade";
+import { Button, SaplingIllustration, SeedlingIllustration } from "@eco/ui";
+import {
+  requestModelPull,
+  swapPulledModelNow,
+  useModelUpgradeUi,
+  type ModelUpgradeUi,
+} from "../../hooks/local-ai/useModelUpgrade";
 
 type DropdownPosition = {
   left: number;
@@ -37,6 +42,12 @@ type PairTile = {
   choice: WelcomeModelChoice;
   /** The slot that owns this model, if any. Selection writes THIS, never the id. */
   slot: Slot | null;
+  /**
+   * The slot a download for this tile would bind. Its own slot when something
+   * already owns it, otherwise the one its place in the pair implies: the
+   * everyday pick lives on eco-fast, the deeper pick on eco-smart.
+   */
+  targetSlot: Slot;
   /** Its bytes are present (or its slot is ready), so choosing it costs nothing. */
   downloaded: boolean;
   /** The model currently serving this conversation. */
@@ -44,6 +55,18 @@ type PairTile = {
   /** Carries the quiet "Recommended" tag (never on a single-tile device). */
   isRecommended: boolean;
 };
+
+/** The live pull state for one tile, or null when nothing is happening to it. */
+type TilePull = Exclude<ModelUpgradeUi, { kind: "hidden" }>;
+
+function pullForTile(ui: ModelUpgradeUi, modelId: string): TilePull | null {
+  return ui.kind !== "hidden" && ui.target.id === modelId ? ui : null;
+}
+
+/** Store percent is a 0..1 fraction; tiles show whole numbers. */
+function toDisplayPercent(fraction: number): number {
+  return Math.max(0, Math.min(100, Math.round(fraction * 100)));
+}
 
 /**
  * Composer model selector.
@@ -62,8 +85,13 @@ type PairTile = {
  *   - it never writes a concrete model id. A downloaded, slot-bound tile is
  *     selected by SLOT NAME, so the store can't end up holding an id no slot
  *     owns (which is precisely the state dispatch has to normalize away). A tile
- *     whose bytes aren't here routes to the real download flow instead of
- *     pretending the switch already happened.
+ *     whose bytes aren't here downloads them first, in the open, and only
+ *     switches when the person says so.
+ *
+ * A tile whose model isn't downloaded confirms in place (size, and that chat
+ * keeps working), then pulls in the background: progress, then a quiet "ready,
+ * switch now" the user taps when it suits them. Nothing about it is modal and
+ * nothing about it interrupts the conversation.
  *
  * Its one mount is `ChatInput`'s composer row, pinned to the bottom of the
  * viewport: on a pointer device the panel is portalled and anchored ABOVE the
@@ -72,7 +100,9 @@ type PairTile = {
 export function ModelSelector() {
   const selectedModel = useChatStore((s) => s.selectedModel);
   const setSelectedModel = useChatStore((s) => s.setSelectedModel);
-  const router = useRouter();
+  // A swap never happens under a running reply, so the tile says so instead of
+  // offering a button that would quietly refuse.
+  const isStreaming = useChatStore((s) => s.isStreaming);
   const [open, setOpen] = useState(false);
   const [hasMounted, setHasMounted] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -87,13 +117,21 @@ export function ModelSelector() {
   // optimistic pre-probe guess.
   const profile = useDeviceProfile();
 
-  // Read-only reflection of the shared upgrade lifecycle — the composer glyph
-  // grows (settled sapling → seedling) while a better model downloads. This
-  // NEVER drives the upgrade machine (that single driver lives in
-  // useChatPageEffects); it only subscribes to the shared state.
+  // Read-only reflection of the shared pull lifecycle — the composer glyph
+  // grows (settled sapling → seedling) while a model downloads, and carries a
+  // quiet dot while one is staged and waiting for a tap. This NEVER drives the
+  // machine (that single driver lives in useChatPageEffects); it only
+  // subscribes to the shared state.
   const upgradeUi = useModelUpgradeUi();
-  const isUpgrading = upgradeUi.kind === "downloading";
+  const isUpgrading = upgradeUi.kind === "downloading" || upgradeUi.kind === "swapping";
+  const isPullReady = upgradeUi.kind === "ready";
   const reducedMotion = useReducedMotion();
+
+  // Which tile is showing its inline "download this?" confirm. Deliberately
+  // local and unpersisted: the confirm is the moment BEFORE consent, so closing
+  // the panel or tapping "Not now" leaves nothing behind — no declined record,
+  // and the tile is immediately re-tappable.
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
 
   // The device's honest offer: one or two models, best-first, with the fast pick
   // recommended. Same domain call the welcome card makes, so the composer and
@@ -140,6 +178,11 @@ export function ModelSelector() {
     setHasMounted(true);
   }, []);
 
+  // A closed panel forgets the question it was asking.
+  useEffect(() => {
+    if (!open) setConfirmingId(null);
+  }, [open]);
+
   useEffect(() => {
     if (!open || isMobile) {
       setDropdownPosition(null);
@@ -155,8 +198,13 @@ export function ModelSelector() {
     };
   }, [isMobile, open, updateDropdownPosition]);
 
-  // Close on click outside
+  // Close on click outside — pointer layouts only. The bottom sheet is portalled
+  // out of this subtree and owns its own dismissal (backdrop, Escape, close
+  // button), so this listener read every tap INSIDE the sheet as a tap outside
+  // the panel and closed it: harmless while every tap was a selection that
+  // closed the panel anyway, fatal now that a tap can open an inline confirm.
   useEffect(() => {
+    if (isMobile) return;
     function handleClickOutside(e: MouseEvent) {
       const target = e.target as Node;
       const triggerContainsTarget = ref.current?.contains(target) ?? false;
@@ -167,7 +215,7 @@ export function ModelSelector() {
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+  }, [isMobile]);
 
   useEffect(() => {
     if (!open || isMobile) return;
@@ -230,6 +278,12 @@ export function ModelSelector() {
     };
   }, [open, models]);
 
+  // The deeper half of the pair, when the device has one. `deriveFirstRunChoices`
+  // returns the everyday pick first and the deeper pick second, and the two slots
+  // mirror that split — so a download for the deeper tile binds eco-smart and
+  // leaves the everyday model exactly where it is.
+  const deeperModelId = offer.models[1]?.id ?? null;
+
   const tiles = useMemo<PairTile[]>(() => {
     // `open` is a dependency on purpose: slot bindings and readiness live in
     // localStorage, not React state, so the panel re-reads them every time it
@@ -241,13 +295,14 @@ export function ModelSelector() {
       return {
         choice: toWelcomeChoice(model),
         slot,
+        targetSlot: slot ?? (model.id === deeperModelId ? "eco-smart" : "eco-fast"),
         downloaded: slotReady || downloadedIds.has(model.id),
         isActive: model.id === resolvedSelectedId,
         // A recommendation among one option is noise, not guidance.
         isRecommended: models.length > 1 && model.id === offer.recommendedId,
       };
     });
-  }, [models, downloadedIds, resolvedSelectedId, offer.recommendedId, open]);
+  }, [models, downloadedIds, resolvedSelectedId, offer.recommendedId, deeperModelId, open]);
 
   const currentModel = models.find((m) => m.id === resolvedSelectedId) ?? null;
   // One identity in the composer: the model is always "Eco". Its branded name
@@ -257,6 +312,13 @@ export function ModelSelector() {
     ? getDisplayInfo(currentModel.id, currentModel).friendlyName
     : null;
   const displayName = hasMounted && currentModel ? "Eco" : "Choose AI";
+  const triggerLabel = [
+    brandedName ? `Select model — Eco, running ${brandedName}` : `Select model, ${displayName}`,
+    isUpgrading ? "a model is downloading" : null,
+    isPullReady ? "a model is ready to switch to" : null,
+  ]
+    .filter(Boolean)
+    .join(", ");
 
   const handleSelect = useCallback(
     (tile: PairTile) => {
@@ -272,13 +334,17 @@ export function ModelSelector() {
         setOpen(false);
         return;
       }
-      // Bytes aren't here (or nothing owns them): hand off to the verified
-      // download flow in Settings, preselected on this model.
-      setOpen(false);
-      router.push(`/settings?tab=models&switch=${encodeURIComponent(tile.choice.id)}`);
+      // Bytes aren't here, or nothing owns them: ask first, in the tile. The
+      // panel stays open so the answer lands where the question was asked.
+      setConfirmingId(tile.choice.id);
     },
-    [router, setSelectedModel],
+    [setSelectedModel],
   );
+
+  const handleConfirmDownload = useCallback((tile: PairTile) => {
+    setConfirmingId(null);
+    requestModelPull(tile.targetSlot, tile.choice.id);
+  }, []);
 
   const modelList = (
     <div
@@ -305,7 +371,17 @@ export function ModelSelector() {
 
       <div className="flex flex-col gap-2 px-1 pb-1">
         {tiles.map((tile) => (
-          <ModelPairTile key={tile.choice.id} tile={tile} onSelect={() => handleSelect(tile)} />
+          <ModelPairTile
+            key={tile.choice.id}
+            tile={tile}
+            pull={pullForTile(upgradeUi, tile.choice.id)}
+            confirming={confirmingId === tile.choice.id}
+            isStreaming={isStreaming}
+            onSelect={() => handleSelect(tile)}
+            onConfirmDownload={() => handleConfirmDownload(tile)}
+            onCancelConfirm={() => setConfirmingId(null)}
+            onSwapNow={swapPulledModelNow}
+          />
         ))}
       </div>
     </div>
@@ -325,11 +401,11 @@ export function ModelSelector() {
         aria-expanded={open}
         aria-haspopup="listbox"
         title={brandedName ?? undefined}
-        aria-label={brandedName ? `Select model — Eco, running ${brandedName}` : `Select model, ${displayName}`}
+        aria-label={triggerLabel}
       >
         <motion.span
           key={isUpgrading ? "growing" : "settled"}
-          className="inline-flex shrink-0 text-[var(--eco-primary)] [&_svg]:stroke-[2.5] sm:[&_svg]:stroke-[1.5]"
+          className="relative inline-flex shrink-0 text-[var(--eco-primary)] [&_svg]:stroke-[2.5] sm:[&_svg]:stroke-[1.5]"
           aria-hidden="true"
           initial={reducedMotion ? false : { scale: 0.72, opacity: 0.5 }}
           animate={{ scale: 1, opacity: 1 }}
@@ -339,6 +415,16 @@ export function ModelSelector() {
             <SeedlingIllustration size={15} />
           ) : (
             <SaplingIllustration size={15} />
+          )}
+          {/* A staged model is waiting for a tap the person has to know about,
+              and the panel that says so is closed. One dot, no motion, no copy.
+              3px, clear of a 15px glyph drawn in hairlines: anything heavier
+              stops reading as a marker beside the leaf and becomes a blot on it. */}
+          {isPullReady && (
+            <span
+              className="absolute -right-1 -top-1 h-[3px] w-[3px] rounded-full"
+              style={{ background: "var(--eco-primary)" }}
+            />
           )}
         </motion.span>
         <span
@@ -393,6 +479,20 @@ export function ModelSelector() {
   );
 }
 
+type ModelPairTileProps = {
+  tile: PairTile;
+  /** The live pull for THIS model, when one is running. */
+  pull: TilePull | null;
+  /** This tile is asking "download it?" right now. */
+  confirming: boolean;
+  /** A reply is streaming, so a swap has to wait for it. */
+  isStreaming: boolean;
+  onSelect: () => void;
+  onConfirmDownload: () => void;
+  onCancelConfirm: () => void;
+  onSwapNow: () => void;
+};
+
 /**
  * One AI, as a tile — the welcome card's anatomy compacted for a 320px panel:
  * name + size, the quiet Recommended tag, one plain sentence, Speed/Depth
@@ -400,80 +500,206 @@ export function ModelSelector() {
  * imported from `WelcomeCard`: that tile is a full-bleed radio in a modal with
  * its own sizing and selection semantics, and coupling the two would make every
  * first-run tweak a composer regression.
+ *
+ * The shell is a `div` with the option role and a button INSIDE it, rather than
+ * one big button, because the confirm and the "switch now" affordance are real
+ * buttons of their own and a button cannot contain a button.
  */
-function ModelPairTile({ tile, onSelect }: { tile: PairTile; onSelect: () => void }) {
+function ModelPairTile({
+  tile,
+  pull,
+  confirming,
+  isStreaming,
+  onSelect,
+  onConfirmDownload,
+  onCancelConfirm,
+  onSwapNow,
+}: ModelPairTileProps) {
   const { choice, downloaded, isActive, isRecommended } = tile;
+  // While something is happening to this model, the tile stops being a way to
+  // pick it: the actions below are the only sensible taps. A deferred pull is
+  // NOT one of those — it settled, so the tile goes back to being tappable and
+  // the honest reason sits underneath it.
+  const busy = confirming || (pull !== null && pull.kind !== "deferred");
   return (
-    <button
-      type="button"
+    <div
       role="option"
       aria-selected={isActive}
-      onClick={onSelect}
-      className="flex w-full flex-col rounded-xl px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--eco-primary)]"
+      className="flex w-full flex-col rounded-xl transition-colors"
       style={{
         background: isActive ? "var(--eco-primary-soft)" : "var(--eco-surface)",
         border: `1.5px solid ${isActive ? "var(--eco-primary)" : "var(--eco-border)"}`,
       }}
     >
-      <div className="flex items-baseline justify-between gap-2">
-        <span className="min-w-0 truncate text-sm font-semibold text-[var(--eco-text)]">
-          {choice.name}
+      <button
+        type="button"
+        onClick={onSelect}
+        disabled={busy}
+        className="flex w-full flex-col rounded-xl px-3 py-2.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--eco-primary)] disabled:cursor-default"
+      >
+        <span className="flex items-baseline justify-between gap-2">
+          <span className="min-w-0 truncate text-sm font-semibold text-[var(--eco-text)]">
+            {choice.name}
+          </span>
+          <span className="shrink-0 text-[11px] tabular-nums text-[var(--eco-text-muted)]">
+            {choice.sizeLabel}
+          </span>
         </span>
-        <span className="shrink-0 text-[11px] tabular-nums text-[var(--eco-text-muted)]">
-          {choice.sizeLabel}
-        </span>
-      </div>
 
-      {/* In-flow and neutral, like every other "Recommended" tag in the product:
-          the primary hue belongs to the active tile alone, so the two never read
-          as rival approvals. */}
-      {isRecommended && (
-        <span
-          className="mt-1 inline-flex w-fit items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium"
-          style={{
-            background: "color-mix(in srgb, var(--eco-text-muted) 14%, transparent)",
-            color: "var(--eco-text-secondary)",
-          }}
-        >
-          Recommended
+        {/* In-flow and neutral, like every other "Recommended" tag in the product:
+            the primary hue belongs to the active tile alone, so the two never read
+            as rival approvals. */}
+        {isRecommended && (
+          <span
+            className="mt-1 inline-flex w-fit items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium"
+            style={{
+              background: "color-mix(in srgb, var(--eco-text-muted) 14%, transparent)",
+              color: "var(--eco-text-secondary)",
+            }}
+          >
+            Recommended
+          </span>
+        )}
+
+        <span className="mt-1 block text-xs leading-snug text-[var(--eco-text-secondary)]">
+          {choice.tagline}
         </span>
+
+        <span className="mt-2 flex flex-col gap-1">
+          <Meter label="Speed" value={choice.speed} />
+          <Meter label="Depth" value={choice.depth} />
+        </span>
+
+        {/* The state line. The size sits at the top of the tile; this says only
+            whether choosing costs a download — the one fact the old flat list
+            never told anyone. It steps aside while the tile has something more
+            specific to report. */}
+        {!busy && (
+          <span className="mt-2 flex items-center gap-1.5 text-[11px] text-[var(--eco-text-muted)]">
+            {downloaded && (
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 16 16"
+                fill="none"
+                className="h-3 w-3 shrink-0 text-[var(--eco-primary)]"
+                aria-hidden="true"
+              >
+                <path
+                  d="M3.5 8.5l3 3 6-7"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            )}
+            <span>{downloaded ? "Downloaded" : "Not downloaded"}</span>
+            {isActive && <span aria-hidden="true">·</span>}
+            {isActive && <span className="text-[var(--eco-primary)]">Active</span>}
+          </span>
+        )}
+      </button>
+
+      {confirming && (
+        <TileConfirm
+          choice={choice}
+          onConfirm={onConfirmDownload}
+          onCancel={onCancelConfirm}
+        />
       )}
 
-      <p className="mt-1 text-xs leading-snug text-[var(--eco-text-secondary)]">
-        {choice.tagline}
+      {pull && (
+        <TilePullState pull={pull} isStreaming={isStreaming} onSwapNow={onSwapNow} />
+      )}
+    </div>
+  );
+}
+
+/**
+ * The inline confirm. It answers the two questions a download raises — how big,
+ * and does anything stop while it runs — and then gets out of the way. "Not now"
+ * writes nothing at all: the tile is tappable again the next second.
+ */
+function TileConfirm({
+  choice,
+  onConfirm,
+  onCancel,
+}: {
+  choice: WelcomeModelChoice;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="border-t px-3 py-2.5" style={{ borderColor: "var(--eco-border)" }}>
+      <p className="text-[11px] leading-snug text-[var(--eco-text-secondary)]">
+        {`Downloads ${choice.sizeLabel} in the background. You can keep chatting while it does.`}
       </p>
-
-      <div className="mt-2 flex flex-col gap-1">
-        <Meter label="Speed" value={choice.speed} />
-        <Meter label="Depth" value={choice.depth} />
+      <div className="mt-2 flex items-center gap-2">
+        <Button size="sm" className="whitespace-nowrap" onClick={onConfirm}>
+          Download
+        </Button>
+        <Button size="sm" variant="ghost" className="whitespace-nowrap" onClick={onCancel}>
+          Not now
+        </Button>
       </div>
+    </div>
+  );
+}
 
-      {/* The state line. The size sits at the top of the tile; this says only
-          whether choosing costs a download — the one fact the old flat list
-          never told anyone. */}
-      <div className="mt-2 flex items-center gap-1.5 text-[11px] text-[var(--eco-text-muted)]">
-        {downloaded && (
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 16 16"
-            fill="none"
-            className="h-3 w-3 shrink-0 text-[var(--eco-primary)]"
-            aria-hidden="true"
+/** What the tile says once the pull is running, in the tile's own quiet register. */
+function TilePullState({
+  pull,
+  isStreaming,
+  onSwapNow,
+}: {
+  pull: TilePull;
+  isStreaming: boolean;
+  onSwapNow: () => void;
+}) {
+  const percent = pull.kind === "downloading" || pull.kind === "swapping"
+    ? toDisplayPercent(pull.percent)
+    : 0;
+
+  return (
+    <div
+      className="border-t px-3 py-2.5"
+      style={{ borderColor: "var(--eco-border)" }}
+      data-testid="model-tile-pull"
+      data-pull-state={pull.kind}
+    >
+      {(pull.kind === "downloading" || pull.kind === "swapping") && (
+        <ProgressBar
+          percent={percent}
+          label={pull.kind === "downloading" ? `Downloading ${percent}%` : `Preparing ${percent}%`}
+          ariaLabel={pull.kind === "downloading" ? "Download progress" : "Switch progress"}
+        />
+      )}
+
+      {pull.kind === "ready" && (
+        <>
+          <Button
+            size="sm"
+            className="whitespace-nowrap"
+            onClick={onSwapNow}
+            disabled={isStreaming}
+            title={isStreaming ? "You can switch when this reply finishes." : undefined}
           >
-            <path
-              d="M3.5 8.5l3 3 6-7"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        )}
-        <span>{downloaded ? "Downloaded" : "Not downloaded"}</span>
-        {isActive && <span aria-hidden="true">·</span>}
-        {isActive && <span className="text-[var(--eco-primary)]">Active</span>}
-      </div>
-    </button>
+            Ready. Switch now
+          </Button>
+          {pull.notice && (
+            <p className="mt-2 text-[11px] leading-snug text-[var(--eco-text-secondary)]" role="status">
+              {pull.notice}
+            </p>
+          )}
+        </>
+      )}
+
+      {pull.kind === "deferred" && (
+        <p className="text-[11px] leading-snug text-[var(--eco-text-secondary)]" role="status">
+          {pull.deferral.message}
+        </p>
+      )}
+    </div>
   );
 }
 

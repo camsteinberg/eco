@@ -53,8 +53,9 @@ export function deriveFirstRunChoices(slot: Slot, profile: DeviceProfile): First
     // floor model SMALLER than the everyday fast pick — e.g. a 4-7GB WebGPU device
     // now recovers the 1.2B (0.76GB) for eco-fast, but eco-smart still floors to the
     // 0.57GB qwen3-0.6b; offering that as "deeper" would be a downgrade wearing an
-    // upgrade's clothes. Mirrors the size-step-up guard in lifecycle/upgrade.ts
-    // (planUpgradeOffer). Device-coverage audit, 2026-08-17.
+    // upgrade's clothes. This is now the ONLY size-step-up guard: the popup that
+    // carried the other one is retired, and what the tiles show is what can be
+    // pulled. Device-coverage audit, 2026-08-17.
     if (smart.id !== everyday.id && smart.sizeGB > everyday.sizeGB) deeper = smart;
   } catch {
     // No distinct deeper model this device can run — single-option offer.

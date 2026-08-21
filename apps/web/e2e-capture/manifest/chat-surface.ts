@@ -4,7 +4,7 @@
 import { expect, type Page } from "@playwright/test";
 import type { IdbSeedName } from "../seeds/idb";
 import type { CaptureGap, StateAssertion, StateEntry } from "../types";
-import { READY_CHAT_SEARCH, UPGRADE_DECLINED_LOCAL } from "./pilot";
+import { READY_CHAT_SEARCH } from "./pilot";
 
 /**
  * W3 — the chat surface.
@@ -115,7 +115,7 @@ function seededChat(
     title,
     route: "/chat",
     search: READY_CHAT_SEARCH,
-    seed: { local: UPGRADE_DECLINED_LOCAL, idb: [idb] },
+    seed: { idb: [idb] },
     tier: "component",
     realism: "seeded",
     // See the header: a conversation already active at mount stays empty on the
@@ -516,7 +516,6 @@ export const chatSurfaceStates: StateEntry[] = [
     title: "The on-device inference error boundary",
     route: "/chat",
     search: `${READY_CHAT_SEARCH}&eco-force-local-runtime=crash`,
-    seed: { local: UPGRADE_DECLINED_LOCAL },
     tier: "page",
     realism: "seeded",
     internal: true,
@@ -531,7 +530,6 @@ export const chatSurfaceStates: StateEntry[] = [
     title: "A finished calculator tool call",
     route: "/chat",
     search: READY_CHAT_SEARCH,
-    seed: { local: UPGRADE_DECLINED_LOCAL },
     tier: "component",
     realism: "seeded",
     assert: [{ selector: COMPOSER }],
@@ -551,7 +549,6 @@ export const chatSurfaceStates: StateEntry[] = [
     title: "A calculator tool call, opened",
     route: "/chat",
     search: READY_CHAT_SEARCH,
-    seed: { local: UPGRADE_DECLINED_LOCAL },
     tier: "micro",
     realism: "seeded",
     assert: [{ selector: COMPOSER }],
@@ -570,7 +567,6 @@ export const chatSurfaceStates: StateEntry[] = [
     title: "A web lookup in progress, with Stop available",
     route: "/chat",
     search: READY_CHAT_SEARCH,
-    seed: { local: UPGRADE_DECLINED_LOCAL },
     tier: "component",
     realism: "mocked",
     mock: async (page) => {

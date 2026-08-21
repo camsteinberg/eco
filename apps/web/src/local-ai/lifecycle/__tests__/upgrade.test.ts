@@ -2,20 +2,22 @@
 // Copyright (C) 2026 Bos Computing LLC
 
 /**
- * Consent-driven upgrade state machine (instant-start slice 2b).
+ * In-place model pull — the state machine behind the composer's model tiles.
  *
  * Covers:
- *   - The pure transition table: idle→offered→accepted→downloading→staged→
- *     swapping→done, with declined/deferred side states, the swap-attempt
- *     cap, and invalid transitions being ignored.
- *   - Persistence: records survive write→read; corrupt rows read as idle.
- *   - Offer eligibility: convergence, already-upgraded, no-nagging after
- *     decline/done/deferral, new cycle when the recommendation moves.
+ *   - The pure transition table: idle→accepted→downloading→staged→swapping→
+ *     done, with the deferred side state, the swap-attempt cap, and invalid
+ *     transitions being ignored.
+ *   - `request`: the user's own ask, from idle and over any settled record,
+ *     refused only while a cycle is mid-flight.
+ *   - Persistence: records survive write→read; corrupt rows read as idle; a
+ *     record written before the pair selector reads as an eco-smart target.
  *   - The download driver: lease-guarded, fast-path when cached, transient
  *     retry, honest storage deferral, abort leaves the phase resumable.
- *   - The swap driver: calls prepareModelForSlot on eco-smart, busy does not
- *     burn an attempt, cap 2 defers, evicted cache reverts to re-download.
- *   - Boot reconcile: interrupted swapping resets to staged.
+ *   - The swap driver: calls prepareModelForSlot on the slot the record NAMES,
+ *     busy does not burn an attempt, cap 2 defers, evicted cache re-downloads.
+ *   - Boot reconcile: interrupted swapping resets to staged; a legacy `offered`
+ *     record clears.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -24,8 +26,7 @@ import {
   MAX_SWAP_ATTEMPTS,
   UPGRADE_STORAGE_KEY,
   _resetUpgradeForTesting,
-  isUpgradeInFlight,
-  planUpgradeOffer,
+  isUpgradeInFlightForSlot,
   readUpgradeRecord,
   reconcileUpgradeOnBoot,
   runUpgradeDownload,
@@ -117,8 +118,9 @@ afterEach(() => {
 function record(over: Partial<UpgradeRecord> = {}): UpgradeRecord {
   return {
     version: 1,
-    phase: 'offered',
+    phase: 'accepted',
     targetModelId: 'target',
+    targetSlot: 'eco-smart',
     baseModelId: 'starter',
     deferral: null,
     swapAttempts: 0,
@@ -130,11 +132,16 @@ function record(over: Partial<UpgradeRecord> = {}): UpgradeRecord {
 // ─── Pure transitions ───────────────────────────────────────────────────────
 
 describe('transitionUpgrade — the happy path', () => {
-  it('walks idle → offered → accepted → downloading → staged → swapping → done', () => {
-    let r = transitionUpgrade(null, { type: 'offer', targetModelId: 'target', baseModelId: 'starter' }, 1);
-    expect(r?.phase).toBe('offered');
-    r = transitionUpgrade(r, { type: 'accept' }, 2);
+  it('walks idle → accepted → downloading → staged → swapping → done', () => {
+    let r = transitionUpgrade(
+      null,
+      { type: 'request', targetModelId: 'target', targetSlot: 'eco-smart' },
+      1,
+    );
+    // The tile's confirm IS the consent, so a request lands on accepted with no
+    // offered step in between.
     expect(r?.phase).toBe('accepted');
+    expect(r?.targetSlot).toBe('eco-smart');
     r = transitionUpgrade(r, { type: 'download-started' }, 3);
     expect(r?.phase).toBe('downloading');
     r = transitionUpgrade(r, { type: 'download-completed' }, 4);
@@ -149,26 +156,6 @@ describe('transitionUpgrade — the happy path', () => {
 });
 
 describe('transitionUpgrade — side states and guards', () => {
-  it('offered + decline → declined', () => {
-    const r = transitionUpgrade(record(), { type: 'decline' }, 2);
-    expect(r?.phase).toBe('declined');
-  });
-
-  it('declined + accept → accepted (the quiet affordance re-entry)', () => {
-    const r = transitionUpgrade(record({ phase: 'declined' }), { type: 'accept' }, 2);
-    expect(r?.phase).toBe('accepted');
-  });
-
-  it('deferred + accept → accepted and clears the deferral', () => {
-    const r = transitionUpgrade(
-      record({ phase: 'deferred', deferral: { code: 'download-failed', message: 'x' } }),
-      { type: 'accept' },
-      2,
-    );
-    expect(r?.phase).toBe('accepted');
-    expect(r?.deferral).toBeNull();
-  });
-
   it('downloading + download-failed → deferred with the reason', () => {
     const r = transitionUpgrade(
       record({ phase: 'downloading' }),
@@ -214,36 +201,63 @@ describe('transitionUpgrade — side states and guards', () => {
     expect(r?.phase).toBe('accepted');
   });
 
-  it('ignores invalid transitions (done + accept stays done)', () => {
-    const done = record({ phase: 'done' });
-    expect(transitionUpgrade(done, { type: 'accept' }, 2)).toEqual(done);
-    expect(transitionUpgrade(null, { type: 'accept' }, 2)).toBeNull();
+  it('ignores invalid transitions on an idle or wrong-phase record', () => {
+    expect(transitionUpgrade(null, { type: 'swap-started' }, 2)).toBeNull();
     expect(transitionUpgrade(record({ phase: 'downloading' }), { type: 'swap-started' }, 2)?.phase).toBe('downloading');
-  });
-
-  it('a fresh offer for a DIFFERENT target replaces a settled record', () => {
-    const r = transitionUpgrade(
-      record({ phase: 'declined', targetModelId: 'old-target' }),
-      { type: 'offer', targetModelId: 'new-target', baseModelId: 'starter' },
-      2,
-    );
-    expect(r?.phase).toBe('offered');
-    expect(r?.targetModelId).toBe('new-target');
-    expect(r?.swapAttempts).toBe(0);
-  });
-
-  it('an offer never interrupts a mid-flight cycle (downloading keeps downloading)', () => {
-    const r = transitionUpgrade(
-      record({ phase: 'downloading' }),
-      { type: 'offer', targetModelId: 'new-target', baseModelId: 'starter' },
-      2,
-    );
-    expect(r?.phase).toBe('downloading');
-    expect(r?.targetModelId).toBe('target');
+    const done = record({ phase: 'done' });
+    expect(transitionUpgrade(done, { type: 'download-started' }, 2)).toEqual(done);
   });
 
   it('reset returns to idle from any phase', () => {
     expect(transitionUpgrade(record({ phase: 'downloading' }), { type: 'reset' }, 2)).toBeNull();
+  });
+});
+
+describe('transitionUpgrade — request (the user asked for this model)', () => {
+  const request = { type: 'request' as const, targetModelId: 'new-target', targetSlot: 'eco-fast' as const };
+
+  it('starts a cycle from idle, already accepted, on the slot it names', () => {
+    const r = transitionUpgrade(null, request, 2);
+    expect(r?.phase).toBe('accepted');
+    expect(r?.targetModelId).toBe('new-target');
+    expect(r?.targetSlot).toBe('eco-fast');
+    expect(r?.swapAttempts).toBe(0);
+    expect(r?.deferral).toBeNull();
+  });
+
+  it('a settled cycle never blocks a fresh ask, for the same target or another', () => {
+    for (const phase of ['done', 'declined', 'deferred'] as const) {
+      const settled = record({
+        phase,
+        targetModelId: 'old-target',
+        swapAttempts: 2,
+        deferral: { code: 'swap-failed', message: 'x' },
+      });
+      const other = transitionUpgrade(settled, request, 2);
+      expect(other?.phase).toBe('accepted');
+      expect(other?.targetModelId).toBe('new-target');
+      expect(other?.targetSlot).toBe('eco-fast');
+      // A fresh cycle starts clean: the old failures are not this one's.
+      expect(other?.swapAttempts).toBe(0);
+      expect(other?.deferral).toBeNull();
+
+      const again = transitionUpgrade(
+        record({ phase, targetModelId: 'new-target' }),
+        request,
+        2,
+      );
+      expect(again?.phase).toBe('accepted');
+    }
+  });
+
+  it('is refused while a cycle is mid-flight, whatever it asks for', () => {
+    for (const phase of ['accepted', 'downloading', 'staged', 'swapping'] as const) {
+      const inFlight = record({ phase, targetModelId: 'target' });
+      expect(transitionUpgrade(inFlight, request, 2)).toEqual(inFlight);
+      expect(
+        transitionUpgrade(inFlight, { ...request, targetModelId: 'target' }, 2),
+      ).toEqual(inFlight);
+    }
   });
 });
 
@@ -280,133 +294,36 @@ describe('upgrade record persistence', () => {
     unsubscribe();
     writeUpgradeRecord(record());
     expect(seen).toHaveLength(2);
-    expect(seen[0]?.phase).toBe('offered');
+    expect(seen[0]?.phase).toBe('accepted');
     expect(seen[1]).toBeNull();
   });
-});
 
-// ─── Offer eligibility ──────────────────────────────────────────────────────
-
-describe('planUpgradeOffer', () => {
-  const base = {
-    profile: PROFILE,
-    currentModelId: 'starter',
-    ecoSmartReadyModelId: null as string | null,
-    record: null as UpgradeRecord | null,
-    recommendSmart: () => model('target'),
-    // Default the cache probe to "not cached" so the eligibility cases below are
-    // deterministic and never touch the real Cache API. The cached-target guard
-    // has its own dedicated case.
-    isTargetCached: async () => false,
-  };
-
-  it('offers the eco-smart recommendation on a fresh record', async () => {
-    expect((await planUpgradeOffer(base))?.id).toBe('target');
+  it('reads a record written before the pair selector as an eco-smart target', () => {
+    // Every cycle the old popup could write bound eco-smart, so that is what a
+    // slotless row means — not a reason to drop the row and lose staged bytes.
+    storage.setItem(UPGRADE_STORAGE_KEY, JSON.stringify({
+      version: 1,
+      phase: 'staged',
+      targetModelId: 'target',
+      baseModelId: 'starter',
+      deferral: null,
+      swapAttempts: 0,
+      updatedAt: 0,
+    }));
+    expect(readUpgradeRecord()?.targetSlot).toBe('eco-smart');
   });
 
-  it('convergence: no offer when the device is already on the class-best', async () => {
-    expect(await planUpgradeOffer({ ...base, currentModelId: 'target' })).toBeNull();
-  });
-
-  it('no offer when eco-smart already holds the target ready', async () => {
-    expect(await planUpgradeOffer({ ...base, ecoSmartReadyModelId: 'target' })).toBeNull();
-  });
-
-  it('no offer when the target is already fully cached (no phantom download offer)', async () => {
-    expect(await planUpgradeOffer({ ...base, isTargetCached: async () => true })).toBeNull();
-  });
-
-  it('a cache-probe error reads as not-cached and still offers', async () => {
-    expect(
-      (await planUpgradeOffer({ ...base, isTargetCached: async () => { throw new Error('storage'); } }))?.id,
-    ).toBe('target');
-  });
-
-  it('no nagging: declined/done/deferred records for the same target suppress the offer', async () => {
-    for (const phase of ['declined', 'done', 'deferred'] as const) {
-      expect(await planUpgradeOffer({ ...base, record: record({ phase }) })).toBeNull();
-    }
-  });
-
-  it('re-surfaces an undecided offered record (tab closed mid-popup)', async () => {
-    expect((await planUpgradeOffer({ ...base, record: record({ phase: 'offered' }) }))?.id).toBe('target');
-  });
-
-  it('no offer while a cycle is mid-flight, even if the recommendation moved', async () => {
-    for (const phase of ['accepted', 'downloading', 'staged', 'swapping'] as const) {
-      expect(
-        await planUpgradeOffer({ ...base, record: record({ phase, targetModelId: 'old-target' }) }),
-      ).toBeNull();
-    }
-  });
-
-  it('a settled record for a DIFFERENT target allows a new cycle', async () => {
-    expect(
-      (await planUpgradeOffer({ ...base, record: record({ phase: 'declined', targetModelId: 'old-target' }) }))?.id,
-    ).toBe('target');
-  });
-
-  it('no offer when the recommendation cannot resolve', async () => {
-    expect(await planUpgradeOffer({ ...base, recommendSmart: () => null })).toBeNull();
-  });
-
-  it('never a downgrade-as-upgrade: no offer when the target is SMALLER than the current model', async () => {
-    // Model-ladder slot collapse (2026-08-09): eco-smart == the 1.2B everyday
-    // default. A legacy device still bound to the larger Qwen3.5-2B (1.4 GB) must
-    // NOT be offered the smaller 1.2B (0.76 GB) framed as "a stronger model".
-    // currentModelId is a REAL catalog id so the guard's getModel lookup resolves
-    // its size (the fake-id cases above skip the guard — getModel returns null).
-    const offer = await planUpgradeOffer({
-      ...base,
-      currentModelId: 'candidate/qwen3.5-2b-onnx',
-      recommendSmart: () =>
-        ({ id: 'candidate/lfm2.5-1.2b-instruct-onnx', sizeGB: 0.76, friendlyName: 'x' } as ModelConfig),
-    });
-    expect(offer).toBeNull();
-  });
-
-  it('still offers a genuine size-up (a small starter → a larger model)', async () => {
-    // The guard only suppresses down-sizes: a real 350M starter (0.28 GB) offered
-    // a 0.76 GB model is a legitimate up-size and still surfaces.
-    const offer = await planUpgradeOffer({
-      ...base,
-      currentModelId: 'candidate/lfm2.5-350m-onnx',
-      recommendSmart: () =>
-        ({ id: 'candidate/lfm2.5-1.2b-instruct-onnx', sizeGB: 0.76, friendlyName: 'x' } as ModelConfig),
-    });
-    expect(offer?.id).toBe('candidate/lfm2.5-1.2b-instruct-onnx');
-  });
-
-  it('BEHAVIOR PIN — WebKit-mobile: the ladder activates the moment the recommendation moves; no mobile-aware policy gates it', async () => {
-    // Today the upgrade ladder is dead on WebKit-mobile only because the
-    // catalog carries a single WebKit model, so the eco-smart recommendation
-    // always converges on the current model. Nothing in the offer path is
-    // platform- or runtime-aware: the moment a second WebKit model exists,
-    // this machinery goes live on phones — including consent popup, a
-    // GB-scale download offer, and the swap driver — with no mobile-specific
-    // policy (cellular data, thermal, storage pressure) in between.
-    //
-    // This test pins that truth. If it starts failing because an offer gate
-    // was added, that gate is the deliberate outcome of the mobile-ladder
-    // policy decision and this pin should be updated alongside it — not
-    // silently deleted.
-    const webkitMobile = {
-      browserClass: 'safari',
-      webgpuSupport: 'webgpu',
-      deviceMemoryGB: 0,
-      isMobile: true,
-      override: 'auto',
-    } as DeviceProfile;
-
-    const offered = await planUpgradeOffer({
-      ...base,
-      profile: webkitMobile,
-      currentModelId: 'webkit-starter',
-      recommendSmart: () => webllmModel('webkit-rung-2'),
-    });
-
-    expect(offered?.id).toBe('webkit-rung-2');
-    expect(offered?.runtime).toBe('webllm');
+  it('reads a garbage slot as eco-smart rather than trusting it', () => {
+    storage.setItem(UPGRADE_STORAGE_KEY, JSON.stringify({
+      version: 1,
+      phase: 'staged',
+      targetModelId: 'target',
+      targetSlot: 'eco-nonsense',
+      deferral: null,
+      swapAttempts: 0,
+      updatedAt: 0,
+    }));
+    expect(readUpgradeRecord()?.targetSlot).toBe('eco-smart');
   });
 });
 
@@ -552,7 +469,7 @@ function swapSeams(over: Record<string, unknown> = {}) {
 }
 
 describe('performUpgradeSwap', () => {
-  it('swaps a staged target into eco-smart and lands done', async () => {
+  it('swaps a staged target into the slot its record names, and lands done', async () => {
     writeUpgradeRecord(record({ phase: 'staged' }));
     const seams = swapSeams();
     const outcome = await performUpgradeSwap({ seams });
@@ -577,6 +494,21 @@ describe('performUpgradeSwap', () => {
     expect(seams.prepareModelForSlot).toHaveBeenCalledWith(
       expect.objectContaining({ previous }),
     );
+  });
+
+  it('binds eco-fast when that is the slot the user pulled into', async () => {
+    // The pair's everyday tile owns eco-fast. Before the pair selector this
+    // driver hardcoded eco-smart, which would have bound the wrong slot and
+    // left the tapped tile still reading "Not downloaded".
+    writeUpgradeRecord(record({ phase: 'staged', targetSlot: 'eco-fast' }));
+    const seams = swapSeams();
+    const outcome = await performUpgradeSwap({ seams });
+    expect(outcome.kind).toBe('swapped');
+    expect(seams.prepareModelForSlot).toHaveBeenCalledWith(
+      expect.objectContaining({ slot: 'eco-fast', modelId: 'target' }),
+    );
+    // The rollback target is read from the SAME slot it binds.
+    expect(seams.getSlot).toHaveBeenCalledWith('eco-fast');
   });
 
   it('busy result reverts to staged without burning an attempt', async () => {
@@ -667,8 +599,14 @@ describe('reconcileUpgradeOnBoot', () => {
     expect(r?.swapAttempts).toBe(1);
   });
 
+  it('clears a legacy offered record — the popup that could answer it is gone', () => {
+    writeUpgradeRecord(record({ phase: 'offered' }));
+    expect(reconcileUpgradeOnBoot()).toBeNull();
+    expect(readUpgradeRecord()).toBeNull();
+  });
+
   it('leaves every other phase untouched', () => {
-    for (const phase of ['offered', 'accepted', 'downloading', 'staged', 'declined', 'deferred', 'done'] as const) {
+    for (const phase of ['accepted', 'downloading', 'staged', 'declined', 'deferred', 'done'] as const) {
       writeUpgradeRecord(record({ phase }));
       expect(reconcileUpgradeOnBoot()?.phase).toBe(phase);
     }
@@ -677,21 +615,28 @@ describe('reconcileUpgradeOnBoot', () => {
   });
 });
 
-describe('isUpgradeInFlight', () => {
-  it('is true while the cycle is actively preparing the stronger model', () => {
+describe('isUpgradeInFlightForSlot', () => {
+  it('is true for the slot being prepared, while it is being prepared', () => {
     for (const phase of ['accepted', 'downloading', 'staged', 'swapping'] as const) {
-      writeUpgradeRecord(record({ phase }));
-      expect(isUpgradeInFlight()).toBe(true);
+      writeUpgradeRecord(record({ phase, targetSlot: 'eco-smart' }));
+      expect(isUpgradeInFlightForSlot('eco-smart')).toBe(true);
+    }
+  });
+
+  it('is false for the OTHER slot, so a background pull never masks its errors', () => {
+    for (const phase of ['accepted', 'downloading', 'staged', 'swapping'] as const) {
+      writeUpgradeRecord(record({ phase, targetSlot: 'eco-smart' }));
+      expect(isUpgradeInFlightForSlot('eco-fast')).toBe(false);
     }
   });
 
   it('is false when settled or absent, so genuine errors are never masked', () => {
     for (const phase of ['offered', 'declined', 'deferred', 'done'] as const) {
       writeUpgradeRecord(record({ phase }));
-      expect(isUpgradeInFlight()).toBe(false);
+      expect(isUpgradeInFlightForSlot('eco-smart')).toBe(false);
     }
     writeUpgradeRecord(null);
-    expect(isUpgradeInFlight()).toBe(false);
+    expect(isUpgradeInFlightForSlot('eco-smart')).toBe(false);
   });
 });
 

@@ -4,7 +4,7 @@
 import type { IdbSeedName } from "../seeds/idb";
 import { motionSettled } from "../capture";
 import type { AxisOverrides, CaptureGap, StateEntry } from "../types";
-import { READY_CHAT_SEARCH, UPGRADE_DECLINED_LOCAL, WASM_DEVICE_SEARCH } from "./pilot";
+import { READY_CHAT_SEARCH, WASM_DEVICE_SEARCH } from "./pilot";
 import { BOTANICAL } from "./setup-gate";
 
 /**
@@ -41,9 +41,8 @@ import { BOTANICAL } from "./setup-gate";
  * - `initial={shouldReduce ? false : {...}}` skips an ENTRANCE. The `animate`
  *   target is identical either way and the lane photographs settled pages, so
  *   the entrance is over before the shutter. ChatSurface, SuggestedPrompts,
- *   GroundingNotice, CitationBlock, ModelSelector, ModelUpgradeCard,
- *   UncertaintyNote, WelcomeCard, BelowFloorScreen and
- *   DetailsDisclosure are all this shape.
+ *   GroundingNotice, CitationBlock, ModelSelector, UncertaintyNote,
+ *   WelcomeCard, BelowFloorScreen and DetailsDisclosure are all this shape.
  * - `motion-reduce:transition-none` on a `transition-colors` / `transition-
  *   transform` class removes a transition, not a resting style — and
  *   `animations: 'disabled'` flattens the difference anyway. MessageActions,
@@ -136,7 +135,7 @@ const SYSTEM_AXES: AxisOverrides = {
 
 /** The seed every seeded-conversation state here shares. */
 function seededSeed(idb: IdbSeedName) {
-  return { local: UPGRADE_DECLINED_LOCAL, idb: [idb] };
+  return { idb: [idb] };
 }
 
 // The settle wait this wave needs — a twin caught on the way in differs from its
@@ -266,7 +265,6 @@ export const axesStates: StateEntry[] = [
     title: "Chat — theme resolved from the operating system",
     route: "/chat",
     search: READY_CHAT_SEARCH,
-    seed: { local: UPGRADE_DECLINED_LOCAL },
     tier: "component",
     realism: "seeded",
     axes: SYSTEM_AXES,

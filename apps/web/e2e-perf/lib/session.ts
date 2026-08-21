@@ -99,10 +99,11 @@ export async function requireBridge(page: Page): Promise<void> {
 /**
  * One-time setup walk on a fresh profile: real first-run setup downloads and
  * proves the starter model; on a warm profile it lands straight on a ready
- * chat. Either way it leaves `MODEL_ID` resident and a settled 'declined'
- * upgrade phase behind (a background upgrade download would contend for
- * bandwidth mid-measurement, and the popup would sit over the composer —
- * 'declined' is exactly what a user clicking "not now" leaves behind).
+ * chat. Either way it leaves `MODEL_ID` resident.
+ *
+ * Nothing needs suppressing beyond that any more: a second model only ever
+ * downloads when someone taps its tile and confirms, so this lane cannot have a
+ * background transfer competing for bandwidth mid-measurement.
  */
 export async function ensureModelReady(context: BrowserContext): Promise<void> {
   console.log("  prefetch: opening /chat …");
@@ -133,20 +134,6 @@ export async function ensureModelReady(context: BrowserContext): Promise<void> {
       })
       .toBe(MODEL_ID);
 
-    await prefetch.evaluate(() => {
-      window.localStorage.setItem(
-        "eco-local-ai-upgrade-v1",
-        JSON.stringify({
-          version: 1,
-          phase: "declined",
-          targetModelId: "candidate/qwen3.5-2b-onnx",
-          baseModelId: "candidate/lfm2.5-350m-onnx",
-          deferral: null,
-          swapAttempts: 0,
-          updatedAt: Date.now(),
-        }),
-      );
-    });
     console.log(`  prefetch: ${MODEL_ID} resident`);
   } finally {
     await prefetch.close();

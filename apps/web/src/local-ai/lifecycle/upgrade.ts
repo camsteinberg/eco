@@ -2,24 +2,28 @@
 // Copyright (C) 2026 Bos Computing LLC
 
 /**
- * Consent-driven upgrade — the Stage B state machine (instant-start slice 2b).
+ * In-place model pull — the state machine behind the composer's model tiles.
  *
  * Stage A (setup-runner) gets a fresh device chatting on the smallest
  * trustworthy model in about a minute. This module carries the device from
- * that starter to the class-best pick — with the user's consent at every
- * heavy step, honoring the locked product decisions: nothing heavy downloads
- * without a yes, the swap asks first and never happens mid-generation, and a
- * decline is remembered instead of nagged.
+ * that starter to whichever model the person asks for in the model selector,
+ * honoring the locked product decisions: nothing heavy downloads without a
+ * yes, the swap asks first and never happens mid-generation, and chat keeps
+ * working throughout.
  *
- *   idle → offered → accepted → downloading → staged → swapping → done
- *                  ↘ declined                ↘ deferred(reason)
+ *   idle → accepted → downloading → staged → swapping → done
+ *                                 ↘ deferred(reason)
+ *
+ * The cycle starts at `request` — the user tapping a model tile and confirming
+ * the download. There is no automatic offer: the selector's pair IS the offer,
+ * so a popup asking the same question would be a second, quieter catalog.
  *
  * The phase record persists under `eco-local-ai-upgrade-v1` so the machine
  * resumes across reloads: an interrupted download resumes via the download
- * pipeline's per-file verify-skip; an interrupted swap resets to `staged`
- * (the next boot starts on the staged model). `declined` and `deferred` are
- * settled states — the popup never returns for the same target; a quiet
- * affordance (Settings) can re-enter via `accept`.
+ * pipeline's per-file verify-skip; an interrupted swap resets to `staged` (the
+ * quiet "ready, switch now" affordance returns instead). `deferred` is a
+ * settled state, and a settled record never blocks a fresh `request` — the
+ * tile is always re-tappable.
  *
  * Layering mirrors the rest of lifecycle/: a PURE transition table
  * (`transitionUpgrade`) that tests enumerate exhaustively, thin persistence
@@ -52,13 +56,12 @@ import { bridgeDownloadWebLLMModel } from '../runtime/webllm-cache-bridge';
 import { ProgressTracker } from '../download/progress';
 import { getDeviceProfile } from '../device/profile';
 import { recordEvidence } from '../evidence/ledger';
-import { recommend } from '../selection/recommend';
 import {
   prepareModelForSlot,
   type SwitchModelResult,
   type SwitchProgressEvent,
 } from './switch-model';
-import { getSlot, type SlotState } from './slots';
+import { SLOTS, getSlot, type SlotState } from './slots';
 
 // ─── Record ─────────────────────────────────────────────────────────────────
 
@@ -68,6 +71,8 @@ export const UPGRADE_STORAGE_KEY = 'eco-local-ai-upgrade-v1';
 export const MAX_SWAP_ATTEMPTS = 2;
 
 export type UpgradePhase =
+  /** Legacy only — the popup that produced it is retired. Parsed, then cleared
+   *  on boot so a record written before the in-place pull can't strand a cycle. */
   | 'offered'
   | 'accepted'
   | 'downloading'
@@ -88,14 +93,28 @@ export type UpgradeDeferral = {
 export type UpgradeRecord = {
   version: 1;
   phase: UpgradePhase;
-  /** Catalog id of the class-best model this cycle is carrying the device to. */
+  /** Catalog id of the model this cycle is pulling in. */
   targetModelId: string;
-  /** The eco-fast model at offer time (the starter) — context for copy. */
+  /**
+   * The slot the swap binds. The tile the user tapped decides it: the device's
+   * everyday pick owns eco-fast, the deeper pick owns eco-smart. Records written
+   * before the in-place pull carried no slot and were always eco-smart, which is
+   * what they read as.
+   */
+  targetSlot: Slot;
+  /**
+   * The model this cycle grew out of, when there was one. Only `self-heal`
+   * reads it (a retired model named here clears the record); a user-requested
+   * pull carries none.
+   */
   baseModelId: string | null;
   deferral: UpgradeDeferral | null;
   swapAttempts: number;
   updatedAt: number;
 };
+
+/** Records predating the pair selector had no slot; they only ever meant this one. */
+const LEGACY_TARGET_SLOT: Slot = 'eco-smart';
 
 // ─── Storage (mirrors lifecycle/slots.ts) ───────────────────────────────────
 
@@ -153,6 +172,7 @@ export function readUpgradeRecord(): UpgradeRecord | null {
       version: 1,
       phase: parsed.phase as UpgradePhase,
       targetModelId: parsed.targetModelId,
+      targetSlot: isSlot(parsed.targetSlot) ? parsed.targetSlot : LEGACY_TARGET_SLOT,
       baseModelId: typeof parsed.baseModelId === 'string' ? parsed.baseModelId : null,
       deferral: isDeferral(parsed.deferral) ? parsed.deferral : null,
       swapAttempts: typeof parsed.swapAttempts === 'number' ? parsed.swapAttempts : 0,
@@ -161,6 +181,10 @@ export function readUpgradeRecord(): UpgradeRecord | null {
   } catch {
     return null;
   }
+}
+
+function isSlot(value: unknown): value is Slot {
+  return typeof value === 'string' && (SLOTS as ReadonlyArray<string>).includes(value);
 }
 
 function isDeferral(value: unknown): value is UpgradeDeferral {
@@ -193,9 +217,12 @@ export function _resetUpgradeForTesting(): void {
 // ─── Pure transition table ──────────────────────────────────────────────────
 
 export type UpgradeEvent =
-  | { type: 'offer'; targetModelId: string; baseModelId: string | null }
-  | { type: 'accept' }
-  | { type: 'decline' }
+  /**
+   * The user asked for this model, from the tile's inline confirm. The confirm
+   * IS the consent, so there is no separate offered/accept step: a request goes
+   * straight to `accepted` and the download starts.
+   */
+  | { type: 'request'; targetModelId: string; targetSlot: Slot }
   | { type: 'download-started' }
   | { type: 'download-completed' }
   | { type: 'download-failed'; deferral: UpgradeDeferral }
@@ -220,17 +247,19 @@ export function transitionUpgrade(
 ): UpgradeRecord | null {
   if (event.type === 'reset') return null;
 
-  if (event.type === 'offer') {
-    // A settled cycle for a DIFFERENT target starts fresh (the recommendation
-    // moved); the same target stays settled (no nagging), and a mid-flight
-    // cycle is never interrupted.
-    if (record && record.targetModelId === event.targetModelId) return record;
+  if (event.type === 'request') {
+    // A settled record never blocks a fresh ask — the tile is always
+    // re-tappable, including for a target that already ran its cycle. A
+    // mid-flight cycle is never interrupted: the same target is already
+    // being fetched, and a different one would need a second record this
+    // single-record machine does not have.
     if (record && !isSettledPhase(record.phase)) return record;
     return {
       version: 1,
-      phase: 'offered',
+      phase: 'accepted',
       targetModelId: event.targetModelId,
-      baseModelId: event.baseModelId,
+      targetSlot: event.targetSlot,
+      baseModelId: null,
       deferral: null,
       swapAttempts: 0,
       updatedAt: now,
@@ -246,12 +275,6 @@ export function transitionUpgrade(
   });
 
   switch (event.type) {
-    case 'accept':
-      return record.phase === 'offered' || record.phase === 'declined' || record.phase === 'deferred'
-        ? to('accepted', { deferral: null })
-        : record;
-    case 'decline':
-      return record.phase === 'offered' ? to('declined') : record;
     case 'download-started':
       return record.phase === 'accepted' || record.phase === 'downloading'
         ? to('downloading')
@@ -290,9 +313,11 @@ export function transitionUpgrade(
   }
 }
 
+// Deferral copy is read on the model tile, in a state line a few words wide, so
+// it names what happened and what is still true. No em dashes (product rule).
 const SWAP_FAILED_DEFERRAL: UpgradeDeferral = {
   code: 'swap-failed',
-  message: "The stronger model didn't run well on this device — you're all set with the current one.",
+  message: "That model didn't run well here. Eco stayed on the current one.",
 };
 
 function isSettledPhase(phase: UpgradePhase): boolean {
@@ -304,69 +329,6 @@ export function applyUpgradeEvent(event: UpgradeEvent, now = Date.now()): Upgrad
   const next = transitionUpgrade(readUpgradeRecord(), event, now);
   writeUpgradeRecord(next);
   return next;
-}
-
-// ─── Offer eligibility ──────────────────────────────────────────────────────
-
-export type PlanUpgradeOfferOptions = {
-  profile: DeviceProfile;
-  /** The eco-fast bound model id (the starter the device is chatting on). */
-  currentModelId: string | null;
-  /** The eco-smart model id when that slot is already ready, else null. */
-  ecoSmartReadyModelId: string | null;
-  record: UpgradeRecord | null;
-  /** Seam — defaults to recommend('eco-smart', profile) with a null-on-throw guard. */
-  recommendSmart?: (profile: DeviceProfile) => ModelConfig | null;
-  /** Seam — defaults to isModelFullyCached. Never offer a DOWNLOAD for a model
-   *  already fully on disk (a phantom "upgrade" offer for cached weights). */
-  isTargetCached?: (model: ModelConfig) => Promise<boolean>;
-};
-
-/**
- * The model the popup should offer, or null when there is nothing to offer:
- * no resolvable recommendation, the device already runs it (convergence /
- * already upgraded), a cycle for it is settled (no nagging), or a cycle is
- * mid-flight. A settled cycle for a DIFFERENT target allows a fresh offer —
- * the recommendation legitimately moves when evidence or the profile changes.
- */
-export async function planUpgradeOffer(options: PlanUpgradeOfferOptions): Promise<ModelConfig | null> {
-  const recommendSmart = options.recommendSmart ?? defaultRecommendSmart;
-  const isTargetCached = options.isTargetCached ?? isModelDownloaded;
-  const target = recommendSmart(options.profile);
-  if (!target) return null;
-  if (target.id === options.currentModelId) return null;
-  if (target.id === options.ecoSmartReadyModelId) return null;
-  // The upgrade card only ever carries a device UP. After the 2026-08-09 slot
-  // collapse (eco-smart == the 1.2B everyday default), a legacy device still
-  // bound to the larger Qwen3.5-2B would otherwise be offered the SMALLER 1.2B
-  // framed as "a stronger model" — a downgrade wearing an upgrade's clothes.
-  // Never offer a target that isn't a genuine step up in size. (The real up-size
-  // paths are preserved: a 350M/0.6B starter → 1.2B, and later 2B → the graduated
-  // LFM2-2.6B, both increase in size.)
-  const current = options.currentModelId ? getModel(options.currentModelId) : null;
-  if (current && target.sizeGB <= current.sizeGB) return null;
-
-  const record = options.record;
-  if (record) {
-    if (record.targetModelId === target.id && record.phase !== 'offered') return null;
-    if (record.targetModelId !== target.id && !isSettledPhase(record.phase)) return null;
-  }
-  // Never offer a DOWNLOAD for a model already fully on disk. Field-observed:
-  // an interrupted download left the slot inconsistent, and a stale offer
-  // surfaced for weights that were in fact already cached. The probe runs last
-  // so the cheap sync checks above can short-circuit it. A probe error reads as
-  // "not cached" (fail toward offering) so a storage blip never suppresses a
-  // genuine upgrade.
-  if (await isTargetCached(target).catch(() => false)) return null;
-  return target;
-}
-
-function defaultRecommendSmart(profile: DeviceProfile): ModelConfig | null {
-  try {
-    return recommend('eco-smart', profile);
-  } catch {
-    return null;
-  }
 }
 
 // ─── Download driver ────────────────────────────────────────────────────────
@@ -485,7 +447,7 @@ export async function runUpgradeDownload(
     }
     const deferral: UpgradeDeferral = {
       code: 'download-failed',
-      message: "We couldn't fetch the stronger model — you're all set with the current one.",
+      message: "Eco couldn't finish that download. Your current model still works.",
     };
     applyUpgradeEvent({ type: 'download-failed', deferral });
     return { kind: 'deferred', deferral };
@@ -535,13 +497,13 @@ export type PerformUpgradeSwapOptions = {
 };
 
 /**
- * Swap a staged target into the eco-smart slot via the audited switch
+ * Swap a staged target into the slot the record names via the audited switch
  * primitive. The primitive owns the 'switch-model' runtime lease (never under
- * an active generation), the stall watchdog, smoke, evidence, and rollback —
- * on failure the eco-smart slot rolls back and the starter stays bound and
- * cached on eco-fast, so recovery is a pointer move, not a re-download.
- * Busy is honest and free (no attempt burned); real failures burn one of
- * MAX_SWAP_ATTEMPTS before the machine defers for good.
+ * an active generation), the stall watchdog, smoke, evidence, and rollback:
+ * on failure that slot rolls back to what it held and the other slot is never
+ * touched, so recovery is a pointer move, not a re-download. Busy is honest and
+ * free (no attempt burned); real failures burn one of MAX_SWAP_ATTEMPTS before
+ * the machine defers for good.
  */
 export async function performUpgradeSwap(
   options: PerformUpgradeSwapOptions = {},
@@ -585,9 +547,9 @@ export async function performUpgradeSwap(
     }
   };
 
-  const previous = seams.getSlot('eco-smart').model;
+  const previous = seams.getSlot(record.targetSlot).model;
   const result = await seams.prepareModelForSlot({
-    slot: 'eco-smart',
+    slot: record.targetSlot,
     modelId: record.targetModelId,
     previous,
     signal: options.signal,
@@ -615,14 +577,23 @@ export async function performUpgradeSwap(
 // ─── Boot reconcile ─────────────────────────────────────────────────────────
 
 /**
- * Boot-time repair: an interrupted swap (tab closed / crashed mid-load) reads
- * as 'swapping' but nothing is running — reset it to 'staged' so the boot
- * path can start on the staged model. The interrupted attempt stays counted:
- * a swap that crashes the tab must not retry forever.
+ * Boot-time repair, in two cases:
+ *
+ *   - an interrupted swap (tab closed / crashed mid-load) reads as 'swapping'
+ *     but nothing is running, so it returns to 'staged' and the tile's quiet
+ *     "ready, switch now" affordance comes back. The interrupted attempt stays
+ *     counted: a swap that crashes the tab must not retry forever.
+ *   - an 'offered' record predates the in-place pull. The popup that could
+ *     answer it is gone, so the record is cleared rather than left describing
+ *     a question nothing asks.
  */
 export function reconcileUpgradeOnBoot(): UpgradeRecord | null {
   const record = readUpgradeRecord();
   if (!record) return null;
+  if (record.phase === 'offered') {
+    writeUpgradeRecord(null);
+    return null;
+  }
   if (record.phase !== 'swapping') return record;
   const repaired: UpgradeRecord = { ...record, phase: 'staged', updatedAt: Date.now() };
   writeUpgradeRecord(repaired);
@@ -630,33 +601,24 @@ export function reconcileUpgradeOnBoot(): UpgradeRecord | null {
 }
 
 /**
- * True when a verified upgrade is staged and waiting (or was interrupted
- * mid-swap — boot reconcile turns that back into staged). The chat-mount
- * warmup consults this: warming the starter right before the boot swap
- * replaces it would waste the most expensive step (load + shader compile)
- * on a model about to be unloaded.
+ * True while a pull is actively preparing the model bound for `slot` —
+ * accepted → downloading → staged → swapping (the whole "still preparing"
+ * window, including an interrupted-and-persisted download after a reload).
+ *
+ * The chat error surface consults this so a send that lands in the window
+ * resolves to the honest "preparing, please wait" guard instead of a generic
+ * error card: the failure is "not ready yet," not a fault. It is asked PER SLOT
+ * because a background pull for the other slot must not relabel a genuine
+ * failure of the model actually serving the conversation. Settled phases (done
+ * / declined / deferred) and no record return false everywhere.
  */
-export function hasStagedUpgrade(): boolean {
-  const phase = readUpgradeRecord()?.phase;
-  return phase === 'staged' || phase === 'swapping';
-}
-
-/**
- * True while an upgrade cycle is actively carrying the device to the stronger
- * model — accepted → downloading → staged → swapping (the whole "still
- * preparing" window, including an interrupted-and-persisted download after a
- * reload). The chat error surface consults this so a send that lands in this
- * window resolves to the honest "preparing, please wait" guard instead of a
- * generic error card: the failure is "not ready yet," not a fault. Settled
- * phases (done / declined / deferred) and no record return false, so genuine
- * errors on a ready model still surface normally.
- */
-export function isUpgradeInFlight(): boolean {
-  const phase = readUpgradeRecord()?.phase;
+export function isUpgradeInFlightForSlot(slot: Slot): boolean {
+  const record = readUpgradeRecord();
+  if (!record || record.targetSlot !== slot) return false;
   return (
-    phase === 'accepted'
-    || phase === 'downloading'
-    || phase === 'staged'
-    || phase === 'swapping'
+    record.phase === 'accepted'
+    || record.phase === 'downloading'
+    || record.phase === 'staged'
+    || record.phase === 'swapping'
   );
 }

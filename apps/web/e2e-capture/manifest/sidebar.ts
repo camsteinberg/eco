@@ -4,7 +4,7 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 import type { IdbSeedName } from "../seeds/idb";
 import type { CaptureGap, StateEntry } from "../types";
-import { READY_CHAT_SEARCH, UPGRADE_DECLINED_LOCAL } from "./pilot";
+import { READY_CHAT_SEARCH } from "./pilot";
 
 /**
  * W4a — the sidebar.
@@ -102,7 +102,7 @@ function sidebarState(
     title,
     route: "/chat",
     search: READY_CHAT_SEARCH,
-    seed: { local: UPGRADE_DECLINED_LOCAL, idb: HISTORY },
+    seed: { idb: HISTORY },
     tier: "component",
     realism: "seeded",
     server: "prod",
@@ -205,7 +205,6 @@ export const sidebarStates: StateEntry[] = [
   }),
   populatedSidebar("empty-list", "History — nothing here yet", {
     // No conversations, so nothing needs the production build.
-    seed: { local: UPGRADE_DECLINED_LOCAL },
     server: "any",
     assert: [{ text: "Your conversations will gather here." }],
     notes:
@@ -214,7 +213,7 @@ export const sidebarStates: StateEntry[] = [
   }),
   populatedSidebar("collapsed-rail", "Collapsed to the icon rail", {
     seed: {
-      local: { ...UPGRADE_DECLINED_LOCAL, "eco-sidebar-collapsed": "true" },
+      local: { "eco-sidebar-collapsed": "true" },
       idb: HISTORY,
     },
     assert: [{ role: "button", name: "Expand sidebar" }],

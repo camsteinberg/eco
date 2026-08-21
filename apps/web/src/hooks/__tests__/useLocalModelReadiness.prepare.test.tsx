@@ -99,10 +99,6 @@ vi.mock("../../local-ai/lifecycle/recovery", () => ({
   resolveReadyLocalRecoveryModelId: vi.fn().mockResolvedValue(null),
 }));
 
-vi.mock("../../local-ai/lifecycle/upgrade", () => ({
-  hasStagedUpgrade: () => false,
-}));
-
 import { useLocalModelReadiness } from "../useLocalModelReadiness";
 
 // ── Fixtures ───────────────────────────────────────────────────────────────

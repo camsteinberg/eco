@@ -4,7 +4,7 @@
 import { expect, type Page } from "@playwright/test";
 import { focusVisibleState } from "../capture";
 import type { CaptureGap, StateEntry } from "../types";
-import { READY_CHAT_SEARCH, UPGRADE_DECLINED_LOCAL } from "./pilot";
+import { READY_CHAT_SEARCH } from "./pilot";
 
 /**
  * Keyboard-focus states — what a keyboard user sees on each focus recipe.
@@ -85,7 +85,6 @@ export const controlsStates: StateEntry[] = [
     title: "Composer — keyboard focus (ring and shadow on the wrapper)",
     route: "/chat",
     search: READY_CHAT_SEARCH,
-    seed: { local: UPGRADE_DECLINED_LOCAL },
     tier: "micro",
     realism: "seeded",
     // Viewport, not an element crop: the ring sits ON the form wrapper, and an
@@ -103,7 +102,7 @@ export const controlsStates: StateEntry[] = [
     title: "Sidebar search — keyboard focus (field's own ring, compact variant)",
     route: "/chat",
     search: READY_CHAT_SEARCH,
-    seed: { local: UPGRADE_DECLINED_LOCAL, idb: ["conversation-basic"] },
+    seed: { idb: ["conversation-basic"] },
     tier: "micro",
     realism: "seeded",
     server: "prod",
@@ -145,7 +144,6 @@ export const controlsStates: StateEntry[] = [
     title: "Send button — the global keyboard outline",
     route: "/chat",
     search: READY_CHAT_SEARCH,
-    seed: { local: UPGRADE_DECLINED_LOCAL },
     tier: "micro",
     realism: "seeded",
     capture: { mode: "element", selector: COMPOSER_FORM },

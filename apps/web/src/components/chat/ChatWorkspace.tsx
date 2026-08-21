@@ -10,7 +10,6 @@ import { useChat } from "../../hooks/useChat";
 import { useChatPageEffects } from "../../hooks/useChatPageEffects";
 import { useConversationManager } from "../../hooks/useConversationManager";
 import { ChatSurface } from "./ChatSurface";
-import { ModelUpgradeCard } from "./ModelUpgradeCard";
 import { useChatStore } from "../../stores/chatStore";
 import { useConversationStore } from "../../stores/conversationStore";
 import {
@@ -137,7 +136,6 @@ export function ChatWorkspace() {
     queryCount,
     searchOpen,
     setSearchOpen,
-    upgrade,
   } = useChatPageEffects({
     searchParams,
     searchPrompt,
@@ -193,10 +191,6 @@ export function ChatWorkspace() {
         onDragLeave={handleDragLeave}
         onDragOver={handleDragOver}
         onDrop={handleDrop}
-        // Consent-driven model upgrade — floating card / boost note (2b).
-        // Handed to the surface so the card can render in flow on narrow
-        // screens, where a floating card would cover the whole greeting.
-        upgradeCard={<ModelUpgradeCard upgrade={upgrade} isStreaming={isStreaming} />}
       />
       {/* Onboarding tour -- welcome overlay + driver.js guided tour */}
       <OnboardingTour />

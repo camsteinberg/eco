@@ -47,7 +47,7 @@ import {
   type RetiredModelMigration,
 } from "../lifecycle/self-heal";
 import type { Storage as DownloadStorage } from "../download/storage";
-import type { DeviceProfile } from "../types";
+import type { DeviceProfile, Slot } from "../types";
 
 // Real catalog ids — the slot resolver nulls anything the catalog doesn't own,
 // so every id a slot is *expected* to resolve must be a live catalog entry.
@@ -136,18 +136,19 @@ describe("I2 — explicit catalog pick survives chatStore rehydration verbatim",
 });
 
 /**
- * I3 — The upgrade cycle only ever targets and binds eco-smart.
+ * I3 — A pull binds exactly the slot its record names, and never the other one.
  *
- * The locked product rule: the upgrade carries the device from the eco-fast
- * starter to the class-best model on eco-smart. eco-fast keeps the starter. The
- * swap primitive is a seam here, so "binds eco-smart" is proven by the slot the
- * driver hands it; "never mutates eco-fast" is proven against the real eco-fast
- * slot, seeded before the swap and asserted unchanged after.
+ * The locked product rule, generalized by the pair selector: the tile the person
+ * tapped decides the slot, so the everyday pick lands on eco-fast and the deeper
+ * pick on eco-smart — and whichever one is NOT the target is untouched, keeping
+ * the model they are chatting on where it is. The swap primitive is a seam here,
+ * so "binds the named slot" is proven by the slot the driver hands it; "never
+ * mutates the other" is proven against the real slot store, seeded before the
+ * swap and asserted unchanged after.
  */
-describe("I3 — upgrade targets/binds eco-smart only, never eco-fast", () => {
-  function driveToStaged(): void {
-    applyUpgradeEvent({ type: "offer", targetModelId: CATALOG_SMART, baseModelId: CATALOG_STARTER });
-    applyUpgradeEvent({ type: "accept" });
+describe("I3 — a pull binds the slot its record names, never the other", () => {
+  function driveToStaged(targetSlot: Slot): void {
+    applyUpgradeEvent({ type: "request", targetModelId: CATALOG_SMART, targetSlot });
     applyUpgradeEvent({ type: "download-started" });
     applyUpgradeEvent({ type: "download-completed" });
   }
@@ -157,7 +158,7 @@ describe("I3 — upgrade targets/binds eco-smart only, never eco-fast", () => {
     setSlot("eco-fast", CATALOG_STARTER);
     setSlotStatus("eco-fast", "ready");
 
-    driveToStaged();
+    driveToStaged("eco-smart");
     expect(readUpgradeRecord()?.phase).toBe("staged");
     expect(readUpgradeRecord()?.targetModelId).toBe(CATALOG_SMART);
 
@@ -178,7 +179,7 @@ describe("I3 — upgrade targets/binds eco-smart only, never eco-fast", () => {
     const outcome = await performUpgradeSwap({ seams });
 
     expect(outcome.kind).toBe("swapped");
-    // Bound eco-smart — never any other slot.
+    // Bound the slot the record named — never any other.
     expect(prepareCalls).toEqual([{ slot: "eco-smart", modelId: CATALOG_SMART }]);
     // eco-fast is exactly as seeded.
     const fast = getSlot("eco-fast");
@@ -187,6 +188,37 @@ describe("I3 — upgrade targets/binds eco-smart only, never eco-fast", () => {
     // The settled record still names the eco-smart target.
     expect(readUpgradeRecord()?.phase).toBe("done");
     expect(readUpgradeRecord()?.targetModelId).toBe(CATALOG_SMART);
+  });
+
+  it("swaps into eco-fast when that is the slot the record names, leaving eco-smart alone", async () => {
+    // The mirror image: a pull for the everyday tile. Seeding eco-smart proves
+    // the driver reads the record rather than a hardcoded slot.
+    setSlot("eco-smart", CATALOG_STARTER);
+    setSlotStatus("eco-smart", "ready");
+
+    driveToStaged("eco-fast");
+
+    const prepareCalls: { slot: string; modelId: string }[] = [];
+    const seams: Partial<UpgradeSwapSeams> = {
+      isModelFullyCached: () => Promise.resolve(true),
+      getSlot: (slot) => ({ slot, modelId: null, model: null, status: "empty" }),
+      prepareModelForSlot: ({ slot, modelId }) => {
+        prepareCalls.push({ slot, modelId });
+        return Promise.resolve(
+          { success: true } as Awaited<ReturnType<UpgradeSwapSeams["prepareModelForSlot"]>>,
+        );
+      },
+      recordEvidence: vi.fn(),
+      getDeviceProfile: () => ({}) as DeviceProfile,
+    };
+
+    const outcome = await performUpgradeSwap({ seams });
+
+    expect(outcome.kind).toBe("swapped");
+    expect(prepareCalls).toEqual([{ slot: "eco-fast", modelId: CATALOG_SMART }]);
+    const smart = getSlot("eco-smart");
+    expect(smart.modelId).toBe(CATALOG_STARTER);
+    expect(smart.status).toBe("ready");
   });
 });
 
@@ -201,6 +233,7 @@ describe("I4 — transitionUpgrade rejects illegal jumps (returns input unchange
     version: 1,
     phase: "offered",
     targetModelId: CATALOG_SMART,
+    targetSlot: "eco-smart",
     baseModelId: CATALOG_STARTER,
     deferral: null,
     swapAttempts: 0,

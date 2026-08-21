@@ -4,13 +4,16 @@
 /**
  * The composer selector offers the DEVICE PAIR, not the catalog.
  *
- * Two things this net exists to hold, neither of which the old flat-list tests
+ * Three things this net exists to hold, none of which the old flat-list tests
  * covered at all:
  *   - download state is visible (the old list offered gigabytes of undownloaded
- *     models as if they were a click away), and
+ *     models as if they were a click away),
  *   - selection writes a SLOT NAME, never a concrete model id — a store
  *     selection no slot owns is the exact state that let an undownloaded model
- *     reach the runtime, which then self-fetched it mid-turn.
+ *     reach the runtime, which then self-fetched it mid-turn, and
+ *   - a model that isn't here is asked for, downloaded, and switched to IN THE
+ *     TILE: confirm with a size, progress in the background, and a switch the
+ *     person taps when it suits them.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -23,6 +26,7 @@ import { deriveFirstRunChoices } from "../../../local-ai/selection/first-run-cho
 import { isModelDownloaded } from "../../../local-ai/download/download";
 import type { ModelConfig, Slot } from "../../../local-ai/types";
 import type { SlotState } from "../../../local-ai/lifecycle/slots";
+import type { ModelUpgradeUi } from "../../../hooks/local-ai/useModelUpgrade";
 
 const FAST_ID = "candidate/lfm2.5-1.2b-instruct-onnx";
 const DEEP_ID = "candidate/lfm2-2.6b-onnx";
@@ -88,12 +92,20 @@ vi.mock("../../../local-ai/lifecycle/slots", async (importOriginal) => ({
   },
 }));
 
-const mockPush = vi.fn();
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: mockPush }),
+// The pull machine, at its module boundary: the tile reads the shared UI state
+// and calls two plain functions. Mocking it keeps this file about the surface.
+let mockPullUi: ModelUpgradeUi = { kind: "hidden" };
+const mockRequestPull = vi.fn();
+const mockSwapNow = vi.fn();
+
+vi.mock("../../../hooks/local-ai/useModelUpgrade", () => ({
+  useModelUpgradeUi: () => mockPullUi,
+  requestModelPull: (...args: unknown[]) => mockRequestPull(...args),
+  swapPulledModelNow: (...args: unknown[]) => mockSwapNow(...args),
 }));
 
 let mockSelectedModel = "auto";
+let mockIsStreaming = false;
 const mockSetSelectedModel = vi.fn((model: string) => {
   mockSelectedModel = model;
 });
@@ -104,11 +116,13 @@ vi.mock("../../../stores/chatStore", () => ({
       selector({
         selectedModel: mockSelectedModel,
         setSelectedModel: mockSetSelectedModel,
+        isStreaming: mockIsStreaming,
       }),
     {
       getState: () => ({
         selectedModel: mockSelectedModel,
         setSelectedModel: mockSetSelectedModel,
+        isStreaming: mockIsStreaming,
       }),
     },
   ),
@@ -148,10 +162,33 @@ function tiles() {
   return within(getListbox()).getAllByRole("option");
 }
 
+/** The tile itself — the option, which holds the body button and any actions. */
 function tileNamed(name: string): HTMLElement {
-  const tile = within(getListbox()).getByText(name).closest("button");
-  if (!tile) throw new Error(`no tile named ${name}`);
+  const tile = within(getListbox()).getByText(name).closest('[role="option"]');
+  if (!(tile instanceof HTMLElement)) throw new Error(`no tile named ${name}`);
   return tile;
+}
+
+/** Tap the tile the way a person does: its body, not its action buttons. */
+async function tapTile(
+  user: ReturnType<typeof userEvent.setup>,
+  name: string,
+): Promise<void> {
+  const body = within(tileNamed(name)).getAllByRole("button")[0];
+  if (!body) throw new Error(`tile ${name} has no body button`);
+  await user.click(body);
+}
+
+/** Every pull state, minus the model — which `pullFor` fills in from the catalog. */
+type PullFixture = Exclude<ModelUpgradeUi, { kind: "hidden" }> extends infer U
+  ? U extends { target: unknown }
+    ? Omit<U, "target">
+    : never
+  : never;
+
+/** A pull in some phase, aimed at one of the fixture models. */
+function pullFor(id: string, pull: PullFixture): void {
+  mockPullUi = { ...pull, target: catalogModel(id) } as ModelUpgradeUi;
 }
 
 async function openSelector(): Promise<ReturnType<typeof userEvent.setup>> {
@@ -170,6 +207,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockIsMobile = false;
   mockSelectedModel = "auto";
+  mockIsStreaming = false;
+  mockPullUi = { kind: "hidden" };
   mockSlots = {
     "eco-fast": { modelId: null, status: "empty" },
     "eco-smart": { modelId: null, status: "empty" },
@@ -264,7 +303,7 @@ describe("ModelSelector — selection writes slot names, never concrete ids", ()
     bindSlot("eco-fast", FAST_ID, "ready");
 
     const user = await openSelector();
-    await user.click(tileNamed("Eco Deeper"));
+    await tapTile(user, "Eco Deeper");
 
     expect(mockSetSelectedModel).toHaveBeenCalledWith("eco-smart", { explicit: true });
     // Never the concrete id — that is the unbound-selection state itself.
@@ -273,22 +312,22 @@ describe("ModelSelector — selection writes slot names, never concrete ids", ()
     }
   });
 
-  it("routes an undownloaded model to the Settings download flow, preselected", async () => {
+  it("never selects an undownloaded model — it asks to download it instead", async () => {
     bindSlot("eco-fast", FAST_ID, "ready");
     mockSelectedModel = "eco-fast";
 
     const user = await openSelector();
-    await user.click(tileNamed("Eco Deeper"));
+    await tapTile(user, "Eco Deeper");
 
     expect(mockSetSelectedModel).not.toHaveBeenCalled();
-    expect(mockPush).toHaveBeenCalledWith(
-      `/settings?tab=models&switch=${encodeURIComponent(DEEP_ID)}`,
-    );
+    expect(mockRequestPull).not.toHaveBeenCalled();
+    expect(within(tileNamed("Eco Deeper")).getByRole("button", { name: "Download" }))
+      .toBeInTheDocument();
   });
 
   // Downloaded bytes with no slot to bind them to is still an unbound pick —
   // it has to go through the flow that BINDS a slot, not straight to the store.
-  it("routes a downloaded but unbound model through the download flow too", async () => {
+  it("asks about a downloaded but unbound model too, rather than selecting it", async () => {
     bindSlot("eco-fast", FAST_ID, "ready");
     mockSelectedModel = "eco-fast";
     vi.mocked(isModelDownloaded).mockResolvedValue(true);
@@ -297,12 +336,11 @@ describe("ModelSelector — selection writes slot names, never concrete ids", ()
     await waitFor(() => {
       expect(within(tileNamed("Eco Deeper")).getByText("Downloaded")).toBeInTheDocument();
     });
-    await user.click(tileNamed("Eco Deeper"));
+    await tapTile(user, "Eco Deeper");
 
     expect(mockSetSelectedModel).not.toHaveBeenCalled();
-    expect(mockPush).toHaveBeenCalledWith(
-      `/settings?tab=models&switch=${encodeURIComponent(DEEP_ID)}`,
-    );
+    expect(within(tileNamed("Eco Deeper")).getByRole("button", { name: "Download" }))
+      .toBeInTheDocument();
   });
 
   it("just closes when the active tile is tapped", async () => {
@@ -312,11 +350,143 @@ describe("ModelSelector — selection writes slot names, never concrete ids", ()
     const user = await openSelector();
     expect(tileNamed("Eco Fast")).toHaveAttribute("aria-selected", "true");
 
-    await user.click(tileNamed("Eco Fast"));
+    await tapTile(user, "Eco Fast");
 
     expect(mockSetSelectedModel).not.toHaveBeenCalled();
-    expect(mockPush).not.toHaveBeenCalled();
     expect(screen.queryByRole("listbox", { name: /select model/i })).not.toBeInTheDocument();
+  });
+});
+
+describe("ModelSelector — a model that isn't here downloads in place", () => {
+  beforeEach(() => {
+    bindSlot("eco-fast", FAST_ID, "ready");
+    mockSelectedModel = "eco-fast";
+  });
+
+  it("says how big it is and that chat keeps working, before anything downloads", async () => {
+    const user = await openSelector();
+    await tapTile(user, "Eco Deeper");
+
+    const deeper = tileNamed("Eco Deeper");
+    expect(
+      within(deeper).getByText(/Downloads ~1\.7 GB in the background/i),
+    ).toBeInTheDocument();
+    expect(within(deeper).getByText(/keep chatting/i)).toBeInTheDocument();
+    expect(within(deeper).getByRole("button", { name: "Not now" })).toBeInTheDocument();
+    // Still nothing downloading: the confirm is the consent.
+    expect(mockRequestPull).not.toHaveBeenCalled();
+  });
+
+  it("'Not now' leaves nothing behind and the tile is immediately re-tappable", async () => {
+    const user = await openSelector();
+    await tapTile(user, "Eco Deeper");
+    await user.click(within(tileNamed("Eco Deeper")).getByRole("button", { name: "Not now" }));
+
+    expect(mockRequestPull).not.toHaveBeenCalled();
+    expect(within(tileNamed("Eco Deeper")).queryByRole("button", { name: "Download" }))
+      .not.toBeInTheDocument();
+    // Asking again is one tap, with no memory of the refusal.
+    await tapTile(user, "Eco Deeper");
+    expect(within(tileNamed("Eco Deeper")).getByRole("button", { name: "Download" }))
+      .toBeInTheDocument();
+  });
+
+  it("pulls the deeper model into eco-smart, and the everyday one into eco-fast", async () => {
+    const user = await openSelector();
+    await tapTile(user, "Eco Deeper");
+    await user.click(within(tileNamed("Eco Deeper")).getByRole("button", { name: "Download" }));
+
+    expect(mockRequestPull).toHaveBeenCalledWith("eco-smart", DEEP_ID);
+    // Never a plain selection: the bytes have to arrive first.
+    expect(mockSetSelectedModel).not.toHaveBeenCalled();
+  });
+
+  it("pulls an undownloaded everyday pick into eco-fast, the slot that pick owns", async () => {
+    // The mirror case: this device is chatting on the deeper model and the
+    // everyday pick is the one that has to be fetched.
+    mockSlots = {
+      "eco-fast": { modelId: null, status: "empty" },
+      "eco-smart": { modelId: DEEP_ID, status: "ready" },
+    };
+    mockSelectedModel = "eco-smart";
+
+    const user = await openSelector();
+    await tapTile(user, "Eco Fast");
+    await user.click(within(tileNamed("Eco Fast")).getByRole("button", { name: "Download" }));
+
+    expect(mockRequestPull).toHaveBeenCalledWith("eco-fast", FAST_ID);
+  });
+
+  it("shows the download running on the tile it was asked for", async () => {
+    pullFor(DEEP_ID, { kind: "downloading", slot: "eco-smart", percent: 0.42 });
+
+    await openSelector();
+
+    const deeper = tileNamed("Eco Deeper");
+    expect(within(deeper).getByRole("progressbar")).toBeInTheDocument();
+    expect(within(deeper).getByText("Downloading 42%")).toBeInTheDocument();
+    // The other tile is untouched by someone else's download.
+    expect(within(tileNamed("Eco Fast")).queryByRole("progressbar")).not.toBeInTheDocument();
+  });
+
+  it("offers the switch once it is ready, and never takes it on its own", async () => {
+    pullFor(DEEP_ID, { kind: "ready", slot: "eco-smart" });
+
+    const user = await openSelector();
+    const switchNow = within(tileNamed("Eco Deeper")).getByRole("button", {
+      name: /switch now/i,
+    });
+    await user.click(switchNow);
+
+    expect(mockSwapNow).toHaveBeenCalledTimes(1);
+    expect(mockSetSelectedModel).not.toHaveBeenCalled();
+  });
+
+  it("will not switch in the middle of a reply", async () => {
+    mockIsStreaming = true;
+    pullFor(DEEP_ID, { kind: "ready", slot: "eco-smart" });
+
+    await openSelector();
+
+    expect(within(tileNamed("Eco Deeper")).getByRole("button", { name: /switch now/i }))
+      .toBeDisabled();
+  });
+
+  it("shows the swap preparing, on the same tile", async () => {
+    pullFor(DEEP_ID, { kind: "swapping", slot: "eco-smart", percent: 0.5 });
+
+    await openSelector();
+
+    expect(within(tileNamed("Eco Deeper")).getByText("Preparing 50%")).toBeInTheDocument();
+  });
+
+  it("a deferred pull says why, and the tile stays tappable to try again", async () => {
+    pullFor(DEEP_ID, {
+      kind: "deferred",
+      slot: "eco-smart",
+      deferral: { code: "insufficient-storage", message: "Eco needs about 1 GB more room." },
+    });
+
+    const user = await openSelector();
+    const deeper = tileNamed("Eco Deeper");
+    expect(within(deeper).getByText("Eco needs about 1 GB more room.")).toBeInTheDocument();
+
+    await tapTile(user, "Eco Deeper");
+    expect(within(tileNamed("Eco Deeper")).getByRole("button", { name: "Download" }))
+      .toBeInTheDocument();
+  });
+
+  it("tells the composer trigger that a model is waiting to be switched to", async () => {
+    pullFor(DEEP_ID, { kind: "ready", slot: "eco-smart" });
+
+    render(<ModelSelector />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("model-selector")).toHaveAttribute(
+        "aria-label",
+        expect.stringContaining("ready to switch to"),
+      );
+    });
   });
 });
 
@@ -391,5 +561,22 @@ describe("ModelSelector — shell behavior is unchanged", () => {
 
     expect(tiles()).toHaveLength(2);
     expect(within(getListbox()).getByText("Eco Deeper")).toBeInTheDocument();
+  });
+
+  it("keeps the bottom sheet open when a tile inside it is tapped", async () => {
+    // The sheet is portalled out of this component's subtree, so the pointer
+    // layout's click-outside listener read every tap INSIDE it as a tap outside
+    // and closed it. Harmless while every tap was a selection that closed the
+    // panel anyway; it swallowed the whole confirm on touch.
+    mockIsMobile = true;
+    bindSlot("eco-fast", FAST_ID, "ready");
+    mockSelectedModel = "eco-fast";
+
+    const user = await openSelector();
+    await tapTile(user, "Eco Deeper");
+
+    expect(getListbox()).toBeInTheDocument();
+    expect(within(tileNamed("Eco Deeper")).getByRole("button", { name: "Download" }))
+      .toBeInTheDocument();
   });
 });
