@@ -562,4 +562,21 @@ describe("ModelSelector — shell behavior is unchanged", () => {
     expect(tiles()).toHaveLength(2);
     expect(within(getListbox()).getByText("Eco Deeper")).toBeInTheDocument();
   });
+
+  it("keeps the bottom sheet open when a tile inside it is tapped", async () => {
+    // The sheet is portalled out of this component's subtree, so the pointer
+    // layout's click-outside listener read every tap INSIDE it as a tap outside
+    // and closed it. Harmless while every tap was a selection that closed the
+    // panel anyway; it swallowed the whole confirm on touch.
+    mockIsMobile = true;
+    bindSlot("eco-fast", FAST_ID, "ready");
+    mockSelectedModel = "eco-fast";
+
+    const user = await openSelector();
+    await tapTile(user, "Eco Deeper");
+
+    expect(getListbox()).toBeInTheDocument();
+    expect(within(tileNamed("Eco Deeper")).getByRole("button", { name: "Download" }))
+      .toBeInTheDocument();
+  });
 });

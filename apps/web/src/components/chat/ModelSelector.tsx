@@ -198,8 +198,13 @@ export function ModelSelector() {
     };
   }, [isMobile, open, updateDropdownPosition]);
 
-  // Close on click outside
+  // Close on click outside — pointer layouts only. The bottom sheet is portalled
+  // out of this subtree and owns its own dismissal (backdrop, Escape, close
+  // button), so this listener read every tap INSIDE the sheet as a tap outside
+  // the panel and closed it: harmless while every tap was a selection that
+  // closed the panel anyway, fatal now that a tap can open an inline confirm.
   useEffect(() => {
+    if (isMobile) return;
     function handleClickOutside(e: MouseEvent) {
       const target = e.target as Node;
       const triggerContainsTarget = ref.current?.contains(target) ?? false;
@@ -210,7 +215,7 @@ export function ModelSelector() {
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+  }, [isMobile]);
 
   useEffect(() => {
     if (!open || isMobile) return;
@@ -412,10 +417,12 @@ export function ModelSelector() {
             <SaplingIllustration size={15} />
           )}
           {/* A staged model is waiting for a tap the person has to know about,
-              and the panel that says so is closed. One dot, no motion, no copy. */}
+              and the panel that says so is closed. One dot, no motion, no copy.
+              3px, clear of a 15px glyph drawn in hairlines: anything heavier
+              stops reading as a marker beside the leaf and becomes a blot on it. */}
           {isPullReady && (
             <span
-              className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full"
+              className="absolute -right-1 -top-1 h-[3px] w-[3px] rounded-full"
               style={{ background: "var(--eco-primary)" }}
             />
           )}
