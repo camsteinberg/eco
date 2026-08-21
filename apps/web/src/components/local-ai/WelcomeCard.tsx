@@ -86,12 +86,12 @@ export function WelcomeCard({
         <div className="flex flex-col items-center text-center">
           <LeafMark />
           <h1
-            className="mt-2 text-3xl tracking-tight sm:text-4xl"
+            className="mt-2 text-2xl tracking-tight sm:text-3xl"
             style={{ fontFamily: 'var(--eco-font-display)', color: 'var(--eco-text)' }}
           >
             Welcome to Eco
           </h1>
-          <p className="mt-1.5 text-base" style={{ color: 'var(--eco-text-secondary)' }}>
+          <p className="mt-1 text-[15px]" style={{ color: 'var(--eco-text-secondary)' }}>
             The AI runs on your device, not in a data center.
           </p>
         </div>
@@ -101,30 +101,21 @@ export function WelcomeCard({
             use no cooling water — this line carries only the part neither does:
             why data centers spend water at all. */}
         <p
-          className="mx-auto mt-2.5 max-w-lg text-center text-sm leading-normal sm:mt-3"
+          className="mx-auto mt-2 max-w-lg text-center text-sm leading-normal"
           style={{ color: 'var(--eco-text-secondary)' }}
         >
           Data centers answer your messages on their servers, and cool those servers with water.
         </p>
 
         {/* The signature: water comparison visual */}
-        <div className="mt-3 sm:mt-4">
-          <WaterComparison />
-          <div className="mt-1.5 text-center">
-            <a
-              href={impactHref}
-              className="text-xs font-medium underline decoration-[var(--eco-primary)]/40 underline-offset-2 transition-opacity hover:opacity-70"
-              style={{ color: 'var(--eco-primary)' }}
-            >
-              See the numbers →
-            </a>
-          </div>
+        <div className="mt-3">
+          <WaterComparison impactHref={impactHref} />
         </div>
 
         {/* Model choice */}
-        <div className="mt-4 sm:mt-5">
+        <div className="mt-3 sm:mt-4">
           <div className="text-center">
-            <p className="text-base font-semibold" style={{ color: 'var(--eco-text)' }}>
+            <p className="text-sm font-semibold" style={{ color: 'var(--eco-text)' }}>
               {single ? 'Your model' : 'Pick the model that fits your device'}
             </p>
             <p className="mt-0.5 text-xs" style={{ color: 'var(--eco-text-muted)' }}>
@@ -133,7 +124,7 @@ export function WelcomeCard({
           </div>
 
           <div
-            className={`mt-3 grid gap-3 ${single ? 'grid-cols-1' : 'grid-cols-1 sm:grid-cols-2'}`}
+            className={`mt-2.5 grid gap-2.5 ${single ? 'grid-cols-1' : 'grid-cols-1 sm:grid-cols-2'}`}
             role={single ? undefined : 'radiogroup'}
             aria-label="Choose your model"
           >
@@ -154,7 +145,7 @@ export function WelcomeCard({
         <button
           type="button"
           onClick={() => selected && onChoose(selected.id)}
-          className="mt-3 flex min-h-12 w-full items-center justify-center gap-2 rounded-full px-6 text-base font-semibold transition-transform active:scale-[0.99] sm:mt-4"
+          className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-full px-6 text-[15px] font-semibold transition-transform active:scale-[0.99]"
           style={{ background: 'var(--eco-primary)', color: 'var(--eco-on-primary)' }}
         >
           {single ? `Start with ${selected?.name ?? 'Eco'}` : `Start with ${selected?.name ?? ''}`}
@@ -185,7 +176,7 @@ function ModelChoiceTile({
       onClick={onSelect}
       role={selectable ? 'radio' : undefined}
       aria-checked={selectable ? selected : undefined}
-      className="flex flex-col rounded-2xl px-4 py-3.5 text-left transition-colors"
+      className="flex flex-col rounded-2xl px-4 py-3 text-left transition-colors"
       style={{
         background: selected ? 'var(--eco-primary-soft)' : 'var(--eco-surface)',
         border: `1.5px solid ${selected ? 'var(--eco-primary)' : 'var(--eco-border)'}`,
@@ -218,7 +209,7 @@ function ModelChoiceTile({
       <p className="mt-1.5 text-[13px] leading-snug" style={{ color: 'var(--eco-text-secondary)' }}>
         {choice.tagline}
       </p>
-      <div className="mt-3 flex flex-col gap-1">
+      <div className="mt-2.5 flex flex-col gap-1">
         <Meter label="Speed" value={choice.speed} />
         <Meter label="Depth" value={choice.depth} />
       </div>
@@ -251,11 +242,11 @@ function Meter({ label, value }: { label: string; value: number }) {
 function LeafMark() {
   return (
     <span
-      className="flex h-10 w-10 items-center justify-center rounded-2xl"
+      className="flex h-9 w-9 items-center justify-center rounded-2xl"
       style={{ background: 'var(--eco-primary-soft)' }}
       aria-hidden="true"
     >
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
         <path
           d="M12 3C12 3 5 8 5 14a7 7 0 0014 0c0-6-7-11-7-11Z"
           fill="var(--eco-primary)"
@@ -279,16 +270,16 @@ function LeafMark() {
  * /impact comparison but as one warm, glanceable diagram for non-technical users.
  * Figures match impact-calc.ts / the /impact page (UC Riverside, ~0.25 L/query).
  */
-function WaterComparison() {
+function WaterComparison({ impactHref }: { impactHref: string }) {
   return (
     <div
-      className="mx-auto w-full max-w-md rounded-2xl px-4 py-3"
+      className="mx-auto w-full max-w-md rounded-2xl px-4 py-2.5"
       style={{ background: 'var(--eco-surface)', border: '1px solid var(--eco-border-muted)' }}
     >
       <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
         {/* Cloud AI side */}
-        <figure className="flex flex-col items-center gap-2 text-center">
-          <svg width="72" height="56" viewBox="0 0 72 56" fill="none" aria-hidden="true">
+        <figure className="flex flex-col items-center gap-1.5 text-center">
+          <svg width="57" height="44" viewBox="0 0 72 56" fill="none" aria-hidden="true">
             {/* falling water drops */}
             <path d="M20 8c0 2-2 3-2 5a2 2 0 004 0c0-2-2-3-2-5Z" fill="var(--eco-sky)" />
             <path d="M36 4c0 2-2 3-2 5a2 2 0 004 0c0-2-2-3-2-5Z" fill="var(--eco-sky)" />
@@ -310,8 +301,8 @@ function WaterComparison() {
         <span className="text-lg" style={{ color: 'var(--eco-text-muted)' }} aria-hidden="true">→</span>
 
         {/* Eco / device side */}
-        <figure className="flex flex-col items-center gap-2 text-center">
-          <svg width="72" height="56" viewBox="0 0 72 56" fill="none" aria-hidden="true">
+        <figure className="flex flex-col items-center gap-1.5 text-center">
+          <svg width="57" height="44" viewBox="0 0 72 56" fill="none" aria-hidden="true">
             {/* laptop */}
             <rect x="18" y="16" width="36" height="24" rx="2.5" stroke="var(--eco-text-muted)" strokeWidth="1.5" />
             <path d="M12 46h48l-4-6H16l-4 6Z" stroke="var(--eco-text-muted)" strokeWidth="1.5" strokeLinejoin="round" />
@@ -326,8 +317,15 @@ function WaterComparison() {
           </figcaption>
         </figure>
       </div>
-      <p className="mt-2 text-center text-[11px]" style={{ color: 'var(--eco-text-muted)' }}>
-        Data-center cooling water per query. On-device answers use none.
+      <p className="mt-1.5 text-center text-[11px]" style={{ color: 'var(--eco-text-muted)' }}>
+        Data-center cooling water per query. On-device answers use none.{' '}
+        <a
+          href={impactHref}
+          className="font-medium whitespace-nowrap underline decoration-[var(--eco-primary)]/40 underline-offset-2 transition-opacity hover:opacity-70"
+          style={{ color: 'var(--eco-primary)' }}
+        >
+          See the numbers →
+        </a>
       </p>
     </div>
   );

@@ -807,10 +807,11 @@ button:disabled,
    lengthens the scroll run so the content can be scrolled FULLY clear of the
    notice — without it, the last line stays clipped even at max scroll.
    Only the breakpoints where the notice actually overlaps reserve space: the
-   full-width mobile bar (<sm) and the bottom-right desktop card (lg+, composer
-   only — the centered setup card and the empty-state footer clear the desktop
-   card without help). The sm–md notice is lifted and narrow, so it never
-   reaches the composer. */
+   full-width mobile bar (<sm) and the bottom-right desktop card (lg+, the
+   composer and the setup surface — the setup surface's chromeless pillar row
+   spans the column, so it reaches into the desktop card's corner; the
+   empty-state footer still clears it without help). The sm–md notice is lifted
+   and narrow, so it never reaches the composer. */
 @media (max-width: 639px) {
   html.eco-chat-cookie-notice [data-eco-composer-bar] {
     padding-bottom: 6.5rem;
@@ -830,6 +831,9 @@ button:disabled,
 }
 @media (min-width: 1024px) {
   html.eco-chat-cookie-notice [data-eco-composer-bar] {
+    padding-bottom: 8rem;
+  }
+  html.eco-chat-cookie-notice [data-eco-setup-surface] {
     padding-bottom: 8rem;
   }
 }

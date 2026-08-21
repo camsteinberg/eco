@@ -155,10 +155,10 @@ function failedSlot(modelId: string): string {
 }
 
 /** Indices 0 and 1 of REASSURANCE_COPY (WelcomeSetup.tsx) — unit-test-locked.
- * The rotation dropped its two Private-pillar restatements, so the first two
- * entries are now the open-source promise and the download line. */
-const REASSURANCE_FIRST = "Eco is open source — your AI, your trust.";
-const REASSURANCE_SECOND = "Downloading your AI so it never has to leave your device.";
+ * The rotation is five concrete lines: no slogans and no restatements of the
+ * pillar row, so the first two entries name the download and where it lands. */
+const REASSURANCE_FIRST = "Downloading your AI so it never has to leave your device.";
+const REASSURANCE_SECOND = "The model saves into this browser. No copy lands on a server.";
 /** REASSURANCE_INTERVAL_MS in useEcoSetup.ts, plus room for the 0.4s crossfade. */
 const REASSURANCE_ROTATION_MS = 9_000;
 
@@ -200,7 +200,7 @@ export const setupGateGaps: CaptureGap[] = [
   {
     id: "setup-gate.setup-smoke-phase",
     group: "setup-gate",
-    surface: "WelcomeSetup's `smoke` phase (“Almost there — waking up your AI for the first time”, both device wordings)",
+    surface: "WelcomeSetup's `smoke` phase (“Almost there: waking up your AI for the first time”, both device wordings)",
     reason:
       "The smoke phase IS the first real cold load of a downloaded model. Same root cause as the percent bands: no bytes "
       + "arrive, so the pipeline never leaves the download phase.",

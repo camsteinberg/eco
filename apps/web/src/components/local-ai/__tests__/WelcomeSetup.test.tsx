@@ -51,24 +51,37 @@ describe('WelcomeSetup', () => {
     expect(screen.queryByText(/getting your private ai ready/i)).toBeNull();
   });
 
-  it('rotates reassurance copy across the promise/process/warmth mix', () => {
+  it('rotates reassurance copy across the process/warmth mix', () => {
     const { rerender } = render(
       <WelcomeSetup phase="downloading" percent={30} etaSeconds={60} reassuranceIndex={0} />,
     );
-    expect(screen.getByText(/open source/i)).toBeInTheDocument();
-    // A later index carries a process-narration line — guards the content mix
-    // so the rotation can't silently collapse back to promise-only lines.
-    rerender(<WelcomeSetup phase="downloading" percent={30} etaSeconds={60} reassuranceIndex={2} />);
-    expect(screen.getByText(/saving it to your device/i)).toBeInTheDocument();
-    rerender(<WelcomeSetup phase="downloading" percent={30} etaSeconds={60} reassuranceIndex={7} />);
+    // Index 0 is the load-bearing first impression: it names what the wait is
+    // for, in concrete terms — not a slogan.
+    expect(screen.getByText(/downloading your ai so it never has to leave/i)).toBeInTheDocument();
+    rerender(<WelcomeSetup phase="downloading" percent={30} etaSeconds={60} reassuranceIndex={1} />);
+    expect(screen.getByText(/saves into this browser/i)).toBeInTheDocument();
+    rerender(<WelcomeSetup phase="downloading" percent={30} etaSeconds={60} reassuranceIndex={4} />);
     expect(screen.getByText(/supporters chip in/i)).toBeInTheDocument();
+  });
+
+  // "Your AI, your trust"-shaped slogans read as filler, not reassurance — the
+  // rotation carries concrete lines only. This keeps the cut line from
+  // drifting back in.
+  it('does not carry the open-source slogan line in the rotation', () => {
+    for (let index = 0; index < 5; index += 1) {
+      const { unmount } = render(
+        <WelcomeSetup phase="downloading" percent={30} etaSeconds={60} reassuranceIndex={index} />,
+      );
+      expect(screen.queryByText(/open source/i)).toBeNull();
+      unmount();
+    }
   });
 
   // The three-pillar row directly above already states that chats stay on this
   // device. Rotation lines that only restate it spend a slot saying nothing new,
   // so they were dropped — this keeps them from drifting back in.
   it('does not restate the Private pillar verbatim in the rotation', () => {
-    for (let index = 0; index < 8; index += 1) {
+    for (let index = 0; index < 5; index += 1) {
       const { unmount } = render(
         <WelcomeSetup phase="downloading" percent={30} etaSeconds={60} reassuranceIndex={index} />,
       );
@@ -122,30 +135,12 @@ describe('WelcomeSetup', () => {
     expect(screen.getByRole('main')).toHaveAttribute('data-eco-setup-surface');
   });
 
-  // The composer is present from first paint (germinating), so a painted setup
-  // page never reads as a broken page with no place to type.
-  it('renders a disabled germinating composer while setting up (not ready)', () => {
+  // The setup surface is a single calm column: no composer ghost while the
+  // model isn't usable yet. A disabled input read as broken, not as promise —
+  // the real composer arrives with the real chat surface.
+  it('renders no composer while setting up', () => {
     render(<WelcomeSetup phase="downloading" percent={20} etaSeconds={90} reassuranceIndex={0} />);
-    const composer = screen.getByPlaceholderText(/Eco is getting ready on this device/i);
-    expect(composer).toBeInTheDocument();
-    expect(composer).toBeDisabled();
-    // Quiet, non-narrating: no live send button yet, and no progress text inside
-    // the composer (download detail lives on the surface above).
-    expect(screen.queryByRole('button', { name: /send message/i })).toBeNull();
-  });
-
-  it('keeps the germinating composer disabled in the smoke (cold-load) phase', () => {
-    render(<WelcomeSetup phase="smoke" percent={95} etaSeconds={5} reassuranceIndex={0} />);
-    expect(screen.getByPlaceholderText(/Eco is getting ready on this device/i)).toBeDisabled();
-  });
-
-  // When the model is ready, the composer springs to its live form: the seedling
-  // in the send slot becomes the real send button and the placeholder swaps.
-  it('brings the composer to life when the model is ready (phase done)', () => {
-    render(<WelcomeSetup phase="done" percent={100} etaSeconds={0} reassuranceIndex={0} />);
-    expect(screen.getByPlaceholderText(/Ask Eco anything/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/send message/i)).toBeInTheDocument();
-    // The germinating placeholder is gone once ready.
     expect(screen.queryByPlaceholderText(/getting ready on this device/i)).toBeNull();
+    expect(screen.queryByRole('textbox')).toBeNull();
   });
 });

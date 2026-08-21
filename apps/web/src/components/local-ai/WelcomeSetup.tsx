@@ -5,7 +5,6 @@
 
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { BotanicalAnimation } from './BotanicalAnimation';
-import { GerminatingComposer } from '../chat/GerminatingComposer';
 import { ProgressBar } from '../ui/ProgressBar';
 import { VALUE_PILLARS } from '../../lib/value-pillars';
 
@@ -16,8 +15,11 @@ import { VALUE_PILLARS } from '../../lib/value-pillars';
  *   - centered botanical illustration (matures with progress)
  *   - "Eco" wordmark + subtitle
  *   - a calm status line + a progress bar bound to real download progress
- *   - rotating reassurance card (one visible, crossfade transition)
- *   - the three-pillar value pitch
+ *   - rotating reassurance line (one visible, crossfade transition)
+ *   - the three-pillar value pitch (chromeless, hairline-divided)
+ *
+ * Deliberately nothing else: no composer ghost, no boxed cards — the wait
+ * surface stays a single calm column until the real chat takes over.
  *
  * The progress bar is the concrete "how much longer" signal — it tracks
  * aggregate downloaded bytes (monotonic), so it is honest and does not tick
@@ -57,24 +59,21 @@ export type WelcomeSetupProps = {
   resuming?: boolean;
 };
 
-// The wait runs 2–10 minutes; a 4-line loop (32s) empties fast and reads as
-// "stuck" on the back 80%. Blend three registers — the privacy promise, gentle
-// process-narration (labor illusion: name the real work), and warmth — so the
-// rotation carries the whole wait without obvious repetition. Keep index 0
-// fixed; it is the load-bearing first impression (and unit-test-locked).
-// Lines that only restate the Private pillar rendered directly above don't
-// earn a slot — the rotation has to say something the page doesn't already.
+// Five lines at the 8s rotation interval is a ~40s loop. That repeats over a
+// multi-minute wait, and repeating five true, concrete lines beats padding the
+// list with filler to stretch the cycle. Index 0 is fixed (and unit-test-locked):
+// it is the load-bearing first impression and it names what the wait is FOR.
+// Every line has to say something concrete a person could act on or remember —
+// no slogans, and nothing that merely restates the three-pillar row rendered
+// below it, which would spend a slot saying nothing new.
+// Changing the length here means changing REASSURANCE_COUNT in useEcoSetup.ts.
 const REASSURANCE_COPY = [
-  // — the promise —
-  'Eco is open source — your AI, your trust.',
-  // — what's happening (names the wait as the reason it's private) —
+  // — what's happening, and where it lands —
   'Downloading your AI so it never has to leave your device.',
-  'Saving it to your device — no cloud, no sign-in, no catch.',
-  // — the warmth / values —
-  "Private, by how it's built — not by promise.",
-  'No account needed to think out loud.',
-  'Your AI runs without a data center — lighter on water, lighter on the planet.',
-  'Set up once — after this, it opens fast and works offline.',
+  'The model saves into this browser. No copy lands on a server.',
+  // — what it means for you —
+  'You can use all of Eco without an account.',
+  'You only wait like this once. After today, Eco opens in seconds and works offline.',
   'Everything Eco does is free. Supporters chip in because they want to.',
 ];
 
@@ -103,7 +102,7 @@ export function WelcomeSetup({
   return (
     <main
       data-eco-setup-surface
-      className="min-h-screen w-full flex flex-col items-center justify-center px-6 py-12"
+      className="min-h-screen w-full flex flex-col items-center justify-center px-6 py-8"
       style={{
         background: 'var(--eco-surface)',
         color: 'var(--eco-text)',
@@ -125,12 +124,15 @@ export function WelcomeSetup({
           </p>
         </div>
 
-        {/* Status line + the concrete progress signal. */}
+        {/* Status line + the concrete progress signal, with the rotating
+            reassurance line directly beneath — one calm reading column, no
+            card chrome. The grid overlap keeps the crossfade from shifting
+            the layout as lines swap. */}
         <div className="flex w-full flex-col items-center gap-3">
           <p
             aria-live="polite"
             className="text-sm"
-            style={{ color: 'var(--eco-text-muted)' }}
+            style={{ color: 'var(--eco-text-secondary)' }}
           >
             {statusCopy}
           </p>
@@ -140,6 +142,25 @@ export function WelcomeSetup({
               ariaLabel="Setup progress"
               working={phase === 'smoke'}
             />
+          </div>
+          <div
+            className="mt-1 grid min-h-12 w-full max-w-md justify-items-center text-[13px] leading-relaxed"
+            role="status"
+            aria-label="Reassurance message"
+            style={{ color: 'var(--eco-text-muted)' }}
+          >
+            <AnimatePresence initial={false}>
+              <motion.span
+                key={reassurance}
+                initial={reducedMotion ? false : { opacity: 0, y: 6 }}
+                animate={reducedMotion ? { opacity: 1 } : { opacity: 1, y: 0 }}
+                exit={reducedMotion ? { opacity: 1 } : { opacity: 0, y: -6 }}
+                transition={{ duration: reducedMotion ? 0 : 0.4 }}
+                className="col-start-1 row-start-1 block text-center"
+              >
+                {reassurance}
+              </motion.span>
+            </AnimatePresence>
           </div>
         </div>
 
@@ -155,33 +176,32 @@ export function WelcomeSetup({
 
         {/* Three-pillar value pitch — the user's first impression while
             the model downloads. Same content as the post-setup chat-input
-            pill row so the brand promise is consistent across both surfaces. */}
+            pill row so the brand promise is consistent across both surfaces,
+            and the same chromeless hairline-divided presentation (WhyEcoCard)
+            so it reads as one system, not extra cards. */}
         <ul
-          className="grid w-full grid-cols-1 gap-2 sm:grid-cols-3"
+          className="mt-4 flex w-full flex-col items-center gap-3 sm:flex-row sm:items-stretch sm:justify-center sm:gap-0"
           aria-label="What makes Eco different"
         >
-          {VALUE_PILLARS.map((pillar) => (
+          {VALUE_PILLARS.map((pillar, i) => (
             <li
               key={pillar.title}
-              className="flex flex-col items-center gap-1.5 rounded-2xl px-3 py-3 text-center"
-              style={{
-                background: 'var(--eco-surface-elevated)',
-                border: '1px solid var(--eco-border-muted)',
-              }}
+              className={`flex w-full max-w-[200px] flex-col items-center gap-1 px-4 text-center ${
+                i > 0 ? 'sm:border-l sm:border-[var(--eco-border-muted)]' : ''
+              }`}
             >
-              <span
-                aria-hidden="true"
-                className="flex h-6 w-6 items-center justify-center"
-                style={{ color: 'var(--eco-primary)' }}
-              >
-                {pillar.icon}
+              <span className="flex items-center gap-1.5">
+                <span
+                  aria-hidden="true"
+                  className="flex items-center justify-center"
+                  style={{ color: 'var(--eco-primary)' }}
+                >
+                  {pillar.icon}
+                </span>
+                <span className="text-xs font-medium" style={{ color: 'var(--eco-text)' }}>
+                  {pillar.title}
+                </span>
               </span>
-              <p
-                className="text-xs font-medium"
-                style={{ color: 'var(--eco-text)' }}
-              >
-                {pillar.title}
-              </p>
               <p
                 className="text-[11px] leading-snug"
                 style={{ color: 'var(--eco-text-secondary)' }}
@@ -191,39 +211,6 @@ export function WelcomeSetup({
             </li>
           ))}
         </ul>
-
-        <div
-          className="w-full rounded-2xl px-5 py-4 text-sm leading-relaxed"
-          style={{
-            background: 'var(--eco-surface-elevated)',
-            border: '1px solid var(--eco-border-muted)',
-            color: 'var(--eco-text)',
-            minHeight: '4.5rem',
-          }}
-          role="status"
-          aria-label="Reassurance message"
-        >
-          <AnimatePresence initial={false}>
-            <motion.span
-              key={reassurance}
-              initial={reducedMotion ? false : { opacity: 0, y: 6 }}
-              animate={reducedMotion ? { opacity: 1 } : { opacity: 1, y: 0 }}
-              exit={reducedMotion ? { opacity: 1 } : { opacity: 0, y: -6 }}
-              transition={{ duration: reducedMotion ? 0 : 0.4 }}
-              className="block"
-            >
-              {reassurance}
-            </motion.span>
-          </AnimatePresence>
-        </div>
-      </div>
-
-      {/* The composer, present from first paint. It sits in the live composer's
-          box geometry (same width, same shell) so the input reads as "here,
-          warming up" rather than missing — and springs to life when the model
-          is ready. Download detail stays above; the composer never narrates it. */}
-      <div className="mt-8 w-full max-w-2xl px-4">
-        <GerminatingComposer ready={phase === 'done'} />
       </div>
     </main>
   );
@@ -243,8 +230,8 @@ function statusCopyFor(
   // the slower CPU path, so promise more room.
   if (phase === 'smoke') {
     return lightweightDevice
-      ? 'Waking up your AI — this device runs a lighter model, so the first load can take a minute or two'
-      : 'Almost there — waking up your AI for the first time. This one-time step can take a minute.';
+      ? 'Waking up your AI. This device runs a lighter model, so the first load can take a minute or two.'
+      : 'Almost there: waking up your AI for the first time. This one-time step can take a minute.';
   }
   if (phase === 'done') return 'Ready when you are.';
   if (percent >= 85) return 'Almost ready…';
@@ -260,6 +247,6 @@ function statusCopyFor(
   // countdown). On a WASM/CPU-only device we name the lighter model up front so
   // it doesn't read like a downgrade later.
   return lightweightDevice
-    ? 'Setting up a lighter AI that runs smoothly on this device'
-    : 'Getting your private AI ready — this takes a few minutes the first time.';
+    ? 'Setting up a lighter AI that runs smoothly on this device.'
+    : 'Getting your private AI ready. The first download takes a few minutes.';
 }
