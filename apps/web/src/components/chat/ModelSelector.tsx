@@ -682,7 +682,7 @@ function TilePullState({
             className="whitespace-nowrap"
             onClick={onSwapNow}
             disabled={isStreaming}
-            title={isStreaming ? "Eco will switch once this reply finishes." : undefined}
+            title={isStreaming ? "You can switch when this reply finishes." : undefined}
           >
             Ready. Switch now
           </Button>
