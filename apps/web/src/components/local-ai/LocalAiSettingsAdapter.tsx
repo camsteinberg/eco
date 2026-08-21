@@ -89,6 +89,17 @@ export function LocalAiSettingsAdapter() {
   // automatically when slots change (a fresh download bumps state.slots).
   const breakdown = useLocalAiStorageBreakdown({ refreshKey: state.slots });
 
+  // What the storage panel groups by: which model each slot holds right now.
+  // Read from the same live slot snapshot the rest of this adapter uses, so a
+  // download or a removal regroups the cards without a reload.
+  const slotModelIds: Record<Slot, string | null> = useMemo(
+    () => ({
+      'eco-fast': state.slots['eco-fast'].modelId,
+      'eco-smart': state.slots['eco-smart'].modelId,
+    }),
+    [state.slots],
+  );
+
   const onSwitchRequested = useCallback(
     async (modelId: string): Promise<SwitchAIResult> => {
       const ac = new AbortController();
@@ -181,6 +192,7 @@ export function LocalAiSettingsAdapter() {
         currentModelStatus={running.status ?? undefined}
         storageBreakdown={breakdown.data}
         storageStatus={breakdown.status}
+        slotModelIds={slotModelIds}
         onSwitchAI={() => setDialogOpen(true)}
         onShowDiagnostic={showDiagnosticsLink ? () => router.push('/diagnostics/local-ai?eco-diagnostics=1') : undefined}
         onClearCache={onClearCache}

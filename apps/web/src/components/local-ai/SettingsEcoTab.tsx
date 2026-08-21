@@ -4,7 +4,7 @@
 'use client';
 
 import { Button } from '@eco/ui';
-import type { ModelConfig } from '../../local-ai/types';
+import type { ModelConfig, Slot } from '../../local-ai/types';
 import type { SlotStatus } from '../../local-ai/lifecycle/slots';
 import { getDisplayInfo } from '../../local-ai/display';
 import { useSettingsStore } from '../../stores/settingsStore';
@@ -38,6 +38,8 @@ export type SettingsEcoTabProps = {
   storageBreakdown: StorageBreakdown | null;
   /** Loading state for the storageBreakdown fetch. */
   storageStatus: 'loading' | 'ready';
+  /** Which model id each slot holds — groups the storage cards by slot. */
+  slotModelIds: Record<Slot, string | null>;
   /** Open the SwitchAIDialog. */
   onSwitchAI(): void;
   /** Show the "What works today" / diagnostic surface. */
@@ -53,6 +55,7 @@ export function SettingsEcoTab({
   currentModelStatus,
   storageBreakdown,
   storageStatus,
+  slotModelIds,
   onSwitchAI,
   onShowDiagnostic,
   onClearCache,
@@ -150,6 +153,7 @@ export function SettingsEcoTab({
         <LocalAiStoragePanel
           status={storageStatus}
           breakdown={storageBreakdown}
+          slotModelIds={slotModelIds}
           onClearModel={onClearCache}
         />
       </SettingsSection>

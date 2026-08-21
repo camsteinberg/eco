@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { LocalAiStoragePanel } from '../LocalAiStoragePanel';
 import type { StorageBreakdown } from '../../../hooks/local-ai/useLocalAiStorageBreakdown';
+import type { Slot } from '../../../local-ai/types';
 
 const ONE_GB = 1024 * 1024 * 1024;
 
@@ -17,6 +18,17 @@ const POPULATED: StorageBreakdown = {
     { id: 'candidate/lfm2.5-1.2b-instruct-onnx', friendlyName: 'LFM2.5 1.2B', vendor: 'Liquid AI', sizeBytes: 0.76 * ONE_GB },
     { id: 'local/qwen3-0.6b', friendlyName: 'Qwen3 0.6B', vendor: 'Hugging Face', sizeBytes: 0.6 * ONE_GB },
   ],
+};
+
+/** The two cached models above, one per slot — the shipping pair. */
+const BOUND_PAIR: Record<Slot, string | null> = {
+  'eco-fast': 'local/qwen3-0.6b',
+  'eco-smart': 'candidate/lfm2.5-1.2b-instruct-onnx',
+};
+
+const NOTHING_BOUND: Record<Slot, string | null> = {
+  'eco-fast': null,
+  'eco-smart': null,
 };
 
 const EMPTY: StorageBreakdown = {
@@ -36,6 +48,7 @@ describe('LocalAiStoragePanel — populated state', () => {
       <LocalAiStoragePanel
         status="ready"
         breakdown={POPULATED}
+        slotModelIds={BOUND_PAIR}
         onClearModel={async () => undefined}
       />,
     );
@@ -51,6 +64,7 @@ describe('LocalAiStoragePanel — populated state', () => {
       <LocalAiStoragePanel
         status="ready"
         breakdown={POPULATED}
+        slotModelIds={BOUND_PAIR}
         onClearModel={async () => undefined}
       />,
     );
@@ -72,6 +86,7 @@ describe('LocalAiStoragePanel — populated state', () => {
       <LocalAiStoragePanel
         status="ready"
         breakdown={POPULATED}
+        slotModelIds={BOUND_PAIR}
         onClearModel={async () => undefined}
       />,
     );
@@ -85,6 +100,7 @@ describe('LocalAiStoragePanel — populated state', () => {
       <LocalAiStoragePanel
         status="ready"
         breakdown={POPULATED}
+        slotModelIds={BOUND_PAIR}
         onClearModel={clear}
       />,
     );
@@ -101,6 +117,7 @@ describe('LocalAiStoragePanel — populated state', () => {
       <LocalAiStoragePanel
         status="ready"
         breakdown={POPULATED}
+        slotModelIds={BOUND_PAIR}
         onClearModel={clear}
       />,
     );
@@ -117,6 +134,7 @@ describe('LocalAiStoragePanel — populated state', () => {
       <LocalAiStoragePanel
         status="ready"
         breakdown={POPULATED}
+        slotModelIds={BOUND_PAIR}
         onClearModel={clear}
       />,
     );
@@ -129,12 +147,75 @@ describe('LocalAiStoragePanel — populated state', () => {
   });
 });
 
+// A flat list could not answer the question the panel exists for on a two-model
+// device: which of these is my device actually using? The cards are grouped by
+// the slot that holds them, with anything cached but unbound gathered last.
+describe('LocalAiStoragePanel — grouped by slot', () => {
+  function renderWith(bindings: Record<Slot, string | null>) {
+    render(
+      <LocalAiStoragePanel
+        status="ready"
+        breakdown={POPULATED}
+        slotModelIds={bindings}
+        onClearModel={async () => undefined}
+      />,
+    );
+  }
+
+  it('puts each bound model in its slot group, in slot order', () => {
+    renderWith(BOUND_PAIR);
+
+    const groups = screen.getAllByTestId(/^storage-group-/);
+    expect(groups.map((group) => group.dataset.testid)).toEqual([
+      'storage-group-eco-fast',
+      'storage-group-eco-smart',
+    ]);
+    expect(screen.getByTestId('storage-group-eco-fast')).toHaveTextContent('Qwen3 0.6B');
+    expect(screen.getByTestId('storage-group-eco-smart')).toHaveTextContent('LFM2.5 1.2B');
+  });
+
+  it('labels the groups with the slots own names', () => {
+    renderWith(BOUND_PAIR);
+
+    expect(screen.getByTestId('storage-group-eco-fast')).toHaveTextContent('Instant start');
+    expect(screen.getByTestId('storage-group-eco-smart')).toHaveTextContent('Main model');
+  });
+
+  it('gathers cached-but-unbound models last, under their own label', () => {
+    renderWith({ 'eco-fast': 'local/qwen3-0.6b', 'eco-smart': null });
+
+    const groups = screen.getAllByTestId(/^storage-group-/);
+    expect(groups.map((group) => group.dataset.testid)).toEqual([
+      'storage-group-eco-fast',
+      'storage-group-other',
+    ]);
+    const other = screen.getByTestId('storage-group-other');
+    expect(other).toHaveTextContent('Other downloads');
+    expect(other).toHaveTextContent('LFM2.5 1.2B');
+  });
+
+  it('drops a slot group with nothing cached in it, rather than heading an absence', () => {
+    renderWith({ 'eco-fast': null, 'eco-smart': 'candidate/lfm2.5-1.2b-instruct-onnx' });
+
+    expect(screen.queryByTestId('storage-group-eco-fast')).toBeNull();
+    expect(screen.getByTestId('storage-group-eco-smart')).toHaveTextContent('LFM2.5 1.2B');
+    expect(screen.getByTestId('storage-group-other')).toHaveTextContent('Qwen3 0.6B');
+  });
+
+  it('keeps every card removable inside its group', () => {
+    renderWith(BOUND_PAIR);
+
+    expect(screen.getAllByLabelText(/Remove .* from this device/)).toHaveLength(2);
+  });
+});
+
 describe('LocalAiStoragePanel — empty state', () => {
   it('shows the botanical empty-state message when no models cached', () => {
     render(
       <LocalAiStoragePanel
         status="ready"
         breakdown={EMPTY}
+        slotModelIds={NOTHING_BOUND}
         onClearModel={async () => undefined}
       />,
     );
@@ -147,6 +228,7 @@ describe('LocalAiStoragePanel — empty state', () => {
       <LocalAiStoragePanel
         status="ready"
         breakdown={EMPTY}
+        slotModelIds={NOTHING_BOUND}
         onClearModel={async () => undefined}
       />,
     );
@@ -161,6 +243,7 @@ describe('LocalAiStoragePanel — loading + missing-data', () => {
       <LocalAiStoragePanel
         status="loading"
         breakdown={null}
+        slotModelIds={NOTHING_BOUND}
         onClearModel={async () => undefined}
       />,
     );
@@ -181,6 +264,7 @@ describe('LocalAiStoragePanel — loading + missing-data', () => {
       <LocalAiStoragePanel
         status="ready"
         breakdown={noQuota}
+        slotModelIds={NOTHING_BOUND}
         onClearModel={async () => undefined}
       />,
     );
@@ -212,6 +296,7 @@ describe('LocalAiStoragePanel — unmeasurable storage', () => {
       <LocalAiStoragePanel
         status="ready"
         breakdown={unmeasured}
+        slotModelIds={NOTHING_BOUND}
         onClearModel={async () => undefined}
       />,
     );
