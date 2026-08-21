@@ -5,16 +5,21 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useRouter } from "next/navigation";
 import { useChatStore } from "../../stores/chatStore";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { BottomSheet } from "../ui/BottomSheet";
-import { getCatalog } from "../../local-ai/catalog/catalog";
-import { dedupeByDisplayName, getDisplayInfo } from "../../local-ai/display";
-import { canServe, listCatalog, recommend } from "../../local-ai/index";
+import { getModel } from "../../local-ai/catalog/catalog";
+import { getDisplayInfo } from "../../local-ai/display";
+import { canServe } from "../../local-ai/index";
 import { useDeviceProfile } from "../../hooks/local-ai/useDeviceProfile";
-import { getSlotForModel } from "../../local-ai/lifecycle/slots";
+import { getSlot, getSlotForModel } from "../../local-ai/lifecycle/slots";
+import { isModelDownloaded } from "../../local-ai/download/download";
+import { deriveFirstRunChoices } from "../../local-ai/selection/first-run-choices";
+import { toWelcomeChoice } from "../local-ai/welcome-choices";
+import type { WelcomeModelChoice } from "../local-ai/WelcomeCard";
 import { isLocalAiSlot } from "../../local-ai/util";
-import type { ModelConfig } from "../../local-ai/types";
+import type { ModelConfig, Slot } from "../../local-ai/types";
 import { motion, useReducedMotion } from "motion/react";
 import { SaplingIllustration, SeedlingIllustration } from "@eco/ui";
 import { useModelUpgradeUi } from "../../hooks/local-ai/useModelUpgrade";
@@ -26,19 +31,39 @@ type DropdownPosition = {
   maxHeight: number;
 };
 
+/** One offered AI, with everything the tile needs to be honest about it. */
+type PairTile = {
+  /** Plain-language card copy — same mapping the first-run welcome card uses. */
+  choice: WelcomeModelChoice;
+  /** The slot that owns this model, if any. Selection writes THIS, never the id. */
+  slot: Slot | null;
+  /** Its bytes are present (or its slot is ready), so choosing it costs nothing. */
+  downloaded: boolean;
+  /** The model currently serving this conversation. */
+  isActive: boolean;
+  /** Carries the quiet "Recommended" tag (never on a single-tile device). */
+  isRecommended: boolean;
+};
+
 /**
  * Composer model selector.
  *
- * Lists the AIs this device can actually run — sourced from `listCatalog`, the
- * same capability-filtered source the Settings → "Switch your AI" dialog uses
- * (via useSwitchAI) — and lets the user pick the active model from the composer
- * without leaving the conversation. Models that can't run on this device (e.g.
- * an f16 build on an adapter without shader-f16) are never offered, so the user
- * can't pick an AI that will fail to load. Selecting a row binds it via the
- * chatStore's `setSelectedModel`.
+ * Offers the DEVICE PAIR — the same honest one-or-two-model offer the first-run
+ * welcome card makes (`deriveFirstRunChoices`), presented with the same tile
+ * anatomy: plain name, size, tagline, and Speed/Depth meters. Not the full
+ * catalog: a composer dropdown is a glance decision, and a flat list of every
+ * runnable build asks the user to compare things they can't tell apart. The
+ * power-user surface with every model is still one tap away behind
+ * "Switch your AI" (Settings → Models), which is where downloads happen.
  *
- * The recommended entry carries a quiet "Recommended" tag. There is no network
- * fetch and no remote-compute option — every choice runs on-device.
+ * Two rules keep this surface truthful:
+ *   - it never hides what is actually running — a serving model outside the pair
+ *     is appended as its own tile rather than dropped;
+ *   - it never writes a concrete model id. A downloaded, slot-bound tile is
+ *     selected by SLOT NAME, so the store can't end up holding an id no slot
+ *     owns (which is precisely the state dispatch has to normalize away). A tile
+ *     whose bytes aren't here routes to the real download flow instead of
+ *     pretending the switch already happened.
  *
  * Its one mount is `ChatInput`'s composer row, pinned to the bottom of the
  * viewport: on a pointer device the panel is portalled and anchored ABOVE the
@@ -47,6 +72,7 @@ type DropdownPosition = {
 export function ModelSelector() {
   const selectedModel = useChatStore((s) => s.selectedModel);
   const setSelectedModel = useChatStore((s) => s.setSelectedModel);
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [hasMounted, setHasMounted] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -56,9 +82,9 @@ export function ModelSelector() {
   const isMobile = useMediaQuery("(max-width: 767px)");
 
   // Reactive device profile: recomputes the instant the async adapter probe
-  // resolves (shader-f16 / working-adapter verdict), so the recommendation and
-  // the runnable list below converge to the truth without an unrelated
-  // re-render — instead of being frozen at the optimistic pre-probe guess.
+  // resolves (shader-f16 / working-adapter verdict), so the offer converges to
+  // the truth without an unrelated re-render — instead of being frozen at the
+  // optimistic pre-probe guess.
   const profile = useDeviceProfile();
 
   // Read-only reflection of the shared upgrade lifecycle — the composer glyph
@@ -69,15 +95,22 @@ export function ModelSelector() {
   const isUpgrading = upgradeUi.kind === "downloading";
   const reducedMotion = useReducedMotion();
 
-  // The recommendation depends on the device profile.
-  const recommendedId = useMemo(() => {
-    if (!canServe(profile)) return null;
-    try {
-      return recommend("eco-fast", profile).id;
-    } catch {
-      return null;
+  // The device's honest offer: one or two models, best-first, with the fast pick
+  // recommended. Same domain call the welcome card makes, so the composer and
+  // first-run never disagree about what this device should run.
+  const offer = useMemo(() => {
+    if (!hasMounted || !canServe(profile)) {
+      return { models: [] as ModelConfig[], recommendedId: null as string | null };
     }
-  }, [profile]);
+    try {
+      const derived = deriveFirstRunChoices("eco-fast", profile);
+      return { models: derived.models, recommendedId: derived.recommendedId };
+    } catch {
+      // No assignable model for this device — the trigger still renders, the
+      // panel is simply empty and points at Settings.
+      return { models: [] as ModelConfig[], recommendedId: null as string | null };
+    }
+  }, [hasMounted, profile]);
 
   const updateDropdownPosition = useCallback(() => {
     const trigger = triggerRef.current;
@@ -151,44 +184,70 @@ export function ModelSelector() {
   }, [isMobile, open]);
 
   // Resolve the chat store's selection (slot name or concrete model id) to a
-  // concrete catalog model id so the right row highlights.
+  // concrete catalog model id so the right tile reads as active.
   const resolvedSelectedId = useMemo(() => {
     if (!hasMounted) return null;
-    if (selectedModel === "auto") return recommendedId;
+    if (selectedModel === "auto") return offer.recommendedId;
     if (isLocalAiSlot(selectedModel)) {
       // Slot name — resolve to its bound model if any, else the recommendation.
-      return getSlotForModelId(selectedModel) ?? recommendedId;
+      return getSlot(selectedModel).model?.id ?? offer.recommendedId;
     }
     return selectedModel;
-  }, [hasMounted, selectedModel, recommendedId]);
+  }, [hasMounted, selectedModel, offer.recommendedId]);
 
-  // Only the AIs this device can actually run — never offer a model that would
-  // fail to load (e.g. an f16 build on an adapter without shader-f16). Same
-  // capability-filtered source as the Settings "Switch your AI" dialog
-  // (useSwitchAI → listCatalog), so the two surfaces stay consistent. The
-  // currently-selected model is exempted so it always stays visible. Device
-  // probing is client-only, so before mount we render the full catalog to keep
-  // the first paint stable, then narrow to the runnable set once mounted.
-  //
-  // Builds of the same model share one branded name (the f16 and int4 1.2B are
-  // both "Eco Fast (Liquid)"), so the runnable set is deduped by display name
-  // before it is rendered — otherwise a device that can serve both offers two
-  // identical-looking rows. The selected build wins, then the recommended one.
+  // The offer, plus the serving model when it is not part of it (a model bound
+  // before the device profile changed, or an upgrade that outgrew the pair).
+  // Never hide what is actually running.
   const models = useMemo(() => {
-    const runnable = (): ModelConfig[] => {
-      if (!hasMounted) return getCatalog();
-      try {
-        if (!canServe(profile)) return [];
-        const { available } = listCatalog(profile, {
-          currentlyBoundModelId: resolvedSelectedId,
-        });
-        return available.map((entry) => entry.model);
-      } catch {
-        return getCatalog();
-      }
+    const list = [...offer.models];
+    if (resolvedSelectedId && !list.some((model) => model.id === resolvedSelectedId)) {
+      const running = getModel(resolvedSelectedId);
+      if (running) list.push(running);
+    }
+    return list;
+  }, [offer.models, resolvedSelectedId]);
+
+  // Whether each offered model's bytes are actually present. Async (Cache API /
+  // OPFS), so it is probed when the panel opens and reported as "not downloaded"
+  // until it answers — the honest default, and the one that routes the user to
+  // the real download flow rather than to a silent mid-turn fetch.
+  const [downloadedIds, setDownloadedIds] = useState<ReadonlySet<string>>(() => new Set());
+  useEffect(() => {
+    if (!open || models.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      const probes = await Promise.all(
+        models.map(async (model) => {
+          const present = await isModelDownloaded(model).catch(() => false);
+          return [model.id, present] as const;
+        }),
+      );
+      if (cancelled) return;
+      setDownloadedIds(new Set(probes.filter(([, present]) => present).map(([id]) => id)));
+    })();
+    return () => {
+      cancelled = true;
     };
-    return dedupeByDisplayName(runnable(), [resolvedSelectedId, recommendedId]);
-  }, [hasMounted, resolvedSelectedId, recommendedId, profile]);
+  }, [open, models]);
+
+  const tiles = useMemo<PairTile[]>(() => {
+    // `open` is a dependency on purpose: slot bindings and readiness live in
+    // localStorage, not React state, so the panel re-reads them every time it
+    // opens instead of trusting a value captured on mount.
+    void open;
+    return models.map((model) => {
+      const slot = getSlotForModel(model.id);
+      const slotReady = slot !== null && getSlot(slot).status === "ready";
+      return {
+        choice: toWelcomeChoice(model),
+        slot,
+        downloaded: slotReady || downloadedIds.has(model.id),
+        isActive: model.id === resolvedSelectedId,
+        // A recommendation among one option is noise, not guidance.
+        isRecommended: models.length > 1 && model.id === offer.recommendedId,
+      };
+    });
+  }, [models, downloadedIds, resolvedSelectedId, offer.recommendedId, open]);
 
   const currentModel = models.find((m) => m.id === resolvedSelectedId) ?? null;
   // One identity in the composer: the model is always "Eco". Its branded name
@@ -200,11 +259,25 @@ export function ModelSelector() {
   const displayName = hasMounted && currentModel ? "Eco" : "Choose AI";
 
   const handleSelect = useCallback(
-    (model: ModelConfig) => {
-      setSelectedModel(model.id, { explicit: true });
+    (tile: PairTile) => {
+      if (tile.isActive) {
+        setOpen(false);
+        return;
+      }
+      if (tile.downloaded && tile.slot) {
+        // SLOT NAME, never the concrete id: a store selection no slot owns is
+        // the exact state that used to let an undownloaded model reach the
+        // runtime, which then self-fetched it mid-turn.
+        setSelectedModel(tile.slot, { explicit: true });
+        setOpen(false);
+        return;
+      }
+      // Bytes aren't here (or nothing owns them): hand off to the verified
+      // download flow in Settings, preselected on this model.
       setOpen(false);
+      router.push(`/settings?tab=models&switch=${encodeURIComponent(tile.choice.id)}`);
     },
-    [setSelectedModel],
+    [router, setSelectedModel],
   );
 
   const modelList = (
@@ -230,63 +303,11 @@ export function ModelSelector() {
         </a>
       </div>
 
-      {models.map((model) => {
-        const display = getDisplayInfo(model.id, model);
-        const isSelected = resolvedSelectedId === model.id;
-        const isRecommended = recommendedId === model.id;
-        return (
-          <button
-            key={model.id}
-            type="button"
-            role="option"
-            aria-selected={isSelected}
-            onClick={() => handleSelect(model)}
-            className={`my-0.5 flex min-h-12 w-full items-center gap-2 rounded-md px-3 py-2 text-left transition-colors ${
-              isSelected
-                ? "bg-[var(--eco-primary-soft)] text-[var(--eco-primary)]"
-                : "text-[var(--eco-text)] hover:bg-[var(--eco-surface-elevated)]"
-            }`}
-          >
-            <div className="flex-1 min-w-0 [overflow-wrap:anywhere]">
-              <div className="flex items-center gap-2">
-                {/* Lead with what the model does for the user; the branded name
-                    is demoted to a quiet secondary line (see below). Falls back
-                    to the branded name when a model has no quality phrase. */}
-                <span className="truncate text-sm font-medium">
-                  {display.qualityPhrase || display.friendlyName}
-                </span>
-                {isRecommended && (
-                  <span className="inline-flex shrink-0 items-center whitespace-nowrap rounded-full bg-[var(--eco-primary-soft)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--eco-primary)]">
-                    Recommended
-                  </span>
-                )}
-              </div>
-              {display.qualityPhrase && (
-                <div className="truncate text-xs text-[var(--eco-text-muted)]">
-                  {display.friendlyName}
-                </div>
-              )}
-            </div>
-            {isSelected && (
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 16 16"
-                fill="none"
-                className="h-4 w-4 flex-shrink-0 text-[var(--eco-primary)]"
-                aria-hidden="true"
-              >
-                <path
-                  d="M3.5 8.5l3 3 6-7"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            )}
-          </button>
-        );
-      })}
+      <div className="flex flex-col gap-2 px-1 pb-1">
+        {tiles.map((tile) => (
+          <ModelPairTile key={tile.choice.id} tile={tile} onSelect={() => handleSelect(tile)} />
+        ))}
+      </div>
     </div>
   );
 
@@ -373,15 +394,109 @@ export function ModelSelector() {
 }
 
 /**
- * Resolve a slot name to the concrete catalog model id bound to it, if any.
- * The composer lists concrete models, so a slot-shaped store selection maps
- * to its bound model for highlighting.
+ * One AI, as a tile — the welcome card's anatomy compacted for a 320px panel:
+ * name + size, the quiet Recommended tag, one plain sentence, Speed/Depth
+ * meters, and the download state. Deliberately re-stated here rather than
+ * imported from `WelcomeCard`: that tile is a full-bleed radio in a modal with
+ * its own sizing and selection semantics, and coupling the two would make every
+ * first-run tweak a composer regression.
  */
-function getSlotForModelId(slot: string): string | null {
-  // getSlotForModel maps a model id → slot; we need the inverse, so walk the
-  // catalog and ask which slot owns each id until we find a match.
-  for (const model of getCatalog()) {
-    if (getSlotForModel(model.id) === slot) return model.id;
-  }
-  return null;
+function ModelPairTile({ tile, onSelect }: { tile: PairTile; onSelect: () => void }) {
+  const { choice, downloaded, isActive, isRecommended } = tile;
+  return (
+    <button
+      type="button"
+      role="option"
+      aria-selected={isActive}
+      onClick={onSelect}
+      className="flex w-full flex-col rounded-xl px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--eco-primary)]"
+      style={{
+        background: isActive ? "var(--eco-primary-soft)" : "var(--eco-surface)",
+        border: `1.5px solid ${isActive ? "var(--eco-primary)" : "var(--eco-border)"}`,
+      }}
+    >
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="min-w-0 truncate text-sm font-semibold text-[var(--eco-text)]">
+          {choice.name}
+        </span>
+        <span className="shrink-0 text-[11px] tabular-nums text-[var(--eco-text-muted)]">
+          {choice.sizeLabel}
+        </span>
+      </div>
+
+      {/* In-flow and neutral, like every other "Recommended" tag in the product:
+          the primary hue belongs to the active tile alone, so the two never read
+          as rival approvals. */}
+      {isRecommended && (
+        <span
+          className="mt-1 inline-flex w-fit items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium"
+          style={{
+            background: "color-mix(in srgb, var(--eco-text-muted) 14%, transparent)",
+            color: "var(--eco-text-secondary)",
+          }}
+        >
+          Recommended
+        </span>
+      )}
+
+      <p className="mt-1 text-xs leading-snug text-[var(--eco-text-secondary)]">
+        {choice.tagline}
+      </p>
+
+      <div className="mt-2 flex flex-col gap-1">
+        <Meter label="Speed" value={choice.speed} />
+        <Meter label="Depth" value={choice.depth} />
+      </div>
+
+      {/* The state line. The size sits at the top of the tile; this says only
+          whether choosing costs a download — the one fact the old flat list
+          never told anyone. */}
+      <div className="mt-2 flex items-center gap-1.5 text-[11px] text-[var(--eco-text-muted)]">
+        {downloaded && (
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 16 16"
+            fill="none"
+            className="h-3 w-3 shrink-0 text-[var(--eco-primary)]"
+            aria-hidden="true"
+          >
+            <path
+              d="M3.5 8.5l3 3 6-7"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        )}
+        <span>{downloaded ? "Downloaded" : "Not downloaded"}</span>
+        {isActive && <span aria-hidden="true">·</span>}
+        {isActive && <span className="text-[var(--eco-primary)]">Active</span>}
+      </div>
+    </button>
+  );
+}
+
+/** A tiny 4-dot meter with a label — casual, glanceable. */
+function Meter({ label, value }: { label: string; value: number }) {
+  const v = Math.max(0, Math.min(4, value));
+  return (
+    <div className="flex items-center gap-2">
+      <span className="w-9 text-[10px] text-[var(--eco-text-muted)]">{label}</span>
+      <span className="flex gap-1" aria-label={`${label}: ${String(v)} of 4`}>
+        {[0, 1, 2, 3].map((i) => (
+          <span
+            key={i}
+            className="h-1.5 w-1.5 rounded-full"
+            style={{
+              background:
+                i < v
+                  ? "var(--eco-primary)"
+                  : "color-mix(in srgb, var(--eco-primary) 18%, transparent)",
+            }}
+          />
+        ))}
+      </span>
+    </div>
+  );
 }
