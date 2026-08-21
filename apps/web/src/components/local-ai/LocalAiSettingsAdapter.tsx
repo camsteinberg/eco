@@ -13,7 +13,7 @@ import { CacheApiStorage } from '../../local-ai/download/storage';
 import { clearEvidence } from '../../local-ai/evidence/ledger';
 import { generate as generateThroughLifecycle } from '../../local-ai/runtime/lifecycle';
 import { prepareModelForSlot } from '../../local-ai/lifecycle/switch-model';
-import { setSlot, setSlotStatus } from '../../local-ai/lifecycle/slots';
+import { getSlot, getSlotForModel, setSlot, setSlotStatus } from '../../local-ai/lifecycle/slots';
 import { resolveRunningModel } from '../../local-ai/display';
 import { isLocalAiSlot } from '../../local-ai/util';
 import { isDiagnosticsEnabled } from '../../lib/dev-diagnostics';
@@ -21,6 +21,7 @@ import { useChatStore } from '../../stores/chatStore';
 import { SettingsEcoTab } from './SettingsEcoTab';
 import { SwitchAIDialog } from './SwitchAIDialog';
 import type { SwitchAIResult } from '../../hooks/local-ai/useSwitchAI';
+import type { Slot } from '../../local-ai/types';
 
 /**
  * Adapter that connects the pure SettingsEcoTab + SwitchAIDialog
@@ -36,10 +37,14 @@ import type { SwitchAIResult } from '../../hooks/local-ai/useSwitchAI';
 
 export function LocalAiSettingsAdapter() {
   const state = useEcoState();
-  const slot = 'eco-fast' as const;
-  // The switch flow's reference point (it targets eco-fast): which model a
-  // switch replaces / rolls back to.
+  // The switch flow's reference point: which model a switch replaces / rolls
+  // back to.
   const currentModel = state.fastModel ?? state.smartModel;
+  // The slot that OWNS that model. Hardcoding eco-fast here made Settings edit
+  // a slot the model wasn't in whenever the device's only binding was eco-smart
+  // (a first-run "deeper" pick), so a switch wrote a second copy into eco-fast
+  // and a removal left the real binding dangling.
+  const slot: Slot = currentModel ? getSlotForModel(currentModel.id) ?? 'eco-fast' : 'eco-fast';
   // What "Currently running" DISPLAYS is a different question: the model the
   // chat's current selection resolves to, with its own slot's status — so
   // Settings and chat tell one story (a stale eco-fast binding out-named the
@@ -47,12 +52,8 @@ export function LocalAiSettingsAdapter() {
   const selectedModel = useChatStore((s) => s.selectedModel);
   const running = resolveRunningModel(selectedModel, state.slots);
   // Status of the switch flow's reference model (above), for the dialog's
-  // ready flag.
-  const switchReferenceStatus = state.fastModel
-    ? state.slots['eco-fast'].status
-    : state.smartModel
-      ? state.slots['eco-smart'].status
-      : null;
+  // ready flag — read from the slot that actually owns it.
+  const switchReferenceStatus = currentModel ? state.slots[slot].status : null;
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -94,12 +95,15 @@ export function LocalAiSettingsAdapter() {
       abortRef.current = ac;
       setLoadProgress(0);
       setLoadPhase('loading');
+      // A model the OTHER slot already owns switches in place, in that slot —
+      // binding it here as well would leave the same model in both slots.
+      const targetSlot: Slot = getSlotForModel(modelId) ?? slot;
 
       try {
         const result = await prepareModelForSlot({
-          slot,
+          slot: targetSlot,
           modelId,
-          previous: currentModel,
+          previous: getSlot(targetSlot).model,
           signal: ac.signal,
           onProgress: (event) => {
             if (event.kind === 'phase') {
@@ -120,7 +124,7 @@ export function LocalAiSettingsAdapter() {
           // to the slot name so resolution stays slot-stable across switches.
           const chatStore = useChatStore.getState();
           if (!isLocalAiSlot(chatStore.selectedModel)) {
-            chatStore.setSelectedModel(slot, { explicit: false });
+            chatStore.setSelectedModel(targetSlot, { explicit: false });
           }
         }
         return result;
@@ -130,7 +134,7 @@ export function LocalAiSettingsAdapter() {
         setLoadPhase(null);
       }
     },
-    [currentModel],
+    [slot],
   );
 
   const handleAbort = useCallback(() => {
@@ -150,18 +154,21 @@ export function LocalAiSettingsAdapter() {
       // slate — repeated install/uninstall cycles shouldn't accumulate
       // stale smoke-fail entries that bias the recommendation engine.
       clearEvidence(modelId);
-      // Only roll back the slot binding when the removed model was the
-      // one currently bound — leaving the other slot untouched.
-      if (currentModel?.id === modelId) {
-        setSlotStatus(slot, 'empty');
-        setSlot(slot, null);
+      // Roll back the binding of whichever slot owned the removed model, and
+      // only that slot. The old check compared against the eco-fast reference
+      // model alone, so removing an eco-smart-bound model deleted its bytes and
+      // left the slot still pointing at them — a binding with nothing behind it.
+      const owningSlot = getSlotForModel(modelId);
+      if (owningSlot) {
+        setSlotStatus(owningSlot, 'empty');
+        setSlot(owningSlot, null);
       }
     } catch {
       // Best-effort; the next setup will repair.
     } finally {
       breakdown.refresh();
     }
-  }, [breakdown, currentModel]);
+  }, [breakdown]);
 
   // Reference unused import to keep lint happy until SettingsEcoTab
   // consumes generate directly.

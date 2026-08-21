@@ -162,6 +162,25 @@ describe("useLocalModelReadiness — selection-aware readiness", () => {
     expect(result.current.localModelReady).toBe(true);
   });
 
+  it("resolves 'auto' to the only bound slot (eco-smart) instead of an empty eco-fast", async () => {
+    // A first-run "deeper" pick binds eco-smart and leaves eco-fast empty. The
+    // store's fresh-device selection is 'auto', which dispatch resolves to the
+    // best ready slot — readiness has to resolve it the same way, or it reports
+    // not-ready and warms a slot with nothing in it.
+    selectedModel = "auto";
+    mockGetSlotForModel.mockReturnValue(null);
+    mockGetSlot.mockImplementation((slot: unknown) =>
+      slot === "eco-smart"
+        ? smartSlot({ status: "ready" })
+        : fastSlot({ modelId: null, model: null, status: "empty" }),
+    );
+
+    const { result } = renderHook(() => useLocalModelReadiness());
+    await settle();
+
+    expect(result.current.localModelReady).toBe(true);
+  });
+
   it("reports not ready when the selected slot is still preparing, whatever the other slot says", async () => {
     selectedModel = "eco-fast";
     mockGetSlot.mockImplementation((slot: unknown) =>

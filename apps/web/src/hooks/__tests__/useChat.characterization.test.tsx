@@ -485,6 +485,40 @@ describe("useChat — 'auto' selection dispatches to the ready slot", () => {
     expect(generateCalls[0]!.modelId).toBe(GEMMA_LITERT_MODEL_ID);
   });
 
+  it("sends when eco-smart is the ONLY bound slot (a first-run 'deeper' pick)", async () => {
+    // The first-run welcome card's deeper tile binds eco-smart and leaves
+    // eco-fast empty. The very first message on that device must still send.
+    useChatStore.setState({ selectedModel: "auto" });
+    setFastSlot({
+      slot: "eco-fast" as Slot,
+      modelId: null,
+      model: null,
+      status: "empty",
+    });
+    shared.smartSlotState = {
+      slot: "eco-smart" as Slot,
+      modelId: GEMMA_LITERT_MODEL_ID,
+      model: {
+        id: GEMMA_LITERT_MODEL_ID,
+        friendlyName: "Gemma E2B LiteRT (test)",
+      } as unknown as SlotState["model"],
+      status: "ready",
+    };
+    setScripts([{ kind: "tokens", tokens: ["Deep ", "reply"] }]);
+    setLastUsage({ promptTokens: 4, completionTokens: 2, maxTokens: 1024 });
+
+    const { result } = renderHook(() => useChat());
+    await act(async () => {
+      await result.current.sendMessage("hello");
+    });
+
+    expect(generateCalls).toHaveLength(1);
+    expect(generateCalls[0]!.modelId).toBe(GEMMA_LITERT_MODEL_ID);
+    const assistant = lastAssistant()!;
+    expect(assistant.status).toBe("complete");
+    expect(assistant.content).toBe("Deep reply");
+  });
+
   it("still declines 'auto' when no slot is ready (no runtime to dispatch to)", async () => {
     useChatStore.setState({ selectedModel: "auto" });
     setFastSlot({

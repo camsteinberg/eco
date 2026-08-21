@@ -137,16 +137,26 @@ export function ModelSelector() {
   // recommended. Same domain call the welcome card makes, so the composer and
   // first-run never disagree about what this device should run.
   const offer = useMemo(() => {
-    if (!hasMounted || !canServe(profile)) {
-      return { models: [] as ModelConfig[], recommendedId: null as string | null };
-    }
+    const empty = {
+      models: [] as ModelConfig[],
+      laneSlots: new Map<string, Slot>(),
+      recommendedId: null as string | null,
+    };
+    if (!hasMounted || !canServe(profile)) return empty;
     try {
       const derived = deriveFirstRunChoices("eco-fast", profile);
-      return { models: derived.models, recommendedId: derived.recommendedId };
+      return {
+        models: derived.choices.map((choice) => choice.model),
+        // Which slot each offered model was recommended FOR — its lane in the
+        // pair. A download for a tile binds its lane, so the deeper pick can
+        // never be written over the everyday one.
+        laneSlots: new Map(derived.choices.map((choice) => [choice.model.id, choice.slot])),
+        recommendedId: derived.recommendedId,
+      };
     } catch {
       // No assignable model for this device — the trigger still renders, the
       // panel is simply empty and points at Settings.
-      return { models: [] as ModelConfig[], recommendedId: null as string | null };
+      return empty;
     }
   }, [hasMounted, profile]);
 
@@ -278,11 +288,7 @@ export function ModelSelector() {
     };
   }, [open, models]);
 
-  // The deeper half of the pair, when the device has one. `deriveFirstRunChoices`
-  // returns the everyday pick first and the deeper pick second, and the two slots
-  // mirror that split — so a download for the deeper tile binds eco-smart and
-  // leaves the everyday model exactly where it is.
-  const deeperModelId = offer.models[1]?.id ?? null;
+  const laneSlots = offer.laneSlots;
 
   const tiles = useMemo<PairTile[]>(() => {
     // `open` is a dependency on purpose: slot bindings and readiness live in
@@ -295,14 +301,21 @@ export function ModelSelector() {
       return {
         choice: toWelcomeChoice(model),
         slot,
-        targetSlot: slot ?? (model.id === deeperModelId ? "eco-smart" : "eco-fast"),
+        // What a download for this tile would bind: the slot that already owns
+        // the model when one does, otherwise the LANE it occupies in the pair
+        // (the everyday pick's lane is eco-fast, the deeper pick's eco-smart).
+        // Deriving the lane from position rather than from "is this the deeper
+        // model?" is what keeps both tiles right when the deeper model happens
+        // to be bound somewhere else. An appended serving model outside the
+        // pair has no lane, so it falls back to the everyday slot.
+        targetSlot: slot ?? laneSlots.get(model.id) ?? "eco-fast",
         downloaded: slotReady || downloadedIds.has(model.id),
         isActive: model.id === resolvedSelectedId,
         // A recommendation among one option is noise, not guidance.
         isRecommended: models.length > 1 && model.id === offer.recommendedId,
       };
     });
-  }, [models, downloadedIds, resolvedSelectedId, offer.recommendedId, deeperModelId, open]);
+  }, [models, downloadedIds, resolvedSelectedId, offer.recommendedId, laneSlots, open]);
 
   const currentModel = models.find((m) => m.id === resolvedSelectedId) ?? null;
   // One identity in the composer: the model is always "Eco". Its branded name

@@ -138,14 +138,17 @@ function catalogModel(id: string): ModelConfig {
 
 function offerPair(): void {
   vi.mocked(deriveFirstRunChoices).mockReturnValue({
-    models: [catalogModel(FAST_ID), catalogModel(DEEP_ID)],
+    choices: [
+      { model: catalogModel(FAST_ID), slot: "eco-fast" },
+      { model: catalogModel(DEEP_ID), slot: "eco-smart" },
+    ],
     recommendedId: FAST_ID,
   });
 }
 
 function offerSingle(): void {
   vi.mocked(deriveFirstRunChoices).mockReturnValue({
-    models: [catalogModel(FAST_ID)],
+    choices: [{ model: catalogModel(FAST_ID), slot: "eco-fast" }],
     recommendedId: FAST_ID,
   });
 }
@@ -399,6 +402,31 @@ describe("ModelSelector — a model that isn't here downloads in place", () => {
     expect(mockRequestPull).toHaveBeenCalledWith("eco-smart", DEEP_ID);
     // Never a plain selection: the bytes have to arrive first.
     expect(mockSetSelectedModel).not.toHaveBeenCalled();
+  });
+
+  it("takes each tile's slot from the offer, not from its position in the list", async () => {
+    // The lane a tile pulls into is a DOMAIN fact the offer carries, not
+    // "whichever tile is second". Reversing the offer proves the tile follows
+    // its own entry: the everyday pick still lands in eco-fast even though it
+    // now sits where the deeper pick used to.
+    mockSlots = {
+      "eco-fast": { modelId: null, status: "empty" },
+      "eco-smart": { modelId: DEEP_ID, status: "ready" },
+    };
+    mockSelectedModel = "eco-smart";
+    vi.mocked(deriveFirstRunChoices).mockReturnValue({
+      choices: [
+        { model: catalogModel(DEEP_ID), slot: "eco-smart" },
+        { model: catalogModel(FAST_ID), slot: "eco-fast" },
+      ],
+      recommendedId: FAST_ID,
+    });
+
+    const user = await openSelector();
+    await tapTile(user, "Eco Fast");
+    await user.click(within(tileNamed("Eco Fast")).getByRole("button", { name: "Download" }));
+
+    expect(mockRequestPull).toHaveBeenCalledWith("eco-fast", FAST_ID);
   });
 
   it("pulls an undownloaded everyday pick into eco-fast, the slot that pick owns", async () => {
