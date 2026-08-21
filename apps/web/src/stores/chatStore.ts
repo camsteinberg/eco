@@ -130,6 +130,9 @@ export type FileAttachment = {
   result?: FileExtractionResult;
 };
 
+/** Lifecycle of the one-shot "this model holds less of the chat" note. */
+export type ContextWindowNoticeState = "none" | "visible" | "dismissed";
+
 interface ChatState {
   messages: ChatMessage[];
   composerDraft: string;
@@ -148,6 +151,14 @@ interface ChatState {
   approvedTools: string[];
   activeToolCalls: ToolCallDisplay[];
   localToolNoticeShown: boolean;
+  /**
+   * The quiet note shown when a newly selected model holds LESS of the
+   * conversation than the previous one did. One shot per conversation:
+   * 'none' → 'visible' when the window actually shrinks under a chat that
+   * already overflows it, 'visible' → 'dismissed' when the person closes it,
+   * and never back. Reset wherever the conversation itself changes.
+   */
+  contextWindowNotice: ContextWindowNoticeState;
   routeRecommendationSnapshot: ChatRouteRecommendationSnapshot | null;
 }
 
@@ -193,6 +204,10 @@ interface ChatActions {
   updateToolCall: (id: string, updates: Partial<ToolCallDisplay>) => void;
   clearToolState: () => void;
   setLocalToolNoticeShown: () => void;
+  /** Raise the shrunk-context note, unless this conversation already had it. */
+  showContextWindowNotice: () => void;
+  /** The person closed the note; it does not come back for this conversation. */
+  dismissContextWindowNotice: () => void;
   setRouteRecommendationSnapshot: (snapshot: ChatRouteRecommendationSnapshot | null) => void;
   updateMessageCitations: (id: string, citations: Citation[]) => void;
   updateMessageVerification: (id: string, verification: GroundingVerification) => void;
@@ -331,6 +346,7 @@ export const useChatStore = create<ChatState & ChatActions>()((set) => ({
   approvedTools: [],
   activeToolCalls: [],
   localToolNoticeShown: false,
+  contextWindowNotice: "none" as ContextWindowNoticeState,
   routeRecommendationSnapshot: null,
 
   addMessage(msg) {
@@ -441,6 +457,7 @@ export const useChatStore = create<ChatState & ChatActions>()((set) => ({
       approvedTools: [],
       activeToolCalls: [],
       localToolNoticeShown: false,
+      contextWindowNotice: "none" as ContextWindowNoticeState,
       routeRecommendationSnapshot: null,
     }));
   },
@@ -456,12 +473,13 @@ export const useChatStore = create<ChatState & ChatActions>()((set) => ({
       approvedTools: [],
       activeToolCalls: [],
       localToolNoticeShown: false,
+      contextWindowNotice: "none" as ContextWindowNoticeState,
       routeRecommendationSnapshot: null,
     });
   },
 
   setMessages(messages) {
-    set({ messages, streamPhase: "idle" as StreamPhase, loadAlmostReady: false, isStreaming: false, error: null, approvedTools: [], activeToolCalls: [], localToolNoticeShown: false });
+    set({ messages, streamPhase: "idle" as StreamPhase, loadAlmostReady: false, isStreaming: false, error: null, approvedTools: [], activeToolCalls: [], localToolNoticeShown: false, contextWindowNotice: "none" as ContextWindowNoticeState });
   },
 
   setSelectedModel(model, options) {
@@ -554,6 +572,20 @@ export const useChatStore = create<ChatState & ChatActions>()((set) => ({
 
   setLocalToolNoticeShown() {
     set({ localToolNoticeShown: true });
+  },
+
+  showContextWindowNotice() {
+    // Once per conversation: a note the person already dismissed must not
+    // reappear because they switched models again.
+    set((state) =>
+      state.contextWindowNotice === "none"
+        ? { contextWindowNotice: "visible" as ContextWindowNoticeState }
+        : state,
+    );
+  },
+
+  dismissContextWindowNotice() {
+    set({ contextWindowNotice: "dismissed" as ContextWindowNoticeState });
   },
 
   setRouteRecommendationSnapshot(snapshot) {

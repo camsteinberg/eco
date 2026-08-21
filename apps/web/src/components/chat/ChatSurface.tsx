@@ -9,6 +9,7 @@ import { motion, useReducedMotion } from "motion/react";
 import { springPresets, WarningTriangle } from "@eco/ui";
 import { timeGreeting } from "./greeting";
 import { ErrorLine, ErrorNotice } from "../ui/ErrorNotice";
+import { ContextWindowNotice } from "./ContextWindowNotice";
 import { MessageList } from "./MessageList";
 import type { AssistantReplyControl } from "./MessageActions";
 import type { LocalModelPrepareState } from "./ErrorMessage";
@@ -427,6 +428,11 @@ export function ChatSurface(props: ChatSurfaceProps) {
           {error && (
             <ErrorNotice className="mx-4 mb-2" lead={error} />
           )}
+
+          {/* Sits just above the composer, where the model was switched, and
+              points back up at the divider that moved. Owns its own store
+              state (raised by useChat, one shot per conversation). */}
+          <ContextWindowNotice className="mx-4 mb-2" />
 
           {/* Impact footer. The help button rides inside it whenever it has
               height: the footer already reserves a 68px lane at its right edge
