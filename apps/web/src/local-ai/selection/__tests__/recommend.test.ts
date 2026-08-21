@@ -131,7 +131,7 @@ describe('recommend — unreported device memory (Chromium fork, COV-6)', () => 
     // download. With the guard the deeper pick is non-premium and ≤ the fast pick,
     // so the size-step-up guard collapses the offer to a single option.
     const offer = deriveFirstRunChoices('eco-fast', PROFILE_UNREPORTED_MEM);
-    expect(offer.models).toHaveLength(1);
+    expect(offer.choices).toHaveLength(1);
   });
 });
 

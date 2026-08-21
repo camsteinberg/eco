@@ -213,16 +213,22 @@ export class InsufficientStorageError extends Error {
   }
 }
 
-function formatGiB(bytes: number): string {
-  return `${(bytes / 1_073_741_824).toFixed(1)} GB`;
+/**
+ * Bytes as GB, decimal — the same unit the catalog's `sizeGB` uses and the
+ * same figure the model tiles show ("~1.7 GB"). This used to divide by 2^30
+ * while printing "GB", so the sentence quoted a number the user could not
+ * reconcile with the size on the tile they had just tapped.
+ */
+function formatGB(bytes: number): string {
+  return `${(bytes / 1_000_000_000).toFixed(1)} GB`;
 }
 
 function insufficientStorageMessage(required: number, available?: number): string {
   return available != null
-    ? `Eco needs about ${formatGiB(required)} of free space for this model, but only about `
-      + `${formatGiB(available)} is available on this device.`
-    : `Eco ran out of free space while setting up this model — it needs about `
-      + `${formatGiB(required)}.`;
+    ? `Eco needs about ${formatGB(required)} of free space for this model, but only about `
+      + `${formatGB(available)} is available on this device.`
+    : `Eco ran out of free space while setting up this model. It needs about `
+      + `${formatGB(required)}.`;
 }
 
 export class DownloadResolverMissingError extends Error {

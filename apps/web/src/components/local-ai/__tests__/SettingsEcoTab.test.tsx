@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { SettingsEcoTab } from '../SettingsEcoTab';
 import { useSettingsStore } from '../../../stores/settingsStore';
-import type { ModelConfig } from '../../../local-ai/types';
+import type { ModelConfig, Slot } from '../../../local-ai/types';
 
 const MODEL: ModelConfig = {
   id: 'local/qwen3-0.6b',
@@ -20,6 +20,12 @@ const MODEL: ModelConfig = {
   evidenceTier: 'proven',
 };
 
+/** The tab only forwards these to the storage panel, which groups by them. */
+const SLOT_MODEL_IDS: Record<Slot, string | null> = {
+  'eco-fast': 'local/qwen3-0.6b',
+  'eco-smart': null,
+};
+
 describe('SettingsEcoTab — default state', () => {
   afterEach(() => {
     // Restore the default (off) so technical-details state doesn't leak.
@@ -32,6 +38,7 @@ describe('SettingsEcoTab — default state', () => {
         currentModel={MODEL}
         storageBreakdown={null}
         storageStatus="loading"
+        slotModelIds={SLOT_MODEL_IDS}
         onSwitchAI={() => undefined}
         onClearCache={async () => undefined}
       />,
@@ -46,6 +53,7 @@ describe('SettingsEcoTab — default state', () => {
         currentModel={MODEL}
         storageBreakdown={null}
         storageStatus="loading"
+        slotModelIds={SLOT_MODEL_IDS}
         onSwitchAI={() => undefined}
         onClearCache={async () => undefined}
       />,
@@ -65,6 +73,7 @@ describe('SettingsEcoTab — default state', () => {
         currentModel={MODEL}
         storageBreakdown={null}
         storageStatus="loading"
+        slotModelIds={SLOT_MODEL_IDS}
         onSwitchAI={() => undefined}
         onClearCache={async () => undefined}
       />,
@@ -78,6 +87,7 @@ describe('SettingsEcoTab — default state', () => {
         currentModel={MODEL}
         storageBreakdown={null}
         storageStatus="loading"
+        slotModelIds={SLOT_MODEL_IDS}
         onSwitchAI={() => undefined}
         onClearCache={async () => undefined}
       />,
@@ -91,6 +101,7 @@ describe('SettingsEcoTab — default state', () => {
         currentModel={MODEL}
         storageBreakdown={null}
         storageStatus="loading"
+        slotModelIds={SLOT_MODEL_IDS}
         onSwitchAI={() => undefined}
         onClearCache={async () => undefined}
       />,
@@ -108,6 +119,7 @@ describe('SettingsEcoTab — default state', () => {
         currentModel={MODEL}
         storageBreakdown={null}
         storageStatus="loading"
+        slotModelIds={SLOT_MODEL_IDS}
         onSwitchAI={() => undefined}
         onClearCache={async () => undefined}
       />,
@@ -129,6 +141,7 @@ describe('SettingsEcoTab — grounding toggle (#5 S5)', () => {
         currentModel={MODEL}
         storageBreakdown={null}
         storageStatus="loading"
+        slotModelIds={SLOT_MODEL_IDS}
         onSwitchAI={() => undefined}
         onClearCache={async () => undefined}
       />,
@@ -146,6 +159,7 @@ describe('SettingsEcoTab — grounding toggle (#5 S5)', () => {
         currentModel={MODEL}
         storageBreakdown={null}
         storageStatus="loading"
+        slotModelIds={SLOT_MODEL_IDS}
         onSwitchAI={() => undefined}
         onClearCache={async () => undefined}
       />,
@@ -161,6 +175,7 @@ describe('SettingsEcoTab — grounding toggle (#5 S5)', () => {
         currentModel={MODEL}
         storageBreakdown={null}
         storageStatus="loading"
+        slotModelIds={SLOT_MODEL_IDS}
         onSwitchAI={() => undefined}
         onClearCache={async () => undefined}
       />,
@@ -175,6 +190,7 @@ describe('SettingsEcoTab — grounding toggle (#5 S5)', () => {
         currentModel={MODEL}
         storageBreakdown={null}
         storageStatus="loading"
+        slotModelIds={SLOT_MODEL_IDS}
         onSwitchAI={() => undefined}
         onClearCache={async () => undefined}
       />,
@@ -195,6 +211,7 @@ describe('SettingsEcoTab — empty state', () => {
         currentModel={null}
         storageBreakdown={null}
         storageStatus="loading"
+        slotModelIds={SLOT_MODEL_IDS}
         onSwitchAI={() => undefined}
         onClearCache={async () => undefined}
       />,
@@ -209,6 +226,7 @@ describe('SettingsEcoTab — empty state', () => {
         currentModel={null}
         storageBreakdown={null}
         storageStatus="loading"
+        slotModelIds={SLOT_MODEL_IDS}
         onSwitchAI={onSwitch}
         onClearCache={async () => undefined}
       />,
@@ -223,6 +241,7 @@ describe('SettingsEcoTab — empty state', () => {
         currentModel={null}
         storageBreakdown={null}
         storageStatus="loading"
+        slotModelIds={SLOT_MODEL_IDS}
         onSwitchAI={() => undefined}
         onClearCache={async () => undefined}
       />,
@@ -238,6 +257,7 @@ describe('SettingsEcoTab — ready state with model', () => {
         currentModel={MODEL}
         storageBreakdown={null}
         storageStatus="loading"
+        slotModelIds={SLOT_MODEL_IDS}
         onSwitchAI={() => undefined}
         onClearCache={async () => undefined}
       />,
@@ -253,6 +273,7 @@ describe('SettingsEcoTab — ready state with model', () => {
         currentModel={MODEL}
         storageBreakdown={null}
         storageStatus="loading"
+        slotModelIds={SLOT_MODEL_IDS}
         onSwitchAI={onSwitch}
         onClearCache={async () => undefined}
       />,
@@ -268,6 +289,7 @@ describe('SettingsEcoTab — ready state with model', () => {
         currentModelStatus="preparing"
         storageBreakdown={null}
         storageStatus="loading"
+        slotModelIds={SLOT_MODEL_IDS}
         onSwitchAI={() => undefined}
         onClearCache={async () => undefined}
       />,
@@ -282,6 +304,7 @@ describe('SettingsEcoTab — ready state with model', () => {
         currentModelStatus="ready"
         storageBreakdown={null}
         storageStatus="loading"
+        slotModelIds={SLOT_MODEL_IDS}
         onSwitchAI={() => undefined}
         onClearCache={async () => undefined}
       />,
@@ -297,6 +320,7 @@ describe('SettingsEcoTab — storage', () => {
         currentModel={MODEL}
         storageBreakdown={null}
         storageStatus="loading"
+        slotModelIds={SLOT_MODEL_IDS}
         onSwitchAI={() => undefined}
         onClearCache={async () => undefined}
       />,
@@ -313,6 +337,7 @@ describe('SettingsEcoTab — optional callbacks', () => {
         currentModel={MODEL}
         storageBreakdown={null}
         storageStatus="loading"
+        slotModelIds={SLOT_MODEL_IDS}
         onSwitchAI={() => undefined}
         onClearCache={async () => undefined}
         onShowDiagnostic={onDiag}
@@ -329,6 +354,7 @@ describe('SettingsEcoTab — optional callbacks', () => {
         currentModel={MODEL}
         storageBreakdown={null}
         storageStatus="loading"
+        slotModelIds={SLOT_MODEL_IDS}
         onSwitchAI={() => undefined}
         onClearCache={async () => undefined}
       />,
@@ -343,6 +369,7 @@ describe('SettingsEcoTab — optional callbacks', () => {
         currentModel={MODEL}
         storageBreakdown={null}
         storageStatus="loading"
+        slotModelIds={SLOT_MODEL_IDS}
         onSwitchAI={() => undefined}
         onClearCache={async () => undefined}
         onSwitchOffEco={onOff}
@@ -360,6 +387,7 @@ describe('SettingsEcoTab — optional callbacks', () => {
         currentModel={MODEL}
         storageBreakdown={null}
         storageStatus="loading"
+        slotModelIds={SLOT_MODEL_IDS}
         onSwitchAI={() => undefined}
         onClearCache={async () => undefined}
       />,

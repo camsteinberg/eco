@@ -11,21 +11,27 @@ const { executeSetupMock } = vi.hoisted(() => ({ executeSetupMock: vi.fn() }));
 vi.mock('../../../local-ai/lifecycle/setup-runner', () => ({ executeSetup: executeSetupMock }));
 
 import { useLocalAiSetup } from '../useLocalAiSetup';
-import type { FirstRunChoiceOffer } from '../../../local-ai/selection/first-run-choices';
+import type {
+  FirstRunChoiceEntry,
+  FirstRunChoiceOffer,
+} from '../../../local-ai/selection/first-run-choices';
 import type { ModelConfig } from '../../../local-ai/types';
 
 const OFFER: FirstRunChoiceOffer = {
-  models: [{ id: 'fast' } as ModelConfig, { id: 'deeper' } as ModelConfig],
+  choices: [
+    { model: { id: 'fast' } as ModelConfig, slot: 'eco-fast' },
+    { model: { id: 'deeper' } as ModelConfig, slot: 'eco-smart' },
+  ],
   recommendedId: 'deeper',
 };
 
-let choicePromise: Promise<ModelConfig> | null = null;
+let choicePromise: Promise<FirstRunChoiceEntry> | null = null;
 
 beforeEach(() => {
   choicePromise = null;
   executeSetupMock.mockReset();
   executeSetupMock.mockImplementation(
-    async (_actions: unknown, options: { requestChoice?: (o: FirstRunChoiceOffer) => Promise<ModelConfig> }) => {
+    async (_actions: unknown, options: { requestChoice?: (o: FirstRunChoiceOffer) => Promise<FirstRunChoiceEntry> }) => {
       // Presenting the offer flips the hook to 'awaiting-choice' synchronously;
       // the returned promise stays pending until the user picks.
       if (options.requestChoice) choicePromise = options.requestChoice(OFFER);
@@ -46,9 +52,9 @@ describe('useLocalAiSetup — first-run choice bridge', () => {
     expect(result.current.choiceOffer).toEqual(OFFER);
     expect(choicePromise).not.toBeNull();
 
-    let resolved: ModelConfig | undefined;
-    void choicePromise!.then((m) => {
-      resolved = m;
+    let resolved: FirstRunChoiceEntry | undefined;
+    void choicePromise!.then((entry) => {
+      resolved = entry;
     });
 
     act(() => {
@@ -56,11 +62,34 @@ describe('useLocalAiSetup — first-run choice bridge', () => {
     });
     await Promise.resolve();
 
-    // Committing the choice resolves the runner with the chosen model and
+    // Committing the choice resolves the runner with the chosen ENTRY — model
+    // AND the slot it binds, so the deeper pick lands on eco-smart — and
     // replaces the card with the setup surface (no card flash).
-    expect(resolved?.id).toBe('deeper');
+    expect(resolved?.model.id).toBe('deeper');
+    expect(resolved?.slot).toBe('eco-smart');
     expect(result.current.status).toBe('setting-up');
     expect(result.current.choiceOffer).toBeNull();
+  });
+
+  it('resolves the everyday pick with its own slot', async () => {
+    const { result } = renderHook(() => useLocalAiSetup());
+
+    await act(async () => {
+      await result.current.start();
+    });
+
+    let resolved: FirstRunChoiceEntry | undefined;
+    void choicePromise!.then((entry) => {
+      resolved = entry;
+    });
+
+    act(() => {
+      result.current.choose('fast');
+    });
+    await Promise.resolve();
+
+    expect(resolved?.model.id).toBe('fast');
+    expect(resolved?.slot).toBe('eco-fast');
   });
 
   it('ignores choose() for an id not in the offer', async () => {

@@ -28,6 +28,7 @@ import {
   useModelUpgradeUi,
   type ModelUpgradeUi,
 } from "../../hooks/local-ai/useModelUpgrade";
+import type { UpgradeDeferral } from "../../local-ai/lifecycle/upgrade";
 
 type DropdownPosition = {
   left: number;
@@ -137,16 +138,26 @@ export function ModelSelector() {
   // recommended. Same domain call the welcome card makes, so the composer and
   // first-run never disagree about what this device should run.
   const offer = useMemo(() => {
-    if (!hasMounted || !canServe(profile)) {
-      return { models: [] as ModelConfig[], recommendedId: null as string | null };
-    }
+    const empty = {
+      models: [] as ModelConfig[],
+      laneSlots: new Map<string, Slot>(),
+      recommendedId: null as string | null,
+    };
+    if (!hasMounted || !canServe(profile)) return empty;
     try {
       const derived = deriveFirstRunChoices("eco-fast", profile);
-      return { models: derived.models, recommendedId: derived.recommendedId };
+      return {
+        models: derived.choices.map((choice) => choice.model),
+        // Which slot each offered model was recommended FOR — its lane in the
+        // pair. A download for a tile binds its lane, so the deeper pick can
+        // never be written over the everyday one.
+        laneSlots: new Map(derived.choices.map((choice) => [choice.model.id, choice.slot])),
+        recommendedId: derived.recommendedId,
+      };
     } catch {
       // No assignable model for this device — the trigger still renders, the
       // panel is simply empty and points at Settings.
-      return { models: [] as ModelConfig[], recommendedId: null as string | null };
+      return empty;
     }
   }, [hasMounted, profile]);
 
@@ -278,11 +289,7 @@ export function ModelSelector() {
     };
   }, [open, models]);
 
-  // The deeper half of the pair, when the device has one. `deriveFirstRunChoices`
-  // returns the everyday pick first and the deeper pick second, and the two slots
-  // mirror that split — so a download for the deeper tile binds eco-smart and
-  // leaves the everyday model exactly where it is.
-  const deeperModelId = offer.models[1]?.id ?? null;
+  const laneSlots = offer.laneSlots;
 
   const tiles = useMemo<PairTile[]>(() => {
     // `open` is a dependency on purpose: slot bindings and readiness live in
@@ -295,14 +302,21 @@ export function ModelSelector() {
       return {
         choice: toWelcomeChoice(model),
         slot,
-        targetSlot: slot ?? (model.id === deeperModelId ? "eco-smart" : "eco-fast"),
+        // What a download for this tile would bind: the slot that already owns
+        // the model when one does, otherwise the LANE it occupies in the pair
+        // (the everyday pick's lane is eco-fast, the deeper pick's eco-smart).
+        // Deriving the lane from position rather than from "is this the deeper
+        // model?" is what keeps both tiles right when the deeper model happens
+        // to be bound somewhere else. An appended serving model outside the
+        // pair has no lane, so it falls back to the everyday slot.
+        targetSlot: slot ?? laneSlots.get(model.id) ?? "eco-fast",
         downloaded: slotReady || downloadedIds.has(model.id),
         isActive: model.id === resolvedSelectedId,
         // A recommendation among one option is noise, not guidance.
         isRecommended: models.length > 1 && model.id === offer.recommendedId,
       };
     });
-  }, [models, downloadedIds, resolvedSelectedId, offer.recommendedId, deeperModelId, open]);
+  }, [models, downloadedIds, resolvedSelectedId, offer.recommendedId, laneSlots, open]);
 
   const currentModel = models.find((m) => m.id === resolvedSelectedId) ?? null;
   // One identity in the composer: the model is always "Eco". Its branded name
@@ -695,10 +709,60 @@ function TilePullState({
       )}
 
       {pull.kind === "deferred" && (
-        <p className="text-[11px] leading-snug text-[var(--eco-text-secondary)]" role="status">
-          {pull.deferral.message}
-        </p>
+        pull.deferral.code === "insufficient-storage" ? (
+          <StorageShortfall deferral={pull.deferral} />
+        ) : (
+          <p className="text-[11px] leading-snug text-[var(--eco-text-secondary)]" role="status">
+            {pull.deferral.message}
+          </p>
+        )
       )}
+    </div>
+  );
+}
+
+/** Decimal GB, one place — the unit the tile's own size label uses. */
+function formatGB(bytes: number): string {
+  return `${(bytes / 1_000_000_000).toFixed(1)} GB`;
+}
+
+/**
+ * Out of room, said honestly.
+ *
+ * A download that fails for space is not "something went wrong": it is a
+ * quantity the person can act on, and the pipeline knows the numbers. So the
+ * tile names what happened, states the figures it actually has, and says what
+ * to do — the same shape the first-run error surface uses, at tile scale and
+ * in the tile's quiet register (no alarm colour: nothing broke, and the model
+ * that was running still is).
+ *
+ * The available figure is optional on purpose. A mid-write quota error knows
+ * only what it still had to write, so that sentence must not be invented; the
+ * shortfall line simply drops to the half we can stand behind.
+ */
+function StorageShortfall({ deferral }: { deferral: UpgradeDeferral }) {
+  const { requiredBytes, availableBytes } = deferral;
+  const figures = requiredBytes == null
+    ? null
+    : availableBytes == null
+      ? `It needs about ${formatGB(requiredBytes)}.`
+      : `It needs about ${formatGB(requiredBytes)} free, and about `
+        + `${formatGB(availableBytes)} is available.`;
+
+  return (
+    <div role="status" data-testid="tile-storage-shortfall">
+      <p className="text-xs font-medium leading-snug text-[var(--eco-text)]">
+        Not enough space for this model
+      </p>
+      <p className="mt-1 text-[11px] leading-snug text-[var(--eco-text-secondary)]">
+        {/* The record's own sentence is the fallback: it is the same honest
+            text, and a record persisted before the figures were carried has
+            nothing else to show. */}
+        {figures ?? deferral.message}
+      </p>
+      <p className="mt-1 text-[11px] leading-snug text-[var(--eco-text-muted)]">
+        Free up space, then tap to try again.
+      </p>
     </div>
   );
 }

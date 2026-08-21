@@ -196,6 +196,15 @@ export type SlotDisplayInfo = SlotState & {
 };
 
 /**
+ * The display copy for one slot, WITHOUT reading slot state. Surfaces that
+ * label a slot they already know (the storage panel's groups) use this rather
+ * than `getSlotDisplayInfos()`, so the two never drift apart in wording.
+ */
+export function getSlotDisplay(slot: Slot): { displayName: string; description: string } {
+  return SLOT_DISPLAY[slot];
+}
+
+/**
  * Return display-ready info for every slot. Used by hardware-description —
  * replaces the legacy `getLocalModelSlotAssignmentDetails` from
  * `lib/local-model-routing.ts`.

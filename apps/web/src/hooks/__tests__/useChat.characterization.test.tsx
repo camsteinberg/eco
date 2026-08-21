@@ -373,6 +373,7 @@ function resetChatStore(): void {
     approvedTools: [],
     activeToolCalls: [],
     localToolNoticeShown: false,
+    contextWindowNotice: "none",
     routeRecommendationSnapshot: null,
   });
 }
@@ -483,6 +484,40 @@ describe("useChat — 'auto' selection dispatches to the ready slot", () => {
 
     expect(generateCalls).toHaveLength(1);
     expect(generateCalls[0]!.modelId).toBe(GEMMA_LITERT_MODEL_ID);
+  });
+
+  it("sends when eco-smart is the ONLY bound slot (a first-run 'deeper' pick)", async () => {
+    // The first-run welcome card's deeper tile binds eco-smart and leaves
+    // eco-fast empty. The very first message on that device must still send.
+    useChatStore.setState({ selectedModel: "auto" });
+    setFastSlot({
+      slot: "eco-fast" as Slot,
+      modelId: null,
+      model: null,
+      status: "empty",
+    });
+    shared.smartSlotState = {
+      slot: "eco-smart" as Slot,
+      modelId: GEMMA_LITERT_MODEL_ID,
+      model: {
+        id: GEMMA_LITERT_MODEL_ID,
+        friendlyName: "Gemma E2B LiteRT (test)",
+      } as unknown as SlotState["model"],
+      status: "ready",
+    };
+    setScripts([{ kind: "tokens", tokens: ["Deep ", "reply"] }]);
+    setLastUsage({ promptTokens: 4, completionTokens: 2, maxTokens: 1024 });
+
+    const { result } = renderHook(() => useChat());
+    await act(async () => {
+      await result.current.sendMessage("hello");
+    });
+
+    expect(generateCalls).toHaveLength(1);
+    expect(generateCalls[0]!.modelId).toBe(GEMMA_LITERT_MODEL_ID);
+    const assistant = lastAssistant()!;
+    expect(assistant.status).toBe("complete");
+    expect(assistant.content).toBe("Deep reply");
   });
 
   it("still declines 'auto' when no slot is ready (no runtime to dispatch to)", async () => {
@@ -1708,5 +1743,122 @@ describe("useChat — a model bound to eco-smart dispatches (no eco-fast collaps
     const assistant = lastAssistant()!;
     expect(assistant.status).toBe("complete");
     expect(assistant.content).toBe("From smart");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The shrunk context window note
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Models hold different amounts of a conversation (the everyday 1.2B holds
+// 8192 tokens, the LiteRT build 2048). Switching to a model that holds LESS
+// quietly pushes more of the history out of context: the divider moves and
+// nothing says why. The note says why, ONCE, and only when it is actually
+// true — the window shrank AND this conversation overflows the new one.
+
+describe("useChat — the shrunk context window note", () => {
+  /** A conversation big enough to overflow 2048 tokens but fit inside 8192. */
+  function seedLongConversation(): void {
+    const paragraph = "word ".repeat(500); // ~2500 chars ≈ 625 tokens
+    useChatStore.setState({
+      messages: [
+        { id: "u1", role: "user", content: paragraph, createdAt: 1, parentId: null },
+        { id: "a1", role: "assistant", content: paragraph, createdAt: 2, parentId: "u1" },
+        { id: "u2", role: "user", content: paragraph, createdAt: 3, parentId: "a1" },
+        { id: "a2", role: "assistant", content: paragraph, createdAt: 4, parentId: "u2" },
+        { id: "u3", role: "user", content: "and finally?", createdAt: 5, parentId: "a2" },
+      ],
+    });
+  }
+
+  function bindSmallerModelToSmartSlot(): void {
+    shared.smartSlotState = {
+      slot: "eco-smart" as Slot,
+      modelId: GEMMA_LITERT_MODEL_ID,
+      model: {
+        id: GEMMA_LITERT_MODEL_ID,
+        friendlyName: "Gemma E2B LiteRT (test)",
+      } as unknown as SlotState["model"],
+      status: "ready",
+    };
+  }
+
+  it("raises the note when the newly selected model holds less and the chat overflows it", async () => {
+    seedLongConversation();
+    bindSmallerModelToSmartSlot();
+    useChatStore.setState({ selectedModel: "eco-fast" });
+
+    const { result } = renderHook(() => useChat());
+    // The whole conversation fits the 8192-token model: nothing is out of
+    // context yet, so there is nothing to explain.
+    expect(result.current.contextDividerIndex).toBe(-1);
+    expect(useChatStore.getState().contextWindowNotice).toBe("none");
+
+    await act(async () => {
+      useChatStore.setState({ selectedModel: "eco-smart" });
+    });
+
+    // The 2048-token model cannot hold it, so the divider appears, and the
+    // note explains the move.
+    expect(result.current.contextDividerIndex).toBeGreaterThan(0);
+    expect(useChatStore.getState().contextWindowNotice).toBe("visible");
+  });
+
+  it("stays quiet when the chat still fits the smaller window", async () => {
+    bindSmallerModelToSmartSlot();
+    useChatStore.setState({
+      selectedModel: "eco-fast",
+      messages: [
+        { id: "u1", role: "user", content: "hi", createdAt: 1, parentId: null },
+        { id: "a1", role: "assistant", content: "hello", createdAt: 2, parentId: "u1" },
+      ],
+    });
+
+    const { result } = renderHook(() => useChat());
+    await act(async () => {
+      useChatStore.setState({ selectedModel: "eco-smart" });
+    });
+
+    expect(result.current.contextDividerIndex).toBe(-1);
+    expect(useChatStore.getState().contextWindowNotice).toBe("none");
+  });
+
+  it("stays quiet when the window GROWS", async () => {
+    seedLongConversation();
+    bindSmallerModelToSmartSlot();
+    useChatStore.setState({ selectedModel: "eco-smart" });
+
+    renderHook(() => useChat());
+    await act(async () => {
+      useChatStore.setState({ selectedModel: "eco-fast" });
+    });
+
+    expect(useChatStore.getState().contextWindowNotice).toBe("none");
+  });
+
+  it("does not speak for Eco normalizing its own selection", async () => {
+    // An unbound concrete id is rewritten to 'auto' inside dispatch. Here that
+    // rewrite lands on a SMALLER window (auto resolves to the ready eco-smart
+    // model), which is exactly the shape that would false-trigger the note:
+    // the person changed nothing.
+    seedLongConversation();
+    bindSmallerModelToSmartSlot();
+    setFastSlot({
+      slot: "eco-fast" as Slot,
+      modelId: null,
+      model: null,
+      status: "empty",
+    });
+    useChatStore.setState({ selectedModel: "candidate/qwen3.5-2b-onnx" });
+    setScripts([{ kind: "tokens", tokens: ["ok"] }]);
+    setLastUsage({ promptTokens: 4, completionTokens: 1, maxTokens: 1024 });
+
+    const { result } = renderHook(() => useChat());
+    await act(async () => {
+      await result.current.sendMessage("hello");
+    });
+
+    expect(useChatStore.getState().selectedModel).toBe("auto");
+    expect(useChatStore.getState().contextWindowNotice).toBe("none");
   });
 });

@@ -57,13 +57,25 @@ export type LocalModelReadiness = {
 /**
  * Resolve the slot the currently-selected model is bound to, mirroring how
  * `useChat` dispatch resolves a selection into a slot. A slot name resolves to
- * itself; a concrete model id resolves to whichever slot owns it, defaulting to
- * `eco-fast` when no slot has claimed it. Warming the same slot the first
- * message will use avoids a wasteful unload+reload in `runtime/lifecycle`.
+ * itself; a concrete model id resolves to whichever slot owns it. Warming the
+ * same slot the first message will use avoids a wasteful unload+reload in
+ * `runtime/lifecycle`.
+ *
+ * An unowned selection — above all `"auto"`, the fresh-device default — resolves
+ * the way dispatch resolves it: the best READY slot, eco-smart first. Falling
+ * straight to eco-fast warmed an empty slot on a device whose only binding is
+ * eco-smart (a first-run "deeper" pick), so readiness reported not-ready for a
+ * model that was ready and the warm-up never touched it.
  */
 function resolveSelectedSlot(selectedModel: string): Slot {
   if (isLocalAiSlot(selectedModel)) return selectedModel;
-  return getSlotForModel(selectedModel) ?? "eco-fast";
+  const owningSlot = getSlotForModel(selectedModel);
+  if (owningSlot) return owningSlot;
+  for (const slotId of ["eco-smart", "eco-fast"] as const) {
+    const candidate = getSlot(slotId);
+    if (candidate.status === "ready" && candidate.model) return slotId;
+  }
+  return "eco-fast";
 }
 
 /**

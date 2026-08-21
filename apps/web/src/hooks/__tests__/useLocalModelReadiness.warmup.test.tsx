@@ -271,19 +271,41 @@ describe("useLocalModelReadiness — mount-time warmup", () => {
     expect(mockRunSmoke).toHaveBeenCalledWith("eco-fast", FAST_MODEL, expect.any(Object));
   });
 
-  it("falls back to eco-fast when a concrete model id has no owning slot", async () => {
+  it("falls back to eco-fast when a concrete model id has no owning slot and nothing else is ready", async () => {
     selectedModel = "candidate/some-unslotted-model";
     mockGetSlotForModel.mockReturnValue(null);
-    mockGetSlot.mockReturnValue(slotState({ status: "ready" }));
+    mockGetSlot.mockImplementation((slot: unknown) =>
+      slot === "eco-fast"
+        ? slotState({ status: "ready" })
+        : slotState({ slot: "eco-smart", modelId: null, model: null, status: "empty" }),
+    );
 
     renderHook(() => useLocalModelReadiness());
     await waitFor(() => expect(mockRunSmoke).toHaveBeenCalledTimes(1));
 
     // getSlotForModel was queried with the concrete id and returned null
     expect(mockGetSlotForModel).toHaveBeenCalledWith("candidate/some-unslotted-model");
-    // Warmup fell back to eco-fast (the ?? "eco-fast" branch)
     expect(mockGetSlot).toHaveBeenCalledWith("eco-fast");
     expect(mockRunSmoke).toHaveBeenCalledWith("eco-fast", FAST_MODEL, expect.any(Object));
+  });
+
+  it("warms eco-smart when it is the only ready slot and the selection owns none", async () => {
+    // Dispatch resolves an unowned selection (above all 'auto', the fresh-device
+    // default) to the best READY slot, eco-smart first. Warming eco-fast here
+    // heated an empty slot on a device whose only binding is a first-run
+    // "deeper" pick, and left the model the send actually uses cold.
+    selectedModel = "auto";
+    mockGetSlotForModel.mockReturnValue(null);
+    mockGetSlot.mockImplementation((slot: unknown) =>
+      slot === "eco-smart"
+        ? slotState({ slot: "eco-smart", status: "ready" })
+        : slotState({ modelId: null, model: null, status: "empty" }),
+    );
+
+    renderHook(() => useLocalModelReadiness());
+    await waitFor(() => expect(mockRunSmoke).toHaveBeenCalledTimes(1));
+
+    expect(mockRunSmoke).toHaveBeenCalledWith("eco-smart", FAST_MODEL, expect.any(Object));
   });
 
   it("does not contend when the heavy-work lease is already held", async () => {

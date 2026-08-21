@@ -88,6 +88,15 @@ export type UpgradeDeferral = {
   code: UpgradeDeferralCode;
   /** Honest, user-facing sentence for the quiet note. */
   message: string;
+  /**
+   * The figures behind an 'insufficient-storage' deferral, when the failure
+   * origin knew them. The preflight raises both; a mid-write quota error knows
+   * only what it still had to write, so `availableBytes` can be absent and the
+   * tile must not invent it. Carried rather than left inside the message so the
+   * tile can lay the numbers out itself instead of printing a sentence.
+   */
+  requiredBytes?: number;
+  availableBytes?: number;
 };
 
 export type UpgradeRecord = {
@@ -193,6 +202,10 @@ function isDeferral(value: unknown): value is UpgradeDeferral {
   return (
     (v.code === 'insufficient-storage' || v.code === 'download-failed' || v.code === 'swap-failed')
     && typeof v.message === 'string'
+    // Byte figures are optional, but a non-number is not a figure: reject it
+    // rather than let the tile render "NaN GB" from a corrupted record.
+    && (v.requiredBytes === undefined || typeof v.requiredBytes === 'number')
+    && (v.availableBytes === undefined || typeof v.availableBytes === 'number')
   );
 }
 
@@ -437,8 +450,14 @@ export async function runUpgradeDownload(
         }
         if (err instanceof InsufficientStorageError) {
           // Deterministic — retrying can't free space. Defer with the
-          // pipeline's honest byte-count message.
-          const deferral: UpgradeDeferral = { code: 'insufficient-storage', message: err.message };
+          // pipeline's honest byte-count message AND the figures behind it, so
+          // the tile can say how much is needed rather than only that it failed.
+          const deferral: UpgradeDeferral = {
+            code: 'insufficient-storage',
+            message: err.message,
+            requiredBytes: err.requiredBytes,
+            ...(err.availableBytes != null ? { availableBytes: err.availableBytes } : {}),
+          };
           applyUpgradeEvent({ type: 'download-failed', deferral });
           return { kind: 'deferred', deferral };
         }

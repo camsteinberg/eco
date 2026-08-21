@@ -519,10 +519,15 @@ export const settingsStates: StateEntry[] = [
     mock: seedCachedModels,
     assert: [
       { testId: "local-ai-storage-panel" },
+      { testId: "cached-model-groups" },
+      // Neither planted model is bound to a slot, so both land in the
+      // cached-but-unbound group. Asserting the GROUP rather than its label
+      // keeps the entry about structure, not copy.
+      { testId: "storage-group-other" },
       { text: "Eco Basic (Granite)" },
       { text: "Eco Tiny (SmolLM)" },
     ],
-    notes: "Real Cache Storage entries in the shipping format, planted on a warm-up navigation — the per-model byte figures are ours but the accounting is the app's. The soil bar's 'available' half still comes from the real browser estimate and moves between runs. The cards name models the way the rest of the product does: branded ('Eco Tiny (SmolLM)'), not the raw catalog name.",
+    notes: "Real Cache Storage entries in the shipping format, planted on a warm-up navigation — the per-model byte figures are ours but the accounting is the app's. The soil bar's 'available' half still comes from the real browser estimate and moves between runs. The cards name models the way the rest of the product does: branded ('Eco Tiny (SmolLM)'), not the raw catalog name, and they sit under the group for the slot holding them — here neither is bound, so both sit under the unbound group.",
   },
   {
     id: "settings.storage-remove-confirming",

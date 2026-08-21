@@ -418,6 +418,46 @@ describe('runUpgradeDownload', () => {
     expect(readUpgradeRecord()?.deferral?.code).toBe('insufficient-storage');
   });
 
+  it('carries the byte figures into the deferral, and back out of storage', async () => {
+    // The tile lays the numbers out itself; flattening the error to a code and
+    // a sentence left it with nothing to say beyond "that did not work".
+    writeUpgradeRecord(record({ phase: 'accepted' }));
+    const seams = downloadSeams({
+      download: vi.fn(async () => {
+        throw new InsufficientStorageError(1_700_000_000, 400_000_000);
+      }),
+    });
+
+    const outcome = await runUpgradeDownload({ seams });
+
+    expect(outcome).toMatchObject({
+      kind: 'deferred',
+      deferral: { requiredBytes: 1_700_000_000, availableBytes: 400_000_000 },
+    });
+    // Survives the persisted round trip, so a reload still explains itself.
+    expect(readUpgradeRecord()?.deferral).toMatchObject({
+      code: 'insufficient-storage',
+      requiredBytes: 1_700_000_000,
+      availableBytes: 400_000_000,
+    });
+  });
+
+  it('omits the available figure when the failure origin never had one', async () => {
+    writeUpgradeRecord(record({ phase: 'accepted' }));
+    const seams = downloadSeams({
+      download: vi.fn(async () => {
+        // A mid-write quota error: it knows only what was still to write.
+        throw new InsufficientStorageError(1_700_000_000);
+      }),
+    });
+
+    await runUpgradeDownload({ seams });
+
+    const deferral = readUpgradeRecord()?.deferral;
+    expect(deferral?.requiredBytes).toBe(1_700_000_000);
+    expect(deferral?.availableBytes).toBeUndefined();
+  });
+
   it('an abort leaves the record downloading so the next session resumes', async () => {
     writeUpgradeRecord(record({ phase: 'accepted' }));
     const controller = new AbortController();

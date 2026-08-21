@@ -3,10 +3,12 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
 import { Button, LeafDivider, LeafIllustration } from '@eco/ui';
 import type { StorageBreakdown, StorageModelEntry } from '../../hooks/local-ai/useLocalAiStorageBreakdown';
+import { SLOTS, getSlotDisplay } from '../../local-ai/lifecycle/slots';
+import type { Slot } from '../../local-ai/types';
 
 /**
  * Storage panel — token-themed per-model storage breakdown for the
@@ -15,11 +17,14 @@ import type { StorageBreakdown, StorageModelEntry } from '../../hooks/local-ai/u
  * Renders:
  *   1. A "soil bar" with Eco's share of browser storage in forest green and
  *      other browser data behind it in muted cream. Springs in from 0.
- *   2. A row of per-model cards (friendlyName · vendor · size · Remove).
+ *   2. Per-model cards (friendlyName · vendor · size · Remove), grouped by the
+ *      slot that holds each model, with anything cached but unbound gathered
+ *      last. A flat list could not answer the one question this panel exists
+ *      for on a two-model device: which of these is my device actually using?
  *      Empty state shows a leaf illustration and a friendly nudge.
  *
  * Pure presentational — caller fetches the breakdown via
- * `useLocalAiStorageBreakdown` and passes it in.
+ * `useLocalAiStorageBreakdown` and passes the bindings in.
  *
  * The panel carries NO heading of its own: its only mount is inside the
  * Settings → Eco tab's "Storage on this device" section, and a second heading
@@ -31,11 +36,63 @@ import type { StorageBreakdown, StorageModelEntry } from '../../hooks/local-ai/u
 export type LocalAiStoragePanelProps = {
   status: 'loading' | 'ready';
   breakdown: StorageBreakdown | null;
+  /** Which model id each slot holds — how the cards are grouped. */
+  slotModelIds: Record<Slot, string | null>;
   onClearModel(modelId: string): Promise<void> | void;
 };
 
-export function LocalAiStoragePanel({ status, breakdown, onClearModel }: LocalAiStoragePanelProps) {
+/** The unbound bucket's key. Not a slot: these bytes belong to no slot. */
+const UNBOUND_GROUP = 'other';
+
+type StorageGroup = {
+  key: Slot | typeof UNBOUND_GROUP;
+  label: string;
+  models: StorageModelEntry[];
+};
+
+/**
+ * Bucket the cached models by the slot holding them, slot order first and
+ * anything unbound last. Empty buckets are dropped: a heading over nothing
+ * would be chrome describing an absence.
+ */
+function groupBySlot(
+  models: StorageModelEntry[],
+  slotModelIds: Record<Slot, string | null>,
+): StorageGroup[] {
+  const groups: StorageGroup[] = [];
+  const claimed = new Set<string>();
+
+  for (const slot of SLOTS) {
+    const boundId = slotModelIds[slot];
+    const inSlot = boundId ? models.filter((model) => model.id === boundId) : [];
+    for (const model of inSlot) claimed.add(model.id);
+    if (inSlot.length > 0) {
+      groups.push({ key: slot, label: getSlotDisplay(slot).displayName, models: inSlot });
+    }
+  }
+
+  const unbound = models.filter((model) => !claimed.has(model.id));
+  if (unbound.length > 0) {
+    groups.push({ key: UNBOUND_GROUP, label: 'Other downloads', models: unbound });
+  }
+  return groups;
+}
+
+export function LocalAiStoragePanel({
+  status,
+  breakdown,
+  slotModelIds,
+  onClearModel,
+}: LocalAiStoragePanelProps) {
   const reduceMotion = useReducedMotion();
+  const headingIdBase = useId();
+  const groups = breakdown ? groupBySlot(breakdown.models, slotModelIds) : [];
+  // One running index across every group so the cards still stagger in as a
+  // single sequence rather than restarting per group.
+  const staggerByModelId = new Map<string, number>();
+  for (const group of groups) {
+    for (const model of group.models) staggerByModelId.set(model.id, staggerByModelId.size);
+  }
 
   return (
     <section
@@ -54,22 +111,45 @@ export function LocalAiStoragePanel({ status, breakdown, onClearModel }: LocalAi
         <SoilBar breakdown={breakdown!} reduceMotion={reduceMotion} />
       )}
 
-      {breakdown && breakdown.models.length > 0 && (
+      {groups.length > 0 && (
         <>
           <div className="my-5" aria-hidden>
             <LeafDivider />
           </div>
-          <ul className="flex flex-col gap-2" aria-label="Cached models">
-            {breakdown.models.map((model, index) => (
-              <ModelCard
-                key={model.id}
-                model={model}
-                onClear={onClearModel}
-                reduceMotion={reduceMotion}
-                stagger={index}
-              />
-            ))}
-          </ul>
+          <div className="flex flex-col gap-5" data-testid="cached-model-groups">
+            {groups.map((group) => {
+              const headingId = `${headingIdBase}-${group.key}`;
+              return (
+                <section
+                  key={group.key}
+                  aria-labelledby={headingId}
+                  data-testid={`storage-group-${group.key}`}
+                >
+                  {/* A label, deliberately not a heading: the settings section
+                      owns the only title in this region, and a second heading
+                      level here printed a title under a title. */}
+                  <p
+                    id={headingId}
+                    className="text-[11px] font-medium uppercase tracking-[0.14em]"
+                    style={{ color: 'var(--eco-text-muted)' }}
+                  >
+                    {group.label}
+                  </p>
+                  <ul className="mt-2 flex flex-col gap-2">
+                    {group.models.map((model) => (
+                      <ModelCard
+                        key={model.id}
+                        model={model}
+                        onClear={onClearModel}
+                        reduceMotion={reduceMotion}
+                        stagger={staggerByModelId.get(model.id) ?? 0}
+                      />
+                    ))}
+                  </ul>
+                </section>
+              );
+            })}
+          </div>
         </>
       )}
 

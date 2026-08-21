@@ -138,14 +138,17 @@ function catalogModel(id: string): ModelConfig {
 
 function offerPair(): void {
   vi.mocked(deriveFirstRunChoices).mockReturnValue({
-    models: [catalogModel(FAST_ID), catalogModel(DEEP_ID)],
+    choices: [
+      { model: catalogModel(FAST_ID), slot: "eco-fast" },
+      { model: catalogModel(DEEP_ID), slot: "eco-smart" },
+    ],
     recommendedId: FAST_ID,
   });
 }
 
 function offerSingle(): void {
   vi.mocked(deriveFirstRunChoices).mockReturnValue({
-    models: [catalogModel(FAST_ID)],
+    choices: [{ model: catalogModel(FAST_ID), slot: "eco-fast" }],
     recommendedId: FAST_ID,
   });
 }
@@ -401,6 +404,31 @@ describe("ModelSelector — a model that isn't here downloads in place", () => {
     expect(mockSetSelectedModel).not.toHaveBeenCalled();
   });
 
+  it("takes each tile's slot from the offer, not from its position in the list", async () => {
+    // The lane a tile pulls into is a DOMAIN fact the offer carries, not
+    // "whichever tile is second". Reversing the offer proves the tile follows
+    // its own entry: the everyday pick still lands in eco-fast even though it
+    // now sits where the deeper pick used to.
+    mockSlots = {
+      "eco-fast": { modelId: null, status: "empty" },
+      "eco-smart": { modelId: DEEP_ID, status: "ready" },
+    };
+    mockSelectedModel = "eco-smart";
+    vi.mocked(deriveFirstRunChoices).mockReturnValue({
+      choices: [
+        { model: catalogModel(DEEP_ID), slot: "eco-smart" },
+        { model: catalogModel(FAST_ID), slot: "eco-fast" },
+      ],
+      recommendedId: FAST_ID,
+    });
+
+    const user = await openSelector();
+    await tapTile(user, "Eco Fast");
+    await user.click(within(tileNamed("Eco Fast")).getByRole("button", { name: "Download" }));
+
+    expect(mockRequestPull).toHaveBeenCalledWith("eco-fast", FAST_ID);
+  });
+
   it("pulls an undownloaded everyday pick into eco-fast, the slot that pick owns", async () => {
     // The mirror case: this device is chatting on the deeper model and the
     // everyday pick is the one that has to be fetched.
@@ -464,16 +492,89 @@ describe("ModelSelector — a model that isn't here downloads in place", () => {
     pullFor(DEEP_ID, {
       kind: "deferred",
       slot: "eco-smart",
-      deferral: { code: "insufficient-storage", message: "Eco needs about 1 GB more room." },
+      // The shape production actually emits: the download pipeline's own
+      // sentence, plus the figures behind it.
+      deferral: {
+        code: "insufficient-storage",
+        message:
+          "Eco needs about 1.7 GB of free space for this model, but only about 0.4 GB is available on this device.",
+        requiredBytes: 1_700_000_000,
+        availableBytes: 400_000_000,
+      },
     });
 
     const user = await openSelector();
     const deeper = tileNamed("Eco Deeper");
-    expect(within(deeper).getByText("Eco needs about 1 GB more room.")).toBeInTheDocument();
+    expect(within(deeper).getByText("Not enough space for this model")).toBeInTheDocument();
+    expect(
+      within(deeper).getByText(/It needs about 1\.7 GB free, and about 0\.4 GB is available\./),
+    ).toBeInTheDocument();
+    expect(within(deeper).getByText(/Free up space, then tap to try again/)).toBeInTheDocument();
 
     await tapTile(user, "Eco Deeper");
     expect(within(tileNamed("Eco Deeper")).getByRole("button", { name: "Download" }))
       .toBeInTheDocument();
+  });
+
+  it("says only what it knows when the browser never reported free space", async () => {
+    // A mid-write quota error carries what was still to write and nothing
+    // else. The tile must not invent an "available" figure.
+    pullFor(DEEP_ID, {
+      kind: "deferred",
+      slot: "eco-smart",
+      deferral: {
+        code: "insufficient-storage",
+        message: "Eco ran out of free space while setting up this model. It needs about 1.7 GB.",
+        requiredBytes: 1_700_000_000,
+      },
+    });
+
+    await openSelector();
+
+    const deeper = tileNamed("Eco Deeper");
+    expect(within(deeper).getByText("Not enough space for this model")).toBeInTheDocument();
+    expect(within(deeper).getByText("It needs about 1.7 GB.")).toBeInTheDocument();
+    expect(within(deeper).queryByText(/is available/)).not.toBeInTheDocument();
+  });
+
+  it("falls back to the record's own sentence when it carries no figures", async () => {
+    // A record persisted before the figures were carried still has to say
+    // something true.
+    pullFor(DEEP_ID, {
+      kind: "deferred",
+      slot: "eco-smart",
+      deferral: {
+        code: "insufficient-storage",
+        message: "Eco ran out of free space while setting up this model.",
+      },
+    });
+
+    await openSelector();
+
+    expect(
+      within(tileNamed("Eco Deeper")).getByText(
+        "Eco ran out of free space while setting up this model.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps a non-storage deferral as its one plain sentence", async () => {
+    pullFor(DEEP_ID, {
+      kind: "deferred",
+      slot: "eco-smart",
+      deferral: {
+        code: "download-failed",
+        message: "Eco couldn't finish that download. Your current model still works.",
+      },
+    });
+
+    await openSelector();
+
+    const deeper = tileNamed("Eco Deeper");
+    expect(
+      within(deeper).getByText("Eco couldn't finish that download. Your current model still works."),
+    ).toBeInTheDocument();
+    expect(within(deeper).queryByTestId("tile-storage-shortfall")).not.toBeInTheDocument();
   });
 
   it("tells the composer trigger that a model is waiting to be switched to", async () => {

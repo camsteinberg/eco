@@ -37,7 +37,13 @@ const DEEPER = modelConfig('candidate/lfm2-2.6b-onnx', 1.65);
 function mockSetup(over: Record<string, unknown> = {}) {
   useLocalAiSetupMock.mockReturnValue({
     status: 'awaiting-choice',
-    choiceOffer: { models: [FAST, DEEPER], recommendedId: DEEPER.id },
+    choiceOffer: {
+      choices: [
+        { model: FAST, slot: 'eco-fast' },
+        { model: DEEPER, slot: 'eco-smart' },
+      ],
+      recommendedId: DEEPER.id,
+    },
     start: vi.fn(async () => {}),
     choose: vi.fn(),
     actions: { reset: vi.fn() },

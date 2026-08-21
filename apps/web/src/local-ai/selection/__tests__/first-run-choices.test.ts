@@ -28,11 +28,26 @@ describe('deriveFirstRunChoices', () => {
     const offer = deriveFirstRunChoices('eco-fast', PROFILE);
 
     // Both are offered — the deeper model stays a visible opt-in tile...
-    expect(offer.models.map((m) => m.id)).toEqual(['fast', 'deeper']);
+    expect(offer.choices.map((c) => c.model.id)).toEqual(['fast', 'deeper']);
     // ...but the PRESELECTED / "Recommended" default is the everyday fast model,
     // so a fresh capable device instant-starts on the small download instead of
     // auto-preselecting the ~1.65GB deeper model (FR-1).
     expect(offer.recommendedId).toBe('fast');
+  });
+
+  it('carries the slot each model was recommended for, so a pick binds where it belongs', () => {
+    mockRecommend.mockImplementation((slot: Slot) =>
+      slot === 'eco-smart' ? model('deeper', 1.65) : model('fast', 0.76),
+    );
+
+    const offer = deriveFirstRunChoices('eco-fast', PROFILE);
+
+    // The offer is built from TWO slot recommendations. Dropping the slot here
+    // is what let a deliberate "deeper" pick be written into eco-fast.
+    expect(offer.choices).toEqual([
+      { model: model('fast', 0.76), slot: 'eco-fast' },
+      { model: model('deeper', 1.65), slot: 'eco-smart' },
+    ]);
   });
 
   it('collapses to a single option when the deeper pick is the same model', () => {
@@ -40,7 +55,7 @@ describe('deriveFirstRunChoices', () => {
 
     const offer = deriveFirstRunChoices('eco-fast', PROFILE);
 
-    expect(offer.models.map((m) => m.id)).toEqual(['fast']);
+    expect(offer.choices.map((c) => c.model.id)).toEqual(['fast']);
     expect(offer.recommendedId).toBe('fast');
   });
 
@@ -52,7 +67,7 @@ describe('deriveFirstRunChoices', () => {
 
     const offer = deriveFirstRunChoices('eco-fast', PROFILE);
 
-    expect(offer.models.map((m) => m.id)).toEqual(['fast']);
+    expect(offer.choices.map((c) => c.model.id)).toEqual(['fast']);
     expect(offer.recommendedId).toBe('fast');
   });
 
@@ -67,7 +82,7 @@ describe('deriveFirstRunChoices', () => {
 
     const offer = deriveFirstRunChoices('eco-fast', PROFILE);
 
-    expect(offer.models.map((m) => m.id)).toEqual(['good-fast']);
+    expect(offer.choices.map((c) => c.model.id)).toEqual(['good-fast']);
     expect(offer.recommendedId).toBe('good-fast');
   });
 });

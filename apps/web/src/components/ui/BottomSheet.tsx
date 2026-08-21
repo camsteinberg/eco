@@ -5,6 +5,7 @@
 
 import { useEffect, useId, useRef, useCallback, useState } from "react"
 import { createPortal } from "react-dom"
+import { registerOpenBottomSheet } from "../../lib/bottom-sheet-open"
 
 /**
  * The breakpoint at which the sheet stops being the right affordance and the
@@ -70,6 +71,15 @@ export function BottomSheet({
   useEffect(() => {
     setHasMounted(true)
   }, [])
+
+  // Publish "a sheet is covering the bottom of the screen" for the floating
+  // chrome that lives there (the help disc). Registered here rather than at the
+  // call sites so every sheet says it, and released on close AND unmount so a
+  // sheet that disappears with its parent can't leave the signal stuck on.
+  useEffect(() => {
+    if (!open) return
+    return registerOpenBottomSheet()
+  }, [open])
 
   useEffect(() => {
     // `hasMounted` is a dependency, not just a guard: the sheet's DOM does not

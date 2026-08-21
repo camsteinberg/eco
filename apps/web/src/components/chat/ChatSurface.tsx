@@ -9,6 +9,7 @@ import { motion, useReducedMotion } from "motion/react";
 import { springPresets, WarningTriangle } from "@eco/ui";
 import { timeGreeting } from "./greeting";
 import { ErrorLine, ErrorNotice } from "../ui/ErrorNotice";
+import { ContextWindowNotice } from "./ContextWindowNotice";
 import { MessageList } from "./MessageList";
 import type { AssistantReplyControl } from "./MessageActions";
 import type { LocalModelPrepareState } from "./ErrorMessage";
@@ -27,6 +28,7 @@ import type {
   getValidationSelectedModelBanner,
 } from "../../lib/validation-harness";
 import { ECO_OPEN_GUIDE_EVENT } from "../../lib/onboarding-guide";
+import { useAnyBottomSheetOpen } from "../../lib/bottom-sheet-open";
 
 type ValidationProtectionBanner = ReturnType<typeof getValidationProtectionBanner>;
 type ValidationSelectedModelBanner = ReturnType<typeof getValidationSelectedModelBanner>;
@@ -63,6 +65,15 @@ function QuestionMarkIcon({ className }: { className?: string }) {
  * viewports where it has nowhere to sit — is the caller's job.
  */
 function HelpGuideButton({ className }: { className: string }) {
+  // A bottom sheet covers the bottom of the viewport, which is where this disc
+  // lives: in the model sheet it landed on the last tile's state line (the
+  // clearance under the list is about 38px plus the safe area, against a 44px
+  // disc), and it shares a z band with the cookie banner and the toasts. While
+  // a sheet is open the disc has nothing to offer that the sheet does not, so
+  // it stands down rather than fighting for the same corner.
+  const sheetOpen = useAnyBottomSheetOpen();
+  if (sheetOpen) return null;
+
   return (
     <button
       type="button"
@@ -427,6 +438,11 @@ export function ChatSurface(props: ChatSurfaceProps) {
           {error && (
             <ErrorNotice className="mx-4 mb-2" lead={error} />
           )}
+
+          {/* Sits just above the composer, where the model was switched, and
+              points back up at the divider that moved. Owns its own store
+              state (raised by useChat, one shot per conversation). */}
+          <ContextWindowNotice className="mx-4 mb-2" />
 
           {/* Impact footer. The help button rides inside it whenever it has
               height: the footer already reserves a 68px lane at its right edge

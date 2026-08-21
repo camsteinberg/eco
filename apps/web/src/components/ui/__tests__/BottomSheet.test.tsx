@@ -1,10 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Bos Computing LLC
 
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { BottomSheet } from "../BottomSheet";
+import {
+  _resetBottomSheetOpenStateForTesting,
+  isAnyBottomSheetOpen,
+} from "../../../lib/bottom-sheet-open";
 
 describe("BottomSheet", () => {
   it("renders nothing when open is false", () => {
@@ -305,5 +309,80 @@ describe("BottomSheet", () => {
     fireEvent.touchEnd(dialog);
 
     expect(onClose).not.toHaveBeenCalled();
+  });
+});
+
+// A sheet covers the bottom of the viewport, where the floating chrome lives.
+// It publishes that fact so anything down there can stand down instead of
+// being painted over (or painting over it).
+describe("BottomSheet — the open signal", () => {
+  beforeEach(() => {
+    _resetBottomSheetOpenStateForTesting();
+  });
+
+  it("reports nothing open until a sheet opens", () => {
+    render(
+      <BottomSheet open={false} onClose={vi.fn()}>
+        <p>Content</p>
+      </BottomSheet>,
+    );
+
+    expect(isAnyBottomSheetOpen()).toBe(false);
+  });
+
+  it("reports open while the sheet is up", () => {
+    render(
+      <BottomSheet open onClose={vi.fn()}>
+        <p>Content</p>
+      </BottomSheet>,
+    );
+
+    expect(isAnyBottomSheetOpen()).toBe(true);
+  });
+
+  it("releases the signal when the sheet closes", () => {
+    const { rerender } = render(
+      <BottomSheet open onClose={vi.fn()}>
+        <p>Content</p>
+      </BottomSheet>,
+    );
+    expect(isAnyBottomSheetOpen()).toBe(true);
+
+    rerender(
+      <BottomSheet open={false} onClose={vi.fn()}>
+        <p>Content</p>
+      </BottomSheet>,
+    );
+
+    expect(isAnyBottomSheetOpen()).toBe(false);
+  });
+
+  it("releases the signal when the sheet unmounts with its parent", () => {
+    const { unmount } = render(
+      <BottomSheet open onClose={vi.fn()}>
+        <p>Content</p>
+      </BottomSheet>,
+    );
+
+    unmount();
+
+    expect(isAnyBottomSheetOpen()).toBe(false);
+  });
+
+  it("stays open while a second sheet is still up (two can be mounted at once)", () => {
+    const { unmount } = render(
+      <BottomSheet open onClose={vi.fn()} title="Navigation">
+        <p>Drawer</p>
+      </BottomSheet>,
+    );
+    render(
+      <BottomSheet open onClose={vi.fn()} title="Select model">
+        <p>Panel</p>
+      </BottomSheet>,
+    );
+
+    unmount();
+
+    expect(isAnyBottomSheetOpen()).toBe(true);
   });
 });
