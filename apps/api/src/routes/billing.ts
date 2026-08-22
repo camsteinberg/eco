@@ -6,6 +6,7 @@ import { sql } from 'drizzle-orm'
 import type { SubscriptionTier, AuthUser } from '../lib/types/auth.js'
 import type { StripeService } from '../lib/stripe.js'
 import type { Db } from '../db/index.js'
+import type { RateLimitRedis } from '../middleware/rateLimit.js'
 import { logger } from '../lib/logger.js'
 
 type PriceIds = {
@@ -21,7 +22,18 @@ type BillingDeps = {
   priceIds: PriceIds
   webhookSecret: string
   db?: Db
+  /** Optional Redis client for webhook event deduplication (best-effort). */
+  redis?: RateLimitRedis
 }
+
+// Lua: return existing value (nil when absent) — one round-trip GET.
+const DEDUP_CHECK_SCRIPT = `return redis.call('GET', KEYS[1])`
+
+// Lua: SET key value EX ttl NX — mark event as processed (24h TTL, NX = no-op
+// if already set). Returns 'OK' on success, nil if already present.
+const DEDUP_MARK_SCRIPT = `return redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[2], 'NX')`
+
+const DEDUP_TTL_SECONDS = 86400 // 24 hours
 
 export function tierFromPriceId(priceId: string, priceIds: PriceIds): SubscriptionTier {
   if (priceId === priceIds.supporter) return 'supporter'
@@ -123,7 +135,7 @@ export function verifyWebhookSignature(
   return stripe.constructWebhookEvent(payload, signature, secret)
 }
 
-export function createBillingRouter({ stripe, updateUserTier, priceIds, webhookSecret, db }: BillingDeps) {
+export function createBillingRouter({ stripe, updateUserTier, priceIds, webhookSecret, db, redis }: BillingDeps) {
   const router = new Hono()
 
   // Create Stripe Checkout session
@@ -216,6 +228,21 @@ export function createBillingRouter({ stripe, updateUserTier, priceIds, webhookS
       return c.json({ error: { code: 'invalid_request', message: 'Invalid webhook signature' } }, 400)
     }
 
+    // Best-effort dedup: skip reprocessing if this event was already handled.
+    // Redis failures must NOT block the webhook — dedup is a convenience,
+    // signature verification is the security boundary.
+    if (redis) {
+      const dedupKey = `stripe:webhook:${event.id}`
+      try {
+        const existing = await redis.eval(DEDUP_CHECK_SCRIPT, 1, dedupKey)
+        if (existing !== null) {
+          return c.json({ received: true, duplicate: true })
+        }
+      } catch (err) {
+        logger.warn({ err, eventId: event.id }, 'Webhook dedup check failed — continuing without dedup')
+      }
+    }
+
     switch (event.type) {
       case 'checkout.session.completed': {
         const session = event.data.object as unknown as {
@@ -238,8 +265,9 @@ export function createBillingRouter({ stripe, updateUserTier, priceIds, webhookS
         try {
           await updateUserTier(userId, tier, customerId)
         } catch (err) {
-          // Log but don't fail — Stripe will retry the webhook
+          // Return 500 so Stripe retries the webhook delivery
           logger.error({ userId, err }, 'Failed to update user tier from Stripe webhook')
+          return c.json({ error: { code: 'internal_error', message: 'Tier update failed' } }, 500)
         }
         break
       }
@@ -258,6 +286,16 @@ export function createBillingRouter({ stripe, updateUserTier, priceIds, webhookS
           await updateUserTier(userId, 'free')
         }
         break
+      }
+    }
+
+    // Mark this event as processed AFTER successful handling. A 500 above
+    // leaves the event unmarked so Stripe's retry will be reprocessed.
+    if (redis) {
+      try {
+        await redis.eval(DEDUP_MARK_SCRIPT, 1, `stripe:webhook:${event.id}`, '1', String(DEDUP_TTL_SECONDS))
+      } catch (err) {
+        logger.warn({ err, eventId: event.id }, 'Webhook dedup mark failed — event processed but not marked')
       }
     }
 
