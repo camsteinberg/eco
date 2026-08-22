@@ -136,6 +136,18 @@ function gateStatus(configured: boolean) {
 /** The three surfaces this file's header explains at length, in a printable form. */
 export const routesGaps: CaptureGap[] = [
   {
+    id: "routes.settings-billing",
+    group: "routes",
+    surface:
+      "The billing settings tab (signed-in and guest-locked) and the checkout return banners "
+      + "(?billing=success / ?billing=canceled)",
+    reason:
+      "Dormant behind NEXT_PUBLIC_ECO_BILLING_UI since the free-launch decision (PR #218): the tab, its locked guest "
+      + "preview, and the return banners do not render in the launch build, so a capture would photograph nothing. The "
+      + "removed entries (settings-billing, settings-guest-billing-locked, settings-billing-success, "
+      + "settings-billing-canceled) live in git history; restore them the day the flag is enabled again.",
+  },
+  {
     id: "routes.loading-skeleton",
     group: "routes",
     surface: "Route-level loading skeletons (chat/loading.tsx, settings/loading.tsx)",
@@ -167,7 +179,6 @@ export const routesGaps: CaptureGap[] = [
 export const routesStates: StateEntry[] = [
   // ── Settings, signed in ────────────────────────────────────────────────
   settingsTab("support", "support", "Settings — support tab (signed in)", "Get in touch"),
-  settingsTab("billing", "billing", "Settings — billing tab (signed in)", "Your plan"),
   settingsTab("appearance", "appearance", "Settings — appearance tab (signed in)", "Theme"),
   {
     ...settingsTab("models", "models", "Settings — models tab (signed in)", "Currently running"),
@@ -225,45 +236,6 @@ export const routesStates: StateEntry[] = [
     ],
     notes: "LockedSettingsPreview — the promise a guest is shown instead of an empty account screen.",
   },
-  {
-    id: "routes.settings-guest-billing-locked",
-    group: "routes",
-    title: "Settings — billing tab locked for a guest",
-    route: "/settings",
-    search: "tab=billing",
-    tier: "component",
-    realism: "real",
-    assert: [
-      { text: "Plan & billing" },
-      { text: "Local AI stays free for everyone." },
-    ],
-  },
-
-  // ── Settings, billing return banners ───────────────────────────────────
-  {
-    id: "routes.settings-billing-success",
-    group: "routes",
-    title: "Settings — billing, returned from a completed checkout",
-    route: "/settings",
-    search: "tab=billing&billing=success",
-    auth: "signed-in",
-    tier: "component",
-    realism: "mocked",
-    assert: [{ text: "Supporter membership is active" }],
-    notes: "Stripe sends the customer back to ?billing=success; this is the banner they land on.",
-  },
-  {
-    id: "routes.settings-billing-canceled",
-    group: "routes",
-    title: "Settings — billing, returned from a canceled checkout",
-    route: "/settings",
-    search: "tab=billing&billing=canceled",
-    auth: "signed-in",
-    tier: "component",
-    realism: "mocked",
-    assert: [{ text: "Checkout was canceled" }],
-  },
-
   // ── Sign in ────────────────────────────────────────────────────────────
   {
     id: "routes.sign-in",
