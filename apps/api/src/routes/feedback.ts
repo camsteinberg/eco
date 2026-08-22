@@ -5,6 +5,13 @@ import { Hono } from 'hono'
 import { feedback } from '../db/schema/feedback.js'
 import type { Db } from '../db/index.js'
 
+type Env = {
+  Variables: {
+    /** Per-request pino child logger set by the logging middleware. */
+    logger?: { error: (obj: unknown, msg?: string) => void }
+  }
+}
+
 // Bounds are deliberately tight: this is an anonymous write endpoint. The
 // 64 KB body limit and the `feedback` rate-limit tier sit in front of it
 // (wired in index.ts); these caps bound what actually reaches the table.
@@ -12,7 +19,7 @@ const MAX_MESSAGE_LENGTH = 4000
 const MAX_DEVICE_SUMMARY_LENGTH = 1000
 
 export function createFeedbackRouter({ db }: { db: Db }) {
-  const router = new Hono()
+  const router = new Hono<Env>()
 
   // POST / — accept a feedback submission. Anonymous by design: no user id,
   // no IP, no headers are stored — only the typed message and the device
@@ -69,7 +76,21 @@ export function createFeedbackRouter({ db }: { db: Db }) {
       deviceSummary = trimmed.length > 0 ? trimmed : null
     }
 
-    await db.insert(feedback).values({ message, deviceSummary })
+    try {
+      await db.insert(feedback).values({ message, deviceSummary })
+    } catch (err) {
+      // Catch here rather than letting the global onError handle it: driver
+      // errors can carry the bound SQL parameters (the feedback text), and the
+      // global handler logs the whole error object. Log only name/message —
+      // the text must never reach the logs.
+      const name = err instanceof Error ? err.name : 'UnknownError'
+      const detail = (err instanceof Error ? err.message : String(err)).slice(0, 200)
+      c.get('logger')?.error({ name, detail }, 'Feedback insert failed')
+      return c.json(
+        { error: { message: 'Could not save feedback. Please try again shortly.', type: 'server_error' } },
+        500,
+      )
+    }
 
     return c.json({ ok: true })
   })

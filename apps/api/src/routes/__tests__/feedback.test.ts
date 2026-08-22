@@ -147,6 +147,26 @@ describe('POST /v1/feedback', () => {
     expect(insertedRows).toEqual([])
   })
 
+  it('returns a generic 500 that carries no driver detail when the insert fails', async () => {
+    mockDb.insert.mockImplementationOnce(() => ({
+      values: () =>
+        Promise.reject(
+          Object.assign(new Error('connect ECONNREFUSED — parameters: ["secret text"]'), {
+            parameters: ['secret text'],
+          }),
+        ),
+    }))
+
+    const res = await submit(app, { message: 'secret text' })
+
+    expect(res.status).toBe(500)
+    const body = await res.json()
+    expect(body.error.type).toBe('server_error')
+    // The response must never echo driver internals or the submitted text.
+    expect(JSON.stringify(body)).not.toContain('secret text')
+    expect(JSON.stringify(body)).not.toContain('ECONNREFUSED')
+  })
+
   it('rejects invalid JSON', async () => {
     const res = await submit(app, 'not-json')
 
