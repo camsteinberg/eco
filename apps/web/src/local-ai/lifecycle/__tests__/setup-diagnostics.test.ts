@@ -14,10 +14,10 @@ import {
  * On-device setup failures must be visible in the USER's own devtools.
  *
  * The setup cascade swallows each model's real failure reason behind a generic
- * "couldn't get one running" screen, and `logger.error` routes to Sentry (not
- * the console) in production — so a real-hardware failure (e.g. a WebGPU/iGPU
- * wall the catalog can't predict) is currently undiagnosable from the field.
- * This captures the exact error + phase to `console.error` so it always shows.
+ * "couldn't get one running" screen — so a real-hardware failure (e.g. a
+ * WebGPU/iGPU wall the catalog can't predict) is hard to diagnose from the
+ * field. This captures the exact error + phase to `console.error` with a
+ * stable tag so it always shows.
  */
 describe('formatSetupAttemptFailure', () => {
   it('captures model, runtime, phase, and reason', () => {
