@@ -32,10 +32,6 @@ primary_region = "iad"
 [processes]
   app = "sh -c 'node apps/api/dist/db/migrate.js && node apps/api/dist/index.js'"
 
-[metrics]
-  port = 3001
-  path = "/metrics"
-
 [checks]
   [checks.health]
     type = "http"
