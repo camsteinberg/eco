@@ -133,6 +133,33 @@ describe('billing router', () => {
     })
   })
 
+  it('POST /billing/webhook returns 500 when updateUserTier fails', async () => {
+    mockUpdateUserTier.mockRejectedValueOnce(new Error('db write failed'))
+
+    const res = await app.request('/billing/webhook', {
+      method: 'POST',
+      headers: { 'stripe-signature': 'sig_test' },
+      body: 'webhook_payload',
+    })
+
+    expect(res.status).toBe(500)
+    const body = await res.json() as { error: { code: string } }
+    expect(body.error.code).toBe('internal_error')
+    expect(mockUpdateUserTier).toHaveBeenCalled()
+  })
+
+  it('POST /billing/webhook returns 200 when updateUserTier succeeds', async () => {
+    const res = await app.request('/billing/webhook', {
+      method: 'POST',
+      headers: { 'stripe-signature': 'sig_test' },
+      body: 'webhook_payload',
+    })
+
+    expect(res.status).toBe(200)
+    const body = await res.json() as { received: boolean }
+    expect(body.received).toBe(true)
+  })
+
   it('POST /billing/portal falls back to the stored Stripe customer id when auth state has not hydrated it', async () => {
     mockDb.execute.mockResolvedValueOnce({
       rows: [{ stripe_customer_id: 'cus_from_db' }],
@@ -162,5 +189,156 @@ describe('billing router', () => {
       customerId: 'cus_from_db',
       returnUrl: 'http://localhost:3000/settings?tab=billing&billing=portal',
     })
+  })
+})
+
+describe('webhook event deduplication', () => {
+  const mockStripe: StripeService = {
+    createCheckoutSession: vi.fn().mockResolvedValue({ url: 'https://checkout.stripe.com/session_123' }),
+    createPortalSession: vi.fn().mockResolvedValue({ url: 'https://billing.stripe.com/portal_123' }),
+    constructWebhookEvent: vi.fn().mockReturnValue({
+      id: 'evt_test_123',
+      type: 'checkout.session.completed',
+      data: {
+        object: {
+          customer: 'cus_123',
+          subscription: 'sub_123',
+          metadata: { userId: 'user-abc' },
+          line_items: { data: [{ price: { id: 'price_supporter' } }] },
+        },
+      },
+    }),
+  }
+
+  const mockUpdateUserTier = vi.fn().mockResolvedValue(undefined)
+  const mockDb = { execute: vi.fn().mockResolvedValue({ rows: [] }) }
+
+  function createMockRedis(overrides: Partial<{ eval: ReturnType<typeof vi.fn> }> = {}) {
+    return {
+      eval: overrides.eval ?? vi.fn().mockResolvedValue(null),
+    }
+  }
+
+  function sendWebhook(app: Hono) {
+    return app.request('/billing/webhook', {
+      method: 'POST',
+      headers: { 'stripe-signature': 'sig_test' },
+      body: 'webhook_payload',
+    })
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('skips reprocessing when the event was already handled (duplicate)', async () => {
+    const redis = createMockRedis({
+      eval: vi.fn().mockResolvedValue('1'), // GET returns a value → already processed
+    })
+    const router = createBillingRouter({
+      stripe: mockStripe,
+      updateUserTier: mockUpdateUserTier,
+      priceIds: { supporter: 'price_supporter', enterprise: 'price_ent' },
+      webhookSecret: 'whsec_test',
+      db: mockDb as never,
+      redis,
+    })
+    const app = new Hono()
+    app.route('/billing', router)
+
+    const res = await sendWebhook(app)
+
+    expect(res.status).toBe(200)
+    const body = await res.json() as { received: boolean; duplicate?: boolean }
+    expect(body.duplicate).toBe(true)
+    expect(mockUpdateUserTier).not.toHaveBeenCalled()
+  })
+
+  it('does not mark event when processing fails (500)', async () => {
+    const evalFn = vi.fn().mockResolvedValue(null) // GET returns null → not processed
+    const redis = createMockRedis({ eval: evalFn })
+    mockUpdateUserTier.mockRejectedValueOnce(new Error('db write failed'))
+
+    const router = createBillingRouter({
+      stripe: mockStripe,
+      updateUserTier: mockUpdateUserTier,
+      priceIds: { supporter: 'price_supporter', enterprise: 'price_ent' },
+      webhookSecret: 'whsec_test',
+      db: mockDb as never,
+      redis,
+    })
+    const app = new Hono()
+    app.route('/billing', router)
+
+    const res = await sendWebhook(app)
+
+    expect(res.status).toBe(500)
+    // Should have called eval for the check (GET) but NOT for the mark (SET)
+    expect(evalFn).toHaveBeenCalledTimes(1)
+  })
+
+  it('passes through without dedup when redis is not provided', async () => {
+    const router = createBillingRouter({
+      stripe: mockStripe,
+      updateUserTier: mockUpdateUserTier,
+      priceIds: { supporter: 'price_supporter', enterprise: 'price_ent' },
+      webhookSecret: 'whsec_test',
+      db: mockDb as never,
+      // no redis
+    })
+    const app = new Hono()
+    app.route('/billing', router)
+
+    const res = await sendWebhook(app)
+
+    expect(res.status).toBe(200)
+    expect(mockUpdateUserTier).toHaveBeenCalled()
+  })
+
+  it('tolerates a redis error during dedup check and continues processing', async () => {
+    const redis = createMockRedis({
+      eval: vi.fn()
+        .mockRejectedValueOnce(new Error('Redis connection refused')) // check fails
+        .mockResolvedValueOnce('OK'), // mark succeeds
+    })
+    const router = createBillingRouter({
+      stripe: mockStripe,
+      updateUserTier: mockUpdateUserTier,
+      priceIds: { supporter: 'price_supporter', enterprise: 'price_ent' },
+      webhookSecret: 'whsec_test',
+      db: mockDb as never,
+      redis,
+    })
+    const app = new Hono()
+    app.route('/billing', router)
+
+    const res = await sendWebhook(app)
+
+    expect(res.status).toBe(200)
+    expect(mockUpdateUserTier).toHaveBeenCalled()
+  })
+
+  it('marks event after successful processing', async () => {
+    const evalFn = vi.fn()
+      .mockResolvedValueOnce(null) // GET → not processed
+      .mockResolvedValueOnce('OK') // SET → marked
+    const redis = createMockRedis({ eval: evalFn })
+
+    const router = createBillingRouter({
+      stripe: mockStripe,
+      updateUserTier: mockUpdateUserTier,
+      priceIds: { supporter: 'price_supporter', enterprise: 'price_ent' },
+      webhookSecret: 'whsec_test',
+      db: mockDb as never,
+      redis,
+    })
+    const app = new Hono()
+    app.route('/billing', router)
+
+    const res = await sendWebhook(app)
+
+    expect(res.status).toBe(200)
+    // Two eval calls: one GET check, one SET mark
+    expect(evalFn).toHaveBeenCalledTimes(2)
   })
 })
