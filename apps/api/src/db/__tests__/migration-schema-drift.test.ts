@@ -6,7 +6,9 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Column } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
+import { getTableColumns } from 'drizzle-orm'
 import { apiKeys } from '../schema/api-keys.js'
+import { feedback } from '../schema/feedback.js'
 import { sessions } from '../schema/sessions.js'
 import { users } from '../schema/users.js'
 
@@ -70,6 +72,24 @@ describe('migration / code schema drift for Better Auth id columns', () => {
       // The migrations must realize that intent — this is the line that fails if
       // a uuid->text ALTER is ever dropped again like it was in 0002.
       expect(sqlType).toBe('text')
+    })
+  }
+})
+
+// The feedback migration (0004) was authored by hand (drizzle-kit generate
+// cannot load the schema in this environment), so hold it to the same
+// DDL-matches-code standard: every code-schema column must appear in the
+// migration DDL with the same base SQL type.
+describe('migration / code schema drift for the feedback table', () => {
+  for (const [name, column] of Object.entries(getTableColumns(feedback))) {
+    it(`feedback.${column.name}: migration DDL matches the code schema`, () => {
+      const sqlType = effectiveColumnType('feedback', column.name)
+      // Compare base types only ("timestamp with time zone" → "timestamp"),
+      // matching the single-word capture in effectiveColumnType.
+      const codeBaseType = column.getSQLType().toLowerCase().split(' ')[0].replace(/\(.*/, '')
+
+      expect(sqlType, `feedback.${column.name} (${name}) not found in migration SQL`).not.toBeNull()
+      expect(sqlType).toBe(codeBaseType)
     })
   }
 })

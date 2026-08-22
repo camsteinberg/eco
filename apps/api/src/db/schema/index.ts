@@ -4,4 +4,5 @@
 export { users } from './users.js'
 export { sessions } from './sessions.js'
 export { apiKeys } from './api-keys.js'
+export { feedback } from './feedback.js'
 export { user, session, account, verification } from './auth.js'

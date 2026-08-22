@@ -356,7 +356,10 @@ export default function PrivacyPage({
               <li>
                 <strong className="text-[var(--eco-text)]">Neon</strong>{" "}
                 &mdash; Managed PostgreSQL database. Stores account
-                information and billing records. Located in US East.
+                information, billing records, and feedback you choose to send
+                us (anonymous: the message you type and, only if you tick the
+                box, a short device summary shown to you before sending).
+                Located in US East.
               </li>
               <li>
                 <strong className="text-[var(--eco-text)]">Upstash</strong>{" "}

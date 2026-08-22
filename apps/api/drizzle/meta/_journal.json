@@ -29,6 +29,13 @@
       "when": 1780617600000,
       "tag": "0003_fix_users_id_text",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1787388795043,
+      "tag": "0004_add_feedback",
+      "breakpoints": true
     }
   ]
 }

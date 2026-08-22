@@ -95,5 +95,69 @@ export const openApiSpec = {
         },
       },
     },
+    '/v1/feedback': {
+      post: {
+        operationId: 'submitFeedback',
+        summary: 'Submit in-app feedback',
+        description:
+          'Anonymous feedback submission. Stores only the typed message and an optional, explicitly opt-in device summary — no user id, IP, or headers. Tightly rate limited per IP.',
+        tags: ['Feedback'],
+        security: [],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object' as const,
+                required: ['message'],
+                properties: {
+                  message: {
+                    type: 'string' as const,
+                    maxLength: 4000,
+                    description: 'The feedback text as typed by the person.',
+                  },
+                  deviceSummary: {
+                    type: 'string' as const,
+                    maxLength: 1000,
+                    description:
+                      'Optional opt-in device summary (browser, device class, active model), shown to the person verbatim before sending.',
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          '200': {
+            description: 'Feedback stored',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object' as const,
+                  required: ['ok'],
+                  properties: { ok: { type: 'boolean' as const, enum: [true] } },
+                },
+              },
+            },
+          },
+          '400': {
+            description: 'Invalid JSON or failed validation',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' },
+              },
+            },
+          },
+          '429': {
+            description: 'Rate limited',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' },
+              },
+            },
+          },
+        },
+      },
+    },
   },
 } as const
