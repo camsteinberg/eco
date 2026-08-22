@@ -241,26 +241,6 @@ async function seedCachedModels(page: Page): Promise<void> {
   }, CACHED_MODELS);
 }
 
-/** Serve a truthful `/v1/auth/profile` — the exact shape `apps/api` returns. */
-function profilePayload(tier: "free" | "supporter") {
-  return async (page: Page): Promise<void> => {
-    await page.route("**/v1/auth/profile", (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          id: "test-user-id",
-          email: "test@eco.network",
-          name: "Test User",
-          subscriptionTier: tier,
-          // apps/api/src/routes/profile.ts — price is a constant, and
-          // billingConfigured is true wherever Stripe keys are set.
-          supporterMembership: { supporterPriceMonthlyUsd: 15, billingConfigured: true },
-        }),
-      }));
-  };
-}
-
 // ── Interactions ────────────────────────────────────────────────────────────
 
 /**
@@ -371,6 +351,16 @@ async function reloadWith(page: Page, init: () => void): Promise<void> {
 
 /** What this wave deliberately did not capture, in a printable form. */
 export const settingsGaps: CaptureGap[] = [
+  {
+    id: "settings.billing-and-supporter",
+    group: "settings",
+    surface:
+      "The billing tab's Supporter/free plan states and the account tab's Supporter thank-you sentence",
+    reason:
+      "Dormant behind NEXT_PUBLIC_ECO_BILLING_UI since the free-launch decision (PR #218): no supporter-membership "
+      + "surface renders in the launch build. The removed entries (account-supporter, billing-supporter-active, "
+      + "billing-free-with-checkout) live in git history; restore them the day the flag is enabled again.",
+  },
   {
     id: "settings.switch-smoke-failed",
     group: "settings",
@@ -822,53 +812,6 @@ export const settingsStates: StateEntry[] = [
       await expect(page.getByRole("button", { name: "Delete my account" })).toBeVisible();
     },
     notes: "A native <dialog> rather than the app's Modal, so it renders in the top layer with its own backdrop — the one destructive confirmation in settings.",
-  },
-  {
-    id: "settings.account-supporter",
-    group: "settings",
-    title: "Account — a Supporter's account tab",
-    route: "/settings",
-    search: "tab=account",
-    auth: "signed-in",
-    tier: "component",
-    realism: "mocked",
-    mock: profilePayload("supporter"),
-    assert: [{ text: "You're a Supporter — thank you." }],
-    notes: "One sentence differs from the signed-in default (pilot.settings-account), and it is the only place the account tab acknowledges membership at all.",
-  },
-
-  // ── Settings → Billing ──────────────────────────────────────────────────
-  {
-    id: "settings.billing-supporter-active",
-    group: "settings",
-    title: "Billing — an active Supporter",
-    route: "/settings",
-    search: "tab=billing",
-    auth: "signed-in",
-    tier: "page",
-    realism: "mocked",
-    mock: profilePayload("supporter"),
-    assert: [
-      { text: "You're a Supporter — thank you for keeping Eco independent." },
-      { role: "button", name: "Manage subscription" },
-    ],
-    notes: "The plan badge, the Stripe portal button, and the Supporter card marked Current. W1's billing shots run on the blanket /v1 mock, which returns no tier at all and so hides this whole half of the tab.",
-  },
-  {
-    id: "settings.billing-free-with-checkout",
-    group: "settings",
-    title: "Billing — free, with checkout available",
-    route: "/settings",
-    search: "tab=billing",
-    auth: "signed-in",
-    tier: "page",
-    realism: "mocked",
-    mock: profilePayload("free"),
-    assert: [
-      { role: "button", name: "Become a Supporter" },
-      { text: "Same features on both. Always." },
-    ],
-    notes: "What a free account sees once Stripe is configured: the two pricing cards with Free marked Current, and the promise that they are the same product. Unreachable in W1's shots, where billingConfigured is false and the Plans section never renders.",
   },
 
   // ── Settings → Appearance ───────────────────────────────────────────────
