@@ -41,6 +41,29 @@ function createAppWithBodyLimit() {
   return app
 }
 
+function createAppWithAuthBodyLimit() {
+  const app = new Hono()
+
+  app.use(
+    '/api/auth/*',
+    bodyLimit({
+      maxSize: 64 * 1024, // 64 KB
+      onError: (c) =>
+        c.json(
+          { error: { message: 'Request body too large', type: 'payload_too_large' } },
+          413,
+        ),
+    }),
+  )
+
+  app.post('/api/auth/sign-up/email', async (c) => {
+    await c.req.json()
+    return c.json({ ok: true })
+  })
+
+  return app
+}
+
 function createAppWithChatBodyLimit() {
   const app = new Hono()
 
@@ -130,6 +153,44 @@ describe('Private activations body limit', () => {
     })
 
     expect(res.status).toBe(413)
+  })
+})
+
+describe('Better Auth body limit', () => {
+  it('rejects payloads larger than 64KB on /api/auth/*', async () => {
+    const app = createAppWithAuthBodyLimit()
+
+    const oversizedPayload = JSON.stringify({
+      email: 'x'.repeat(65 * 1024),
+      password: 'test',
+    })
+
+    const res = await app.request('/api/auth/sign-up/email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: oversizedPayload,
+    })
+
+    expect(res.status).toBe(413)
+    const body = (await res.json()) as { error: { type: string } }
+    expect(body.error.type).toBe('payload_too_large')
+  })
+
+  it('accepts payloads under 64KB on /api/auth/*', async () => {
+    const app = createAppWithAuthBodyLimit()
+
+    const smallPayload = JSON.stringify({
+      email: 'test@example.com',
+      password: 'password123',
+    })
+
+    const res = await app.request('/api/auth/sign-up/email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: smallPayload,
+    })
+
+    expect(res.status).not.toBe(413)
   })
 })
 

@@ -12,6 +12,7 @@ import { finalizeNewUser } from './finalize-new-user.js'
 import { getAllowedWebOrigins } from '../lib/auth-origins.js'
 import { escapeHtml } from '../lib/escape-html.js'
 import { getSignupEmailRejectionReason } from './signup-email-policy.js'
+import { generateAppleClientSecret } from './apple-secret.js'
 
 // Gracefully disabled when RESEND_API_KEY is not set
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null
@@ -26,7 +27,33 @@ export function getEmailFrom(): string {
   return process.env.EMAIL_FROM?.trim() || DEFAULT_EMAIL_FROM
 }
 
-export function createAuth(db: Db) {
+/** Resolve the Apple client secret: generate a JWT if all signing inputs are
+ *  present, otherwise fall back to the static APPLE_CLIENT_SECRET env var. */
+async function resolveAppleClientSecret(): Promise<string> {
+  const hasGeneratorInputs =
+    !!process.env.APPLE_PRIVATE_KEY &&
+    !!process.env.APPLE_KEY_ID &&
+    !!process.env.APPLE_TEAM_ID &&
+    !!process.env.APPLE_CLIENT_ID
+  if (hasGeneratorInputs) {
+    try {
+      return await generateAppleClientSecret()
+    } catch (err) {
+      // Generation failed — fall back to the static env var so a
+      // misconfigured key doesn't crash boot when Apple is configured.
+      const fallback = process.env.APPLE_CLIENT_SECRET ?? ''
+      if (fallback) {
+        console.warn('Apple client secret generation failed; falling back to APPLE_CLIENT_SECRET env var', err)
+      }
+      return fallback
+    }
+  }
+  return process.env.APPLE_CLIENT_SECRET ?? ''
+}
+
+export async function createAuth(db: Db) {
+  const appleClientSecret = await resolveAppleClientSecret()
+
   return betterAuth({
     baseURL: process.env.BETTER_AUTH_BASE_URL ?? process.env.API_INTERNAL_URL ?? 'http://localhost:3001',
     database: drizzleAdapter(db, {
@@ -151,7 +178,7 @@ export function createAuth(db: Db) {
       },
       apple: {
         clientId: process.env.APPLE_CLIENT_ID ?? '',
-        clientSecret: process.env.APPLE_CLIENT_SECRET ?? '',
+        clientSecret: appleClientSecret,
         appBundleIdentifier: process.env.APPLE_BUNDLE_ID,
         enabled: !!process.env.APPLE_CLIENT_ID,
       },
@@ -200,4 +227,4 @@ export function createAuth(db: Db) {
   })
 }
 
-export type Auth = ReturnType<typeof createAuth>
+export type Auth = Awaited<ReturnType<typeof createAuth>>
