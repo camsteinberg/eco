@@ -58,7 +58,7 @@ type AppEnv = {
 const app = new Hono<AppEnv>()
 
 // Body limit on billing and auth routes (64 KB)
-for (const routePattern of ['/v1/billing/*', '/v1/auth/*']) {
+for (const routePattern of ['/v1/billing/*', '/v1/auth/*', '/api/auth/*']) {
   app.use(
     routePattern,
     bodyLimit({
@@ -78,6 +78,7 @@ app.use(
   cors({
     origin: ALLOWED_ORIGINS,
     credentials: true,
+    allowMethods: ['GET', 'POST', 'PATCH', 'DELETE'],
     exposeHeaders: ['X-RateLimit-Limit', 'X-RateLimit-Remaining', 'X-RateLimit-Reset'],
   }),
 )
@@ -161,9 +162,21 @@ app.use('*', async (c, next) => {
   await next()
   const durationMs = Date.now() - start
 
+  // Use the matched route pattern for metrics labels to prevent unbounded
+  // cardinality from unique 404 paths. Raw path stays in logs (safe there).
+  const routes = c.req.matchedRoutes
+  let routeLabel = 'unmatched'
+  for (let i = routes.length - 1; i >= 0; i--) {
+    const route = routes[i]
+    if (route && route.path !== '*' && route.path !== '/*') {
+      routeLabel = route.path
+      break
+    }
+  }
+
   const status = String(c.res.status)
-  httpRequestsTotal.inc({ method, path, status })
-  httpRequestDuration.observe({ method, path, status }, durationMs / 1000)
+  httpRequestsTotal.inc({ method, path: routeLabel, status })
+  httpRequestDuration.observe({ method, path: routeLabel, status }, durationMs / 1000)
 
   childLogger.info(
     { method, path, status: c.res.status, duration_ms: durationMs },
@@ -260,7 +273,7 @@ if (serveApiDocs) {
 // ── Better Auth routes ───────────────────────────────────────────────────────
 if (process.env.DATABASE_URL) {
   const db = createDb()
-  const auth = createAuth(db)
+  const auth = await createAuth(db)
   app.route('/api/auth', createAuthRouter(auth))
   logger.info('Better Auth routes mounted at /api/auth')
 
@@ -329,6 +342,7 @@ if (billingConfig) {
       },
       webhookSecret: billingConfig.webhookSecret,
       db,
+      ...(rateLimitRedis ? { redis: rateLimitRedis } : {}),
     })
 
     // Origin allowlist + auth on checkout and portal only — the webhook is a
