@@ -5,17 +5,16 @@
  * Setup-failure visibility.
  *
  * Each first-run model attempt that fails is demoted by the cascade and its
- * real reason is folded into the generic SETUP_EXHAUSTED_REASON screen — and
- * `logger.error` routes to Sentry (not the console) in production. The net
- * effect: a real-hardware setup failure (e.g. a WebGPU/iGPU wall the catalog
- * can't predict, like an adapter that downloads a model then can't run it) is
- * undiagnosable from the field — the user's devtools show only fetch logs, and
- * the rich smoke diagnostic isn't always written.
+ * real reason is folded into the generic SETUP_EXHAUSTED_REASON screen. The
+ * net effect: a real-hardware setup failure (e.g. a WebGPU/iGPU wall the
+ * catalog can't predict, like an adapter that downloads a model then can't
+ * run it) is hard to diagnose from the field — the rich smoke diagnostic
+ * isn't always written.
  *
- * This logs each failed attempt to `console.error` DIRECTLY (deliberately not
- * via `logger`, whose prod path writes only to Sentry), so the exact error,
- * phase, and model are always visible in the user's own console. It is a
- * diagnostic signal, not chatty logging — it fires only on a setup failure.
+ * This logs each failed attempt to `console.error` with a stable tag, so the
+ * exact error, phase, and model are always visible in the user's own console.
+ * It is a diagnostic signal, not chatty logging — it fires only on a setup
+ * failure.
  *
  * The same failures are also kept in a small in-memory ring buffer so the
  * user-facing diagnostics dump (`exportDiagnostics`) carries them: a support

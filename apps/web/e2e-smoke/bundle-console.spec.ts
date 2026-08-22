@@ -32,8 +32,7 @@ const IGNORED_CONSOLE_PATTERNS: ReadonlyArray<RegExp> = [
   /net::ERR_BLOCKED_BY_CLIENT/,
   /Failed to load resource/,
   // No API gateway runs in this lane; auth/session calls are mocked, but the
-  // service worker and Sentry probes can still surface transport noise.
-  /Sentry/i,
+  // service worker can still surface transport noise.
   // The local-AI setup pipeline correctly reports that it cannot fetch a model
   // here: the lane blocks the model CDN on purpose and Playwright's ephemeral
   // profile reports ~1 GB of quota. This diagnostic is the app working, and it

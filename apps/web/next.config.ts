@@ -4,7 +4,6 @@
 import type { NextConfig } from "next";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { withSentryConfig } from "@sentry/nextjs";
 import bundleAnalyzer from "@next/bundle-analyzer";
 
 const withBundleAnalyzer = bundleAnalyzer({
@@ -103,24 +102,4 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default withBundleAnalyzer(
-  withSentryConfig(nextConfig, {
-    silent: true,
-    org: "eco-network",
-    project: "eco-web",
-    webpack: {
-      treeshake: {
-        // Tree-shake Sentry debug-logging code out of the production client
-        // bundle (the @sentry/nextjs-native replacement for a manual
-        // `__SENTRY_DEBUG__: false` DefinePlugin, which is a no-op here because
-        // withSentryConfig manages these flags through its own bundler plugin).
-        // Debug console logging is never wanted in a shipped bundle, so this is
-        // always safe. We deliberately leave `removeTracing` at its default
-        // (false): production performance tracing is active (tracesSampleRate:
-        // 0.1 in instrumentation-client.ts / instrumentation.ts), so removing it
-        // would drop performance spans.
-        removeDebugLogging: true,
-      },
-    },
-  })
-);
+export default withBundleAnalyzer(nextConfig);
