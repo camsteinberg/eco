@@ -14,6 +14,7 @@ import {
 } from '../../lib/auth'
 import { setAccountDeletionInProgress } from '../../lib/account-lifecycle'
 import { useSupporterMembership } from '../../hooks/useSupporterMembership'
+import { isBillingUiEnabled } from '../../lib/billing-ui-gate'
 import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { ErrorLine } from '../ui/ErrorNotice'
 import { DataExportButton } from './DataExportButton'
@@ -56,6 +57,7 @@ async function waitForMinimumDuration(startedAt: number, minimumMs: number): Pro
 export function AccountTab() {
   const { data: session } = useSession()
   const user = session?.user as { name?: string; email?: string } | undefined
+  const billingVisible = isBillingUiEnabled()
   const { isSupporter } = useSupporterMembership()
   const [name, setName] = useState(user?.name ?? '')
   const [savedName, setSavedName] = useState(user?.name ?? '')
@@ -141,18 +143,20 @@ export function AccountTab() {
 
   return (
     <div>
-      <p className="text-sm text-[var(--eco-text-secondary)]">
-        {isSupporter
-          ? "You're a Supporter — thank you. Manage your benefits in "
-          : "Membership and Supporter benefits live in "}
-        <Link
-          href={buildSettingsHref('billing')}
-          className="text-[var(--eco-primary)] underline underline-offset-2 hover:text-[var(--eco-primary-hover)]"
-        >
-          Billing
-        </Link>
-        .
-      </p>
+      {billingVisible && (
+        <p className="text-sm text-[var(--eco-text-secondary)]">
+          {isSupporter
+            ? "You're a Supporter — thank you. Manage your benefits in "
+            : "Membership and Supporter benefits live in "}
+          <Link
+            href={buildSettingsHref('billing')}
+            className="text-[var(--eco-primary)] underline underline-offset-2 hover:text-[var(--eco-primary-hover)]"
+          >
+            Billing
+          </Link>
+          .
+        </p>
+      )}
 
       <SettingsSection title="Profile" hairline={false} className="mt-10">
         <div className="space-y-4">

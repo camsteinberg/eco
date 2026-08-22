@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Bos Computing LLC
 
 import type { ReactNode } from "react";
+import { isBillingUiEnabled } from "../../lib/billing-ui-gate";
 
 export const DEFAULT_SETTINGS_TAB = "account" as const;
 
@@ -90,12 +91,26 @@ export const SETTINGS_TABS: ReadonlyArray<{
   },
 ] as const;
 
+/** The full tab list, including billing — used for type validation. */
 export function isSettingsTab(value: string | null | undefined): value is SettingsTabId {
   return SETTINGS_TABS.some((tab) => tab.id === value);
 }
 
+/**
+ * The subset of tabs that should be rendered in the current build.
+ * When billing UI is disabled, the billing tab is omitted entirely.
+ */
+export function getVisibleSettingsTabs(): ReadonlyArray<(typeof SETTINGS_TABS)[number]> {
+  if (isBillingUiEnabled()) return SETTINGS_TABS;
+  return SETTINGS_TABS.filter((tab) => tab.id !== "billing");
+}
+
 export function resolveSettingsTab(value: string | null | undefined): SettingsTabId {
   if (isSettingsTab(value)) {
+    // When billing UI is hidden, deep links to ?tab=billing degrade to account.
+    if (value === "billing" && !isBillingUiEnabled()) {
+      return DEFAULT_SETTINGS_TAB;
+    }
     return value;
   }
   if (value && value in RETIRED_SETTINGS_TAB_REDIRECTS) {

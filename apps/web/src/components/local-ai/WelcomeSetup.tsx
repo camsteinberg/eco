@@ -7,6 +7,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { BotanicalAnimation } from './BotanicalAnimation';
 import { ProgressBar } from '../ui/ProgressBar';
 import { VALUE_PILLARS } from '../../lib/value-pillars';
+import { isBillingUiEnabled } from '../../lib/billing-ui-gate';
 
 /**
  * Welcome + setup wait — the v1.0 first-touch surface.
@@ -67,15 +68,18 @@ export type WelcomeSetupProps = {
 // no slogans, and nothing that merely restates the three-pillar row rendered
 // below it, which would spend a slot saying nothing new.
 // Changing the length here means changing REASSURANCE_COUNT in useEcoSetup.ts.
-const REASSURANCE_COPY = [
+const REASSURANCE_COPY_BASE = [
   // — what's happening, and where it lands —
   'Downloading your AI so it never has to leave your device.',
   'The model saves into this browser. No copy lands on a server.',
   // — what it means for you —
   'You can use all of Eco without an account.',
   'You only wait like this once. After today, Eco opens in seconds and works offline.',
-  'Everything Eco does is free. Supporters chip in because they want to.',
-];
+] as const;
+
+const REASSURANCE_COPY: string[] = isBillingUiEnabled()
+  ? [...REASSURANCE_COPY_BASE, 'Everything Eco does is free. Supporters chip in because they want to.']
+  : [...REASSURANCE_COPY_BASE, 'Everything Eco does is free.'];
 
 export function WelcomeSetup({
   phase,
