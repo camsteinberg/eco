@@ -27,6 +27,11 @@ vi.mock("../../../../src/lib/auth", () => ({
   useSession: useSessionMock,
 }));
 
+let mockBillingUiEnabled = false;
+vi.mock("../../../../src/lib/billing-ui-gate", () => ({
+  isBillingUiEnabled: () => mockBillingUiEnabled,
+}));
+
 describe("SignInPage", () => {
   beforeEach(() => {
     searchParams = new URLSearchParams({
@@ -36,6 +41,7 @@ describe("SignInPage", () => {
     useSessionMock.mockReturnValue({ data: null, isPending: false });
     signInEmailMock.mockReset();
     signInSocialMock.mockReset();
+    mockBillingUiEnabled = false;
     Object.defineProperty(window, "location", {
       configurable: true,
       value: {
@@ -69,7 +75,20 @@ describe("SignInPage", () => {
     expect(screen.queryByText(/want supporter membership/i)).not.toBeInTheDocument();
   });
 
-  it("surfaces the supporter continuation note when billing is the callback target", () => {
+  it("hides the supporter continuation note when billing UI is disabled", () => {
+    searchParams = new URLSearchParams({
+      callbackUrl: "/settings?tab=billing",
+    });
+
+    render(<SignInPage />);
+
+    expect(
+      screen.queryByText(/supporter membership/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it("surfaces the supporter continuation note when billing UI is enabled", () => {
+    mockBillingUiEnabled = true;
     searchParams = new URLSearchParams({
       callbackUrl: "/settings?tab=billing",
     });

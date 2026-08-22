@@ -31,6 +31,11 @@ vi.mock("../../../../src/lib/auth", () => ({
   useSession: useSessionMock,
 }));
 
+let mockBillingUiEnabled = false;
+vi.mock("../../../../src/lib/billing-ui-gate", () => ({
+  isBillingUiEnabled: () => mockBillingUiEnabled,
+}));
+
 describe("SignUpPage", () => {
   beforeEach(() => {
     searchParams = new URLSearchParams({
@@ -45,6 +50,7 @@ describe("SignUpPage", () => {
     useSessionMock.mockReturnValue({ data: null, isPending: false });
     signInSocialMock.mockReset();
     signUpEmailMock.mockReset();
+    mockBillingUiEnabled = false;
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({}),
@@ -373,7 +379,18 @@ describe("SignUpPage", () => {
     expect(screen.getByText(/create an account anytime/i)).toBeInTheDocument();
   });
 
-  it("surfaces the supporter continuation note when billing is the callback target", () => {
+  it("hides the supporter continuation note when billing UI is disabled", () => {
+    searchParams = new URLSearchParams({
+      callbackUrl: "/settings?tab=billing",
+    });
+
+    render(<SignUpPage />);
+
+    expect(screen.queryByText(/supporter membership/i)).not.toBeInTheDocument();
+  });
+
+  it("surfaces the supporter continuation note when billing UI is enabled", () => {
+    mockBillingUiEnabled = true;
     searchParams = new URLSearchParams({
       callbackUrl: "/settings?tab=billing",
     });
