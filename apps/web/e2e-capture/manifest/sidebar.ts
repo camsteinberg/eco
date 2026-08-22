@@ -204,6 +204,11 @@ export const sidebarStates: StateEntry[] = [
       + "seeded prose, and the four less common headers already prove the grouping.",
   }),
   populatedSidebar("empty-list", "History — nothing here yet", {
+    // Explicitly NO seed: the helper's default seeds five conversations, and
+    // this entry exists to photograph the list without any. (An earlier seed
+    // override suppressed the default by accident; when its contents were
+    // retired the entry silently inherited a populated list.)
+    seed: {},
     // No conversations, so nothing needs the production build.
     server: "any",
     assert: [{ text: "Your conversations will gather here." }],

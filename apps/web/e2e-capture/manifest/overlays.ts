@@ -442,6 +442,10 @@ export const overlaysStates: StateEntry[] = [
     seed: { local: pullRecord("accepted") },
     tier: "component",
     realism: "seeded",
+    // Desktop only: this documents the pointer dropdown. On a phone the same
+    // open renders the bottom sheet, which is the -sheet twin's whole job —
+    // without the restriction the two ids photograph identical pixels there.
+    axes: { viewports: ["desktop"] },
     assert: [{ testId: "model-selector" }],
     prepare: async (page) => {
       await openSelector(page);
@@ -481,6 +485,8 @@ export const overlaysStates: StateEntry[] = [
     search: READY_WASM_CHAT_SEARCH,
     tier: "component",
     realism: "seeded",
+    // Desktop only, for the same reason as model-tile-downloading above.
+    axes: { viewports: ["desktop"] },
     assert: [{ testId: "model-selector" }],
     prepare: async (page) => {
       await openSelector(page);

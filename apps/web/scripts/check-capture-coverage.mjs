@@ -129,6 +129,14 @@ const EXPECTED_TWINS = [
       "the same appearance tab reached from both directions — eco-theme unset (axes) and the "
       + "System radio selected (settings) render identically, which is what the radio promises.",
   },
+  {
+    ids: ["axes.font-settings-appearance", "settings.appearance-font-comfortable"],
+    reason:
+      "the font twin of the pair above — the comfortable font size reached via the project axis "
+      + "(axes) and via the Comfortable radio (settings) render identically, which is what the "
+      + "radio promises. Sub-pixel AA noise kept their shas apart in earlier runs; the pair has "
+      + "always been identical by design.",
+  },
 ];
 
 /** Is this set of duplicate paths a pair we expect to be identical? */
