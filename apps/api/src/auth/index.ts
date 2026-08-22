@@ -13,6 +13,7 @@ import { getAllowedWebOrigins } from '../lib/auth-origins.js'
 import { escapeHtml } from '../lib/escape-html.js'
 import { getSignupEmailRejectionReason } from './signup-email-policy.js'
 import { generateAppleClientSecret } from './apple-secret.js'
+import { logger } from '../lib/logger.js'
 
 // Gracefully disabled when RESEND_API_KEY is not set
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null
@@ -41,11 +42,8 @@ async function resolveAppleClientSecret(): Promise<string> {
     } catch (err) {
       // Generation failed — fall back to the static env var so a
       // misconfigured key doesn't crash boot when Apple is configured.
-      const fallback = process.env.APPLE_CLIENT_SECRET ?? ''
-      if (fallback) {
-        console.warn('Apple client secret generation failed; falling back to APPLE_CLIENT_SECRET env var', err)
-      }
-      return fallback
+      logger.warn({ err }, 'Apple client secret generation failed — falling back to APPLE_CLIENT_SECRET env var')
+      return process.env.APPLE_CLIENT_SECRET ?? ''
     }
   }
   return process.env.APPLE_CLIENT_SECRET ?? ''

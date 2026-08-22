@@ -13,7 +13,8 @@ import { bodyLimit } from 'hono/body-limit'
 import type { AuthUser } from './lib/types/auth.js'
 import { createHealthRouter } from './routes/health.js'
 import { logger } from './lib/logger.js'
-import { register, httpRequestsTotal, httpRequestDuration } from './lib/metrics.js'
+import { register, httpRequestsTotal, httpRequestDuration, routeLabelFromMatchedRoutes } from './lib/metrics.js'
+import { matchedRoutes } from 'hono/route'
 import { docsRouter } from './routes/docs.js'
 import { createAuthMiddleware } from './middleware/auth.js'
 import { createOriginCheck } from './middleware/originCheck.js'
@@ -162,17 +163,9 @@ app.use('*', async (c, next) => {
   await next()
   const durationMs = Date.now() - start
 
-  // Use the matched route pattern for metrics labels to prevent unbounded
-  // cardinality from unique 404 paths. Raw path stays in logs (safe there).
-  const routes = c.req.matchedRoutes
-  let routeLabel = 'unmatched'
-  for (let i = routes.length - 1; i >= 0; i--) {
-    const route = routes[i]
-    if (route && route.path !== '*' && route.path !== '/*') {
-      routeLabel = route.path
-      break
-    }
-  }
+  // Metrics labels use the matched route pattern, never the raw path — unique
+  // 404 paths would create unbounded label cardinality. Raw path stays in logs.
+  const routeLabel = routeLabelFromMatchedRoutes(matchedRoutes(c))
 
   const status = String(c.res.status)
   httpRequestsTotal.inc({ method, path: routeLabel, status })

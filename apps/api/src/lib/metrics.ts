@@ -12,6 +12,16 @@ register.setDefaultLabels({
 
 collectDefaultMetrics({ register })
 
+/** Bounded metrics label for a request: the innermost matched route pattern,
+ *  or 'unmatched' when only wildcard middleware matched (404s). Raw request
+ *  paths must never become labels — unique paths create unbounded time series. */
+export function routeLabelFromMatchedRoutes(routes: readonly { path: string }[]): string {
+  for (const route of [...routes].reverse()) {
+    if (route.path !== '*' && route.path !== '/*') return route.path
+  }
+  return 'unmatched'
+}
+
 export const httpRequestsTotal = new Counter({
   name: 'http_requests_total',
   help: 'Total HTTP requests',

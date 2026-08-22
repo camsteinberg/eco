@@ -3,12 +3,14 @@
 
 import { describe, it, expect } from 'vitest'
 import { Hono } from 'hono'
+import { matchedRoutes } from 'hono/route'
+import { routeLabelFromMatchedRoutes } from '../lib/metrics.js'
 
 /**
  * Tests that the metrics middleware uses the matched route pattern — not the
  * raw request path — as the label, preventing unbounded cardinality from unique
- * 404 paths. We build a minimal Hono app that mirrors the metrics middleware
- * logic from index.ts and record the labels it would emit.
+ * 404 paths. Exercises the REAL `routeLabelFromMatchedRoutes` helper (the same
+ * one index.ts uses) inside a minimal Hono app.
  */
 describe('Prometheus path-label cardinality', () => {
   function createTestApp() {
@@ -16,23 +18,12 @@ describe('Prometheus path-label cardinality', () => {
 
     const app = new Hono()
 
-    // Mirrors the request-logging middleware's metric-label logic from index.ts
     app.use('*', async (c, next) => {
       await next()
 
-      const routes = c.req.matchedRoutes
-      let routeLabel = 'unmatched'
-      for (let i = routes.length - 1; i >= 0; i--) {
-        const p = routes[i].path
-        if (p !== '*' && p !== '/*') {
-          routeLabel = p
-          break
-        }
-      }
-
       labels.push({
         method: c.req.method,
-        path: routeLabel,
+        path: routeLabelFromMatchedRoutes(matchedRoutes(c)),
         status: String(c.res.status),
       })
     })
