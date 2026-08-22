@@ -8,6 +8,7 @@ import { EcoLogo } from "../../src/components/EcoLogo";
 import { PublicFooter } from "../../src/components/public/PublicFooter";
 import { PublicNav } from "../../src/components/public/PublicNav";
 import { resolvePublicAppDestination } from "../../src/lib/access-policy";
+import { isBillingUiEnabled } from "../../src/lib/billing-ui-gate";
 import { resolveReturnTo } from "../../src/lib/navigation-return";
 
 type SearchParamValue = string | string[] | undefined;
@@ -258,24 +259,26 @@ export default function TermsPage({
             </p>
           </section>
 
-          {/* 8. Subscription Billing */}
-          <section>
-            <h2 className="mb-3 font-serif text-xl font-medium text-[var(--eco-text)]">
-              8. Subscription Billing
-            </h2>
-            <p>
-              Eco is free to use, and the free tier includes the complete product
-              &mdash; no locked features, no usage limits. Supporter is an
-              optional $15/month membership that unlocks nothing extra; it simply
-              helps keep Eco independent. Payments are processed through Stripe and
-              billed monthly. You can cancel anytime from the billing portal in
-              your account settings; cancellation takes effect at the end of the
-              billing period, and your access to Eco is the same whether or not
-              you subscribe. Refunds are handled case by case &mdash; contact us
-              if you believe a charge was made in error. We may change pricing
-              with 30 days&apos; notice.
-            </p>
-          </section>
+          {/* 8. Subscription Billing — hidden when billing UI is disabled */}
+          {isBillingUiEnabled() && (
+            <section>
+              <h2 className="mb-3 font-serif text-xl font-medium text-[var(--eco-text)]">
+                8. Subscription Billing
+              </h2>
+              <p>
+                Eco is free to use, and the free tier includes the complete product
+                &mdash; no locked features, no usage limits. Supporter is an
+                optional $15/month membership that unlocks nothing extra; it simply
+                helps keep Eco independent. Payments are processed through Stripe and
+                billed monthly. You can cancel anytime from the billing portal in
+                your account settings; cancellation takes effect at the end of the
+                billing period, and your access to Eco is the same whether or not
+                you subscribe. Refunds are handled case by case &mdash; contact us
+                if you believe a charge was made in error. We may change pricing
+                with 30 days&apos; notice.
+              </p>
+            </section>
+          )}
 
           {/* 9. Data Handling */}
           <section>
