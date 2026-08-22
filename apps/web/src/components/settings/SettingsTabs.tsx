@@ -11,10 +11,11 @@ import { BillingTab } from './BillingTab'
 import { ModelsTab } from './ModelsTab'
 import { AppearanceTab } from './AppearanceTab'
 import { SupportTab } from './SupportTab'
-import { SETTINGS_TABS, buildSettingsHref, resolveSettingsTab } from './settingsNavigation'
+import { SETTINGS_TABS, getVisibleSettingsTabs, buildSettingsHref, resolveSettingsTab } from './settingsNavigation'
 import { useSession } from '../../lib/auth'
 import { getViewerMode, isGuestLockedSettingsTab } from '../../lib/access-policy'
 import { LockedSettingsPreview } from '../guest/LockedSettingsPreview'
+import { isBillingUiEnabled } from '../../lib/billing-ui-gate'
 
 type TabId = (typeof SETTINGS_TABS)[number]['id']
 
@@ -66,7 +67,8 @@ export function SettingsTabs() {
   const navRef = useRef<HTMLDivElement>(null)
   const currentSearch = searchParams.toString()
   const callbackUrl = `${pathname}${currentSearch ? `?${currentSearch}` : ''}`
-  const activeTabMeta = SETTINGS_TABS.find((tab) => tab.id === activeTab) ?? SETTINGS_TABS[0]!
+  const visibleTabs = getVisibleSettingsTabs()
+  const activeTabMeta = visibleTabs.find((tab) => tab.id === activeTab) ?? visibleTabs[0]!
   const tabIdFor = useCallback((tabId: TabId) => `settings-tab-${tabId}`, [])
   const panelIdFor = useCallback((tabId: TabId) => `settings-panel-${tabId}`, [])
 
@@ -170,15 +172,15 @@ export function SettingsTabs() {
   }, [tabIdFor])
 
   const handleTabKeyDown = useCallback((event: KeyboardEvent<HTMLButtonElement>, tabId: TabId) => {
-    const currentIndex = SETTINGS_TABS.findIndex((tab) => tab.id === tabId)
+    const currentIndex = visibleTabs.findIndex((tab) => tab.id === tabId)
     if (currentIndex < 0) return
 
-    const lastIndex = SETTINGS_TABS.length - 1
+    const lastIndex = visibleTabs.length - 1
     const nextIndex =
       event.key === 'ArrowRight' || event.key === 'ArrowDown'
-        ? (currentIndex + 1) % SETTINGS_TABS.length
+        ? (currentIndex + 1) % visibleTabs.length
         : event.key === 'ArrowLeft' || event.key === 'ArrowUp'
-          ? (currentIndex - 1 + SETTINGS_TABS.length) % SETTINGS_TABS.length
+          ? (currentIndex - 1 + visibleTabs.length) % visibleTabs.length
           : event.key === 'Home'
             ? 0
             : event.key === 'End'
@@ -187,7 +189,7 @@ export function SettingsTabs() {
 
     if (nextIndex !== null) {
       event.preventDefault()
-      const nextTab = SETTINGS_TABS[nextIndex]!.id
+      const nextTab = visibleTabs[nextIndex]!.id
       handleTabChange(nextTab)
       scheduleKeyboardFocus(nextTab)
       return
@@ -197,7 +199,7 @@ export function SettingsTabs() {
       event.preventDefault()
       handleTabChange(tabId)
     }
-  }, [focusTab, handleTabChange])
+  }, [focusTab, handleTabChange, visibleTabs])
 
   if (!hasLoaded) {
     return <SettingsSkeleton />
@@ -212,7 +214,7 @@ export function SettingsTabs() {
         role="tablist"
         aria-label="Settings sections"
       >
-        {SETTINGS_TABS.map((tab) => (
+        {visibleTabs.map((tab) => (
             (() => {
               const lockedForGuest = viewerMode === 'guest' && isGuestLockedSettingsTab(tab.id)
 
@@ -275,7 +277,7 @@ export function SettingsTabs() {
         ) : null}
         {viewerMode === 'member' && activeTab === 'account' && <AccountTab />}
         {activeTab === 'support' && <SupportTab />}
-        {viewerMode === 'member' && activeTab === 'billing' && <BillingTab />}
+        {viewerMode === 'member' && activeTab === 'billing' && isBillingUiEnabled() && <BillingTab />}
         {activeTab === 'models' && <ModelsTab />}
         {activeTab === 'appearance' && <AppearanceTab />}
       </div>

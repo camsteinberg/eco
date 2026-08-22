@@ -24,6 +24,11 @@ vi.mock('../../lib/auth', () => ({
   useSession: () => ({ data: mockSession, isPending: false }),
 }))
 
+let mockBillingUiEnabled = false
+vi.mock('../../lib/billing-ui-gate', () => ({
+  isBillingUiEnabled: () => mockBillingUiEnabled,
+}))
+
 vi.mock('../guest/LockedSettingsPreview', () => ({
   LockedSettingsPreview: ({ tab }: { tab: string }) => <div data-testid="locked-settings-preview">{tab}</div>,
 }))
@@ -55,10 +60,18 @@ describe('SettingsTabs', () => {
     useSettingsStore.setState({ hasLoaded: true })
     mockSearchParams = new URLSearchParams()
     mockSession = { user: { id: '1' } }
+    mockBillingUiEnabled = false
     mockReplace.mockReset()
   })
 
-  it('renders exactly the five surviving tabs', () => {
+  it('renders four tabs when billing UI is hidden (default)', () => {
+    render(<SettingsTabs />)
+    const tabNames = screen.getAllByRole('tab').map((tab) => tab.textContent?.trim())
+    expect(tabNames).toEqual(['Account', 'Support', 'Eco', 'Appearance'])
+  })
+
+  it('renders all five tabs when billing UI is enabled', () => {
+    mockBillingUiEnabled = true
     render(<SettingsTabs />)
     const tabNames = screen.getAllByRole('tab').map((tab) => tab.textContent?.trim())
     expect(tabNames).toEqual(['Account', 'Support', 'Billing', 'Eco', 'Appearance'])
@@ -110,15 +123,15 @@ describe('SettingsTabs', () => {
     render(<SettingsTabs />)
 
     const accountBtn = screen.getByRole('tab', { name: 'Account' })
-    const billingBtn = screen.getByRole('tab', { name: 'Billing' })
+    const supportBtn = screen.getByRole('tab', { name: 'Support' })
 
     expect(accountBtn).toHaveAttribute('aria-selected', 'true')
-    expect(billingBtn).toHaveAttribute('aria-selected', 'false')
+    expect(supportBtn).toHaveAttribute('aria-selected', 'false')
 
-    await user.click(billingBtn)
+    await user.click(supportBtn)
 
     expect(accountBtn).toHaveAttribute('aria-selected', 'false')
-    expect(billingBtn).toHaveAttribute('aria-selected', 'true')
+    expect(supportBtn).toHaveAttribute('aria-selected', 'true')
   })
 
   it('follows the ARIA tab pattern with labelled panels and stable controls', () => {
@@ -222,17 +235,36 @@ describe('SettingsTabs', () => {
     expect(screen.queryByTestId('account-tab')).not.toBeInTheDocument()
   })
 
-  it.each([
-    ['account', 'account-tab'],
-    ['billing', 'billing-tab'],
-  ] as const)('keeps the guest %s tab on a locked preview without mounting member content', (tab, testId) => {
+  it('keeps the guest account tab on a locked preview without mounting member content', () => {
     mockSession = null
-    mockSearchParams = new URLSearchParams(`tab=${tab}`)
+    mockSearchParams = new URLSearchParams('tab=account')
 
     render(<SettingsTabs />)
 
-    expect(screen.getByTestId('locked-settings-preview')).toHaveTextContent(tab)
-    expect(screen.queryByTestId(testId)).not.toBeInTheDocument()
+    expect(screen.getByTestId('locked-settings-preview')).toHaveTextContent('account')
+    expect(screen.queryByTestId('account-tab')).not.toBeInTheDocument()
+  })
+
+  it('keeps the guest billing tab on a locked preview when billing UI is enabled', () => {
+    mockBillingUiEnabled = true
+    mockSession = null
+    mockSearchParams = new URLSearchParams('tab=billing')
+
+    render(<SettingsTabs />)
+
+    expect(screen.getByTestId('locked-settings-preview')).toHaveTextContent('billing')
+    expect(screen.queryByTestId('billing-tab')).not.toBeInTheDocument()
+  })
+
+  it('redirects guest ?tab=billing to account when billing UI is hidden', () => {
+    mockSession = null
+    mockSearchParams = new URLSearchParams('tab=billing')
+
+    render(<SettingsTabs />)
+
+    // billing resolves to account, which shows the locked preview for account
+    expect(screen.getByTestId('locked-settings-preview')).toHaveTextContent('account')
+    expect(screen.queryByTestId('billing-tab')).not.toBeInTheDocument()
   })
 
   it.each(['instructions', 'privacy', 'integrations'] as const)(
@@ -268,5 +300,15 @@ describe('SettingsTabs', () => {
 
     expect(screen.getByTestId('support-tab')).toBeInTheDocument()
     expect(screen.queryByTestId('locked-settings-preview')).not.toBeInTheDocument()
+  })
+
+  it('redirects member ?tab=billing deep link to account when billing UI is hidden', () => {
+    mockSearchParams = new URLSearchParams('tab=billing')
+
+    render(<SettingsTabs />)
+
+    expect(screen.getByRole('tab', { name: 'Account' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByTestId('account-tab')).toBeInTheDocument()
+    expect(screen.queryByTestId('billing-tab')).not.toBeInTheDocument()
   })
 })

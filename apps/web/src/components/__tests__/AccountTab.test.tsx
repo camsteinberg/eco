@@ -49,6 +49,11 @@ vi.mock('../../lib/data-export', () => ({
   exportUserData: exportUserDataMock,
 }))
 
+let mockBillingUiEnabled = true
+vi.mock('../../lib/billing-ui-gate', () => ({
+  isBillingUiEnabled: () => mockBillingUiEnabled,
+}))
+
 // Mock HTMLDialogElement methods for ConfirmDialog
 beforeEach(() => {
   HTMLDialogElement.prototype.showModal = vi.fn(function (this: HTMLDialogElement) {
@@ -165,7 +170,8 @@ describe('AccountTab', () => {
     )
   })
 
-  it('renders the inline Billing link near the top of the tab', async () => {
+  it('renders the inline Billing link when billing UI is enabled', async () => {
+    mockBillingUiEnabled = true
     await renderAccountTabAndWaitForInitialEffects()
 
     // Heading "Membership" is gone — replaced with a one-sentence inline link
@@ -175,6 +181,13 @@ describe('AccountTab', () => {
       'href',
       '/settings?tab=billing',
     )
+  })
+
+  it('hides the inline Billing link when billing UI is disabled', async () => {
+    mockBillingUiEnabled = false
+    await renderAccountTabAndWaitForInitialEffects()
+
+    expect(screen.queryByRole('link', { name: /^billing$/i })).not.toBeInTheDocument()
   })
 
   // --- Profile Save ---

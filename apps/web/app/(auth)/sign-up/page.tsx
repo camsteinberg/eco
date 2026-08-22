@@ -19,6 +19,7 @@ import { rememberPendingChatPrompt } from "../../../src/lib/pending-chat-prompt"
 import {
   isSupporterBillingHref,
 } from "../../../src/lib/supporter-membership";
+import { isBillingUiEnabled } from "../../../src/lib/billing-ui-gate";
 
 function getEmailError(value: string): string | null {
   const trimmedValue = value.trim();
@@ -79,7 +80,7 @@ function SignUpForm() {
   const githubEnabled = process.env.NEXT_PUBLIC_OAUTH_GITHUB_ENABLED === 'true';
   const anyOAuthEnabled = googleEnabled || githubEnabled;
   const signInHref = buildAuthPageHref("/sign-in", { callbackUrl, prompt });
-  const supporterIntent = isSupporterBillingHref(callbackUrl);
+  const supporterIntent = isBillingUiEnabled() && isSupporterBillingHref(callbackUrl);
   const guestChatHref = buildGuestChatHref(promptToResume);
 
   useEffect(() => {

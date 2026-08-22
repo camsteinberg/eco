@@ -17,6 +17,10 @@ vi.mock('../../../lib/auth', () => ({
   useSession: () => ({ data: { user: { id: 'u1' } } }),
 }))
 
+vi.mock('../../../lib/billing-ui-gate', () => ({
+  isBillingUiEnabled: () => true,
+}))
+
 // The tab bodies pull in the whole settings tree; this suite is about the tab
 // strip's underline geometry, so stub them out.
 vi.mock('../AccountTab', () => ({ AccountTab: () => <div /> }))

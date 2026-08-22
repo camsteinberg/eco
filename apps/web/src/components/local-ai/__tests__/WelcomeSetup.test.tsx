@@ -1,8 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Bos Computing LLC
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+
+// Default: billing hidden (free-launch). REASSURANCE_COPY is evaluated at
+// module load, so the mock must be hoisted before WelcomeSetup imports.
+vi.mock('../../../lib/billing-ui-gate', () => ({
+  isBillingUiEnabled: () => false,
+}))
+
 import { WelcomeSetup } from '../WelcomeSetup';
 
 describe('WelcomeSetup', () => {
@@ -61,7 +68,9 @@ describe('WelcomeSetup', () => {
     rerender(<WelcomeSetup phase="downloading" percent={30} etaSeconds={60} reassuranceIndex={1} />);
     expect(screen.getByText(/saves into this browser/i)).toBeInTheDocument();
     rerender(<WelcomeSetup phase="downloading" percent={30} etaSeconds={60} reassuranceIndex={4} />);
-    expect(screen.getByText(/supporters chip in/i)).toBeInTheDocument();
+    // With billing UI hidden, the last line is "Everything Eco does is free."
+    // (no Supporter mention).
+    expect(screen.getByText(/everything eco does is free/i)).toBeInTheDocument();
   });
 
   // "Your AI, your trust"-shaped slogans read as filler, not reassurance — the
