@@ -27,6 +27,7 @@ authenticated routes.)
 | `/v1/billing/webhook` | POST | Stripe webhook handler (unauthenticated) |
 | `/v1/auth/profile` | GET/PATCH | User profile |
 | `/v1/auth/account` | DELETE | Account deletion |
+| `/v1/feedback` | POST | Anonymous in-app feedback (no auth; Origin check + tight `feedback` rate-limit tier) |
 | `/api/auth/*` | * | Better Auth routes (session cookies, OAuth) |
 | `/health` | GET | Health check (DB + Redis probes when configured) |
 | `/metrics` | GET | Prometheus metrics — requires `METRICS_TOKEN` bearer auth; disabled (404) in production when `METRICS_TOKEN` is unset |
@@ -35,7 +36,7 @@ authenticated routes.)
 
 ## Middleware Stack
 
-Applied in order: body size limit (64 KB on billing/auth) ->
+Applied in order: body size limit (64 KB on billing/auth/feedback) ->
 CORS (WEB_URL origins) -> secure headers
 (HSTS, CSP, X-Frame-Options) -> request ID propagation (X-Request-Id) ->
 request logging (pino) -> rate limiting (Redis fixed-window: tight `auth` tier
@@ -43,7 +44,7 @@ on `/api/auth/*`, looser `api` tier on `/v1/*`) -> auth (Better Auth sessions +
 API keys).
 
 The custom mutating routes (`PATCH /v1/auth/profile`, `DELETE /v1/auth/account`,
-`POST /v1/billing/checkout`, `POST /v1/billing/portal`) additionally enforce an
+`POST /v1/billing/checkout`, `POST /v1/billing/portal`, `POST /v1/feedback`) additionally enforce an
 explicit **Origin allowlist** (`createOriginCheck`, same `WEB_URL`-derived origins
 as CORS) as CSRF defense-in-depth on top of the session cookie's `SameSite=Lax` —
 matching the Origin check the Better Auth `/api/auth/*` routes already do. It
@@ -72,6 +73,8 @@ for the `auth` tier (returns 503) and fails open otherwise.
 - `RATE_LIMIT_WINDOW_MS` -- Fixed-window length in ms (default `60000`).
 - `RATE_LIMIT_AUTH_MAX` -- Max requests/window/client on `/api/auth/*` (default `10`).
 - `RATE_LIMIT_API_MAX` -- Max requests/window/client on `/v1/*` (default `100`).
+- `RATE_LIMIT_FEEDBACK_MAX` -- Max requests/window/client on `POST /v1/feedback`
+  (default `5`; its own `feedback` tier on top of the general `api` tier).
 - `STRIPE_SECRET_KEY` -- Enables billing routes. Gracefully disabled when unset.
 - `STRIPE_WEBHOOK_SECRET` -- Webhook signature verification.
 - `METRICS_TOKEN` -- Bearer token required to scrape `/metrics` (timing-safe

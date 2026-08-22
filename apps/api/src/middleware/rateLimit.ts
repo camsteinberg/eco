@@ -9,13 +9,17 @@ import { rateLimitHitsTotal } from '../lib/metrics.js'
 // `auth` guards the credential surface (`/api/auth/*`) — sign-in, sign-up,
 // password-reset, magic-link send — so its window is tight to stop brute-force,
 // account enumeration, and email-send spam. `api` guards the broader `/v1/*`
-// surface with a looser ceiling.
-export type RateLimitTier = 'auth' | 'api'
+// surface with a looser ceiling. `feedback` guards the anonymous free-text
+// write endpoint (`/v1/feedback`) with a tight per-IP window on top of the
+// general `api` tier — its own tier so its Redis key never collides with the
+// `api` counter.
+export type RateLimitTier = 'auth' | 'api' | 'feedback'
 
 // Default limits — named, not inlined as magic numbers. Each is overridable per
 // construction call and via env (`RATE_LIMIT_*`) at the wiring site.
 const DEFAULT_AUTH_LIMIT = 10
 const DEFAULT_API_LIMIT = 100
+const DEFAULT_FEEDBACK_LIMIT = 5
 const DEFAULT_WINDOW_MS = 60_000 // 60s fixed window
 
 /**
@@ -140,7 +144,13 @@ export function createRateLimiter(options: CreateRateLimiterOptions): Middleware
     getClientIp = defaultGetClientIp,
     logger = noopLogger,
   } = options
-  const limit = options.limit ?? (tier === 'auth' ? DEFAULT_AUTH_LIMIT : DEFAULT_API_LIMIT)
+  const limit =
+    options.limit ??
+    (tier === 'auth'
+      ? DEFAULT_AUTH_LIMIT
+      : tier === 'feedback'
+        ? DEFAULT_FEEDBACK_LIMIT
+        : DEFAULT_API_LIMIT)
 
   if (!redis) {
     logger.warn(

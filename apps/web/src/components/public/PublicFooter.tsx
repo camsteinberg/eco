@@ -5,7 +5,9 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import { useState } from "react";
 import { EcoLogo } from "../EcoLogo";
+import { FeedbackDialog } from "../feedback/FeedbackDialog";
 import { resolvePublicAppDestination } from "../../lib/access-policy";
 
 const exploreLinks = [
@@ -21,6 +23,7 @@ const legalLinks = [
 export function PublicFooter() {
   const searchParams = useSearchParams();
   const chatHref = resolvePublicAppDestination(searchParams.get("returnTo"));
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
 
   return (
     <footer className="border-t border-[var(--eco-border)] bg-[var(--eco-surface)]">
@@ -56,6 +59,17 @@ export function PublicFooter() {
                 </Link>
               </li>
             ))}
+            <li>
+              <button
+                type="button"
+                onClick={() => {
+                  setFeedbackOpen(true);
+                }}
+                className="inline-flex min-h-11 min-w-11 items-center text-sm text-[var(--eco-text)] transition-colors hover:text-[var(--eco-primary)]"
+              >
+                Send feedback
+              </button>
+            </li>
           </ul>
         </div>
 
@@ -77,6 +91,13 @@ export function PublicFooter() {
           </ul>
         </div>
       </div>
+
+      <FeedbackDialog
+        open={feedbackOpen}
+        onClose={() => {
+          setFeedbackOpen(false);
+        }}
+      />
     </footer>
   );
 }

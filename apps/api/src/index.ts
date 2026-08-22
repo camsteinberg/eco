@@ -58,8 +58,8 @@ type AppEnv = {
 
 const app = new Hono<AppEnv>()
 
-// Body limit on billing and auth routes (64 KB)
-for (const routePattern of ['/v1/billing/*', '/v1/auth/*', '/api/auth/*']) {
+// Body limit on billing, auth, and feedback routes (64 KB)
+for (const routePattern of ['/v1/billing/*', '/v1/auth/*', '/api/auth/*', '/v1/feedback', '/v1/feedback/*']) {
   app.use(
     routePattern,
     bodyLimit({
@@ -225,6 +225,7 @@ function parsePositiveIntEnv(name: string, raw: string | undefined, fallback: nu
 const RATE_LIMIT_WINDOW_MS = parsePositiveIntEnv('RATE_LIMIT_WINDOW_MS', process.env.RATE_LIMIT_WINDOW_MS, 60_000)
 const RATE_LIMIT_AUTH_MAX = parsePositiveIntEnv('RATE_LIMIT_AUTH_MAX', process.env.RATE_LIMIT_AUTH_MAX, 10)
 const RATE_LIMIT_API_MAX = parsePositiveIntEnv('RATE_LIMIT_API_MAX', process.env.RATE_LIMIT_API_MAX, 100)
+const RATE_LIMIT_FEEDBACK_MAX = parsePositiveIntEnv('RATE_LIMIT_FEEDBACK_MAX', process.env.RATE_LIMIT_FEEDBACK_MAX, 5)
 
 app.use(
   '/api/auth/*',
@@ -301,6 +302,26 @@ if (process.env.DATABASE_URL) {
   app.use('/v1/auth/account', sessionAuth)
   app.route('/v1/auth/account', createAccountRouter({ db }))
   logger.info('Account deletion route mounted at /v1/auth/account')
+
+  // ── Feedback ────────────────────────────────────────────────────────────
+  // Anonymous by design (chat needs no account, so auth-required feedback
+  // would exclude most users). Defense stack: Origin allowlist + 64 KB body
+  // limit (wired above) + the tight `feedback` rate-limit tier here on top of
+  // the general `api` tier + field-length caps in the route itself.
+  const { createFeedbackRouter } = await import('./routes/feedback.js')
+  app.use('/v1/feedback', originCheck)
+  app.use(
+    '/v1/feedback',
+    createRateLimiter({
+      redis: rateLimitRedis,
+      tier: 'feedback',
+      limit: RATE_LIMIT_FEEDBACK_MAX,
+      windowMs: RATE_LIMIT_WINDOW_MS,
+      logger,
+    }),
+  )
+  app.route('/v1/feedback', createFeedbackRouter({ db }))
+  logger.info('Feedback route mounted at /v1/feedback')
 }
 
 // ── Billing routes (conditional on COMPLETE Stripe configuration) ────────────
