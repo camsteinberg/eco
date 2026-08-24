@@ -12,6 +12,7 @@ import type { StorageBreakdown } from '../../hooks/local-ai/useLocalAiStorageBre
 import { DetailsDisclosure } from './DetailsDisclosure';
 import { LocalAiStoragePanel } from './LocalAiStoragePanel';
 import { SettingsSection } from '../settings/SettingsSection';
+import { SETTINGS_STORAGE_SECTION_ID } from '../settings/settingsNavigation';
 import { SettingsRow } from '../settings/SettingsRow';
 import { SettingsSwitch } from '../settings/SettingsSwitch';
 import { CustomInstructionsSection } from '../settings/CustomInstructionsSection';
@@ -149,7 +150,7 @@ export function SettingsEcoTab({
         />
       </SettingsSection>
 
-      <SettingsSection title="Storage on this device">
+      <SettingsSection title="Storage on this device" id={SETTINGS_STORAGE_SECTION_ID}>
         <LocalAiStoragePanel
           status={storageStatus}
           breakdown={storageBreakdown}

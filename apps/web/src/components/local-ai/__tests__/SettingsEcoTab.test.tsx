@@ -4,6 +4,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { SettingsEcoTab } from '../SettingsEcoTab';
+import { SETTINGS_STORAGE_SECTION_ID } from '../../settings/settingsNavigation';
 import { useSettingsStore } from '../../../stores/settingsStore';
 import type { ModelConfig, Slot } from '../../../local-ai/types';
 
@@ -326,6 +327,24 @@ describe('SettingsEcoTab — storage', () => {
       />,
     );
     expect(screen.getByTestId('local-ai-storage-panel')).toBeInTheDocument();
+  });
+
+  // The storage section is the scroll target a "Free up space" deep link
+  // (?tab=models&manage=storage) lands on, so it must carry the stable anchor id.
+  it('gives the storage section the scroll-target anchor id', () => {
+    const { container } = render(
+      <SettingsEcoTab
+        currentModel={MODEL}
+        storageBreakdown={null}
+        storageStatus="loading"
+        slotModelIds={SLOT_MODEL_IDS}
+        onSwitchAI={() => undefined}
+        onClearCache={async () => undefined}
+      />,
+    );
+    const target = container.querySelector(`#${SETTINGS_STORAGE_SECTION_ID}`);
+    expect(target).not.toBeNull();
+    expect(target).toContainElement(screen.getByTestId('local-ai-storage-panel'));
   });
 });
 

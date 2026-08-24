@@ -6,6 +6,20 @@ import { isBillingUiEnabled } from "../../lib/billing-ui-gate";
 
 export const DEFAULT_SETTINGS_TAB = "account" as const;
 
+/**
+ * DOM id of the "Storage on this device" section on the Eco tab. It is the
+ * scroll target a storage-reclaim deep link lands on, so an "insufficient
+ * space" error can drop the user straight at the remove-models controls.
+ */
+export const SETTINGS_STORAGE_SECTION_ID = "settings-storage-section";
+
+/**
+ * Deep link that opens the Eco tab and scrolls to the storage section. The
+ * `manage=storage` param is read by `LocalAiSettingsAdapter`, mirroring the way
+ * the tab already reads `?tab=`.
+ */
+export const MANAGE_STORAGE_HREF = "/settings?tab=models&manage=storage";
+
 export type SettingsTabId =
   | "account"
   | "support"

@@ -23,6 +23,8 @@ import {
 import { getDisplayInfo } from "../../local-ai/display";
 import { MODEL_PREPARING_BUSY_MESSAGE } from "../../lib/local-heavy-work-owner";
 import { CONTEXT_WINDOW_REFUSAL_MESSAGE } from "../../lib/context-window";
+import { looksLikeStorageShortage } from "../../local-ai/adapters/storage-shortage";
+import { MANAGE_STORAGE_HREF } from "../settings/settingsNavigation";
 import type { Slot } from "../../local-ai/types";
 
 const ERROR_MESSAGES = [
@@ -384,6 +386,14 @@ export function ErrorMessage({
         ? "Resume"
         : "Prepare";
 
+  // A prepare launched from this card can exhaust on disk space; when it does,
+  // an identical retry is doomed and "Manage Models" is too vague. Point the
+  // readiness link at the storage-reclaim panel instead, so removing an unused
+  // model is one tap away. Keyed off the (verbatim) storage-shortage message.
+  const isStoragePrepareFailure =
+    localPrepareState?.status === "error" &&
+    looksLikeStorageShortage(localPrepareState.error ?? "");
+
   // Check for reduced motion preference
   const prefersReducedMotion =
     typeof window !== "undefined" &&
@@ -497,10 +507,11 @@ export function ErrorMessage({
 
       {localReadiness && (
         <a
-          href={MANAGE_MODELS_HREF}
+          data-testid={isStoragePrepareFailure ? "storage-reclaim-link" : undefined}
+          href={isStoragePrepareFailure ? MANAGE_STORAGE_HREF : MANAGE_MODELS_HREF}
           className="inline-flex min-h-8 items-center rounded-md text-xs font-medium text-[var(--eco-primary)] underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--eco-primary)]"
         >
-          Manage Models
+          {isStoragePrepareFailure ? "Free up space" : "Manage Models"}
         </a>
       )}
 

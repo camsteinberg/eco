@@ -8,6 +8,7 @@ import { useSearchParams } from "next/navigation";
 import { ChatWorkspace } from "./ChatWorkspace";
 import { useConversationStore } from "../../stores/conversationStore";
 import { LocalAiSetupGate } from "../local-ai/LocalAiSetupGate";
+import { MANAGE_STORAGE_HREF } from "../settings/settingsNavigation";
 import {
   normalizePendingChatPrompt,
   rememberPendingChatPrompt,
@@ -65,6 +66,13 @@ export function ChatPageClient() {
         // diagnostics surface so it actually shows what happened.
         if (typeof window !== "undefined") {
           window.location.assign("/diagnostics/local-ai?eco-diagnostics=1");
+        }
+      }}
+      onManageStorage={() => {
+        // The storage-shortage error's "Free up space" action: open the Eco
+        // tab and scroll to the remove-models controls (see MANAGE_STORAGE_HREF).
+        if (typeof window !== "undefined") {
+          window.location.assign(MANAGE_STORAGE_HREF);
         }
       }}
     >

@@ -27,11 +27,14 @@ export type LocalAiSetupGateProps = {
   children: ReactNode;
   /** Open a diagnostic / support panel from the error state. */
   onTellUsMore?(): void;
+  /** Open the storage-reclaim panel from a storage-shortage error state. */
+  onManageStorage?(): void;
 };
 
 export function LocalAiSetupGate({
   children,
   onTellUsMore,
+  onManageStorage,
 }: LocalAiSetupGateProps) {
   const setup = useLocalAiSetup();
   // Reactive: reflects the adapter-probe verdict once it lands during setup. On
@@ -80,6 +83,7 @@ export function LocalAiSetupGate({
           void setup.start();
         }}
         onTellUsMore={onTellUsMore ?? (() => undefined)}
+        {...(onManageStorage ? { onManageStorage } : {})}
       />
     );
   }

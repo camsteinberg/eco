@@ -307,6 +307,56 @@ describe("ErrorMessage", () => {
     expect(screen.getByRole("button", { name: /prepare eco fast/i })).toHaveTextContent("Ready");
   });
 
+  it("points the readiness link at storage reclaim when a prepare exhausts on disk space", () => {
+    render(
+      <ErrorMessage
+        localReadiness={{
+          kind: "prepare-local-model",
+          modelId: "local/qwen3-0.6b",
+          modelName: "Qwen3 0.6B",
+          slotId: "eco-fast",
+          slotLabel: "Eco Fast",
+          status: "not-downloaded",
+        }}
+        localPrepareState={{
+          status: "error",
+          error:
+            "Eco needs about 2.0 GB of free space for this model, but only about 0.3 GB is available on this device.",
+        }}
+        onPrepareLocalModel={() => {}}
+        message="Eco Fast needs preparation before Eco can answer locally."
+      />,
+    );
+    const link = screen.getByTestId("storage-reclaim-link");
+    expect(link).toHaveAttribute("href", "/settings?tab=models&manage=storage");
+    expect(link).toHaveTextContent("Free up space");
+    // The vague generic label must not co-exist with the storage-specific one.
+    expect(screen.queryByRole("link", { name: /manage models/i })).not.toBeInTheDocument();
+  });
+
+  it("keeps the generic Manage Models link for a non-storage prepare error", () => {
+    render(
+      <ErrorMessage
+        localReadiness={{
+          kind: "prepare-local-model",
+          modelId: "local/qwen3-0.6b",
+          modelName: "Qwen3 0.6B",
+          slotId: "eco-fast",
+          slotLabel: "Eco Fast",
+          status: "not-downloaded",
+        }}
+        localPrepareState={{ status: "error", error: "Eco can't run on this device yet." }}
+        onPrepareLocalModel={() => {}}
+        message="Eco Fast needs preparation before Eco can answer locally."
+      />,
+    );
+    expect(screen.queryByTestId("storage-reclaim-link")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /manage models/i })).toHaveAttribute(
+      "href",
+      "/settings?tab=models",
+    );
+  });
+
   it("shows calm cooldown copy without an immediate retry button for crash-risk states", () => {
     render(
       <ErrorMessage

@@ -180,6 +180,51 @@ describe('SetupErrorState', () => {
     expect(screen.getByText(/needs a little more free space/i)).toBeInTheDocument();
   });
 
+  it('offers a "Free up space" action on a storage shortage, alongside Try again', async () => {
+    const onManageStorage = vi.fn();
+    render(
+      <SetupErrorState
+        reason="Eco needs about 2.0 GB of free space for this model, but only about 0.3 GB is available on this device."
+        reasonCode="insufficient-storage"
+        exhausted
+        onTryAgain={() => {}}
+        onTellUsMore={() => {}}
+        onManageStorage={onManageStorage}
+      />,
+    );
+    // Try again stays (the copy is "free up some space and try again").
+    expect(screen.getByRole('button', { name: /try setting up eco again/i })).toBeInTheDocument();
+    const freeUp = screen.getByRole('button', { name: /free up space/i });
+    await userEvent.click(freeUp);
+    expect(onManageStorage).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not offer "Free up space" when the failure is not a storage shortage', () => {
+    render(
+      <SetupErrorState
+        reason="Smoke timed out before any token"
+        exhausted
+        onTryAgain={() => {}}
+        onTellUsMore={() => {}}
+        onManageStorage={() => {}}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: /free up space/i })).not.toBeInTheDocument();
+  });
+
+  it('omits "Free up space" when no reclaim handler is wired', () => {
+    render(
+      <SetupErrorState
+        reason="Eco ran out of free space while setting up this model. It needs about 2.0 GB."
+        reasonCode="insufficient-storage"
+        exhausted
+        onTryAgain={() => {}}
+        onTellUsMore={() => {}}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: /free up space/i })).not.toBeInTheDocument();
+  });
+
   it('copies the diagnostic to the clipboard without any network call', async () => {
     const writeText = vi.fn(async () => {});
     vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });

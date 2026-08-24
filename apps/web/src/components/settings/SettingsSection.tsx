@@ -11,6 +11,8 @@ type Props = {
   description?: string;
   hairline?: boolean;
   className?: string;
+  /** Optional anchor id, so a deep link can scroll straight to this section. */
+  id?: string;
   children: ReactNode;
 };
 
@@ -19,22 +21,21 @@ export function SettingsSection({
   description,
   hairline = true,
   className,
+  id,
   children,
 }: Props) {
   return (
     <>
       {/* Botanical section separator — the design system bans plain rules
-          between sections; kept whisper-quiet so the settings rhythm stays calm. */}
+          between sections (use the leaf divider). It reads at --eco-border so
+          it lands as an intentional leaf motif rather than a faint smudge, with
+          a tighter, single-step gap above and below to keep the rhythm calm. */}
       {hairline ? (
-        <div className="mt-12 mb-12 flex justify-center" aria-hidden="true">
-          <LeafDivider
-            size={132}
-            opacity={0.5}
-            className="text-[var(--eco-border-muted)]"
-          />
+        <div className="my-8 flex justify-center" aria-hidden="true">
+          <LeafDivider size={132} className="text-[var(--eco-border)]" />
         </div>
       ) : null}
-      <section className={className ?? undefined}>
+      <section id={id} className={className ?? undefined}>
         <h2 className="font-display font-medium text-xl tracking-tight text-[var(--eco-text)]">
           {title}
         </h2>
