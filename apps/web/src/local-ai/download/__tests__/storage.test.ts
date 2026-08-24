@@ -662,6 +662,84 @@ describe('OpfsStorage — contract smoke (in-memory fake)', () => {
   });
 });
 
+// ─── listModelCacheNames + sweepOrphanedParts (boot-time dead-bytes sweep) ───
+
+describe('CacheApiStorage.listModelCacheNames — Eco namespaces only', () => {
+  it('returns only eco-local-ai-* namespaces, skipping foreign caches', async () => {
+    const backend = new MemoryCacheStorage();
+    const storage = new CacheApiStorage(backend);
+    await storage.put({ modelId: 'local/a', url: 'https://cdn/a' }, new Response(new Uint8Array(1)));
+    await storage.put({ modelId: 'candidate/b', url: 'https://cdn/b' }, new Response(new Uint8Array(1)));
+    // A foreign (retired-runtime) cache that must never be enumerated as Eco's.
+    await backend.open('webllm/model');
+
+    const names = await storage.listModelCacheNames();
+
+    expect(names).toContain('eco-local-ai-local_a');
+    expect(names).toContain('eco-local-ai-candidate_b');
+    expect(names).not.toContain('webllm/model');
+  });
+});
+
+describe('CacheApiStorage.sweepOrphanedParts — keeps terminal parts, removes orphans', () => {
+  const M = 'candidate/parts-model';
+  const WEIGHTS = 'https://cdn/parts-model/weights.bin';
+
+  it('removes a chunk-part no parts-native manifest claims', async () => {
+    const storage = new CacheApiStorage(new MemoryCacheStorage());
+    const orphan = `${WEIGHTS}.ecopart.s1000.0`;
+    await storage.put({ modelId: M, url: orphan }, new Response(new Uint8Array(500)));
+
+    const removed = await storage.sweepOrphanedParts(M);
+
+    expect(removed).toBe(1);
+    expect(await storage.has({ modelId: M, url: orphan })).toBe(false);
+  });
+
+  it('keeps parts a parts-native manifest references (they ARE the file bytes)', async () => {
+    const storage = new CacheApiStorage(new MemoryCacheStorage());
+    const partKeys = [`${WEIGHTS}.ecopart.s1000.0`, `${WEIGHTS}.ecopart.s1000.500`];
+    for (const key of partKeys) {
+      await storage.put({ modelId: M, url: key }, new Response(new Uint8Array(500)));
+    }
+    await storage.finalizeParts({ modelId: M, url: WEIGHTS }, partKeys, 1_000);
+
+    const removed = await storage.sweepOrphanedParts(M);
+
+    expect(removed).toBe(0);
+    for (const key of partKeys) {
+      expect(await storage.has({ modelId: M, url: key })).toBe(true);
+    }
+    // The composed file still reads back through the surviving manifest+parts.
+    expect(await storage.verify({ modelId: M, url: WEIGHTS }, 1_000)).toBe(true);
+  });
+
+  it('leaves whole-file entries untouched while sweeping their leftover parts', async () => {
+    const storage = new CacheApiStorage(new MemoryCacheStorage());
+    // A completed whole-file store plus a stray resume part that the post-store
+    // sweep never removed.
+    await storage.put({ modelId: M, url: WEIGHTS }, new Response(new Uint8Array(1_000)));
+    const stray = `${WEIGHTS}.ecopart.s1000.0`;
+    await storage.put({ modelId: M, url: stray }, new Response(new Uint8Array(500)));
+
+    const removed = await storage.sweepOrphanedParts(M);
+
+    expect(removed).toBe(1);
+    expect(await storage.has({ modelId: M, url: stray })).toBe(false);
+    expect(await storage.verify({ modelId: M, url: WEIGHTS }, 1_000)).toBe(true);
+  });
+
+  it('no-ops (0) when the model has no cache namespace, never creating one', async () => {
+    const backend = new MemoryCacheStorage();
+    const storage = new CacheApiStorage(backend);
+
+    const removed = await storage.sweepOrphanedParts('local/never-cached');
+
+    expect(removed).toBe(0);
+    expect(await backend.has('eco-local-ai-local_never-cached')).toBe(false);
+  });
+});
+
 afterEach(() => {
   // No-op; tests own their own storage fakes.
 });
