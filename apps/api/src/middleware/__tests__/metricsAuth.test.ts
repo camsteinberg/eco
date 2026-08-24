@@ -81,7 +81,8 @@ describe('createMetricsHandler', () => {
 
     it('compares with a timing-safe equal — a correct-prefix shorter token is rejected', async () => {
       // 'super-secret' is a length-mismatched prefix of the real token. A naive
-      // startsWith/=== bug would behave differently; safeCompare length-guards first.
+      // startsWith/=== bug would behave differently; safeCompare hashes both
+      // sides to a fixed-length digest, so a mismatched prefix still fails.
       const app = appWith({ register: fakeRegister(), token, isProduction: true })
 
       const res = await app.request('/metrics', {

@@ -115,7 +115,12 @@ function useMathPlugins(content: string): MathPlugins {
         loadedRef.current = true;
         setPlugins({
           remark: [remarkMath],
-          rehype: [rehypeKatex],
+          // `trust: false` is KaTeX's default, but pin it explicitly: it disables
+          // `\href`, `\htmlData`, and `\includegraphics`, which are the only KaTeX
+          // primitives that can emit scriptable/navigable markup. Model output is
+          // untrusted, so a future rehype-katex/KaTeX default change must not be
+          // able to silently re-enable them.
+          rehype: [[rehypeKatex, { trust: false }]],
         });
       }
     })();
