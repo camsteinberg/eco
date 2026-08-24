@@ -340,6 +340,61 @@ export function normalizeUnboundModelSelection(choice: string): string {
 }
 
 /**
+ * Guard a returning-user send against a SILENT, progress-less multi-GB
+ * re-download of an evicted model.
+ *
+ * A slot's localStorage can still read `status: "ready"` while the model's
+ * weight bytes were evicted underneath it (storage pressure, Safari ITP, a
+ * manual cache clear). `resolveDispatch`'s ready branch only checks the STATUS,
+ * so it would hand an absent model to the Transformers.js worker — whose
+ * `allowRemoteModels` fall-through then refetches gigabytes through the proxy
+ * with no headroom preflight, no progress UI, and no consent. Boot
+ * reconciliation already repairs this slot-vs-cache drift, but only at boot,
+ * only online, and only with a reachable manifest; a mid-session eviction or an
+ * offline / unreachable-manifest boot slips past it and reaches the first send.
+ *
+ * So — before the synchronous `resolveDispatch` runs — reconcile the ready slots
+ * against the live cache using the SAME boot mechanism (`reconcileReadySlots`
+ * with the same manifest-only plan resolver). On PROVEN byte absence it demotes
+ * the slot to `preparing`; the existing synchronous not-ready branch in
+ * `resolveDispatch` then writes the honest "getting your model ready" card and
+ * the invisible readiness retry sends the held message once setup finishes.
+ * Nothing new is invented: dispatch stays synchronous, and the slot STATUS is
+ * repaired so the existing branch handles it — never awaiting bytes in the hot
+ * path.
+ *
+ * Two properties keep the healthy path free:
+ *   - Residency short-circuit: a model already loaded in the runtime cannot be
+ *     evicted out from under THIS dispatch (its bytes are resident), so a warm
+ *     follow-up turn skips the probe entirely — zero added latency. Same
+ *     residency signal `resolveInitialStreamPhase` trusts.
+ *   - Fail-open: `reconcileReadySlots` demotes ONLY on a manifest-reachable,
+ *     files-verified-missing result and leaves the slot `ready` on any error or
+ *     indeterminate probe (offline, unreachable manifest); the surrounding catch
+ *     turns even a thrown probe into today's dispatch. A presence check must
+ *     never block a legitimate send.
+ *
+ * @internal Exported for unit testing.
+ */
+export async function reconcileSlotCachePresence(choice: string): Promise<void> {
+  const target = resolveSelectedModelId(normalizeUnboundModelSelection(choice));
+  // Warm path: the target is already resident — no disk eviction can affect this
+  // dispatch — so skip the probe (this is the common follow-up-turn case).
+  if (target !== "auto" && getActiveModel()?.id === target) return;
+  try {
+    // Lazily loaded so the boot-reconcile graph stays out of this hot module and
+    // only loads on the cold (non-resident) send that actually needs the probe.
+    const [{ reconcileReadySlots }, { resolveReconcileFilePlan }] = await Promise.all([
+      import("../local-ai/lifecycle/self-heal"),
+      import("../local-ai/bootstrap"),
+    ]);
+    await reconcileReadySlots(resolveReconcileFilePlan);
+  } catch {
+    // Never block a send on a presence probe — fall through to today's dispatch.
+  }
+}
+
+/**
  * Local error codes that already resolve to a specific, honest chat message
  * (crash recovery, cooldown, low battery, OOM, missing template). Any other
  * failure — a generic inference error, a timeout, a "no model loaded" while a
@@ -1029,6 +1084,13 @@ export function useChat() {
     overrides?: StreamResponseOverrides,
   ) {
     const selectedModelChoice = overrides?.model ?? useChatStore.getState().selectedModel;
+
+    // ── Evicted-cache presence guard ───────────────────────────────────────
+    // Repair a slot whose weights were evicted while its status still reads
+    // 'ready', BEFORE the synchronous dispatch resolves — otherwise the send
+    // silently refetches gigabytes in the worker. Fail-open and warm-path free;
+    // see `reconcileSlotCachePresence`.
+    await reconcileSlotCachePresence(selectedModelChoice);
 
     // ── Resolve dispatch ───────────────────────────────────────────────────
     const dispatch = resolveDispatch(assistantId, selectedModelChoice);
