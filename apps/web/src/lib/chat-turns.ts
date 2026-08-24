@@ -120,12 +120,16 @@ export function buildLocalReadinessFailureV2({
         ? "downloaded-needs-test"
         : "not-downloaded";
 
+  // The auto-prepare effect (useChatPageEffects) starts this card's setup
+  // driver as soon as it renders, and the invisible readiness retry sends the
+  // held message when the slot flips ready — the copy promises that flow
+  // instead of a Settings errand.
   const message =
     slot.status === "preparing"
-      ? `${slotLabel} is still preparing. Finish setup in Settings → Eco before sending this locally.`
+      ? `${slotLabel} is still preparing your model. Your message will send itself once it's ready.`
       : slot.status === "error"
-        ? `${slotLabel} hit a snag during its last readiness check. Re-run setup in Settings → Eco to recover.`
-        : `${slotLabel} needs one-time setup before Eco can answer locally. Settings → Eco can download it and run the readiness check.`;
+        ? `${slotLabel} hit a snag during its last readiness check and is retrying setup now. Your message will send itself if it recovers.`
+        : `${slotLabel} needs a one-time setup on this device and is starting it now. Your message will send itself once your model is ready.`;
 
   return {
     message,
@@ -150,6 +154,27 @@ export function buildLocalReadinessFailureV2({
  *
  * Pure; structural message shape so callers can pass store messages directly.
  */
+/**
+ * The card the auto-prepare effect should drive, if the transcript ends on
+ * one: a send blocked by slot readiness (`writeDispatchError` with kind
+ * "prepare-local-model"). Only the LAST message qualifies — an older card
+ * mid-transcript already had its chance and re-driving it would surprise.
+ */
+export function findAutoPrepareTarget(
+  messages: ReadonlyArray<{
+    id: string;
+    role: string;
+    status?: string;
+    localReadiness?: { kind?: string; modelId?: string } | null;
+  }>,
+): { id: string; modelId: string } | null {
+  const last = messages[messages.length - 1];
+  if (!last || last.role !== "assistant" || last.status !== "error") return null;
+  const action = last.localReadiness;
+  if (action?.kind !== "prepare-local-model" || !action.modelId) return null;
+  return { id: last.id, modelId: action.modelId };
+}
+
 export function findAutoRetryTarget(
   messages: ReadonlyArray<{
     id: string;

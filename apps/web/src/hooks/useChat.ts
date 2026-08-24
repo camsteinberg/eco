@@ -770,6 +770,13 @@ export function useChat() {
   //   (c) a belt-and-suspenders slot re-check just before dispatch.
   type DispatchResolution = { ok: true; model: string } | { ok: false };
 
+  // The assistant error card is the ONLY surface for a dispatch failure. It
+  // renders at the send location with the designed copy (ErrorMessage maps the
+  // `browser-local-ai-not-supported:` marker to its device card and carries the
+  // set-up action for the recoverable cases). This used to ALSO call
+  // `setError(message)`, which echoed the same string — raw marker prefix and
+  // all — into the notice strip above the composer: the polished card and a
+  // debug-looking duplicate on screen at once.
   function writeDispatchError(
     assistantId: string,
     message: string,
@@ -781,7 +788,6 @@ export function useChat() {
       inferenceMethod: "local",
       ...extra,
     });
-    setError(message);
   }
 
   function resolveDispatch(
@@ -831,9 +837,13 @@ export function useChat() {
           return { ok: false };
         }
         const slotLabel = 'Eco';
+        // The auto-prepare effect (useChatPageEffects) starts this card's
+        // setup driver the moment it renders, and the invisible readiness
+        // retry sends the held message when the slot flips ready — so the
+        // copy promises the flow, not a Settings errand.
         writeDispatchError(
           assistantId,
-          `${slotLabel} needs setup before it can run on this device. Go to Settings → Eco to set it up.`,
+          `${slotLabel} is getting your model ready on this device. Your message will send itself once it's set up.`,
           {
             localReadiness: {
               kind: "prepare-local-model",

@@ -10,6 +10,7 @@ import { useChatStore } from "../stores/chatStore";
 import { useConversationStore } from "../stores/conversationStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { ACTIVE_CONVERSATION_STORAGE_KEY } from "../lib/chat-workspace-storage";
+import { findAutoPrepareTarget } from "../lib/chat-turns";
 import {
   clearPendingChatPrompt,
   normalizePendingChatPrompt,
@@ -358,6 +359,25 @@ export type ChatPageEffects = LocalModelReadiness & {
  */
 export function useChatPageEffects(params: ChatPageEffectsParams): ChatPageEffects {
   const readiness = useLocalModelReadiness();
+
+  // A send that resolved to a not-ready slot writes a readiness error card
+  // (kind "prepare-local-model"). Sending IS the intent to use that model, and
+  // the setup gate already resumes the bound pick's interrupted download
+  // without a separate tap — so run the card's own driver automatically
+  // instead of parking the person on a button. The driver no-ops if the slot
+  // is ready or a prepare is already running, and once the slot flips ready
+  // the invisible readiness retry sends the held message itself: type → send
+  // → "Preparing…" → the answer arrives, no extra taps. Keyed per card id so
+  // a prepare that fails never loops.
+  const autoPreparedCardIdsRef = useRef<Set<string>>(new Set());
+  const prepareDriver = readiness.handlePrepareLocalModel;
+  const autoPrepareTarget = findAutoPrepareTarget(params.messages);
+  useEffect(() => {
+    if (!autoPrepareTarget) return;
+    if (autoPreparedCardIdsRef.current.has(autoPrepareTarget.id)) return;
+    autoPreparedCardIdsRef.current.add(autoPrepareTarget.id);
+    prepareDriver(autoPrepareTarget.modelId);
+  }, [autoPrepareTarget, prepareDriver]);
   // The pull machine's single driver: it resumes an interrupted download and
   // restores the "ready, switch now" affordance, and it starts only once the
   // chat is ready on a local model so it never competes with first-run setup.

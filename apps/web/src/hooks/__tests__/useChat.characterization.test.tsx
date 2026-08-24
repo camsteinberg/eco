@@ -1419,6 +1419,10 @@ describe("useChat — dispatch readiness guards", () => {
     const assistant = lastAssistant()!;
     expect(assistant.status).toBe("error");
     expect(assistant.errorMessage).toContain("cloud");
+    // Dispatch failures surface ONCE, in the assistant card — the store-level
+    // error (the notice strip above the composer) stays quiet, so the raw
+    // message is never echoed twice.
+    expect(useChatStore.getState().error).toBeNull();
   });
 
   // ── stopForUnsafeLocalContext (oversized-context early-return guard) ────────
