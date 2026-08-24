@@ -336,7 +336,7 @@ export function ChatSurface(props: ChatSurfaceProps) {
           {/* Caps = the reading column plus this element's own px-4, so the
               composer field here matches the conversation view's exactly and
               nothing jumps on the first message. */}
-          <div className="mx-auto flex w-full max-w-[44rem] lg:max-w-[50rem] flex-col items-center px-4 pt-6 sm:pt-[calc(50vh-15rem)]">
+          <div className="mx-auto flex w-full max-w-[44rem] lg:max-w-[50rem] xl:max-w-[58rem] flex-col items-center px-4 pt-6 sm:pt-[calc(50vh-15rem)]">
             {validationProtectionBanner && (
               <ValidationProtectionNotice
                 banner={validationProtectionBanner}
@@ -475,7 +475,7 @@ export function ChatSurface(props: ChatSurfaceProps) {
             {queryCount <= 0 && (
               <HelpGuideButton className="flex bottom-[calc(100%+0.5rem)] right-4 md:right-6" />
             )}
-            <div className="mx-auto max-w-2xl lg:max-w-3xl">
+            <div className="mx-auto max-w-2xl lg:max-w-3xl xl:max-w-4xl">
               {droppedAttachmentError ? (
                 <AttachmentDropError message={droppedAttachmentError} className="mb-3" />
               ) : null}

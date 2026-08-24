@@ -289,7 +289,7 @@ export function MessageBubble({
         </div>
       )}
 
-      <div className={isUser ? "max-w-[75%] space-y-1.5" : "max-w-[min(100%,48rem)] space-y-1.5"}>
+      <div className={isUser ? "max-w-[75%] space-y-1.5" : "max-w-[min(100%,56rem)] space-y-1.5"}>
         {/* Edit mode: show textarea instead of bubble content */}
         {isEditing && isUser && onSaveEdit && onCancelEdit ? (
           <EditMessage

@@ -109,7 +109,7 @@ const tiles = [
 export function SuggestedPrompts({ onSelect }: SuggestedPromptsProps) {
   const shouldReduceMotion = useReducedMotion()
   return (
-    <div className="w-full max-w-2xl lg:max-w-3xl">
+    <div className="w-full max-w-2xl lg:max-w-3xl xl:max-w-4xl">
       {/* 2×2 on mobile so the composer stays above the fold; unchanged (2-up) at sm+. */}
       <motion.div
         className="grid w-full grid-cols-2 gap-2.5 sm:gap-3"

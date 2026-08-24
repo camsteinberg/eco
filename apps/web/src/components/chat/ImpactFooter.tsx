@@ -38,13 +38,19 @@ export function ImpactFooter({ queryCount, onShare }: ImpactFooterProps) {
       // pr reserves the lane the help button occupies above the composer bar
       // (right-4 / md:right-6 plus its 44px diameter), so the controls below
       // are never tucked underneath it. flex-wrap lets the controls take their
-      // own row once the metrics no longer leave them room.
-      className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-[var(--eco-border)]/40 py-2 pl-5 pr-[4.25rem] md:pr-[4.75rem]"
+      // own row once the metrics no longer leave them room. From min-[84rem]
+      // up, the inner box caps at the chat's reading column (56rem at xl) and
+      // the padding turns symmetric so the strip's contents share the
+      // transcript and composer's edges instead of pinning to the screen's —
+      // 84rem is the narrowest width where the column's right flank clears
+      // the help button's reserved lane.
+      className="border-t border-[var(--eco-border)]/40 py-2 pl-5 pr-[4.25rem] md:pr-[4.75rem] min-[84rem]:px-5"
       style={{
         backgroundColor: "rgba(var(--eco-primary-rgb, 45, 90, 61), 0.05)",
       }}
       aria-label="Environmental impact summary"
     >
+      <div className="mx-auto flex w-full flex-wrap items-center justify-between gap-x-4 gap-y-1 min-[84rem]:max-w-4xl">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[var(--eco-text-secondary)]">
         {/* Water saved */}
         <span className="flex items-center gap-1">
@@ -127,6 +133,7 @@ export function ImpactFooter({ queryCount, onShare }: ImpactFooterProps) {
         >
           Share chat
         </button>
+      </div>
       </div>
     </div>
     </>
