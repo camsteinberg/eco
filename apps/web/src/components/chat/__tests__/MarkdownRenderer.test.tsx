@@ -6,58 +6,6 @@ import { render, screen, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import { hasOpenFence, MATH_DETECT } from '../MarkdownRenderer'
 
-// Mock next/dynamic to load components synchronously in tests.
-// next/dynamic is a Next.js runtime feature; in vitest/jsdom we replace it
-// with a thin wrapper that eagerly resolves the import factory so tests
-// don't have to await the lazy chunk.
-vi.mock("next/dynamic", () => ({
-  __esModule: true,
-  default: (
-    loader: () => Promise<{ default: React.ComponentType<Record<string, unknown>> }>,
-    _opts?: Record<string, unknown>,
-  ) => {
-    let Resolved: React.ComponentType<Record<string, unknown>> | null = null;
-    // Kick off the import immediately; because the imported module is already
-    // vi.mock-ed above, the promise resolves in the same microtask queue.
-    loader().then((mod: { default: React.ComponentType<Record<string, unknown>> }) => {
-      Resolved = mod.default;
-    });
-    // Return a wrapper component that defers to the resolved component.
-    // The first render may miss if the microtask hasn't flushed, so tests
-    // that render via MarkdownRenderer use `waitFor` below.
-    return (props: Record<string, unknown>) => (Resolved ? <Resolved {...props} /> : null);
-  },
-}));
-
-// Mock @codesandbox/sandpack-react since Sandpack requires browser APIs
-// not available in Vitest/jsdom
-vi.mock("@codesandbox/sandpack-react", () => ({
-  SandpackProvider: ({
-    children,
-    template,
-    files,
-  }: {
-    children: React.ReactNode;
-    template: string;
-    files: Record<string, string>;
-    key?: number;
-  }) => (
-    <div
-      data-testid="sandpack-provider"
-      data-template={template}
-      data-files={JSON.stringify(files)}
-    >
-      {children}
-    </div>
-  ),
-  SandpackCodeEditor: ({ style }: { style?: React.CSSProperties }) => (
-    <div data-testid="sandpack-editor" style={style} />
-  ),
-  SandpackPreview: ({ style }: { style?: React.CSSProperties }) => (
-    <div data-testid="sandpack-preview" style={style} />
-  ),
-}));
-
 // Mock remark-math and rehype-katex for lazy-load tests.
 // These mocks simulate the dynamic import() path in useMathPlugins.
 vi.mock("remark-math", () => ({

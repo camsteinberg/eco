@@ -367,17 +367,6 @@ export const chatSurfaceStates: StateEntry[] = [
     },
   ),
   seededChat(
-    "artifact-block",
-    "A runnable HTML artifact",
-    "conversation-artifact",
-    [{ selector: '[aria-label="Preview tab"]' }],
-    {
-      notes:
-        "The Code tab is the default, so nothing is executed and the Sandpack preview "
-        + "never runs — the artifact renders as source, which is what ships.",
-    },
-  ),
-  seededChat(
     "canonical-tool-answer",
     "An exact answer restored from history",
     "conversation-canonical-answer",

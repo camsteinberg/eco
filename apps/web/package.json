@@ -26,7 +26,6 @@
     "capture:coverage": "node scripts/check-capture-coverage.mjs"
   },
   "dependencies": {
-    "@codesandbox/sandpack-react": "^2.20.0",
     "@eco/ui": "workspace:*",
     "@huggingface/transformers": "4.2.0",
     "@litert-lm/core": "0.13.1",
