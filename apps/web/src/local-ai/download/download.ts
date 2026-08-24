@@ -139,6 +139,13 @@ export type DownloadOptions = {
    * fails open and the download proceeds.
    */
   estimateStorage?: () => Promise<StorageHeadroom | null>;
+  /**
+   * Inject the blob-storage exhaustion probe (defaults to `probeBlobStorage`).
+   * Called ONLY on the blob-assembly failure path, to tell a full disk apart
+   * from a real network failure. `true` means the device cannot create a
+   * disk-backed Blob of that size, so the failure was storage, not the network.
+   */
+  probeBlobStorageExhausted?: (bytes: number) => Promise<boolean>;
 };
 
 export type StorageHeadroom = { usage: number; quota: number };
@@ -620,6 +627,7 @@ export async function downloadByPlan(
       retryBaseDelayMs,
       storage,
       remainingBytes,
+      probeBlobStorageExhausted: options?.probeBlobStorageExhausted ?? probeBlobStorage,
     };
     for (const file of remaining) {
       throwIfAborted(controller.signal, plan.modelId);
@@ -739,14 +747,19 @@ function throwIfAborted(signal: AbortSignal, modelId: string): void {
  * abort rejects the in-flight `.blob()`; we surface DownloadAbortedError.
  * Size mismatches are intentionally NOT failed here — see the second-pass
  * comment in downloadByPlan.
+ *
+ * Failure attribution: a `.blob()` rejection here is NOT always the network.
+ * On a nearly-full disk the browser refuses to back a large Blob and rejects
+ * with a fetch-shaped `TypeError: Failed to fetch`, which used to be reported
+ * as "we couldn't reach the model host — check your connection" to a user whose
+ * only problem was space. So before blaming the network, run the blob-storage
+ * probe (see `probeBlobStorage`); when the device can't create a blob of this
+ * size at all, raise the honest InsufficientStorageError instead.
  */
 async function streamResponseToBlob(
   response: Response,
   baseLoaded: number,
-  totalBytes: number,
-  tracker: ProgressTracker,
-  signal: AbortSignal,
-  modelId: string,
+  ctx: FetchFileContext,
   // The transport URL actually being read — used in the error message so a
   // failure names where the bytes came from (the CDN, or the proxy after a
   // fallback), not the storage identity.
@@ -755,6 +768,7 @@ async function streamResponseToBlob(
   // and the ledger key on it regardless of transport.
   identityUrl: string,
 ): Promise<Blob> {
+  const { totalBytes, tracker, signal, modelId } = ctx;
   if (!response.body) {
     // Fallback when the runtime cannot stream (jsdom under some configs).
     // We still get progress at the file boundary.
@@ -775,7 +789,16 @@ async function streamResponseToBlob(
   try {
     return await new Response(response.body.pipeThrough(progress)).blob();
   } catch (err) {
+    // Abort always wins: a cancelled download is neither storage nor network.
     if (signal.aborted) throw new DownloadAbortedError(modelId);
+    if (isQuotaExceeded(err)) throw new InsufficientStorageError(ctx.remainingBytes);
+    // The bytes this assembly was trying to hold — the probe reproduces a Blob
+    // of that size locally. Falls back to what actually arrived when the origin
+    // sent no length (and to 0 in fakes, which the probe declines to judge).
+    const expectedBytes = Number(response.headers.get('content-length')) || received;
+    if (await ctx.probeBlobStorageExhausted(expectedBytes).catch(() => false)) {
+      throw new InsufficientStorageError(ctx.remainingBytes);
+    }
     throw new DownloadFailedError(
       `Network error streaming ${sourceUrl}: ${errorMessage(err)}`,
       { url: identityUrl },
@@ -802,6 +825,11 @@ type FetchFileContext = {
    * InsufficientStorageError the final storage.put raises.
    */
   remainingBytes: number;
+  /**
+   * Blob-storage exhaustion probe, run ONLY when blob assembly fails, to tell a
+   * full disk apart from a network failure. See `probeBlobStorage`.
+   */
+  probeBlobStorageExhausted: (bytes: number) => Promise<boolean>;
 };
 
 /**
@@ -1201,10 +1229,7 @@ async function downloadFileWhole(
   const blob = await streamResponseToBlob(
     response,
     baseLoaded,
-    ctx.totalBytes,
-    ctx.tracker,
-    ctx.signal,
-    ctx.modelId,
+    ctx,
     source,
     file.url,
   );
@@ -1553,10 +1578,7 @@ async function fetchRangeChunkOnce(
   const blob = await streamResponseToBlob(
     response,
     baseLoaded,
-    ctx.totalBytes,
-    ctx.tracker,
-    ctx.signal,
-    ctx.modelId,
+    ctx,
     source,
     file.url,
   );
@@ -1625,6 +1647,97 @@ async function defaultEstimateStorage(): Promise<StorageHeadroom | null> {
     return { usage, quota };
   } catch {
     return null;
+  }
+}
+
+// ─── Blob-storage exhaustion probe ──────────────────────────────────────────
+
+/**
+ * How long the probe may take before we give up and keep the network
+ * attribution. The probe only runs on an already-failing path, but it must
+ * never be able to wedge the download.
+ */
+const BLOB_PROBE_TIMEOUT_MS = 5_000;
+/** Bytes enqueued per pull — peak heap stays at O(1 MiB) while probing. */
+const BLOB_PROBE_FILLER_BYTES = 1024 * 1024;
+/** A blob this small succeeds even on a full disk — the probe's control. */
+const BLOB_PROBE_CONTROL_BYTES = 4 * 1024;
+
+const PROBE_TIMED_OUT = Symbol('blob-probe-timeout');
+
+/**
+ * Build a Blob of `bytes` from a purely synthetic in-page stream — no network,
+ * no storage backend. Exactly the operation `streamResponseToBlob` performs, so
+ * it fails for exactly the same reason.
+ */
+async function buildSyntheticBlob(bytes: number): Promise<Blob> {
+  const filler = new Uint8Array(Math.min(bytes, BLOB_PROBE_FILLER_BYTES));
+  let remaining = bytes;
+  const stream = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (remaining <= 0) {
+        controller.close();
+        return;
+      }
+      const size = Math.min(remaining, filler.byteLength);
+      remaining -= size;
+      // A fresh copy per pull: the consumed chunk must not be reused.
+      controller.enqueue(filler.slice(0, size));
+    },
+  });
+  return await new Response(stream).blob();
+}
+
+async function withProbeTimeout<T>(work: Promise<T>): Promise<T | typeof PROBE_TIMED_OUT> {
+  // A rejection arriving after the race settles must not surface as an
+  // unhandled rejection; this extra handler does not disarm the race's own.
+  void work.catch(() => undefined);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<typeof PROBE_TIMED_OUT>((resolve) => {
+        timer = setTimeout(() => resolve(PROBE_TIMED_OUT), BLOB_PROBE_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+/**
+ * Can this device still create a disk-backed Blob of `bytes`?
+ *
+ * The wrong-cause defect this fixes: on a nearly-full disk Chromium refuses to
+ * back a large Blob and rejects `new Response(stream).blob()` with a
+ * fetch-shaped `TypeError: Failed to fetch` — even for a synthetic in-page
+ * stream with no network involved. Taken at face value that reads as a dead
+ * model host, so a user whose disk was full was told to check their connection.
+ *
+ * The discriminator is the same operation, reproduced locally: stream a
+ * comparably-sized synthetic body into a Blob. A small control blob runs first,
+ * so an environment that cannot make blobs at ALL (or a probe that is simply
+ * unsupported) is reported as "not exhausted" rather than misattributed.
+ *
+ * Fails safe in every direction — anything other than "the control succeeded
+ * and the real-size blob failed" returns false and keeps the existing network
+ * attribution. Bounded by BLOB_PROBE_TIMEOUT_MS so it cannot wedge the flow.
+ */
+export async function probeBlobStorage(bytes: number): Promise<boolean> {
+  if (typeof ReadableStream === 'undefined' || typeof Response === 'undefined') return false;
+  const probeBytes = Math.min(Math.max(bytes, 0), RANGE_CHUNK_BYTES);
+  if (probeBytes <= BLOB_PROBE_CONTROL_BYTES) return false;
+
+  const control = await withProbeTimeout(buildSyntheticBlob(BLOB_PROBE_CONTROL_BYTES))
+    .catch(() => PROBE_TIMED_OUT);
+  if (control === PROBE_TIMED_OUT) return false;
+
+  try {
+    await withProbeTimeout(buildSyntheticBlob(probeBytes));
+    // Succeeded — or ran past the bound, which is not evidence either way.
+    return false;
+  } catch {
+    return true;
   }
 }
 

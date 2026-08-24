@@ -49,6 +49,7 @@ import {
   hasDownloadPlanResolver,
   isModelFullyCached,
   listActiveDownloads,
+  probeBlobStorage,
   setDownloadPlanResolver,
 } from '../download';
 import { recordEvidence } from '../../evidence/ledger';
@@ -1604,6 +1605,175 @@ describe('downloadByPlan — storage headroom', () => {
         fetcher: createFetcher({ [a.url]: { body: a.body } }),
       }),
     ).rejects.toBeInstanceOf(InsufficientStorageError);
+  });
+});
+
+// ─── Full disk vs dead host: blob-assembly failure attribution ─────────────
+//
+// On a nearly-full disk Chromium refuses to back a large Blob and rejects
+// `new Response(stream).blob()` with a fetch-shaped `TypeError: Failed to
+// fetch` — no network involved. Taken literally that told a user whose disk was
+// full to "check your connection". The probe reproduces the same Blob locally
+// to tell the two apart; everything inconclusive keeps the network wording.
+
+/** A 200 whose body errors as soon as it is read — the shape of both causes. */
+function erroringBodyFetcher(contentLength: number): typeof fetch {
+  return (async () => new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.error(new TypeError('Failed to fetch'));
+      },
+    }) as unknown as BodyInit,
+    { status: 200, headers: { 'content-length': String(contentLength) } },
+  )) as typeof fetch;
+}
+
+describe('downloadByPlan — blob-assembly failure attribution', () => {
+  const a = { url: 'https://test/a.bin', body: byteArr(1, 2, 3, 4, 5, 6, 7, 8) };
+
+  it('raises the honest storage error when the device cannot make a blob that size', async () => {
+    const probe = vi.fn(async () => true);
+    let thrown: unknown;
+    try {
+      await downloadByPlan(makePlan([a]), {
+        storage,
+        estimateStorage: async () => null, // preflight says nothing — this is the case it misses
+        retryBaseDelayMs: NO_RETRY_BACKOFF,
+        probeBlobStorageExhausted: probe,
+        fetcher: erroringBodyFetcher(a.body.byteLength),
+      });
+    } catch (err) {
+      thrown = err;
+    }
+
+    expect(thrown).toBeInstanceOf(InsufficientStorageError);
+    // The quota path's figures: required bytes, no available claim.
+    expect((thrown as InsufficientStorageError).requiredBytes).toBe(a.body.byteLength);
+    expect((thrown as InsufficientStorageError).availableBytes).toBeUndefined();
+    expect((thrown as Error).message).toContain('ran out of free space');
+    // Probed for the bytes the assembly was trying to hold.
+    expect(probe).toHaveBeenCalledWith(a.body.byteLength);
+  });
+
+  it('keeps the network attribution when a blob that size is still creatable', async () => {
+    const probe = vi.fn(async () => false);
+    let thrown: unknown;
+    try {
+      await downloadByPlan(makePlan([a]), {
+        storage,
+        estimateStorage: async () => null,
+        retryBaseDelayMs: NO_RETRY_BACKOFF,
+        probeBlobStorageExhausted: probe,
+        fetcher: erroringBodyFetcher(a.body.byteLength),
+      });
+    } catch (err) {
+      thrown = err;
+    }
+
+    expect(thrown).toBeInstanceOf(DownloadFailedError);
+    expect(thrown).not.toBeInstanceOf(InsufficientStorageError);
+    expect((thrown as Error).message).toContain('Network error streaming');
+    expect(probe).toHaveBeenCalled();
+  });
+
+  it('treats a probe that itself fails as inconclusive (network wording stands)', async () => {
+    const probe = vi.fn(async () => {
+      throw new Error('probe blew up');
+    });
+    await expect(
+      downloadByPlan(makePlan([a]), {
+        storage,
+        estimateStorage: async () => null,
+        retryBaseDelayMs: NO_RETRY_BACKOFF,
+        probeBlobStorageExhausted: probe,
+        fetcher: erroringBodyFetcher(a.body.byteLength),
+      }),
+    ).rejects.toBeInstanceOf(DownloadFailedError);
+    expect(probe).toHaveBeenCalled();
+  });
+
+  it('lets an abort win over the probe', async () => {
+    const probe = vi.fn(async () => true);
+    const controller = new AbortController();
+    const fetcher = (async () => {
+      controller.abort();
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          start(c) {
+            c.error(new TypeError('Failed to fetch'));
+          },
+        }) as unknown as BodyInit,
+        { status: 200, headers: { 'content-length': String(a.body.byteLength) } },
+      );
+    }) as typeof fetch;
+
+    await expect(
+      downloadByPlan(makePlan([a]), {
+        storage,
+        signal: controller.signal,
+        estimateStorage: async () => null,
+        retryBaseDelayMs: NO_RETRY_BACKOFF,
+        probeBlobStorageExhausted: probe,
+        fetcher,
+      }),
+    ).rejects.toBeInstanceOf(DownloadAbortedError);
+    expect(probe).not.toHaveBeenCalled();
+  });
+
+  it('costs a healthy download nothing — the probe never runs', async () => {
+    const probe = vi.fn(async () => true);
+    const result = await downloadByPlan(makePlan([a]), {
+      storage,
+      estimateStorage: async () => null,
+      probeBlobStorageExhausted: probe,
+      fetcher: createFetcher({ [a.url]: { body: a.body } }),
+    });
+
+    expect(result.filesFetched).toBe(1);
+    expect(probe).not.toHaveBeenCalled();
+  });
+});
+
+describe('probeBlobStorage', () => {
+  const realArrayBuffer = Response.prototype.arrayBuffer;
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('reports exhaustion when only small blobs can still be created', async () => {
+    // Reproduce the browser's behaviour on a full disk: a KB-sized blob is
+    // fine, a large one rejects with the fetch-shaped TypeError.
+    const limit = 8 * 1024;
+    vi.spyOn(Response.prototype, 'blob').mockImplementation(async function (this: Response) {
+      const bytes = new Uint8Array(await realArrayBuffer.call(this));
+      if (bytes.byteLength > limit) throw new TypeError('Failed to fetch');
+      return new Blob([bytes]);
+    });
+
+    await expect(probeBlobStorage(64 * 1024)).resolves.toBe(true);
+  });
+
+  it('reports no exhaustion on a healthy device', async () => {
+    await expect(probeBlobStorage(64 * 1024)).resolves.toBe(false);
+  });
+
+  it('declines to judge a blob no bigger than its own control', async () => {
+    vi.spyOn(Response.prototype, 'blob').mockImplementation(async () => {
+      throw new TypeError('Failed to fetch');
+    });
+
+    await expect(probeBlobStorage(1024)).resolves.toBe(false);
+  });
+
+  it('reports no exhaustion when even the small control blob fails', async () => {
+    // The environment cannot make blobs at all (or the probe is unsupported):
+    // that is not evidence of a full disk, so the network wording stands.
+    vi.spyOn(Response.prototype, 'blob').mockImplementation(async () => {
+      throw new TypeError('Failed to fetch');
+    });
+
+    await expect(probeBlobStorage(64 * 1024)).resolves.toBe(false);
   });
 });
 
