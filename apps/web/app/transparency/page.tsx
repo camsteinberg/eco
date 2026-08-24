@@ -255,13 +255,6 @@ export default function TransparencyPage({
               </li>
               <li>
                 <strong className="text-[var(--eco-text)]">
-                  Subscription and billing status
-                </strong>{" "}
-                &mdash; whether you support Eco with a paid subscription, handled
-                through Stripe
-              </li>
-              <li>
-                <strong className="text-[var(--eco-text)]">
                   Operational metadata
                 </strong>{" "}
                 &mdash; request timestamps, IP addresses, and HTTP metadata used
@@ -364,15 +357,15 @@ export default function TransparencyPage({
                 <strong className="text-[var(--eco-text)]">
                   API gateway
                 </strong>{" "}
-                &mdash; hosted on Fly.io. Handles authentication and billing
-                only; it does not process your conversations.
+                &mdash; hosted on Fly.io. Handles authentication only; it does
+                not process your conversations.
               </li>
               <li>
                 <strong className="text-[var(--eco-text)]">
                   Database
                 </strong>{" "}
-                &mdash; PostgreSQL on Neon (accounts and billing records &mdash;
-                never conversation content)
+                &mdash; PostgreSQL on Neon (accounts &mdash; never conversation
+                content)
               </li>
               <li>
                 <strong className="text-[var(--eco-text)]">

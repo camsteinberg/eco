@@ -109,16 +109,11 @@ export default function PrivacyPage({
               </li>
               <li>
                 <strong className="text-[var(--eco-text)]">Usage metrics:</strong>{" "}
-                Aggregate request metrics for our account and billing API
+                Aggregate request metrics for our account API
                 &mdash; request counts, response timing, and error rates &mdash;
                 for reliability and security. Your chat activity (how often you
                 chat, timing, and the model you use) is measured on your device
                 and never sent to Eco
-              </li>
-              <li>
-                <strong className="text-[var(--eco-text)]">Payment information:</strong>{" "}
-                Processed by Stripe. We never see or store your full card number.
-                We retain subscription status and billing history.
               </li>
               <li>
                 <strong className="text-[var(--eco-text)]">Device information:</strong>{" "}
@@ -173,9 +168,8 @@ export default function PrivacyPage({
                 <strong className="text-[var(--eco-text)]">
                   Contractual necessity
                 </strong>{" "}
-                &mdash; Account creation, authentication, and subscription
-                billing are necessary to provide the Service you requested
-                (GDPR Article 6(1)(b))
+                &mdash; Account creation and authentication are necessary to
+                provide the Service you requested (GDPR Article 6(1)(b))
               </li>
               <li>
                 <strong className="text-[var(--eco-text)]">
@@ -186,13 +180,6 @@ export default function PrivacyPage({
                 abuse prevention. We have balanced these interests against your
                 rights and determined they do not override your fundamental
                 freedoms (GDPR Article 6(1)(f))
-              </li>
-              <li>
-                <strong className="text-[var(--eco-text)]">
-                  Legal obligation
-                </strong>{" "}
-                &mdash; Billing records are retained as required by tax and
-                financial regulations (GDPR Article 6(1)(c))
               </li>
               <li>
                 <strong className="text-[var(--eco-text)]">
@@ -329,15 +316,9 @@ export default function PrivacyPage({
             </p>
             <ul className="list-disc space-y-2 pl-6">
               <li>
-                <strong className="text-[var(--eco-text)]">Stripe</strong>{" "}
-                &mdash; Payment processing for subscriptions. Stripe processes
-                your payment card information directly; we never see your full
-                card number.
-              </li>
-              <li>
                 <strong className="text-[var(--eco-text)]">Sentry</strong>{" "}
-                &mdash; Server-side error monitoring for our authentication and
-                billing API, so we can catch and fix failures. It does not
+                &mdash; Server-side error monitoring for our authentication
+                API, so we can catch and fix failures. It does not
                 receive your prompts, conversations, or generated text &mdash;
                 those stay on your device &mdash; and request bodies, IP
                 addresses, and cookies are not sent. Sentry is not used in the
@@ -350,13 +331,13 @@ export default function PrivacyPage({
               </li>
               <li>
                 <strong className="text-[var(--eco-text)]">Fly.io</strong>{" "}
-                &mdash; Hosts the API gateway (authentication and billing).
-                Processes request metadata, server logs, and application data.
+                &mdash; Hosts the API gateway (authentication). Processes
+                request metadata, server logs, and application data.
               </li>
               <li>
                 <strong className="text-[var(--eco-text)]">Neon</strong>{" "}
                 &mdash; Managed PostgreSQL database. Stores account
-                information, billing records, and feedback you choose to send
+                information and feedback you choose to send
                 us (anonymous: the message you type and, only if you tick the
                 box, a short device summary shown to you before sending).
                 Located in US East.
@@ -395,8 +376,8 @@ export default function PrivacyPage({
             <p className="mb-3">
               Eco is operated from the United States. Our primary infrastructure
               (API, database, cache) is located in the US East region. If you
-              access the Service from outside the United States, the account,
-              billing, and operational data we process will be transferred to and
+              access the Service from outside the United States, the account
+              and operational data we process will be transferred to and
               processed in the United States.
             </p>
             <p className="mb-3">
@@ -437,11 +418,6 @@ export default function PrivacyPage({
               <li>
                 <strong className="text-[var(--eco-text)]">Server logs:</strong>{" "}
                 Retained for 90 days, then automatically purged
-              </li>
-              <li>
-                <strong className="text-[var(--eco-text)]">Billing records:</strong>{" "}
-                Retained for 7 years as required by applicable tax and financial
-                regulations
               </li>
               <li>
                 <strong className="text-[var(--eco-text)]">Conversation content:</strong>{" "}
@@ -558,10 +534,9 @@ export default function PrivacyPage({
               <strong className="text-[var(--eco-text)]">
                 Categories of personal information collected:
               </strong>{" "}
-              Identifiers (email, display name), commercial information
-              (subscription status), internet activity (usage metrics, server
-              logs), and inferences drawn from the above for service
-              improvement.
+              Identifiers (email, display name), internet activity (usage
+              metrics, server logs), and inferences drawn from the above for
+              service improvement.
             </p>
           </section>
 
