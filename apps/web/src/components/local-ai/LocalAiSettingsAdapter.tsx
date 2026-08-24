@@ -3,7 +3,7 @@
 
 'use client';
 
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEcoState } from '../../hooks/local-ai/useEcoState';
 import { useSwitchAI } from '../../hooks/local-ai/useSwitchAI';
@@ -20,6 +20,7 @@ import { isDiagnosticsEnabled } from '../../lib/dev-diagnostics';
 import { useChatStore } from '../../stores/chatStore';
 import { SettingsEcoTab } from './SettingsEcoTab';
 import { SwitchAIDialog } from './SwitchAIDialog';
+import { SETTINGS_STORAGE_SECTION_ID } from '../settings/settingsNavigation';
 import type { SwitchAIResult } from '../../hooks/local-ai/useSwitchAI';
 import type { Slot } from '../../local-ai/types';
 
@@ -74,6 +75,32 @@ export function LocalAiSettingsAdapter() {
     }
     return false;
   }, [searchParams]);
+
+  // A storage-reclaim deep link (?tab=models&manage=storage) opens this tab and
+  // asks us to scroll to the "Storage on this device" section, so an
+  // "insufficient space" error has somewhere concrete to send people. Reuses the
+  // tab strip's scroll pattern: defer a frame so the section has laid out, and
+  // guard scrollIntoView for jsdom. Fires once, and re-checks when a model
+  // resolves (the section only renders once one is set up). No model → the
+  // section is absent and this simply no-ops.
+  const manageTarget = searchParams.get('manage');
+  const didScrollToStorageRef = useRef(false);
+  useEffect(() => {
+    if (manageTarget !== 'storage' || didScrollToStorageRef.current) return;
+    const el = document.getElementById(SETTINGS_STORAGE_SECTION_ID);
+    if (!el || typeof el.scrollIntoView !== 'function') return;
+    didScrollToStorageRef.current = true;
+    const prefersReducedMotion =
+      typeof window !== 'undefined' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const rafId = requestAnimationFrame(() => {
+      el.scrollIntoView({
+        behavior: prefersReducedMotion ? 'auto' : 'smooth',
+        block: 'start',
+      });
+    });
+    return () => cancelAnimationFrame(rafId);
+  }, [manageTarget, running.model]);
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [loadProgress, setLoadProgress] = useState<number>(0);

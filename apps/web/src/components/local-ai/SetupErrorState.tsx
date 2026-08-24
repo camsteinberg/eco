@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { Button } from '@eco/ui';
 import { WiltedPlant } from '@eco/ui';
 import { exportDiagnostics } from '../../local-ai/diagnostics/capture';
+import { looksLikeStorageShortage } from '../../local-ai/adapters/storage-shortage';
 import type { AttemptFailureReasonCode } from '../../local-ai/lifecycle/setup-cascade';
 
 /**
@@ -36,16 +37,13 @@ export type SetupErrorStateProps = {
   triedModelCount?: number;
   onTryAgain(): void;
   onTellUsMore(): void;
+  /**
+   * Open the storage-reclaim panel (Settings → Eco → Storage). Offered only on a
+   * storage shortage, where the honest next step is removing an unused model to
+   * free space rather than a doomed identical retry. Omitted = no reclaim path.
+   */
+  onManageStorage?(): void;
 };
-
-/**
- * A storage shortage is a different failure: the fix is freeing space, not
- * retrying or waiting. Detected from the (factual) failure reason so we don't
- * tell someone whose disk is full to "try again later".
- */
-function looksLikeStorageShortage(reason: string): boolean {
-  return /free space|storage|not enough room|disk space/i.test(reason);
-}
 
 /**
  * Network- or host-shaped failure. A host 500 surfaces as `HTTP 500 fetching …`
@@ -139,8 +137,10 @@ export function SetupErrorState({
   triedModelCount = 0,
   onTryAgain,
   onTellUsMore,
+  onManageStorage,
 }: SetupErrorStateProps) {
   const [copied, setCopied] = useState(false);
+  const storageShortage = isStorageShortage(reason, reasonCode);
 
   const handleCopy = async (): Promise<void> => {
     try {
@@ -188,6 +188,15 @@ export function SetupErrorState({
           <Button onClick={onTryAgain} variant="primary" aria-label="Try setting up Eco again">
             Try again
           </Button>
+          {storageShortage && onManageStorage && (
+            <Button
+              onClick={onManageStorage}
+              variant="secondary"
+              aria-label="Free up space by removing an unused model"
+            >
+              Free up space
+            </Button>
+          )}
           <Button onClick={handleCopy} variant="secondary">
             {copied ? 'Copied!' : 'Copy what happened'}
           </Button>

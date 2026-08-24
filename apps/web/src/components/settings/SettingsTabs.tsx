@@ -62,9 +62,7 @@ export function SettingsTabs() {
       ? 'appearance'
       : resolveSettingsTab(rawTabParam)
   const [activeTab, setActiveTab] = useState<TabId>(tabFromUrl)
-  const [underlineStyle, setUnderlineStyle] = useState({ left: 0, width: 0 })
   const tabRefs = useRef<Map<string, HTMLButtonElement>>(new Map())
-  const navRef = useRef<HTMLDivElement>(null)
   const currentSearch = searchParams.toString()
   const callbackUrl = `${pathname}${currentSearch ? `?${currentSearch}` : ''}`
   const visibleTabs = getVisibleSettingsTabs()
@@ -81,58 +79,6 @@ export function SettingsTabs() {
   useEffect(() => {
     setActiveTab(tabFromUrl)
   }, [tabFromUrl])
-
-  const updateUnderline = useCallback(() => {
-    const el = tabRefs.current.get(activeTab)
-    const nav = navRef.current
-    if (el && nav) {
-      const navRect = nav.getBoundingClientRect()
-      const elRect = el.getBoundingClientRect()
-      setUnderlineStyle({
-        // The underline is absolutely positioned inside the scroll container, so
-        // it scrolls with the strip: `left` must be the offset into the content,
-        // not the on-screen gap. Adding scrollLeft back makes a re-measurement
-        // taken while the strip is scrolled agree with one taken at rest.
-        left: elRect.left - navRect.left + nav.scrollLeft,
-        width: elRect.width,
-      })
-    }
-  }, [activeTab])
-
-  // A single measurement on mount can land before the tab row is final — the
-  // web fonts still swapping, the container still sizing — and leave the
-  // underline stranded off the active pill. Re-measure whenever the strip or
-  // the active tab actually changes size, and once the fonts have settled.
-  useEffect(() => {
-    updateUnderline()
-
-    const nav = navRef.current
-    const el = tabRefs.current.get(activeTab)
-    const observer =
-      nav && typeof ResizeObserver !== 'undefined' ? new ResizeObserver(updateUnderline) : null
-
-    if (nav && observer) {
-      observer.observe(nav)
-      if (el) observer.observe(el)
-    }
-
-    window.addEventListener('resize', updateUnderline)
-
-    let active = true
-    // JSDOM has no FontFaceSet, so this is genuinely absent there despite the
-    // DOM types insisting otherwise.
-    if ('fonts' in document) {
-      void document.fonts.ready.then(() => {
-        if (active) updateUnderline()
-      })
-    }
-
-    return () => {
-      active = false
-      observer?.disconnect()
-      window.removeEventListener('resize', updateUnderline)
-    }
-  }, [updateUnderline, activeTab, hasLoaded])
 
   useEffect(() => {
     const el = tabRefs.current.get(activeTab)
@@ -209,8 +155,7 @@ export function SettingsTabs() {
     <div>
       {/* Tab bar */}
       <div
-        ref={navRef}
-        className="eco-tabstrip-scrollbar relative flex overflow-x-auto border-b border-[var(--eco-border)]"
+        className="eco-tabstrip-scrollbar flex overflow-x-auto border-b border-[var(--eco-border)]"
         role="tablist"
         aria-label="Settings sections"
       >
@@ -251,13 +196,6 @@ export function SettingsTabs() {
               )
             })()
           ))}
-        {/* Sliding underline */}
-        <div
-          className="absolute bottom-0 h-0.5 bg-[var(--eco-primary)] transition-all duration-200"
-          aria-hidden="true"
-          role="presentation"
-          style={{ left: underlineStyle.left, width: underlineStyle.width }}
-        />
       </div>
 
       {/* Tab content */}
