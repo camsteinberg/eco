@@ -13,7 +13,10 @@ import { COMPOSER_DRAFT_STORAGE_KEY } from "../lib/chat-workspace-storage";
 import { getInferenceCapabilitySync } from "../lib/inference-capability";
 import { safeStorage } from "../lib/local-storage";
 import { logger } from "../lib/logger";
-import { getValidationSelectedModelOverride } from "../lib/validation-harness";
+import {
+  getValidationSelectedModelOverride,
+  isContextWindowNoticeForced,
+} from "../lib/validation-harness";
 
 export const SELECTED_MODEL_STORAGE_KEY = "eco-selected-model";
 export const SELECTED_MODEL_EXPLICIT_STORAGE_KEY = "eco-selected-model-explicit";
@@ -321,6 +324,19 @@ function loadPersistedComposerDraft(): string {
   return storedDraft ?? "";
 }
 
+/**
+ * Where the context-window note starts, on this load and after every reset.
+ *
+ * "none" in the product, always: `useChat` is the only thing that raises it,
+ * and only for a real window shrink. The harness seam is here rather than in
+ * the initial state alone because loading a conversation resets the note — a
+ * seeded transcript, which is the only thing the note makes sense above, would
+ * otherwise wipe it before it could be seen.
+ */
+function initialContextWindowNotice(): ContextWindowNoticeState {
+  return isContextWindowNoticeForced() ? "visible" : "none";
+}
+
 function persistComposerDraft(draft: string): void {
   if (typeof window === "undefined") {
     return;
@@ -346,7 +362,7 @@ export const useChatStore = create<ChatState & ChatActions>()((set) => ({
   approvedTools: [],
   activeToolCalls: [],
   localToolNoticeShown: false,
-  contextWindowNotice: "none" as ContextWindowNoticeState,
+  contextWindowNotice: initialContextWindowNotice(),
   routeRecommendationSnapshot: null,
 
   addMessage(msg) {
@@ -457,7 +473,7 @@ export const useChatStore = create<ChatState & ChatActions>()((set) => ({
       approvedTools: [],
       activeToolCalls: [],
       localToolNoticeShown: false,
-      contextWindowNotice: "none" as ContextWindowNoticeState,
+      contextWindowNotice: initialContextWindowNotice(),
       routeRecommendationSnapshot: null,
     }));
   },
@@ -473,13 +489,13 @@ export const useChatStore = create<ChatState & ChatActions>()((set) => ({
       approvedTools: [],
       activeToolCalls: [],
       localToolNoticeShown: false,
-      contextWindowNotice: "none" as ContextWindowNoticeState,
+      contextWindowNotice: initialContextWindowNotice(),
       routeRecommendationSnapshot: null,
     });
   },
 
   setMessages(messages) {
-    set({ messages, streamPhase: "idle" as StreamPhase, loadAlmostReady: false, isStreaming: false, error: null, approvedTools: [], activeToolCalls: [], localToolNoticeShown: false, contextWindowNotice: "none" as ContextWindowNoticeState });
+    set({ messages, streamPhase: "idle" as StreamPhase, loadAlmostReady: false, isStreaming: false, error: null, approvedTools: [], activeToolCalls: [], localToolNoticeShown: false, contextWindowNotice: initialContextWindowNotice() });
   },
 
   setSelectedModel(model, options) {

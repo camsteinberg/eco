@@ -81,6 +81,8 @@ export const KNOWN_HARNESS_KEYS: ReadonlySet<string> = new Set([
   "eco-force-metered",
   "eco-force-connection",
   "eco-force-cache-verified",
+  "eco-force-swap",
+  "eco-force-context-notice",
   "eco-heavy-work-dry-run",
   "eco-heavy-work-model",
   "eco-history-fixture",

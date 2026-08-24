@@ -15,7 +15,9 @@ import {
   getValidationSelectedModelOverride,
   getValidationSlotModelOverride,
   getValidationSlotStatusOverride,
+  getValidationSwapMode,
   isCacheVerificationForced,
+  isContextWindowNoticeForced,
   isValidationHarnessEnabledForEnvironment,
   VALIDATION_REMOTE_FIXTURE_MESSAGE_PREFIX,
 } from '../validation-harness';
@@ -464,5 +466,83 @@ describe('isCacheVerificationForced (e2e fixture cache seam)', () => {
     // The harness gate is closed in production (isValidationHarnessEnabled
     // returns false), so the seam is inert regardless of the param.
     expect(isCacheVerificationForced()).toBe(false);
+  });
+});
+
+describe('getValidationSwapMode (mid-swap capture seam)', () => {
+  const originalPathAndQuery = `${window.location.pathname}${window.location.search}`;
+
+  beforeEach(() => {
+    window.history.replaceState({}, '', '/chat');
+  });
+
+  afterEach(() => {
+    window.history.replaceState({}, '', originalPathAndQuery);
+    window.localStorage.clear();
+    vi.unstubAllEnvs();
+  });
+
+  it('defaults to none when the param is absent', () => {
+    expect(getValidationSwapMode()).toBe('none');
+  });
+
+  it('reads hold from the URL and from localStorage', () => {
+    window.history.replaceState({}, '', '/chat?eco-force-swap=hold');
+    expect(getValidationSwapMode()).toBe('hold');
+
+    window.history.replaceState({}, '', '/chat');
+    window.localStorage.setItem('eco-force-swap', 'hold');
+    expect(getValidationSwapMode()).toBe('hold');
+  });
+
+  it('treats any other value as none', () => {
+    window.history.replaceState({}, '', '/chat?eco-force-swap=yes');
+    expect(getValidationSwapMode()).toBe('none');
+  });
+
+  it('is none in production even when the param is set (never leaks to prod)', () => {
+    vi.stubEnv('NEXT_PUBLIC_ECO_VALIDATION_HARNESS', 'false');
+    vi.stubEnv('NODE_ENV', 'production');
+    window.history.replaceState({}, '', '/chat?eco-force-swap=hold');
+    expect(getValidationSwapMode()).toBe('none');
+  });
+});
+
+describe('isContextWindowNoticeForced (context-shrink capture seam)', () => {
+  const originalPathAndQuery = `${window.location.pathname}${window.location.search}`;
+
+  beforeEach(() => {
+    window.history.replaceState({}, '', '/chat');
+  });
+
+  afterEach(() => {
+    window.history.replaceState({}, '', originalPathAndQuery);
+    window.localStorage.clear();
+    vi.unstubAllEnvs();
+  });
+
+  it('defaults to false when the param is absent', () => {
+    expect(isContextWindowNoticeForced()).toBe(false);
+  });
+
+  it('reads visible from the URL and from localStorage', () => {
+    window.history.replaceState({}, '', '/chat?eco-force-context-notice=visible');
+    expect(isContextWindowNoticeForced()).toBe(true);
+
+    window.history.replaceState({}, '', '/chat');
+    window.localStorage.setItem('eco-force-context-notice', 'visible');
+    expect(isContextWindowNoticeForced()).toBe(true);
+  });
+
+  it('treats any other value as false', () => {
+    window.history.replaceState({}, '', '/chat?eco-force-context-notice=1');
+    expect(isContextWindowNoticeForced()).toBe(false);
+  });
+
+  it('is false in production even when the param is set (never leaks to prod)', () => {
+    vi.stubEnv('NEXT_PUBLIC_ECO_VALIDATION_HARNESS', 'false');
+    vi.stubEnv('NODE_ENV', 'production');
+    window.history.replaceState({}, '', '/chat?eco-force-context-notice=visible');
+    expect(isContextWindowNoticeForced()).toBe(false);
   });
 });

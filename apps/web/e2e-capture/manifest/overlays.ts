@@ -24,13 +24,13 @@ import { DESKTOP_DEVICE_SEARCH, READY_CHAT_SEARCH, READY_WASM_CHAT_SEARCH } from
  *   ship with no product path that fires them. Calling the context from the
  *   console would photograph a component, not a state, so they are left out —
  *   the honest finding is that two thirds of that component is unreachable.
- * - **The model tile mid-swap.** "Preparing" only exists while
- *   `performUpgradeSwap` runs, and that re-checks the weights cache first and
- *   reverts to downloading when the bytes are missing. The lane holds every
- *   weight request open by design, so a staged-with-bytes device cannot exist
- *   here without really downloading the model. The tile's `ready` state IS
- *   captured, through the one path that does not touch the cache — see
- *   `overlays.model-tile-ready`.
+ * - **The model tile mid-swap** was declared a gap until 2026-08-24: "Preparing"
+ *   only exists while `performUpgradeSwap` runs, and that re-checks the weights
+ *   cache first and reverts to downloading when the bytes are missing, which no
+ *   lane device can satisfy without a real multi-gigabyte transfer. It is now
+ *   captured through a harness seam (`eco-force-swap=hold`) that enters the
+ *   swapping phase ahead of that re-check and stays there, acquiring no lease
+ *   and loading no weights — see `overlays.model-tile-swapping`.
  *
  * ── One thing these shots inherit from the machine ────────────────────────
  *
@@ -177,16 +177,6 @@ export const overlaysGaps: CaptureGap[] = [
       + "retired-model notice, which is 'info'. The success and error styles ship with NO product path that fires them. "
       + "Calling the context from the console would photograph a component, not a state. The honest finding is that two "
       + "thirds of that component is unreachable.",
-  },
-  {
-    id: "overlays.model-tile-swapping",
-    group: "overlays",
-    surface: "The model tile mid-swap (“Preparing”, with the switch progress bar)",
-    reason:
-      "It exists only while performUpgradeSwap runs, and that re-checks the weights cache before it swaps — returning "
-      + "reverted-to-download when the bytes are missing. The lane holds every weight request open by design, so a "
-      + "staged-with-bytes device cannot exist here without really downloading the model. Genuinely uncaptured. "
-      + "(`ready` IS captured, through the one path that does not touch the cache — see overlays.model-tile-ready.)",
   },
 ];
 
@@ -498,6 +488,35 @@ export const overlaysStates: StateEntry[] = [
       "The whole reason nothing swaps on its own: the bytes are here, and the tile says so and "
       + "waits. One button, in the tile that asked for it, and no card anywhere on the surface. "
       + "The composer trigger carries a single dot for the same fact while the panel is closed.",
+  },
+  {
+    id: "overlays.model-tile-swapping",
+    group: "overlays",
+    title: "Model tile — mid-swap, preparing the new model",
+    route: "/chat",
+    search: `${READY_WASM_CHAT_SEARCH}&eco-force-swap=hold`,
+    tier: "component",
+    realism: "seeded",
+    // Desktop only, for the same reason as model-tile-downloading above.
+    axes: { viewports: ["desktop"] },
+    assert: [{ testId: "model-selector" }],
+    prepare: async (page) => {
+      await openSelector(page);
+      await stageFromAnotherTab(page);
+      await tilePullSettled(page, "ready");
+      await page.getByRole("button", { name: /Switch now/ }).click();
+      await tilePullSettled(page, "swapping");
+      await expect(page.getByRole("progressbar", { name: "Switch progress" })).toBeVisible();
+      await expect(page.getByText("Preparing 60%")).toBeVisible();
+    },
+    internal: true,
+    notes:
+      "The beat between tapping Switch now and the new model answering: the same tile, same "
+      + "place, a second bar. Reached through eco-force-swap=hold, which enters the swapping "
+      + "phase and holds it — the real path re-checks the weights cache first and would revert "
+      + "to downloading on a device that never really fetched them. The 60% is the seam's one "
+      + "fixed fraction, chosen so the bar reads the same every run; the phase, the copy and the "
+      + "layout are the product's own.",
   },
   {
     id: "overlays.model-tile-ready-sheet",

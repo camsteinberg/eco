@@ -43,6 +43,7 @@ export type ValidationRemoteMode = 'none' | 'queue' | 'first-token';
 export type ValidationLocalGenerationFixtureMode = 'none' | 'smoke-ready';
 export type ValidationHeavyWorkDryRunMode = 'none' | LocalHeavyWorkKind;
 export type ValidationSlotStatusOverride = 'empty' | 'preparing' | 'ready' | 'error';
+export type ValidationSwapMode = 'none' | 'hold';
 
 export type ValidationHarnessState = {
   enabled: boolean;
@@ -550,6 +551,45 @@ export function isCacheVerificationForced(): boolean {
 
   const value = readHarnessParam('eco-force-cache-verified');
   return value === 'on' || value === 'true' || value === '1';
+}
+
+/**
+ * Harness-only seam that parks the upgrade swap in its `swapping` phase.
+ *
+ * The mid-swap tile ("Preparing", with the switch progress bar) exists only
+ * while `performUpgradeSwap` runs, and that path re-checks the weights cache
+ * first — so a browser that never really downloaded the model reverts to
+ * downloading before the tile can be seen or photographed. `eco-force-swap=hold`
+ * enters the swapping phase and then holds there, touching no runtime and
+ * loading no weights, so the state is reachable without a real multi-gigabyte
+ * transfer. NEVER active on production hosts — gated by
+ * `isValidationHarnessEnabled()`.
+ */
+export function getValidationSwapMode(): ValidationSwapMode {
+  if (!isValidationHarnessEnabled()) {
+    return 'none';
+  }
+
+  return readHarnessParam('eco-force-swap') === 'hold' ? 'hold' : 'none';
+}
+
+/**
+ * Harness-only seam that raises the context-window note.
+ *
+ * The note ("this model holds less of the conversation") is raised by `useChat`
+ * only when a model switch genuinely SHRINKS the window under a conversation
+ * that overflows it, which needs two real models bound and a real switch.
+ * `eco-force-context-notice=visible` seeds the chatStore state the note reads,
+ * so the note can be photographed above a transcript that really does have a
+ * context divider. NEVER active on production hosts — gated by
+ * `isValidationHarnessEnabled()`.
+ */
+export function isContextWindowNoticeForced(): boolean {
+  if (!isValidationHarnessEnabled()) {
+    return false;
+  }
+
+  return readHarnessParam('eco-force-context-notice') === 'visible';
 }
 
 export function getValidationHarnessBatteryOverride(): {
