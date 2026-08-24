@@ -242,6 +242,13 @@ const LONG_DRAFT = [
   "into something that tells a beginner what to actually check before watering,",
   "explains why the check matters, and says plainly when a container genuinely",
   "does need water twice a day — without hedging every sentence into uselessness?",
+  // Two extra sentences so the draft still overflows the 192px ceiling at the
+  // widest composer (56rem at xl since the #222 reading column) — the shot
+  // proves the CEILING, so the text must wrap past it at every width.
+  "Keep the tone of the rest of my notes: short declarative sentences, no",
+  "exclamation marks, and no gardening jargon a first-year balcony grower would",
+  "have to look up. If a rule of thumb only holds for terracotta, say so",
+  "explicitly rather than letting it stand as if it applied to every pot.",
 ].join(" ");
 
 /** The two surfaces this wave deliberately did not capture, in a printable form. */
