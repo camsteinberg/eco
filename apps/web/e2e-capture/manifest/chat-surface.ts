@@ -259,6 +259,23 @@ export const chatSurfaceStates: StateEntry[] = [
     },
   ),
   seededChat(
+    "context-window-note",
+    "The note for a model that holds less of the conversation",
+    "conversation-long",
+    [{ testId: "context-window-notice" }],
+    {
+      search: `${READY_CHAT_SEARCH}&eco-force-context-notice=visible`,
+      internal: true,
+      notes:
+        "The one-shot note above the composer, over the transcript it is about — the same long "
+        + "conversation that draws the context divider. Forced through eco-force-context-notice, "
+        + "which seeds the chatStore state the note reads: the product raises it only when a model "
+        + "switch genuinely SHRINKS the window under a chat that already overflows it, which needs "
+        + "two real models bound and a real switch between them. The copy, the placement and the "
+        + "dismiss control are the product's own.",
+    },
+  ),
+  seededChat(
     "context-divider",
     "The context-window boundary",
     "conversation-long",

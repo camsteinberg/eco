@@ -62,6 +62,10 @@ import {
   type SwitchProgressEvent,
 } from './switch-model';
 import { SLOTS, getSlot, type SlotState } from './slots';
+import {
+  getValidationSwapMode,
+  type ValidationSwapMode,
+} from '../../lib/validation-harness';
 
 // ─── Record ─────────────────────────────────────────────────────────────────
 
@@ -490,6 +494,11 @@ export type UpgradeSwapSeams = {
   }) => Promise<SwitchModelResult>;
   recordEvidence: typeof recordEvidence;
   getDeviceProfile: () => DeviceProfile;
+  /** Harness-only seam: 'hold' parks the swap in its `swapping` phase instead of
+   *  running it, so the mid-swap tile can be observed on a device that never
+   *  really downloaded the target. Defaults to the validation-harness helper
+   *  (`getValidationSwapMode`), which is ALWAYS 'none' on production hosts. */
+  getSwapMode: () => ValidationSwapMode;
 };
 
 const DEFAULT_SWAP_SEAMS: UpgradeSwapSeams = {
@@ -499,6 +508,7 @@ const DEFAULT_SWAP_SEAMS: UpgradeSwapSeams = {
   prepareModelForSlot,
   recordEvidence,
   getDeviceProfile,
+  getSwapMode: getValidationSwapMode,
 };
 
 export type UpgradeSwapOutcome =
@@ -535,6 +545,25 @@ export async function performUpgradeSwap(
   if (!target) {
     applyUpgradeEvent({ type: 'reset' });
     return { kind: 'invalid-phase' };
+  }
+
+  // Harness-only: park in `swapping` and stay there. Deliberately ahead of the
+  // cache re-check below, which is exactly what makes the mid-swap tile
+  // unreachable for a validator (no bytes on disk → reverted-to-download). It
+  // acquires no lease, touches no runtime and loads no weights; the phase is
+  // real, the work is not. Always 'none' in production — see
+  // `getValidationSwapMode`.
+  if (seams.getSwapMode() === 'hold') {
+    if (applyUpgradeEvent({ type: 'swap-started' })?.phase !== 'swapping') {
+      return { kind: 'invalid-phase' };
+    }
+    // One fixed fraction so the switch bar reads the same every run rather than
+    // sitting at a bare 0%.
+    options.onProgress?.({ kind: 'load', fraction: 0.6 });
+    return new Promise<UpgradeSwapOutcome>(() => {
+      // Never settles: the caller's UI stays on the swapping surface until the
+      // page goes away. That IS the state being held.
+    });
   }
 
   // Staged means "bytes verified on disk". If the browser evicted them since,

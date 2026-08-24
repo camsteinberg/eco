@@ -617,6 +617,38 @@ describe('performUpgradeSwap', () => {
     expect(readUpgradeRecord()?.phase).toBe('accepted');
   });
 
+  it('the harness hold seam parks in swapping without touching the cache or the runtime', async () => {
+    writeUpgradeRecord(record({ phase: 'staged' }));
+    const progress = vi.fn();
+    const seams = swapSeams({
+      getSwapMode: vi.fn(() => 'hold' as const),
+      // A device that never really downloaded the target — the exact case that
+      // makes the mid-swap tile unreachable for a validator.
+      isModelFullyCached: vi.fn(async () => false),
+    });
+    let settled = false;
+    void performUpgradeSwap({ seams, onProgress: progress }).then(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+
+    expect(readUpgradeRecord()?.phase).toBe('swapping');
+    expect(seams.isModelFullyCached).not.toHaveBeenCalled();
+    expect(seams.prepareModelForSlot).not.toHaveBeenCalled();
+    expect(progress).toHaveBeenCalledWith({ kind: 'load', fraction: 0.6 });
+    // The whole point: it never resolves, so the UI stays on the swapping
+    // surface for as long as the page lives.
+    expect(settled).toBe(false);
+  });
+
+  it('the hold seam is off by default, so the shipping swap path is untouched', async () => {
+    writeUpgradeRecord(record({ phase: 'staged' }));
+    const seams = swapSeams();
+    const outcome = await performUpgradeSwap({ seams });
+    expect(outcome.kind).toBe('swapped');
+    expect(seams.prepareModelForSlot).toHaveBeenCalled();
+  });
+
   it('no-ops outside staged', async () => {
     writeUpgradeRecord(record({ phase: 'downloading' }));
     const seams = swapSeams();
