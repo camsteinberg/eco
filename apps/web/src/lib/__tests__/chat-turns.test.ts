@@ -14,7 +14,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { buildLocalReadinessFailureV2, findAutoRetryTarget } from '../chat-turns';
+import { buildLocalReadinessFailureV2, findAutoPrepareTarget, findAutoRetryTarget } from '../chat-turns';
 import { getDisplayInfo } from '../../local-ai/display';
 import type { SlotState } from '../../local-ai/lifecycle/slots';
 import type { ModelConfig } from '../../local-ai/types';
@@ -50,7 +50,7 @@ describe('buildLocalReadinessFailureV2', () => {
       slot: slot({ status: 'error', model: QWEN3_FRIENDLY, modelId: QWEN3_FRIENDLY.id }),
     });
     expect(result.readinessStatus).toBe('downloaded-needs-test');
-    expect(result.message).toMatch(/Re-run setup/i);
+    expect(result.message).toMatch(/retrying setup/i);
   });
 
   it('maps empty status to not-downloaded readiness', () => {
@@ -148,5 +148,37 @@ describe("findAutoRetryTarget", () => {
       ),
     ).toBeNull();
     expect(findAutoRetryTarget([], "eco-fast")).toBeNull();
+  });
+});
+
+describe('findAutoPrepareTarget', () => {
+  const card = {
+    id: 'a9',
+    role: 'assistant',
+    status: 'error',
+    localReadiness: { kind: 'prepare-local-model', modelId: 'local/qwen3-0.6b' },
+  };
+
+  it('returns the trailing readiness card with its model id', () => {
+    expect(findAutoPrepareTarget([{ id: 'u1', role: 'user' }, card])).toEqual({
+      id: 'a9',
+      modelId: 'local/qwen3-0.6b',
+    });
+  });
+
+  it('ignores a card that is not the last message', () => {
+    expect(
+      findAutoPrepareTarget([card, { id: 'u2', role: 'user' }]),
+    ).toBeNull();
+  });
+
+  it('ignores non-readiness errors, healthy turns, and empty transcripts', () => {
+    expect(
+      findAutoPrepareTarget([{ id: 'a1', role: 'assistant', status: 'error' }]),
+    ).toBeNull();
+    expect(
+      findAutoPrepareTarget([{ id: 'a2', role: 'assistant', status: 'complete', localReadiness: card.localReadiness }]),
+    ).toBeNull();
+    expect(findAutoPrepareTarget([])).toBeNull();
   });
 });
