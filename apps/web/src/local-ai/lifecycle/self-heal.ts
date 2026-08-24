@@ -23,7 +23,7 @@
  * in the dev console for visibility.
  */
 
-import { CacheApiStorage, type Storage } from '../download/storage';
+import { CacheApiStorage, modelCacheName, type Storage } from '../download/storage';
 import {
   SLOTS,
   clearSlot,
@@ -40,11 +40,14 @@ import {
   recommend,
 } from '../selection/recommend';
 import { clearEvidence, hasRecentSuccess } from '../evidence/ledger';
-import { getModel } from '../catalog/catalog';
+import { getCatalog, getModel } from '../catalog/catalog';
 import { getDeviceProfile } from '../device/profile';
 import { isWebKitMobile, requiresWebKitMobile, WEBKIT_MOBILE_VALIDATED_MODEL_IDS } from '../device/compatibility';
 import type { DeviceProfile, ModelConfig } from '../types';
-import { getActiveLocalHeavyWorkLease } from '../../lib/local-heavy-work-owner';
+import {
+  getActiveLocalDownloadLease,
+  getActiveLocalHeavyWorkLease,
+} from '../../lib/local-heavy-work-owner';
 import { isCacheVerificationForced } from '../../lib/validation-harness';
 import type { Slot } from '../types';
 
@@ -191,6 +194,14 @@ export type SelfHealReport = {
    *  Selection would never pick it here, but nothing else re-checks a binding
    *  that already exists — and every state surface reads the binding as truth. */
   incompatibleSlotsRegated: Slot[];
+  /** Cache namespace names cleared this boot because the catalog can no longer
+   *  offer the model AND no slot or in-flight download referenced it — the
+   *  model is unreachable, so its weight bytes are dead. */
+  deadModelCachesSwept: string[];
+  /** Count of orphaned chunk-part entries swept from unbound, not-mid-download
+   *  catalog models this boot — abandoned/interrupted resume bytes that no
+   *  parts-native manifest claims. Terminal parts-native bytes are never here. */
+  orphanedPartsSwept: number;
   errors: string[];
 };
 
@@ -243,6 +254,27 @@ export type SelfHealOptions = {
    * exercised for an iOS-WebKit profile without spoofing navigator/URL params.
    */
   resolveDeviceProfile?: () => DeviceProfile;
+  /**
+   * Test seam: the current catalog's model ids. Defaults to `getCatalog()`.
+   * The dead-bytes sweep keeps every namespace whose id is in this set — the
+   * catalog is the source of truth for what remains reachable.
+   */
+  resolveCatalogIds?: () => readonly string[];
+  /**
+   * Test seam: enumerate Eco's per-model Cache API namespace names
+   * (`eco-local-ai-<id>`). Defaults to the injected/real cache storage's
+   * `listModelCacheNames` (empty where the Cache API is unavailable). The
+   * dead-bytes sweep compares these against the keep-set of catalog / bound /
+   * in-flight namespaces.
+   */
+  listModelCacheNames?: () => Promise<string[]>;
+  /**
+   * Test seam: whether a heavy download is active right now (possibly in
+   * another tab). Defaults to the download-domain lease probe. When true the
+   * orphaned-parts sweep is skipped wholesale — an in-flight download's resume
+   * parts must never be swept, and a lease cannot be attributed to one model id.
+   */
+  hasActiveDownloadLease?: () => boolean;
 };
 
 /** Local-only mirror of chatStore's explicit-selection flag key. A user who
@@ -425,6 +457,8 @@ export async function runSelfHeal(options?: SelfHealOptions): Promise<SelfHealRe
     retiredModelMigrationsRun: [],
     webkitMobileSlotsRegated: [],
     incompatibleSlotsRegated: [],
+    deadModelCachesSwept: [],
+    orphanedPartsSwept: 0,
     errors: [],
   };
 
@@ -654,7 +688,156 @@ export async function runSelfHeal(options?: SelfHealOptions): Promise<SelfHealRe
     report.errors.push(`lease-sweep: ${describe(err)}`);
   }
 
+  // 5. Dead-bytes sweep. Removes ONLY unambiguously-dead cached weights:
+  //      (a) whole model cache namespaces the CURRENT catalog can no longer
+  //          offer, bound to no slot and owned by no in-flight download — the
+  //          model is unreachable, so its bytes are dead (generalizes the
+  //          hardcoded retired-model list to "anything the catalog dropped"); and
+  //      (b) orphaned chunk-parts of a catalog model that is unbound and not
+  //          mid-download — abandoned/interrupted resume bytes that no
+  //          parts-native manifest claims (a finalized parts-native file's parts
+  //          ARE its bytes and are kept).
+  //    NEVER touches a slot-bound model, a current-catalog model's finalized
+  //    weights, or a model with an in-flight download. When unsure it KEEPS — a
+  //    false keep only wastes disk; a false delete forces an active model to
+  //    re-download.
+  //
+  //    Runs LAST — after every slot-mutating migration (WebKit/device re-gate,
+  //    artifact swap, retired-model, former-default rebind) and after the
+  //    stale-marker and expired-lease sweeps — so the bound-set is FINAL and
+  //    "mid-download" reflects only genuinely-live markers/leases. It cannot
+  //    race the migrations that also clear caches: those have all already
+  //    completed in this sequential pass, and a half-failed migration that left
+  //    a slot bound is respected here (the binding keeps the model).
+  try {
+    await sweepDeadModelBytes(storage, options, report);
+  } catch (err) {
+    report.errors.push(`dead-bytes-sweep: ${describe(err)}`);
+  }
+
   return report;
+}
+
+/**
+ * Best-effort boot-time sweep of unambiguously-dead cached model bytes. See the
+ * step-5 comment in `runSelfHeal` for the full contract. Every external call is
+ * wrapped so a storage/enumeration failure records an error and continues —
+ * boot never breaks on cleanup.
+ *
+ * Skipped wholesale when the validation harness forces cache verification
+ * (e2e/diagnostics prime real caches and eval-candidate models the catalog
+ * omits; the same escape hatch reconcile uses), so the sweep never disturbs
+ * fixtures or harness-only models.
+ */
+async function sweepDeadModelBytes(
+  storage: SlotStorage,
+  options: SelfHealOptions | undefined,
+  report: SelfHealReport,
+): Promise<void> {
+  if (isCacheVerificationForced()) return;
+
+  const cacheStorage = options?.cacheStorage
+    ?? (typeof caches !== 'undefined' ? new CacheApiStorage() : null);
+  if (!cacheStorage) return; // No Cache API (SSR / restricted) — nothing to sweep.
+
+  // Ids we must never touch: everything the catalog can still offer, whatever a
+  // slot is bound to, and any model with a live download-in-progress marker (an
+  // in-flight fetch — possibly in another tab; the marker is cross-tab).
+  const catalogIds = new Set(
+    (options?.resolveCatalogIds ?? (() => getCatalog().map((m) => m.id)))(),
+  );
+  const boundIds = new Set<string>();
+  const slotState = getAllSlots();
+  for (const slot of SLOTS) {
+    const id = slotState[slot].modelId;
+    if (id) boundIds.add(id);
+  }
+  const midDownloadIds = collectMidDownloadModelIds(storage);
+
+  // (a) Sweep whole namespaces the catalog can no longer offer. Build the KEEP
+  //     set of namespace NAMES by mapping every keep-worthy id FORWARD (the
+  //     sanitization is lossy and not reversible; a name collision only
+  //     over-keeps, never over-deletes), then drop every enumerated
+  //     `eco-local-ai-*` namespace not in it.
+  const keepNames = new Set<string>();
+  for (const id of catalogIds) keepNames.add(modelCacheName(id));
+  for (const id of boundIds) keepNames.add(modelCacheName(id));
+  for (const id of midDownloadIds) keepNames.add(modelCacheName(id));
+
+  const listNames =
+    options?.listModelCacheNames
+    ?? (() => cacheStorage.listModelCacheNames?.() ?? Promise.resolve([]));
+  let names: string[];
+  try {
+    names = await listNames();
+  } catch (err) {
+    // Enumeration failed — the whole sweep no-ops this boot (both (a) and (b)
+    // depend on it). Non-fatal; retries next boot.
+    report.errors.push(`dead-cache-enum: ${describe(err)}`);
+    return;
+  }
+
+  const deleteByName = options?.deleteCacheByName ?? defaultDeleteCacheByName;
+  for (const name of names) {
+    if (keepNames.has(name)) continue;
+    try {
+      await deleteByName(name);
+      report.deadModelCachesSwept.push(name);
+    } catch (err) {
+      report.errors.push(`dead-cache(${name}): ${describe(err)}`);
+    }
+  }
+
+  // (b) Sweep orphaned chunk-parts of catalog models that are unbound and NOT
+  //     mid-download (their namespace was KEPT above; only abandoned resume
+  //     parts that no parts-native manifest claims are dead). Skipped entirely
+  //     while ANY heavy download is active — its resume parts must survive, and
+  //     a download lease cannot be attributed to a single model id. A per-model
+  //     marker also excludes that model. Only namespaces that actually EXIST are
+  //     touched, so no empty namespace is ever created.
+  if (!cacheStorage.sweepOrphanedParts) return;
+  const downloadActive =
+    options?.hasActiveDownloadLease ?? (() => getActiveLocalDownloadLease() !== null);
+  if (downloadActive()) return;
+  const existing = new Set(names);
+  for (const id of catalogIds) {
+    if (boundIds.has(id) || midDownloadIds.has(id)) continue;
+    if (!existing.has(modelCacheName(id))) continue;
+    try {
+      report.orphanedPartsSwept += await cacheStorage.sweepOrphanedParts(id);
+    } catch (err) {
+      report.errors.push(`orphan-parts(${id}): ${describe(err)}`);
+    }
+  }
+}
+
+/**
+ * Model ids with a live download-in-progress marker (either the new or the
+ * legacy prefix) — the models an in-flight fetch owns. Read AFTER step 1 has
+ * swept stale markers, so a remaining marker is genuinely live. The marker is
+ * localStorage-backed and cross-tab, so this also catches a download running in
+ * another tab. Mirrors `clearStaleDownloadMarkers`'s enumeration style; an
+ * environment without key iteration yields an empty set (nothing swept).
+ */
+function collectMidDownloadModelIds(storage: SlotStorage): Set<string> {
+  const ids = new Set<string>();
+  const browserLike = storage as SlotStorage & {
+    length?: number;
+    key?: (i: number) => string | null;
+  };
+  if (typeof browserLike.length !== 'number' || typeof browserLike.key !== 'function') {
+    return ids;
+  }
+  for (let i = 0; i < browserLike.length; i++) {
+    const k = browserLike.key(i);
+    if (!k) continue;
+    if (k.startsWith(DOWNLOAD_IN_PROGRESS_PREFIX_NEW)) {
+      ids.add(k.slice(DOWNLOAD_IN_PROGRESS_PREFIX_NEW.length));
+    } else if (k.startsWith(DOWNLOAD_IN_PROGRESS_PREFIX_LEGACY)) {
+      ids.add(k.slice(DOWNLOAD_IN_PROGRESS_PREFIX_LEGACY.length));
+    }
+  }
+  return ids;
 }
 
 /**

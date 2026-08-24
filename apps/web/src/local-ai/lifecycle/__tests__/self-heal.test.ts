@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Bos Computing LLC
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { CacheApiStorage, type CacheLike, type CacheStorageLike } from '../../download/storage';
+import { CacheApiStorage, modelCacheName, type CacheLike, type CacheStorageLike } from '../../download/storage';
 import { _resetSlotsForTesting, setSlotStorage } from '../slots';
 import {
   _resetLifecycleForTesting,
@@ -16,6 +16,7 @@ import {
   repairModelCache,
   runSelfHeal,
   type RetiredModelMigration,
+  type SelfHealOptions,
 } from '../self-heal';
 import { setSlot, setSlotStatus, getSlot, readRawSlotIdForMigration } from '../slots';
 import { getModel } from '../../catalog/catalog';
@@ -1591,5 +1592,189 @@ describe('runSelfHeal — iOS-only binding on a non-WebKit-mobile device', () =>
     expect(report.webkitMobileSlotsRegated).toEqual([]);
     expect(getSlot('eco-fast').modelId).toBe(MLC);
     expect(getSlot('eco-fast').status).toBe('ready');
+  });
+});
+
+// ─── Dead-bytes sweep (non-catalog namespaces + orphaned chunk-parts) ────────
+//
+// A conservative boot-time sweep of unambiguously-dead cached bytes:
+//   (a) whole `eco-local-ai-*` namespaces the CURRENT catalog can no longer
+//       offer, bound to no slot and owned by no in-flight download; and
+//   (b) orphaned chunk-parts of an unbound, not-mid-download catalog model —
+//       resume bytes no parts-native manifest claims.
+// It must NEVER delete a slot-bound model, a current-catalog model's finalized
+// weights, terminal parts-native bytes, or a model with a live download.
+
+describe('runSelfHeal — dead-bytes sweep', () => {
+  // A synthetic id the injected catalog keeps, and one it has dropped.
+  const CATALOG_ID = 'candidate/catalog-keep-onnx';
+  const DEAD_ID = 'local/dropped-model-q4';
+  // A real catalog id used to prove the slot-binding guard independent of the
+  // injected catalog set (getSlot only resolves a binding for a real model).
+  const BOUND_ID = 'candidate/lfm2-2.6b-onnx';
+  const DOWNLOAD_MARKER_PREFIX = 'eco-local-ai-download-in-progress-';
+
+  function sweepOptions(
+    backend: MemoryCacheStorage,
+    over?: Partial<SelfHealOptions>,
+  ): SelfHealOptions {
+    return {
+      now: () => nowMs,
+      storage,
+      cacheStorage: new CacheApiStorage(backend),
+      deleteCacheByName: (name: string) => backend.delete(name).then(() => undefined),
+      resolveCatalogIds: () => [CATALOG_ID],
+      retiredMigrations: [],
+      resolveEcoFastDefault: () => null,
+      hasActiveDownloadLease: () => false,
+      ...over,
+    };
+  }
+
+  it('sweeps a namespace the catalog can no longer offer when no slot is bound', async () => {
+    const backend = new MemoryCacheStorage();
+    const cs = new CacheApiStorage(backend);
+    await cs.put(
+      { modelId: DEAD_ID, url: 'https://m.test/dead/weights.bin' },
+      new Response(new Uint8Array(500)),
+    );
+    const deadCache = modelCacheName(DEAD_ID);
+    expect(backend.caches.has(deadCache)).toBe(true);
+
+    const report = await runSelfHeal(sweepOptions(backend, { cacheStorage: cs }));
+
+    expect(report.deadModelCachesSwept).toContain(deadCache);
+    expect(backend.caches.has(deadCache)).toBe(false);
+  });
+
+  it('keeps a current-catalog namespace that is unbound (still reachable)', async () => {
+    const backend = new MemoryCacheStorage();
+    const cs = new CacheApiStorage(backend);
+    await cs.put(
+      { modelId: CATALOG_ID, url: 'https://m.test/keep/weights.bin' },
+      new Response(new Uint8Array(500)),
+    );
+
+    const report = await runSelfHeal(sweepOptions(backend, { cacheStorage: cs }));
+
+    expect(report.deadModelCachesSwept).not.toContain(modelCacheName(CATALOG_ID));
+    expect(backend.caches.has(modelCacheName(CATALOG_ID))).toBe(true);
+  });
+
+  it('keeps a slot-bound namespace even when the injected catalog omits it', async () => {
+    const backend = new MemoryCacheStorage();
+    const cs = new CacheApiStorage(backend);
+    setSlot('eco-smart', BOUND_ID);
+    await cs.put(
+      { modelId: BOUND_ID, url: 'https://m.test/bound/weights.bin' },
+      new Response(new Uint8Array(500)),
+    );
+
+    // resolveCatalogIds excludes BOUND_ID — only the binding keeps it.
+    const report = await runSelfHeal(sweepOptions(backend, { cacheStorage: cs }));
+
+    expect(report.deadModelCachesSwept).not.toContain(modelCacheName(BOUND_ID));
+    expect(backend.caches.has(modelCacheName(BOUND_ID))).toBe(true);
+    expect(getSlot('eco-smart').modelId).toBe(BOUND_ID);
+  });
+
+  it('keeps a namespace with a live download-in-progress marker (mid-download)', async () => {
+    const backend = new MemoryCacheStorage();
+    const cs = new CacheApiStorage(backend);
+    await cs.put(
+      { modelId: DEAD_ID, url: 'https://m.test/dead/weights.bin' },
+      new Response(new Uint8Array(500)),
+    );
+    // Fresh marker (started 'now') — step 1 leaves live markers in place.
+    storage.setItem(DOWNLOAD_MARKER_PREFIX + DEAD_ID, String(nowMs));
+
+    const report = await runSelfHeal(sweepOptions(backend, { cacheStorage: cs }));
+
+    expect(report.deadModelCachesSwept).not.toContain(modelCacheName(DEAD_ID));
+    expect(backend.caches.has(modelCacheName(DEAD_ID))).toBe(true);
+  });
+
+  it('sweeps orphaned chunk-parts of an unbound catalog model, keeping the namespace', async () => {
+    const backend = new MemoryCacheStorage();
+    const cs = new CacheApiStorage(backend);
+    const orphan = 'https://m.test/keep/weights.bin.ecopart.s1000.0';
+    // A part with NO parts-native manifest at its base — an abandoned resume.
+    await cs.put({ modelId: CATALOG_ID, url: orphan }, new Response(new Uint8Array(500)));
+
+    const report = await runSelfHeal(sweepOptions(backend, { cacheStorage: cs }));
+
+    expect(report.orphanedPartsSwept).toBe(1);
+    expect(await cs.has({ modelId: CATALOG_ID, url: orphan })).toBe(false);
+    // The namespace itself is a catalog model — kept.
+    expect(backend.caches.has(modelCacheName(CATALOG_ID))).toBe(true);
+  });
+
+  it('keeps terminal parts-native parts of an unbound catalog model (they ARE the weights)', async () => {
+    const backend = new MemoryCacheStorage();
+    const cs = new CacheApiStorage(backend);
+    const weights = 'https://m.test/keep/weights.bin';
+    const partKeys = [`${weights}.ecopart.s1000.0`, `${weights}.ecopart.s1000.500`];
+    for (const key of partKeys) {
+      await cs.put({ modelId: CATALOG_ID, url: key }, new Response(new Uint8Array(500)));
+    }
+    // Finalize the parts as the file's terminal storage (a manifest at the
+    // identity referencing the parts) — the WebKit-mobile / large-file shape.
+    await cs.finalizeParts({ modelId: CATALOG_ID, url: weights }, partKeys, 1_000);
+
+    const report = await runSelfHeal(sweepOptions(backend, { cacheStorage: cs }));
+
+    expect(report.orphanedPartsSwept).toBe(0);
+    for (const key of partKeys) {
+      expect(await cs.has({ modelId: CATALOG_ID, url: key })).toBe(true);
+    }
+    expect(await cs.isPartsNative({ modelId: CATALOG_ID, url: weights })).toBe(true);
+  });
+
+  it('never sweeps parts of a slot-bound model, even orphaned-looking ones', async () => {
+    const backend = new MemoryCacheStorage();
+    const cs = new CacheApiStorage(backend);
+    setSlot('eco-smart', BOUND_ID);
+    const orphan = 'https://m.test/bound/weights.bin.ecopart.s1000.0';
+    await cs.put({ modelId: BOUND_ID, url: orphan }, new Response(new Uint8Array(500)));
+
+    const report = await runSelfHeal(
+      sweepOptions(backend, {
+        cacheStorage: cs,
+        resolveCatalogIds: () => [CATALOG_ID, BOUND_ID],
+      }),
+    );
+
+    // Bound ⇒ the parts sweep skips the model entirely (the part is untouched
+    // despite having no manifest).
+    expect(report.orphanedPartsSwept).toBe(0);
+    expect(await cs.has({ modelId: BOUND_ID, url: orphan })).toBe(true);
+  });
+
+  it('skips the orphaned-parts sweep while a heavy download is active', async () => {
+    const backend = new MemoryCacheStorage();
+    const cs = new CacheApiStorage(backend);
+    const orphan = 'https://m.test/keep/weights.bin.ecopart.s1000.0';
+    await cs.put({ modelId: CATALOG_ID, url: orphan }, new Response(new Uint8Array(500)));
+
+    const report = await runSelfHeal(
+      sweepOptions(backend, { cacheStorage: cs, hasActiveDownloadLease: () => true }),
+    );
+
+    expect(report.orphanedPartsSwept).toBe(0);
+    expect(await cs.has({ modelId: CATALOG_ID, url: orphan })).toBe(true);
+  });
+
+  it('records a non-fatal error and boot continues when namespace enumeration fails', async () => {
+    const backend = new MemoryCacheStorage();
+    const report = await runSelfHeal(
+      sweepOptions(backend, {
+        listModelCacheNames: () => Promise.reject(new Error('enum boom')),
+      }),
+    );
+
+    // The sweep swallowed the failure into report.errors; runSelfHeal resolved.
+    expect(report.errors.some((e) => e.includes('dead-cache-enum'))).toBe(true);
+    expect(report.deadModelCachesSwept).toEqual([]);
+    expect(report.orphanedPartsSwept).toBe(0);
   });
 });

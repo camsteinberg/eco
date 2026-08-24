@@ -134,6 +134,20 @@ export interface Storage {
   isPartsNative?(key: StorageKey): Promise<boolean>;
   listForModel(modelId: string): Promise<{ url: string; sizeBytes: number | null }[]>;
   clearModel(modelId: string): Promise<void>;
+  /**
+   * Enumerate Eco's per-model Cache API namespace names (`eco-local-ai-<id>`).
+   * A boot-time sweep uses it to find model caches the catalog can no longer
+   * offer. Optional: backends with no namespace catalog (OPFS) omit it.
+   */
+  listModelCacheNames?(): Promise<string[]>;
+  /**
+   * Remove orphaned chunk-parts for a model — `.ecopart.` entries that NO
+   * parts-native manifest claims (abandoned/interrupted resume bytes). Terminal
+   * parts-native parts (their base identity carries a parts-native manifest) are
+   * KEPT. Returns the count removed; no-ops when the model has no namespace.
+   * Optional: backends without parts-native manifests (OPFS) omit it.
+   */
+  sweepOrphanedParts?(modelId: string): Promise<number>;
 }
 
 /**
@@ -368,6 +382,43 @@ export class CacheApiStorage implements Storage {
 
   async clearModel(modelId: string): Promise<void> {
     await this.cacheStorage.delete(cacheNameFor(modelId)).catch(() => false);
+  }
+
+  async listModelCacheNames(): Promise<string[]> {
+    const names = await this.cacheStorage.keys();
+    return names.filter(isModelCacheName);
+  }
+
+  async sweepOrphanedParts(modelId: string): Promise<number> {
+    const cacheName = cacheNameFor(modelId);
+    // Never CREATE a namespace: cacheStorage.open would materialize an empty
+    // cache for a model that has none. A model with no bytes has no parts.
+    if (!(await this.cacheStorage.has(cacheName))) return 0;
+    const cache = await this.cacheStorage.open(cacheName);
+    const requests = await cache.keys();
+    // Base identities that carry a parts-native manifest — their chunk-parts ARE
+    // the file's terminal bytes and must be kept. Enumerated from the SAME
+    // keys() call as the parts below, so both share one url form (no
+    // relative/absolute skew to reconcile).
+    const manifestBases = new Set<string>();
+    for (const request of requests) {
+      if (request.url.includes(ECO_PART_MARKER)) continue;
+      const cached = await cache.match(request);
+      if (cached != null && cached.headers.get(ECO_PARTS_NATIVE_HEADER) != null) {
+        manifestBases.add(request.url);
+      }
+    }
+    let removed = 0;
+    for (const request of requests) {
+      const marker = request.url.indexOf(ECO_PART_MARKER);
+      if (marker < 0) continue;
+      // A part's base identity is its url up to the marker. If a parts-native
+      // manifest lives there, this part is terminal storage — keep it. Otherwise
+      // no live file claims these bytes: an interrupted/abandoned resume part.
+      if (manifestBases.has(request.url.slice(0, marker))) continue;
+      if (await cache.delete(request).catch(() => false)) removed += 1;
+    }
+    return removed;
   }
 }
 
@@ -658,6 +709,27 @@ async function readManifestPartKeys(manifest: Response): Promise<string[]> {
 
 function cacheNameFor(modelId: string): string {
   return CACHE_NAME_PREFIX + sanitizeModelId(modelId);
+}
+
+/**
+ * The Cache API namespace name for a model's weights (the `eco-local-ai-<id>`
+ * bucket that put/verify/clearModel all key on). Exposed so a boot-time sweep
+ * can map a known model id FORWARD to its namespace without duplicating the
+ * sanitization — the mapping is lossy and NOT reversible, so callers compare
+ * derived names rather than parse a namespace back into an id.
+ */
+export function modelCacheName(modelId: string): string {
+  return cacheNameFor(modelId);
+}
+
+/**
+ * True when `name` is one of Eco's per-model Cache API namespaces. Lets a sweep
+ * tell Eco's own model buckets apart from a retired runtime's private caches
+ * (e.g. `webllm/*`) or unrelated app caches — only the `eco-local-ai-` prefix is
+ * ever a candidate for removal.
+ */
+export function isModelCacheName(name: string): boolean {
+  return name.startsWith(CACHE_NAME_PREFIX);
 }
 
 function modelDirName(modelId: string): string {
