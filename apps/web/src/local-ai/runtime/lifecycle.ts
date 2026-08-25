@@ -37,6 +37,7 @@ import type {
   TokenEvent,
 } from './types';
 import { AdapterError } from './types';
+import { acquireGpuOwnership, releaseGpuOwnership } from './gpu-ownership';
 
 // ─── Cooldown ───────────────────────────────────────────────────────────────
 
@@ -193,6 +194,21 @@ export async function loadModel(
       return state.activeAdapter;
     }
 
+    // Cross-tab GPU ownership: refuse to spin up a second WebGPU device while
+    // another tab owns one — that concurrent device init is what crashes the
+    // other tab's device. A model already resident here means this tab already
+    // owns the GPU, so `acquireGpuOwnership` resolves 'owner' immediately and a
+    // mid-session model switch is never blocked; only a cold load with no
+    // resident model and another tab active resolves 'blocked'.
+    const ownership = await acquireGpuOwnership();
+    if (ownership === 'blocked') {
+      throw new AdapterError(
+        'Eco’s on-device AI is active in another tab. Continue there, or close it to use Eco in this tab.',
+        'gpu-busy-other-tab',
+        true,
+      );
+    }
+
     if (state.activeAdapter) {
       await state.activeAdapter.unload().catch(() => undefined);
       state.activeAdapter = null;
@@ -315,6 +331,9 @@ export async function unloadActive(): Promise<void> {
     if (adapter) {
       await adapter.unload().catch(() => undefined);
     }
+    // This tab no longer holds a model resident, so free the cross-tab GPU
+    // lock and let a blocked tab (if any) be promoted to owner.
+    releaseGpuOwnership();
   });
 }
 

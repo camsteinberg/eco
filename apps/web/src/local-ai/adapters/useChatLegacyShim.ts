@@ -324,6 +324,11 @@ function translateAdapterError(
         TEMPLATE_MISSING_USER_MESSAGE,
         false,
       );
+    case 'gpu-busy-other-tab':
+      // Another tab owns the GPU (single-tab ownership prevents the concurrent
+      // WebGPU device-init crash). Recoverable: retrying after the other tab
+      // releases the GPU succeeds.
+      return new LocalInferenceStreamError('GPU_BUSY_OTHER_TAB', message, true);
     case 'webgpu-unavailable':
     case 'init-failed':
       return new LocalInferenceStreamError('WORKER_CRASHED', message, true);

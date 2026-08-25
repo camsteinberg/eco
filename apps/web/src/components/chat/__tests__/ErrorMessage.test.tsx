@@ -91,6 +91,7 @@ import { MODEL_PREPARING_BUSY_MESSAGE } from "../../../lib/local-heavy-work-owne
 import { CONTEXT_WINDOW_REFUSAL_MESSAGE } from "../../../lib/context-window";
 import {
   DEVICE_PROTECTION_MESSAGE,
+  LOCAL_MODEL_OTHER_TAB_MESSAGE,
   TEMPLATE_MISSING_USER_MESSAGE,
 } from "../../../local-ai/adapters/error-messages";
 
@@ -190,6 +191,18 @@ describe("ErrorMessage", () => {
     expect(screen.queryByText(/contributors/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/miner/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/p2p/i)).not.toBeInTheDocument();
+  });
+
+  it("shows the 'open in another tab' state with its own title and keeps Try again", () => {
+    render(<ErrorMessage message={LOCAL_MODEL_OTHER_TAB_MESSAGE} onRetry={() => {}} />);
+    // Its own calm title — not mislabelled "Eco needs one quick setup" by the
+    // setup regex (the copy contains "on-device"), which would also suppress
+    // the retry the recovery relies on.
+    expect(screen.getByRole("heading")).toHaveTextContent("Eco is open in another tab");
+    expect(screen.queryByText(/needs one quick setup/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/running in another browser tab/i)).toBeInTheDocument();
+    // Retrying after the other tab releases the GPU succeeds, so the action stays.
+    expect(screen.getByRole("button", { name: /try again/i })).toBeInTheDocument();
   });
 
   it("shows actionable local setup errors instead of a generic network message", () => {

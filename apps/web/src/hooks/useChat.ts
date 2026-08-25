@@ -71,6 +71,7 @@ import {
   LOCAL_GENERATION_FALLBACK_MESSAGE,
   LOCAL_GENERATION_REPEATED_MESSAGE,
   DEVICE_PROTECTION_MESSAGE,
+  LOCAL_MODEL_OTHER_TAB_MESSAGE,
   describeLocalCooldownMessage,
 } from "../local-ai/adapters/error-messages";
 import {
@@ -410,6 +411,7 @@ const DEDICATED_LOCAL_ERROR_CODES: ReadonlySet<string> = new Set([
   "DEVICE_PROTECTION",
   "OOM",
   "TEMPLATE_MISSING",
+  "GPU_BUSY_OTHER_TAB",
 ]);
 
 function errorHasDedicatedLocalMessage(err: unknown): boolean {
@@ -744,6 +746,20 @@ export function useChat() {
 
       if (err.code === "DEVICE_PROTECTION") {
         const message = DEVICE_PROTECTION_MESSAGE;
+        updateMessage(assistantId, {
+          status: "error",
+          errorMessage: message,
+          inferenceMethod: "local",
+        });
+        setError(message);
+        return;
+      }
+
+      if (err.code === "GPU_BUSY_OTHER_TAB") {
+        // Another tab owns the GPU. Not a fault — a graceful "active elsewhere"
+        // hand-off. Recoverable: closing the other tab (or that tab going idle
+        // and unloading) frees the GPU, and a retry here then succeeds.
+        const message = LOCAL_MODEL_OTHER_TAB_MESSAGE;
         updateMessage(assistantId, {
           status: "error",
           errorMessage: message,

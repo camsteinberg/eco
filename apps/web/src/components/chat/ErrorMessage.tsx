@@ -18,6 +18,7 @@ import {
   LOCAL_GENERATION_REPEATED_MESSAGE,
   LOCAL_RUNTIME_HICCUP_MESSAGE,
   DEVICE_PROTECTION_MESSAGE,
+  LOCAL_MODEL_OTHER_TAB_MESSAGE,
   TEMPLATE_MISSING_USER_MESSAGE,
 } from "../../local-ai/adapters/error-messages";
 import { getDisplayInfo } from "../../local-ai/display";
@@ -59,6 +60,11 @@ const MODEL_PREPARING_TITLE = "Your model is still getting ready";
 // too long for this local model. The honest fix is to shorten, not to "set up."
 const CONTEXT_WINDOW_REFUSAL_TITLE = "This conversation is too long";
 const DEVICE_PROTECTION_TITLE = "Paused to protect your device";
+// The on-device model is already running in another tab. Not a setup task and
+// not a fault — the honest fix is to switch to that tab or close it, so this
+// card gets its own calm title and keeps Try again (a retry succeeds once the
+// other tab releases the GPU).
+const OTHER_TAB_TITLE = "Eco is open in another tab";
 // A broken chat template is a damaged copy of the model, not a setup step the
 // user skipped — and retrying reads the same broken file, so this card offers
 // the one thing that can work: getting a fresh copy.
@@ -244,6 +250,11 @@ export function ErrorMessage({
   // setup" — and, because that title also suppresses Try again, leave the card
   // with no action at all. Classify it by exact string and exempt it.
   const isDeviceProtectionPause = message === DEVICE_PROTECTION_MESSAGE;
+  // The model is running in another tab. The copy says "on-device", so the
+  // setup regex below would mislabel it "Eco needs one quick setup" (and
+  // suppress Try again, leaving no action). Classify it by exact string and
+  // exempt it — it keeps its own title and the Try again the retry relies on.
+  const isOtherTabBusy = message === LOCAL_MODEL_OTHER_TAB_MESSAGE;
   // Same trap, worst case: the copy says "re-download it", so the setup regex
   // relabelled a damaged model file as "Eco needs one quick setup" — a title
   // that also suppresses Try again, leaving the card with no action while its
@@ -255,6 +266,7 @@ export function ErrorMessage({
     && !isModelPreparingError
     && !isContextWindowRefusal
     && !isDeviceProtectionPause
+    && !isOtherTabBusy
     && !isTemplateMissingError
     && (Boolean(localReadiness)
       || Boolean(
@@ -309,6 +321,11 @@ export function ErrorMessage({
     : isDeviceProtectionPause
     ? {
         title: DEVICE_PROTECTION_TITLE,
+        body: message,
+      }
+    : isOtherTabBusy
+    ? {
+        title: OTHER_TAB_TITLE,
         body: message,
       }
     : isTemplateMissingError
