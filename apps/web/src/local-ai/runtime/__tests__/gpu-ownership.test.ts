@@ -190,9 +190,11 @@ describe('gpu-ownership', () => {
     readonly runtime = 'transformers' as const;
     isLoaded = false;
     backend: 'webgpu' | 'wasm' | null = null;
-    async load(): Promise<void> {
+    activeModel: ModelConfig | null = null;
+    async load(model: ModelConfig): Promise<void> {
       this.isLoaded = true;
       this.backend = 'webgpu';
+      this.activeModel = model;
     }
     async *generate(): AsyncIterable<TokenEvent> {
       yield { kind: 'done' };
@@ -200,6 +202,7 @@ describe('gpu-ownership', () => {
     async unload(): Promise<void> {
       this.isLoaded = false;
       this.backend = null;
+      this.activeModel = null;
     }
   }
 
