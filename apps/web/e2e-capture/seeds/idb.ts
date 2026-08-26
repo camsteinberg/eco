@@ -431,38 +431,6 @@ If the file is large enough that even one pass is slow, the next step is to sort
 it externally and aggregate in a single streaming pass — but at a few hundred
 thousand rows this version is well within reach.`;
 
-const ARTIFACT_REPLY = `Here is a small self-contained page you can open straight in a browser:
-
-\`\`\`artifact:html
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <title>Watering log</title>
-    <style>
-      body { font-family: system-ui, sans-serif; margin: 2rem; color: #26221d; }
-      h1 { font-size: 1.25rem; }
-      li { margin-bottom: 0.35rem; }
-    </style>
-  </head>
-  <body>
-    <h1>Watering log</h1>
-    <ul id="log"></ul>
-    <button id="add">Watered today</button>
-    <script>
-      const log = document.getElementById("log");
-      document.getElementById("add").addEventListener("click", () => {
-        const entry = document.createElement("li");
-        entry.textContent = new Date().toDateString();
-        log.appendChild(entry);
-      });
-    </script>
-  </body>
-</html>
-\`\`\`
-
-Everything is inline, so there is nothing to install and no build step.`;
-
 const THINKING_REPLY = `<think>The user is asking about a north-facing balcony, so direct sun is the
 binding constraint. Fruiting crops need six hours and will not get it. Leafy
 crops photosynthesise fine in bright shade and actually bolt less there, so the
@@ -527,13 +495,6 @@ export const IDB_SEEDS = {
     "Summing a CSV by category",
     "Write me a short Python function that sums a CSV column grouped by category.",
     CODE_REPLY,
-  ),
-
-  "conversation-artifact": singleExchange(
-    "capture-artifact",
-    "Watering log page",
-    "Can you make me a tiny HTML page that logs the days I watered?",
-    ARTIFACT_REPLY,
   ),
 
   "conversation-thinking": singleExchange(

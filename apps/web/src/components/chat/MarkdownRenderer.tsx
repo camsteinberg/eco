@@ -10,21 +10,8 @@ import rehypeHighlight from "rehype-highlight";
 import { motion, useReducedMotion } from "motion/react";
 import type { Components } from "react-markdown";
 import type { PluggableList } from "unified";
-import dynamic from "next/dynamic";
 import { CodeBlock } from "./CodeBlock";
 import { normalizeStreamMarkdown } from "../../lib/stream-markdown-normalizer";
-
-const ArtifactBlock = dynamic(
-  () => import("./ArtifactBlock").then((mod) => ({ default: mod.ArtifactBlock })),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="skeleton-shimmer my-3 h-40 w-full rounded-xl">
-        <p className="sr-only" role="status">Loading interactive preview...</p>
-      </div>
-    ),
-  }
-);
 
 type MarkdownRendererProps = {
   content: string;
@@ -237,11 +224,6 @@ const staticComponents: Components = {
 
     if (match) {
       const lang = match[1] ?? "text";
-
-      if (lang.startsWith("artifact:")) {
-        const artifactType = lang.slice("artifact:".length) as "react" | "html";
-        return <ArtifactBlock code={codeString} type={artifactType} />;
-      }
 
       return (
         <CodeBlock code={codeString} language={lang}>
