@@ -1,9 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Bos Computing LLC
 
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { useConversationStore } from '../conversationStore'
 import type { Conversation } from '../../lib/types/conversation'
+
+const requestPersistentStorage = vi.fn(async () => 'persistent' as const)
+vi.mock('../../local-ai/download/persistent-storage', () => ({
+  requestPersistentStorage: () => requestPersistentStorage(),
+}))
 
 const makeConversation = (id: string, title = 'Test', pinnedAt?: number | null): Conversation => ({
   id,
@@ -36,6 +41,12 @@ describe('useConversationStore', () => {
     expect(state.conversations).toHaveLength(1)
     expect(state.conversations[0]?.id).toBe('conv-1')
     expect(state.activeConversationId).toBe('conv-1')
+  })
+
+  it('addConversation asks the browser for persistent storage (chats must not be evictable)', () => {
+    requestPersistentStorage.mockClear()
+    useConversationStore.getState().addConversation(makeConversation('conv-1'))
+    expect(requestPersistentStorage).toHaveBeenCalledTimes(1)
   })
 
   it('removeConversation deletes by id', () => {

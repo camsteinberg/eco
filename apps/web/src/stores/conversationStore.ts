@@ -18,6 +18,7 @@ import {
   subscribeConversationUpdates,
 } from '../lib/conversation-sync'
 import { logger } from '../lib/logger'
+import { requestPersistentStorage } from '../local-ai/download/persistent-storage'
 import type { EcoDB, DbConversation, DbMessage } from '../lib/db'
 import type { IDBPDatabase } from 'idb'
 import type { ChatMessage } from './chatStore'
@@ -221,6 +222,14 @@ export const useConversationStore = create<ConversationState & ConversationActio
         activeConversationId: conv.id,
       }))
       persistActiveConversationId(conv.id)
+      // A conversation is the user's data. Ask the browser to shield this
+      // origin from disk-pressure / idle eviction (Safari evicts unused
+      // non-persistent origins after 7 days; Chrome under disk pressure) —
+      // until now this was only requested at model-download time, so a person
+      // who chatted before downloading had evictable chats. Memoized per page
+      // load (iOS Safari needs the ask each open), best-effort, never blocks
+      // the write.
+      void requestPersistentStorage()
       runConversationPersistenceTask('save a conversation', async (db) => {
         const dbConv: DbConversation = {
           id: conv.id,
