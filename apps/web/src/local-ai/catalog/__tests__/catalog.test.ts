@@ -69,9 +69,17 @@ describe('local-ai catalog (Phase C)', () => {
   it('pins the measured per-model context windows', () => {
     const expected: Record<(typeof V1_CATALOG_IDS)[number], number> = {
       'local/qwen3-0.6b': 4096,
-      'candidate/lfm2.5-1.2b-instruct-onnx': 8192,
-      // The f16-less plain-int4 build of the same 1.2B — same measured 8192 window.
-      'candidate/lfm2.5-1.2b-instruct-q4-onnx': 8192,
+      // LFM2.5-1.2B: LOWERED 8192 → 4096 on 2026-08-26 after real-WebGPU headroom
+      // probes on a 16GB M1 Pro (Chromium, Metal): ~8k input = GPU OOM ("Failed
+      // to allocate memory for buffer mapping", runtime left dead); ~6k (chat's
+      // old 75% budget) = correct but 59s to first token, 1.4 tok/s, tab at
+      // 3.2GB with system free memory at 18%; ~4k = correct, ~23s first token.
+      // 4096 keeps chat's history budget at 3072, inside the measured-safe band.
+      // Raising it again needs the ctx-stress-6k/8k probes to pass on the
+      // weakest device class we ship it to, not just this Mac.
+      'candidate/lfm2.5-1.2b-instruct-onnx': 4096,
+      // The f16-less plain-int4 build of the same 1.2B — same window.
+      'candidate/lfm2.5-1.2b-instruct-q4-onnx': 4096,
       'candidate/lfm2.5-350m-onnx': 4096,
       'candidate/qwen3.5-2b-onnx': 8192,
       // LiteRT web/CPU/GPU builds are 2048-context (model card; only the NPU
