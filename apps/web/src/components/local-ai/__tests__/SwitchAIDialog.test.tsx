@@ -324,6 +324,34 @@ describe('SwitchAIDialog — failure flow with cascade suggestion', () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
+  it('insufficient-storage shows the needed-vs-free figures, never a hardware verdict or downgrade', async () => {
+    const onClose = vi.fn();
+    const commit = vi.fn(async (): Promise<SwitchAIResult> => ({
+      success: false,
+      reason: 'insufficient-storage',
+      failedModel: LFM2,
+      suggestedNext: QWEN,
+      storageMessage:
+        'Eco needs about 0.8 GB of free space for this model, but only about 0.3 GB is available on this device.',
+    }));
+    const state = makeState({ commit });
+    render(
+      <SwitchAIDialog open onClose={onClose} currentModel={LFM2} state={state} />,
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /save/i }));
+    });
+
+    expect(screen.getByText(/isn't enough free space to download/i)).toBeInTheDocument();
+    expect(screen.getByText(/only about 0\.3 GB is available/i)).toBeInTheDocument();
+    // A fullish disk is not a hardware verdict.
+    expect(screen.queryByText(/certain hardware configurations/i)).toBeNull();
+    expect(screen.queryByText(/couldn't get.*running here/i)).toBeNull();
+    expect(screen.queryByRole('button', { name: /try qwen3/i })).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   it('calculated-confidence failure uses warmer "closer fit" copy', async () => {
     const onClose = vi.fn();
     const commit = vi.fn(async (): Promise<SwitchAIResult> => ({
