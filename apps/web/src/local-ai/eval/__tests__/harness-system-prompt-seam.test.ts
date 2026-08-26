@@ -2,19 +2,18 @@
 // Copyright (C) 2026 Bos Computing LLC
 
 /**
- * ★ THE SEAM TEST: does an everyday-arm generation actually carry the PRODUCTION
+ * ★ THE SEAM TEST: does a harness generation actually carry the PRODUCTION
  * system prompt?
  *
  * Every other harness test injects `buildSystemPrompt` (`'system for m'`), so
- * none of them can answer that question — and an A/B arm that swaps a prompt the
- * harness never sends would produce a confident, wrong result. These tests run
- * `runEval` with the system-prompt dependency LEFT AT ITS DEFAULT against a REAL
- * catalog model id, so what is asserted is the string the runtime is handed.
+ * none of them can answer that question. These tests run `runEval` with the
+ * system-prompt dependency LEFT AT ITS DEFAULT against a REAL catalog model id,
+ * so what is asserted is the string the runtime is handed.
  *
- * The third case is the negative one and the reason this file exists: under the
- * `gemma-native-user-contract` topology the base system prompt is DISCARDED, so
- * any arm that works by rewriting that prompt measures nothing there. The arm
- * table's guards read that fact out; this test pins the fact itself.
+ * The remaining arms (`control`, `ngram-off`) only affect generation options,
+ * not the system prompt, so the seam test no longer needs prompt-rewriting arm
+ * cases (those were retired with `no-add-context` and `posture-direct` on
+ * 2026-08-26 when the posture-direct treatment shipped as the production prompt).
  */
 
 import { describe, expect, it } from 'vitest';
@@ -22,12 +21,6 @@ import { describe, expect, it } from 'vitest';
 import { getOnDeviceSystemPrompt } from '../../../lib/system-prompt';
 import { runEval } from '../harness';
 import type { EvalGenerationFn, EvalRunnerDeps } from '../harness';
-import {
-  ADD_CONTEXT_CLAUSE_CONDITIONED,
-  ADD_CONTEXT_CLAUSE_SHIPPED,
-  POSTURE_BASE_DIRECT,
-  POSTURE_BASE_SHIPPED,
-} from '../everyday-arms';
 import type { ChatMessage, TokenEvent } from '../../runtime/types';
 
 /** A real, shipping catalog id — so the model `systemDirective` suffix is exercised too. */
@@ -76,53 +69,12 @@ describe('★ harness system-prompt seam', () => {
     expect(system.role).toBe('system');
     // Byte-identical to what `useChat.buildSystemPrompt` pushes for this model.
     expect(system.content).toBe(getOnDeviceSystemPrompt(REAL_MODEL_ID));
-    expect(system.content).toContain(ADD_CONTEXT_CLAUSE_SHIPPED);
+    // The shipped prompt carries the open-vs-closed posture, not the old
+    // elaboration push.
+    expect(system.content).toContain('let the question decide');
   });
 
-  it('an everyday arm rewrites THAT prompt, not a stand-in', async () => {
-    const seen: ChatMessage[][] = [];
-    await runEval(
-      {
-        label: 'seam-arm',
-        modelIds: [REAL_MODEL_ID],
-        promptIds: ['fk1'],
-        everydayArm: 'no-add-context',
-      },
-      seamDeps(seen),
-    );
-
-    const system = seen[0]![0]!;
-    expect(system.content).toContain(ADD_CONTEXT_CLAUSE_CONDITIONED);
-    expect(system.content).not.toContain(ADD_CONTEXT_CLAUSE_SHIPPED);
-    // Only the clause moved: the rest of the production prompt survives verbatim.
-    const shipped = getOnDeviceSystemPrompt(REAL_MODEL_ID);
-    const [head, tail] = shipped.split(ADD_CONTEXT_CLAUSE_SHIPPED);
-    expect(system.content).toBe(`${head}${ADD_CONTEXT_CLAUSE_CONDITIONED}${tail}`);
-  });
-
-  it('★ the posture arm sends the replacement base, model directive intact', async () => {
-    const seen: ChatMessage[][] = [];
-    await runEval(
-      {
-        label: 'seam-posture',
-        modelIds: [REAL_MODEL_ID],
-        promptIds: ['fk1'],
-        everydayArm: 'posture-direct',
-      },
-      seamDeps(seen),
-    );
-
-    const system = seen[0]![0]!;
-    const shipped = getOnDeviceSystemPrompt(REAL_MODEL_ID);
-    // The base swapped whole; everything the catalog appended after it survives.
-    expect(system.content).toBe(
-      POSTURE_BASE_DIRECT + shipped.slice(POSTURE_BASE_SHIPPED.length),
-    );
-    expect(system.content).not.toContain(ADD_CONTEXT_CLAUSE_SHIPPED);
-    expect(system.content.startsWith(POSTURE_BASE_DIRECT)).toBe(true);
-  });
-
-  it('★ the gemma-native topology DISCARDS the base prompt — a prompt arm is inert there', async () => {
+  it('★ the gemma-native topology DISCARDS the base prompt', async () => {
     const seen: ChatMessage[][] = [];
     await runEval(
       {
@@ -130,17 +82,11 @@ describe('★ harness system-prompt seam', () => {
         modelIds: ['candidate/gemma-4-e2b-litert'],
         promptIds: ['fk1'],
         messageTopology: 'gemma-native-user-contract',
-        everydayArm: 'no-add-context',
       },
       seamDeps(seen),
     );
 
     const messages = seen[0]!;
     expect(messages.some((m) => m.role === 'system')).toBe(false);
-    // Neither the shipped clause nor the arm's counterfactual reaches the model,
-    // so this run would report a clean zero for a change never applied.
-    const joined = messages.map((m) => m.content).join('\n');
-    expect(joined).not.toContain(ADD_CONTEXT_CLAUSE_SHIPPED);
-    expect(joined).not.toContain(ADD_CONTEXT_CLAUSE_CONDITIONED);
   });
 });

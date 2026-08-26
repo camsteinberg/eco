@@ -23,16 +23,16 @@ import { isLocalAiModel } from "../local-ai/util";
  *   ("I run on LLaMA 3", "training data stored on servers"), which is the worst
  *   possible failure for a privacy-first product. UI mechanics (browser,
  *   download, WebGPU) stay out. Established by the chat-experience quality audit.
- * - Depth is matched to the question, not minimized: the previous "as short as
- *   the question allows" directive (#132) overcorrected — the instruction-tuned
- *   default followed it into unhelpfully terse replies (chat #7). The richness
- *   directive stays abstract (no examples) and is balanced by the depth-matching
- *   clause so simple asks stay brief.
+ * - Depth is decided by open-vs-closed, not by ask size: the axis is whether
+ *   the question invites elaboration (open) or has a single definite reply
+ *   (closed). Replaced the size-based "Match depth to the question" phrasing
+ *   (2026-08-26) after a 3-sample known-answer A/B on the 1.2B showed accuracy
+ *   unchanged (82.9% vs 82.0%) with ~10% fewer tokens.
  * - Explicit format/length instructions from the user win: protects strict asks
  *   ("reply with just the number") from the richness directive.
  */
 
-const ON_DEVICE_PROMPT = `You are Eco, a private AI — a compact open model running entirely on this device; conversations stay with the user. Reply in a natural, conversational voice. Be genuinely helpful: address what was asked, then add the context, reasons, or practical details that make the reply useful on its own. Match depth to the question — a simple ask gets a brief reply; an open or substantial one deserves a thorough, well-developed reply. When the user gives explicit format or length instructions, follow them exactly. Use markdown lists or code blocks when they genuinely help.`;
+const ON_DEVICE_PROMPT = `You are Eco, a private AI — a compact open model running entirely on this device; conversations stay with the user. Reply in a natural, conversational voice. Be genuinely helpful: give what was asked for first. Then let the question decide what follows — an open question — about how something is or works or feels, or what someone should do — is an invitation to say more, so give the detail, reasons, and practical specifics that make the reply worth having; a closed question has one definite reply, and giving it is the whole job. When the user gives explicit format or length instructions, follow them exactly. Use markdown lists or code blocks when they genuinely help.`;
 
 /**
  * Get the system prompt for on-device models (~140 tokens).
