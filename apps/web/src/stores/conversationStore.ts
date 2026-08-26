@@ -3,7 +3,7 @@
 
 import { create } from 'zustand'
 import type { Conversation } from '../lib/types/conversation'
-import { openEcoDB, getActiveBranch } from '../lib/db'
+import { openEcoDB, getActiveBranch, isVersionError } from '../lib/db'
 import { migrateFromLocalStorage } from '../lib/db-migration'
 import { resolveBranchLeafId } from '../lib/conversation-navigation'
 import { markRestoredInterruptions } from '../lib/chat-recovery'
@@ -70,13 +70,24 @@ let dbPromise: Promise<IDBPDatabase<EcoDB>> | null = null
 
 function getDb(): Promise<IDBPDatabase<EcoDB>> {
   if (!dbPromise) {
-    dbPromise = openEcoDB().catch((error) => {
+    dbPromise = openEcoDB({
+      onBlocking: () => {
+        // Our connection just closed itself so a newer tab could upgrade the
+        // schema. Drop the dead handle: the next write reopens (and, if this
+        // tab's build is now older than the database, surfaces the honest
+        // VersionError copy below).
+        dbPromise = null
+      },
+    }).catch((error) => {
       dbPromise = null
       throw error
     })
   }
   return dbPromise
 }
+
+const OUTDATED_BUILD_MESSAGE =
+  'Eco was updated in another tab. Reload this tab to keep saving conversations — nothing already saved is lost.'
 
 function shouldSkipConversationPersistenceHydration(): boolean {
   if (typeof window === 'undefined' || typeof window.sessionStorage === 'undefined') {
@@ -126,8 +137,9 @@ export async function closeConversationPersistenceDb(): Promise<void> {
 function logConversationPersistenceError(action: string, error: unknown): void {
   logger.warn(`Conversation persistence failed while trying to ${action}.`, error)
   useConversationStore.setState({
-    persistenceError:
-      `Eco updated this conversation in memory, but browser storage could not ${action}. Try again or export a copy before closing this tab.`,
+    persistenceError: isVersionError(error)
+      ? OUTDATED_BUILD_MESSAGE
+      : `Eco updated this conversation in memory, but browser storage could not ${action}. Try again or export a copy before closing this tab.`,
   })
 }
 

@@ -2,7 +2,11 @@
 // Copyright (C) 2026 Bos Computing LLC
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { openDB } from "idb";
 import {
+  ECO_DB_NAME,
+  ECO_DB_VERSION,
+  isVersionError,
   openEcoDB,
   getActiveBranch,
   getSiblings,
@@ -533,5 +537,86 @@ describe("addReactionToMessage / removeReactionFromMessage", () => {
     const retrieved = await db.get("messages", "msg-react-remove");
     expect(retrieved!.reactions).toHaveLength(1);
     expect(retrieved!.reactions![0]!.emoji).toBe("leaf");
+  });
+});
+
+// ─── Schema upgrades must keep the user's chats ─────────────────────────────
+
+/** The v1 schema exactly as it first shipped — the shape a long-time user's disk holds. */
+async function seedV1Database(): Promise<void> {
+  const { deleteDB } = await import("idb");
+  await deleteDB(ECO_DB_NAME);
+  const v1 = await openDB(ECO_DB_NAME, 1, {
+    upgrade(database) {
+      const convStore = database.createObjectStore("conversations", { keyPath: "id" });
+      convStore.createIndex("by-updated", "updatedAt");
+      const msgStore = database.createObjectStore("messages", { keyPath: "id" });
+      msgStore.createIndex("by-conversation", "conversationId");
+      msgStore.createIndex("by-parent", "parentId");
+    },
+  });
+  await v1.put("conversations", {
+    id: "old-conv",
+    title: "From before the upgrade",
+    createdAt: 1,
+    updatedAt: 2,
+    activeLeafId: "old-msg",
+  });
+  await v1.put("messages", {
+    id: "old-msg",
+    conversationId: "old-conv",
+    parentId: null,
+    role: "user",
+    content: "still here?",
+    createdAt: 1,
+    status: "complete",
+  });
+  v1.close();
+}
+
+describe("schema upgrade durability", () => {
+  it("upgrading a v1 database to the current version keeps conversations and messages", async () => {
+    db.close();
+    await seedV1Database();
+
+    db = await openEcoDB();
+    expect(db.version).toBe(ECO_DB_VERSION);
+
+    const convs = await db.getAll("conversations");
+    expect(convs.map((c) => c.id)).toEqual(["old-conv"]);
+    expect(convs[0]?.pinnedAt).toBeUndefined();
+
+    const branch = await getActiveBranch(db, "old-conv");
+    expect(branch.map((m) => m.content)).toEqual(["still here?"]);
+    expect(db.transaction("conversations").store.indexNames).toContain("by-updated");
+  });
+
+  it("closes itself when a newer build opens the database, so the upgrade is not blocked", async () => {
+    db.close();
+    let blockingCalls = 0;
+    db = await openEcoDB({ onBlocking: () => { blockingCalls += 1; } });
+    await db.put("conversations", {
+      id: "c1", title: "t", createdAt: 1, updatedAt: 1, activeLeafId: null,
+    });
+
+    // A tab on a newer deploy bumps the schema while this connection is open.
+    const newer = await openDB(ECO_DB_NAME, ECO_DB_VERSION + 1, {
+      upgrade(database) {
+        database.createObjectStore("future-store");
+      },
+    });
+    expect(blockingCalls).toBe(1);
+    expect(await newer.getAll("conversations")).toHaveLength(1);
+    newer.close();
+
+    // This tab's build is now older than the database: retrying can't fix it,
+    // and the error is recognisable so the UI can say "reload".
+    await expect(openEcoDB()).rejects.toSatisfy(isVersionError);
+  });
+
+  it("isVersionError recognises only VersionError", () => {
+    expect(isVersionError(new DOMException("x", "VersionError"))).toBe(true);
+    expect(isVersionError(new Error("boom"))).toBe(false);
+    expect(isVersionError(null)).toBe(false);
   });
 });
