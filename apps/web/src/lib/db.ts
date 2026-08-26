@@ -124,8 +124,36 @@ export function toDbMessage(m: ChatMessage, conversationId: string): DbMessage {
   };
 }
 
-export function openEcoDB(): Promise<IDBPDatabase<EcoDB>> {
-  return openDB<EcoDB>("eco-chat", 3, {
+export const ECO_DB_NAME = "eco-chat";
+export const ECO_DB_VERSION = 3;
+
+export type OpenEcoDBOptions = {
+  /**
+   * Called after this connection closes itself because ANOTHER connection
+   * (typically a tab running a newer Eco build) needs to upgrade or delete the
+   * database. The caller's cached handle is dead at that point and must be
+   * dropped; its next open will either succeed on the new schema or fail
+   * with a VersionError (this tab's code is older than the database).
+   */
+  onBlocking?: () => void;
+};
+
+/**
+ * `true` when an open failed because the database on disk is NEWER than the
+ * schema this build knows — i.e. this tab is running an older Eco than the
+ * one that last touched storage. Nothing here can be repaired by retrying;
+ * the fix is reloading to get the current build.
+ */
+export function isVersionError(error: unknown): boolean {
+  return (
+    typeof error === "object"
+    && error !== null
+    && (error as { name?: unknown }).name === "VersionError"
+  );
+}
+
+export function openEcoDB(options?: OpenEcoDBOptions): Promise<IDBPDatabase<EcoDB>> {
+  return openDB<EcoDB>(ECO_DB_NAME, ECO_DB_VERSION, {
     upgrade(db, oldVersion) {
       if (oldVersion < 1) {
         const convStore = db.createObjectStore("conversations", { keyPath: "id" });
@@ -149,9 +177,14 @@ export function openEcoDB(): Promise<IDBPDatabase<EcoDB>> {
       // Close stale connections if possible; the 3s hydration timeout in
       // initConversationStore will ensure the UI never stays stuck.
     },
-    blocking() {
-      // Another connection is trying to upgrade or delete the DB.
-      // Close this connection so the other request can proceed.
+    blocking(_currentVersion, _blockedVersion, event) {
+      // Another connection (a tab on a newer build, or a logout's
+      // deleteDatabase) is waiting on this one. Holding on would block that
+      // tab's upgrade until this tab closes — and its hydration would time
+      // out to an empty chat list. Close now; the owner drops its cached
+      // handle via onBlocking.
+      (event.target as IDBDatabase | null)?.close();
+      options?.onBlocking?.();
     },
   });
 }
