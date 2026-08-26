@@ -275,7 +275,7 @@ export function ErrorMessage({
       ));
   const isLocalCooldownError = Boolean(
     message
-      && /paused this model|graphics device needed a rest|lighter local load|crash-risk|cooling down|needs a short breather/i.test(message),
+      && /paused this model|graphics device needed a rest|crash-risk|cooling down|needs a short breather/i.test(message),
   );
 
   // Resolve a lighter-model option only for the repeated-failure card (the copy

@@ -770,8 +770,11 @@ export function useChat() {
       }
 
       if (err.code === "OOM") {
+        // A mid-reply OOM is almost always the prompt's size, not the model's:
+        // the runtime resets the model and the next send reloads it cleanly
+        // (a repeat fault is what triggers the cooldown branch above).
         const message =
-          "This device needs a lighter local load. Eco paused this model for a few minutes to protect this browser. Try a faster model or shorten the prompt, then try again.";
+          "This reply ran out of room on this device. Eco reset the model — try again, or shorten the message. If it keeps happening, a faster model will have more headroom.";
         updateMessage(assistantId, {
           status: "error",
           errorMessage: message,

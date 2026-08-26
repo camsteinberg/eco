@@ -216,7 +216,7 @@ describe('Invariant 8 — load() failures are recoverable per AdapterErrorCode',
 
 describe('Invariant 8 — generate() failures are recoverable', () => {
   it.each(COOLDOWN_TRIGGER_CODES)(
-    '%s during generate: error event surfaced, cooldown recorded, model can be reloaded after clear',
+    '%s during generate: error event surfaced, first fault reloads cleanly, repeat fault cools down',
     async (code) => {
       setAdapterFactory((m) => failingGenerateAdapter(m, code));
       await loadModel(TEST_MODEL);
@@ -232,7 +232,16 @@ describe('Invariant 8 — generate() failures are recoverable', () => {
       expect(errorEvents).toHaveLength(1);
       expect(errorEvents[0]).toMatchObject({ kind: 'error', code });
 
-      // Cooldown recorded after the generate-time crash.
+      // First generation-time fault: NO cooldown (a long prompt, not the
+      // weights, is the usual cause) — the user's next send reloads cleanly.
+      expect(getCooldown(TEST_MODEL.id)).toBeNull();
+      await unloadActive();
+      await loadModel(TEST_MODEL);
+
+      // A repeat fault while the strike is live is the real cooldown.
+      for await (const event of generate([{ role: 'user', content: 'hi' }])) {
+        void event;
+      }
       const cooldown = getCooldown(TEST_MODEL.id);
       expect(cooldown).not.toBeNull();
       expect(cooldown!.code).toBe(code);
