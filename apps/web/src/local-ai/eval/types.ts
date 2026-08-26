@@ -62,6 +62,15 @@ export type EvalCategory =
    * (leak-rate.ts) computed from exactly this set, never diluted into a composite.
    */
   | 'conversation-integrity'
+  /**
+   * The known-answer probe set (local-ai/eval/known-answer-probes.ts): everyday
+   * asks whose answer is a checkable fact or number — time arithmetic, money,
+   * conversions, lookups. Its own category so a run can be scoped to exactly
+   * "did the model get the answer RIGHT" and the headline accuracy
+   * (known-answer-accuracy.ts) computed from this set alone, never diluted into
+   * a shape composite.
+   */
+  | 'known-answer'
   | 'captured';
 
 /**
