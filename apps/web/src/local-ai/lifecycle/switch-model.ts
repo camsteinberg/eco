@@ -38,7 +38,7 @@ import {
 } from '../../lib/local-heavy-work-owner';
 import { getModel } from '../catalog/catalog';
 import { getDeviceProfile } from '../device/profile';
-import { DownloadFailedError, downloadModel } from '../download/download';
+import { DownloadFailedError, InsufficientStorageError, downloadModel } from '../download/download';
 import { ProgressTracker } from '../download/progress';
 import { hasRecentSuccess, recordEvidence } from '../evidence/ledger';
 import { loadSeedEvidenceForModel } from '../evidence/seed';
@@ -56,6 +56,10 @@ import { setSlot, setSlotStatus, type SlotStatus } from './slots';
  *   - 'network-failed' — the download couldn't complete (dropped connection,
  *     HTTP/transport error). Transient and about the network, NOT the device —
  *     the copy must not blame hardware or push a downgrade.
+ *   - 'insufficient-storage' — the download's free-space preflight failed.
+ *     About the DISK, not the device: a user with a fullish drive must be
+ *     told to free space (with the real figures), not that their "hardware"
+ *     can't run the model.
  *   - 'load-failed'    — bytes were fetched but the model wouldn't run here
  *     (genuine hardware/runtime incompatibility). THIS is the "try the next
  *     best fit" case.
@@ -64,6 +68,7 @@ import { setSlot, setSlotStatus, type SlotStatus } from './slots';
 export type SwitchFailureReason =
   | 'busy'
   | 'network-failed'
+  | 'insufficient-storage'
   | 'smoke-failed'
   | 'load-failed'
   | 'unknown';
@@ -90,6 +95,8 @@ export type SwitchModelResult =
       failedConfidence?: FailedConfidence;
       /** Honest copy for the 'busy' reason. */
       busyMessage?: string;
+      /** Honest copy for 'insufficient-storage': the needed vs. free figures. */
+      storageMessage?: string;
     };
 
 // ─── Progress ───────────────────────────────────────────────────────────────
@@ -323,6 +330,16 @@ export async function prepareModelForSlot(
       // SHA mismatch) is NOT a hardware verdict — classify it honestly so the
       // user is told to check their connection, not steered to a downgrade.
       // Genuine load/runtime incompatibility is caught below at the load step.
+      if (err instanceof InsufficientStorageError) {
+        return {
+          success: false,
+          reason: 'insufficient-storage',
+          failedModel: target,
+          suggestedNext: null,
+          storageMessage: err.message,
+          ...(previous ? { fallbackUsed: previous } : {}),
+        };
+      }
       if (err instanceof DownloadFailedError) {
         return networkFailure();
       }

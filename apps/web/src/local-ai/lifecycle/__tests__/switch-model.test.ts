@@ -19,7 +19,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { prepareModelForSlot, type SwitchModelSeams } from '../switch-model';
-import { DownloadFailedError } from '../../download/download';
+import { DownloadFailedError, InsufficientStorageError } from '../../download/download';
 import { getModel } from '../../catalog/catalog';
 import {
   _resetSlotsForTesting,
@@ -235,6 +235,32 @@ describe('network failure (download transport)', () => {
     }
     // Rolled back to the previous model, never reached the load step, and — as
     // for any download failure — left no durable evidence row.
+    expect(calls).toContain('setSlot:local/prev-model');
+    expect(seams.load).not.toHaveBeenCalled();
+    expect(seams.recordEvidence).not.toHaveBeenCalled();
+    expect(seams.nextInCascade).not.toHaveBeenCalled();
+  });
+});
+
+describe('storage shortage (download preflight)', () => {
+  it('classifies an InsufficientStorageError as insufficient-storage with the figures, NOT load-failed', async () => {
+    const { seams, calls } = makeSeams({
+      download: vi.fn(async () => {
+        throw new InsufficientStorageError(760_000_000, 300_000_000);
+      }),
+    });
+    const result = await run(seams);
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      // A fullish disk is not a hardware verdict: no downgrade suggestion, and
+      // the copy carries the needed-vs-free figures the user can act on.
+      expect(result.reason).toBe('insufficient-storage');
+      expect(result.storageMessage).toContain('0.8 GB');
+      expect(result.storageMessage).toContain('0.3 GB');
+      expect(result.suggestedNext).toBeNull();
+      expect(result.fallbackUsed?.id).toBe(previous.id);
+    }
     expect(calls).toContain('setSlot:local/prev-model');
     expect(seams.load).not.toHaveBeenCalled();
     expect(seams.recordEvidence).not.toHaveBeenCalled();

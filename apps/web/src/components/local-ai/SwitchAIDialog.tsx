@@ -25,6 +25,8 @@ type FailureView = {
   confidence: FailedConfidence;
   /** Honest copy when the runtime is busy (reason 'busy'). */
   busyMessage?: string;
+  /** Needed vs. free figures when the disk is short (reason 'insufficient-storage'). */
+  storageMessage?: string;
 };
 
 /**
@@ -104,6 +106,7 @@ export function SwitchAIDialog({ open, onClose, currentModel, currentModelReady,
       suggested: result.suggestedNext,
       confidence: result.failedConfidence ?? null,
       ...(result.busyMessage ? { busyMessage: result.busyMessage } : {}),
+      ...(result.storageMessage ? { storageMessage: result.storageMessage } : {}),
     });
   };
 
@@ -184,6 +187,8 @@ export function SwitchAIDialog({ open, onClose, currentModel, currentModelReady,
           <BusyNotice message={failure.busyMessage} />
         ) : failure.reason === 'network-failed' ? (
           <NetworkNotice failedName={failure.failedName} />
+        ) : failure.reason === 'insufficient-storage' ? (
+          <StorageNotice failedName={failure.failedName} message={failure.storageMessage} />
         ) : (
           <FailureNotice
             failure={failure}
@@ -404,6 +409,37 @@ function NetworkNotice({ failedName }: { failedName: string }) {
         <span className="font-medium">{`Your connection dropped while downloading ${failedName}.`}</span>
         <span style={{ color: 'var(--eco-text-secondary)' }}>
           Check your connection, then try again — this is your network, not your device.
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Not enough free space for the download — about the DISK, not the device.
+ * Say so with the real figures and point at the fix (free up space); a
+ * "hardware" verdict here would steer a user with a fullish drive onto Eco's
+ * weakest model for a reason that isn't true. The footer's primary button
+ * reads "Try again" while a notice is showing; "Pick another" stays available
+ * through the dialog's own list.
+ */
+function StorageNotice({ failedName, message }: { failedName: string; message?: string }) {
+  return (
+    <div
+      role="alert"
+      className="rounded-[var(--eco-radius-md)] px-4 py-3 text-sm flex items-start gap-2"
+      style={{
+        background: 'var(--eco-warning-soft)',
+        color: 'var(--eco-text)',
+        border: '1px solid var(--eco-warning)',
+      }}
+    >
+      <WarningTriangle className="mt-0.5 h-[18px] w-[18px] shrink-0" />
+      <div className="flex flex-col gap-1">
+        <span className="font-medium">{`There isn't enough free space to download ${failedName}.`}</span>
+        <span style={{ color: 'var(--eco-text-secondary)' }}>
+          {message ?? 'Eco ran out of free space while setting up this model.'}
+          {' '}Free up some space on this device, then try again — this is about storage, not your device's capability.
         </span>
       </div>
     </div>
