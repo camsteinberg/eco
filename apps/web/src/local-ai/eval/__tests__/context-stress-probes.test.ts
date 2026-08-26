@@ -67,4 +67,12 @@ describe('ctx-stress-4k-recall', () => {
     expect(p4?.expectedAnswers).toEqual(p8?.expectedAnswers);
     expect(p4?.notes).toContain('~4k');
   });
+  it('has a ~6k sibling sized to the chat history budget (75% of 8192)', () => {
+    const p8 = CONTEXT_STRESS_PROBES.find((p) => p.id === 'ctx-stress-8k-recall');
+    const p6 = CONTEXT_STRESS_PROBES.find((p) => p.id === 'ctx-stress-6k-recall');
+    const chars = (p: typeof p6) => (p?.history ?? []).reduce((n, t) => n + t.content.length, 0);
+    const ratio = chars(p6) / chars(p8);
+    expect(ratio).toBeGreaterThan(0.68);
+    expect(ratio).toBeLessThan(0.8);
+  });
 });

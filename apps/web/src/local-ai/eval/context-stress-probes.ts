@@ -159,6 +159,15 @@ export const CONTEXT_STRESS_PROBES: readonly EvalPromptSpec[] = [
     perTurnChars: 820,
     windowLabel: '~8k',
   }),
+  // ~6k: what chat ACTUALLY sends to an 8192 model — lib/context-window.ts
+  // budgets history at floor(contextTokens * 0.75) = 6144. This is the probe
+  // that decides whether the shipped 8192 claim is safe in real use.
+  buildHeadroomProbe({
+    id: 'ctx-stress-6k-recall',
+    historyTurns: 28,
+    perTurnChars: 820,
+    windowLabel: '~6k',
+  }),
   // Half-size sibling for models declared at 4096 (the LFM2-2.6B): proves the
   // DECLARED window actually holds. Added 2026-08-26 after the 8k probe GPU-OOMed
   // the 2.6B on an Apple-silicon Mac ("Failed to allocate memory for buffer
