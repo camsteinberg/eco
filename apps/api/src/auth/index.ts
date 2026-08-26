@@ -10,6 +10,7 @@ import type { Db } from '../db/index.js'
 import * as authSchema from '../db/schema/auth.js'
 import { finalizeNewUser } from './finalize-new-user.js'
 import { getAllowedWebOrigins } from '../lib/auth-origins.js'
+import { getAuthBaseURL, assertSelfOriginEmailLink } from './email-link-guard.js'
 import { escapeHtml } from '../lib/escape-html.js'
 import { getSignupEmailRejectionReason } from './signup-email-policy.js'
 import { generateAppleClientSecret } from './apple-secret.js'
@@ -53,7 +54,7 @@ export async function createAuth(db: Db) {
   const appleClientSecret = await resolveAppleClientSecret()
 
   return betterAuth({
-    baseURL: process.env.BETTER_AUTH_BASE_URL ?? process.env.API_INTERNAL_URL ?? 'http://localhost:3001',
+    baseURL: getAuthBaseURL(),
     database: drizzleAdapter(db, {
       provider: 'pg',
       schema: {
@@ -82,6 +83,7 @@ export async function createAuth(db: Db) {
       revokeSessionsOnPasswordReset: true,
       ...(resend ? {
         sendResetPassword: async ({ user, url }: { user: { email: string; name: string }; url: string }) => {
+          const safeUrl = escapeHtml(assertSelfOriginEmailLink(url))
           await resend.emails.send({
             from: getEmailFrom(),
             to: user.email,
@@ -92,7 +94,7 @@ export async function createAuth(db: Db) {
                 <p style="color: #666; font-size: 16px; line-height: 1.5;">
                   Hi${user.name ? ` ${escapeHtml(user.name)}` : ''}, we received a request to reset your Eco account password.
                 </p>
-                <a href="${url}" style="display: inline-block; margin-top: 24px; padding: 12px 32px; background: #2d5a3d; color: white; text-decoration: none; border-radius: 8px; font-weight: 600;">
+                <a href="${safeUrl}" style="display: inline-block; margin-top: 24px; padding: 12px 32px; background: #2d5a3d; color: white; text-decoration: none; border-radius: 8px; font-weight: 600;">
                   Reset Password
                 </a>
                 <p style="color: #999; font-size: 13px; margin-top: 32px;">
@@ -107,6 +109,7 @@ export async function createAuth(db: Db) {
     ...(resend ? {
       emailVerification: {
         sendVerificationEmail: async ({ user, url }: { user: { email: string; name: string }; url: string }) => {
+          const safeUrl = escapeHtml(assertSelfOriginEmailLink(url))
           await resend.emails.send({
             from: getEmailFrom(),
             to: user.email,
@@ -117,7 +120,7 @@ export async function createAuth(db: Db) {
                 <p style="color: #666; font-size: 16px; line-height: 1.5;">
                   Hi${user.name ? ` ${escapeHtml(user.name)}` : ''}, click the button below to verify your email address and start using Eco.
                 </p>
-                <a href="${url}" style="display: inline-block; margin-top: 24px; padding: 12px 32px; background: #2d5a3d; color: white; text-decoration: none; border-radius: 8px; font-weight: 600;">
+                <a href="${safeUrl}" style="display: inline-block; margin-top: 24px; padding: 12px 32px; background: #2d5a3d; color: white; text-decoration: none; border-radius: 8px; font-weight: 600;">
                   Verify Email
                 </a>
                 <p style="color: #999; font-size: 13px; margin-top: 32px;">
@@ -139,6 +142,7 @@ export async function createAuth(db: Db) {
       magicLink({
         sendMagicLink: async ({ email, url }) => {
           if (!resend) return
+          const safeUrl = escapeHtml(assertSelfOriginEmailLink(url))
           await resend.emails.send({
             from: getEmailFrom(),
             to: email,
@@ -149,7 +153,7 @@ export async function createAuth(db: Db) {
                 <p style="color: #666; font-size: 16px; line-height: 1.5;">
                   Click the button below to sign in to your Eco account. No password needed.
                 </p>
-                <a href="${url}" style="display: inline-block; margin-top: 24px; padding: 12px 32px; background: #2d5a3d; color: white; text-decoration: none; border-radius: 8px; font-weight: 600;">
+                <a href="${safeUrl}" style="display: inline-block; margin-top: 24px; padding: 12px 32px; background: #2d5a3d; color: white; text-decoration: none; border-radius: 8px; font-weight: 600;">
                   Sign in to Eco
                 </a>
                 <p style="color: #999; font-size: 13px; margin-top: 32px;">
@@ -188,7 +192,6 @@ export async function createAuth(db: Db) {
     trustedOrigins: [
       ...getAllowedWebOrigins(),
       'https://appleid.apple.com',
-      'tauri://localhost',
     ],
     hooks: {
       // Signup abuse defense (finding #1, pre-flip-hardening-audit-2026-07-06.md):
