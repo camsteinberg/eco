@@ -288,7 +288,7 @@ describe('interruptActiveGeneration', () => {
     });
   });
 
-  it('flushes pending tokens and persists the interrupted branch snapshot', () => {
+  it('flushes pending tokens and persists the interrupted branch snapshot', async () => {
     // A real generation whose batcher holds an unflushed token. The
     // interrupt's `batcher.flushSync()` is what appends it to the store.
     const generation = createGeneration(useChatStore.getState().appendToMessage);
@@ -297,6 +297,11 @@ describe('interruptActiveGeneration', () => {
     setActiveGenerationForTesting(generation);
 
     interruptActiveGeneration();
+    // The snapshot now persists messages BEFORE advancing the leaf (so the
+    // cross-tab broadcast only fires once the turn is durable), which defers the
+    // updateConversation call by a microtask. Flush microtasks (fake timers are
+    // active, so a real setTimeout would never fire) before asserting it.
+    for (let i = 0; i < 5; i += 1) await Promise.resolve();
 
     expect(flushSpy).toHaveBeenCalledTimes(1);
     expect(useChatStore.getState().messages.find((message) => message.id === 'assistant-1')).toMatchObject({
@@ -412,7 +417,7 @@ describe('chat helper seams', () => {
     });
   });
 
-  it('persists every visible message and records the active leaf', () => {
+  it('persists every visible message and records the active leaf', async () => {
     const conversationStore = {
       saveMessage: vi.fn(),
       updateConversation: vi.fn(),
@@ -443,6 +448,10 @@ describe('chat helper seams', () => {
     });
 
     expect(conversationStore.saveMessage).toHaveBeenCalledTimes(2);
+    // The leaf is advanced only after the messages persist (so a cross-tab
+    // reload never sees a branch missing this turn), so updateConversation runs
+    // a microtask later. Flush microtasks (fake timers are active) before asserting.
+    for (let i = 0; i < 5; i += 1) await Promise.resolve();
     expect(conversationStore.updateConversation).toHaveBeenCalledWith('conv-123', {
       activeLeafId: 'assistant-1',
     });
