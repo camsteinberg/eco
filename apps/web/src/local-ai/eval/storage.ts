@@ -25,24 +25,34 @@ const SCHEMA_VERSION = 1;
 /** FIFO cap. Runs are large (many results); 20 keeps localStorage bounded. */
 export const MAX_RUNS = 20;
 
-const EVAL_CATEGORIES: ReadonlySet<EvalCategory> = new Set([
-  'factual-known',
-  'math',
-  'reasoning',
-  'code',
-  'summarization',
-  'instruction-following',
-  'uncertainty',
-  'stop-behavior',
-  'conversation',
-  'format-json',
-  'richness',
-  'answer-shape',
-  'everyday-use',
-  'everyday-conversation',
-  'capability-probe',
-  'captured',
-]);
+/**
+ * Keyed by the full `EvalCategory` union so adding a category without listing
+ * it here is a type error — an allowlist that lagged the type silently dropped
+ * every `known-answer` / `conversation-integrity` result on reload (2026-08-26).
+ */
+const EVAL_CATEGORY_RECORD: Record<EvalCategory, true> = {
+  'factual-known': true,
+  math: true,
+  reasoning: true,
+  code: true,
+  summarization: true,
+  'instruction-following': true,
+  uncertainty: true,
+  'stop-behavior': true,
+  conversation: true,
+  'format-json': true,
+  richness: true,
+  'answer-shape': true,
+  'everyday-use': true,
+  'everyday-conversation': true,
+  'capability-probe': true,
+  'conversation-integrity': true,
+  'known-answer': true,
+  captured: true,
+};
+const EVAL_CATEGORIES: ReadonlySet<EvalCategory> = new Set(
+  Object.keys(EVAL_CATEGORY_RECORD) as EvalCategory[]
+);
 
 const RUNTIME_ADAPTERS: ReadonlySet<EvalRuntimeAdapter> = new Set([
   'transformers',
