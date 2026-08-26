@@ -42,6 +42,15 @@ import { acquireGpuOwnership, releaseGpuOwnership } from './gpu-ownership';
 // ─── Cooldown ───────────────────────────────────────────────────────────────
 
 const COOLDOWN_STORAGE_KEY = 'eco-local-ai-cooldowns-v1';
+// A generation-time fault (mid-decode OOM / device-lost) is usually the
+// PROMPT's fault — a long chat overflowing the KV cache — not the model's:
+// the same weights reload cleanly in seconds. Cooling the model down for five
+// minutes on the first such fault leaves the user staring at a dead chat.
+// So the first generation fault only unloads the wedged adapter (a clean
+// reload happens on the next send) and records a strike; a SECOND fault while
+// the strike is live records the real cooldown. Load-time faults still cool
+// down immediately — weights that didn't fit won't fit on retry.
+const FAULT_STRIKE_STORAGE_KEY = 'eco-local-ai-fault-strikes-v1';
 const COOLDOWN_DEFAULT_MS = 5 * 60 * 1000; // 5 minutes
 // 'timeout' is deliberately absent, same reasoning as 'aborted' below: a
 // forced-timeout (see raceLoadAgainstSignal) means we gave up waiting, not
@@ -308,7 +317,13 @@ export async function* generate(
     throw err;
   } finally {
     if (crashedCode && state.activeModel) {
-      recordCooldown(state.activeModel.id, crashedCode);
+      const modelId = state.activeModel.id;
+      if (hasFaultStrike(modelId)) {
+        clearFaultStrike(modelId);
+        recordCooldown(modelId, crashedCode);
+      } else {
+        recordFaultStrike(modelId);
+      }
     }
     // Drop the dead adapter after a fault so the next loadModel re-inits a
     // fresh WebGPU device instead of retrying against the wedged one. Skip on
@@ -374,28 +389,68 @@ export function clearCooldown(modelId?: string): void {
   saveCooldowns(records);
 }
 
+// ─── Generation-fault strikes ─────────────────────────────────────────────
+
+type FaultStrikeRecord = { expiresAt: number };
+
+export function hasFaultStrike(modelId: string): boolean {
+  const records = loadJson<FaultStrikeRecord>(FAULT_STRIKE_STORAGE_KEY);
+  const record = records[modelId];
+  if (!record) return false;
+  if (record.expiresAt <= state.options.now()) {
+    delete records[modelId];
+    saveJson(FAULT_STRIKE_STORAGE_KEY, records);
+    return false;
+  }
+  return true;
+}
+
+function recordFaultStrike(modelId: string): void {
+  const records = loadJson<FaultStrikeRecord>(FAULT_STRIKE_STORAGE_KEY);
+  records[modelId] = { expiresAt: state.options.now() + state.options.cooldownMs };
+  saveJson(FAULT_STRIKE_STORAGE_KEY, records);
+}
+
+export function clearFaultStrike(modelId?: string): void {
+  if (!modelId) {
+    saveJson(FAULT_STRIKE_STORAGE_KEY, {});
+    return;
+  }
+  const records = loadJson<FaultStrikeRecord>(FAULT_STRIKE_STORAGE_KEY);
+  delete records[modelId];
+  saveJson(FAULT_STRIKE_STORAGE_KEY, records);
+}
+
 function loadCooldowns(): Record<string, CooldownRecord> {
+  return loadJson<CooldownRecord>(COOLDOWN_STORAGE_KEY);
+}
+
+function saveCooldowns(records: Record<string, CooldownRecord>): void {
+  saveJson(COOLDOWN_STORAGE_KEY, records);
+}
+
+function loadJson<T>(key: string): Record<string, T> {
   const storage = state.options.storage;
   if (!storage) return {};
   try {
-    const raw = storage.getItem(COOLDOWN_STORAGE_KEY);
+    const raw = storage.getItem(key);
     if (!raw) return {};
-    const parsed = JSON.parse(raw) as Record<string, CooldownRecord>;
+    const parsed = JSON.parse(raw) as Record<string, T>;
     return parsed && typeof parsed === 'object' ? parsed : {};
   } catch {
     return {};
   }
 }
 
-function saveCooldowns(records: Record<string, CooldownRecord>): void {
+function saveJson<T>(key: string, records: Record<string, T>): void {
   const storage = state.options.storage;
   if (!storage) return;
   try {
     if (Object.keys(records).length === 0) {
-      storage.removeItem(COOLDOWN_STORAGE_KEY);
+      storage.removeItem(key);
       return;
     }
-    storage.setItem(COOLDOWN_STORAGE_KEY, JSON.stringify(records));
+    storage.setItem(key, JSON.stringify(records));
   } catch {
     // Storage write failures are non-fatal — cooldowns degrade to
     // session-scoped silently.
@@ -442,6 +497,7 @@ export function _resetLifecycleForTesting(): void {
   if (storage) {
     try {
       storage.removeItem(COOLDOWN_STORAGE_KEY);
+      storage.removeItem(FAULT_STRIKE_STORAGE_KEY);
     } catch {
       // Best-effort.
     }

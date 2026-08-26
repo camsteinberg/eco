@@ -12,6 +12,7 @@ import {
   getActiveModel,
   getCooldown,
   hasAdapterFactory,
+  hasFaultStrike,
   loadModel,
   recordCooldown,
   setAdapterFactory,
@@ -221,6 +222,11 @@ describe('cooldown', () => {
 
 // ─── Generate path ─────────────────────────────────────────────────────────
 
+// unloadActive() is fired-and-forgotten in generate()'s finally, running under
+// the lifecycle lock. Flush the queued lock continuation + the async unload
+// before asserting.
+const flushUnload = () => new Promise((resolve) => setTimeout(resolve, 0));
+
 describe('generate', () => {
   it('throws when no model is loaded', async () => {
     await expect((async () => {
@@ -241,7 +247,10 @@ describe('generate', () => {
     expect(events[events.length - 1]!.kind).toBe('done');
   });
 
-  it('records a cooldown when adapter emits an OOM error event', async () => {
+  // A generation-time fault is usually the prompt's size (KV-cache overflow on
+  // a long chat), not the weights — so the first one must NOT lock the user
+  // out for five minutes. It records a strike; the next send reloads cleanly.
+  it('does NOT cool down on the first generation-time OOM — the next load succeeds', async () => {
     const adapter = new FakeAdapter();
     adapter.failOnGenerateEvent = { code: 'oom', reason: 'GPU oom' };
     setAdapterFactory(() => adapter);
@@ -250,17 +259,59 @@ describe('generate', () => {
     for await (const event of generate([])) {
       void event;
     }
+    await flushUnload();
+    expect(getCooldown(MODEL_A.id)).toBeNull();
+    expect(hasFaultStrike(MODEL_A.id)).toBe(true);
+
+    adapter.failOnGenerateEvent = null;
+    await expect(loadModel(MODEL_A)).resolves.toBeDefined();
+    expect(adapter.loadCalls).toBe(2);
+  });
+
+  it('records a cooldown on a REPEAT generation-time fault while the strike is live', async () => {
+    const adapter = new FakeAdapter();
+    adapter.failOnGenerateEvent = { code: 'oom', reason: 'GPU oom' };
+    setAdapterFactory(() => adapter);
+    await loadModel(MODEL_A);
+    for await (const event of generate([])) { void event; }
+    await flushUnload();
+
+    await loadModel(MODEL_A);
+    adapter.failOnGenerateEvent = { code: 'device-lost', reason: 'device lost' };
+    for await (const event of generate([])) { void event; }
+    await flushUnload();
+
     expect(getCooldown(MODEL_A.id)).not.toBeNull();
-    expect(getCooldown(MODEL_A.id)!.code).toBe('oom');
+    expect(getCooldown(MODEL_A.id)!.code).toBe('device-lost');
+    expect(hasFaultStrike(MODEL_A.id)).toBe(false);
+    await expect(loadModel(MODEL_A)).rejects.toMatchObject({ code: 'cooldown-active' });
+  });
+
+  it('a strike expires after cooldownMs, so a fault much later is a first fault again', async () => {
+    const adapter = new FakeAdapter();
+    adapter.failOnGenerateEvent = { code: 'oom', reason: 'GPU oom' };
+    setAdapterFactory(() => adapter);
+    await loadModel(MODEL_A);
+    for await (const event of generate([])) { void event; }
+    await flushUnload();
+
+    now += 5 * 60 * 1000 + 1;
+    await loadModel(MODEL_A);
+    for await (const event of generate([])) { void event; }
+    await flushUnload();
+    expect(getCooldown(MODEL_A.id)).toBeNull();
+  });
+
+  it('a load-time OOM still cools down immediately (weights that did not fit will not fit on retry)', async () => {
+    const adapter = new FakeAdapter();
+    adapter.failOnLoad = new AdapterError('oom', 'oom', true);
+    setAdapterFactory(() => adapter);
+    await expect(loadModel(MODEL_A)).rejects.toBeInstanceOf(AdapterError);
+    expect(getCooldown(MODEL_A.id)).not.toBeNull();
   });
 });
 
 // ─── Fault unload ───────────────────────────────────────────────────────────
-
-// unloadActive() is fired-and-forgotten in generate()'s finally, running under
-// the lifecycle lock. Flush the queued lock continuation + the async unload
-// before asserting.
-const flushUnload = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe('fault unload', () => {
   it('unloads the dead adapter when generate emits a fault error event', async () => {
