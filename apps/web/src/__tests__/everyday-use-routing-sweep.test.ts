@@ -1191,17 +1191,16 @@ describe("everyday-use sweep — the intent cascade reads pasted content", () =>
  *
  * Every turn also carries the on-device system prompt, which is not per-turn and
  * so never appears in any hint measured above. It contains its own development
- * directive. Anyone who closes every `no-elaboration-hint` gap and reads that as
- * "the posture is now direct" will be wrong, because the strongest elaboration
- * instruction we ship is in a file this sweep does not route.
+ * directive — now the direct posture (open-vs-closed axis), shipped 2026-08-26
+ * after the posture-direct A/B arm was validated.
  *
  * Pinned so it cannot be forgotten, and so changing it is deliberate.
  */
 describe("everyday-use sweep — the system prompt is not routed", () => {
   it("still instructs development on every turn, independent of intent", () => {
     const prompt = getOnDeviceSystemPrompt();
-    expect(prompt).toContain("add the context, reasons, or practical details");
-    expect(prompt).toContain("deserves a thorough, well-developed reply");
+    expect(prompt).toContain("let the question decide");
+    expect(prompt).toContain("an open question");
     // And it is invisible to the marker set the per-turn checks use.
     expect(ELABORATION_MARKERS.filter((m) => prompt.toLowerCase().includes(m))).toEqual([]);
   });

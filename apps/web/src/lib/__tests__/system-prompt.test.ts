@@ -74,10 +74,11 @@ describe('getOnDeviceSystemPrompt', () => {
 
   // -- Richness directive (chat #7): depth matched to the question --
 
-  it('asks for depth matched to the question instead of minimal length', () => {
+  it('lets the question decide depth (open vs closed) instead of matching by ask size', () => {
     const prompt = getOnDeviceSystemPrompt();
-    expect(prompt).toContain('Match depth to the question');
+    expect(prompt).toContain('let the question decide');
     expect(prompt).not.toMatch(/as short as/i);
+    expect(prompt).not.toContain('Match depth to the question');
   });
 
   it('tells the model to follow explicit user format/length instructions exactly (strict-ask guard)', () => {

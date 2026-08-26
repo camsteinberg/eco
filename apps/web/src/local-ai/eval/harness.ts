@@ -66,7 +66,6 @@ import { getEvalCandidateModel } from './eval-candidates';
 import { applyEcoTangentArm, type EcoTangentArm } from './eco-tangent';
 import {
   applyEverydayArmOptions,
-  applyEverydayArmSystemPrompt,
   getEverydayArm,
 } from './everyday-arms';
 import { scoreResult } from './rubric';
@@ -883,13 +882,11 @@ export async function runEval(config: EvalRunConfig, deps?: EvalRunnerDeps): Pro
     ? (modelId: string): string => applyEcoTangentArm(d.buildSystemPrompt(modelId), arm)
     : d.buildSystemPrompt;
 
-  // Everyday-use A/B: condition the add-context clause and/or drop the
-  // prompt-inclusive n-gram ban. Composes with the identity arm above rather
-  // than replacing it, so a run can never silently lose one of the two.
+  // Everyday-use A/B: the remaining arm switch (n-gram ban) only affects
+  // generation options, not the system prompt. Composes with the identity arm
+  // above rather than replacing it.
   const everydayArm = config.everydayArm ? getEverydayArm(config.everydayArm) : null;
-  const buildSystemPrompt = everydayArm
-    ? (modelId: string): string => applyEverydayArmSystemPrompt(identityArmed(modelId), everydayArm)
-    : identityArmed;
+  const buildSystemPrompt = identityArmed;
   const buildOptions = everydayArm
     ? (modelId: string, intent: ChatIntent): GenerateOptions =>
       applyEverydayArmOptions(d.buildOptions(modelId, intent), everydayArm)
