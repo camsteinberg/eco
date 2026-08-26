@@ -101,6 +101,7 @@ export type AdapterErrorCode =
   | 'timeout'
   | 'aborted'
   | 'cooldown-active'
+  | 'gpu-busy-other-tab'
   | 'template-missing';
 
 export type RuntimeBackend = 'webgpu' | 'wasm';

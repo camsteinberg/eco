@@ -54,6 +54,18 @@ export const DEVICE_PROTECTION_MESSAGE =
   "Battery is low, so Eco paused on-device AI to protect this device. Plug in, then try again to keep chatting locally.";
 
 /**
+ * Copy for the GPU_BUSY_OTHER_TAB gate: another browser tab already owns the
+ * on-device model, so this tab can't load its own without risking the WebGPU
+ * device-loss crash the single-tab ownership lock prevents. Named (rather than
+ * inlined) so ErrorMessage can match it exactly — the wording contains
+ * "on-device", which would otherwise trip the setup regex and mislabel it as
+ * "Eco needs one quick setup". Recoverable: closing the other tab and retrying
+ * succeeds.
+ */
+export const LOCAL_MODEL_OTHER_TAB_MESSAGE =
+  "Eco's on-device AI is running in another browser tab. Switch to that tab to keep chatting, or close it and try again here.";
+
+/**
  * The runtime's cooldown error embeds the real remaining time as "(Ns left)"
  * (runtime/lifecycle.ts builds it). Recover that number from our own controlled
  * message so the warm copy keeps the honest countdown instead of inventing one
