@@ -8,6 +8,7 @@ import type { EcoTool, EcoToolResult } from "./registry";
  *  - current date / time / day-of-week ("what day is it", "today's date")
  *  - date arithmetic ("what day is 90 days from today")
  *  - days until a date ("days until 2026-12-25", "days until Christmas")
+ *  - clock arithmetic ("leaves at 2:15pm, takes 1h50m, when does it arrive")
  *
  * Pure TS (Date / Intl, no deps). `match` is conservative — it only fires on
  * explicit date/time phrasing, never on idiomatic uses of "day"/"date".
@@ -20,12 +21,19 @@ import type { EcoTool, EcoToolResult } from "./registry";
  * months. That's about 91 days" — the chat-experience quality audit, RC6).
  */
 
-export type DatetimeOp = "current" | "offset" | "until";
+export type DatetimeOp = "current" | "offset" | "until" | "clock";
 
 export type DatetimeArgs =
   | { op: "current"; kind: "date" | "time" | "dayOfWeek" }
   | { op: "offset"; days: number }
-  | { op: "until"; target: string };
+  | { op: "until"; target: string }
+  /**
+   * Clock arithmetic: a start time of day plus/minus a duration ("leaves at
+   * 2:15pm, takes 1h50m, when does it arrive"). `startMinutes` is minutes since
+   * midnight (0–1439); `deltaMinutes` is signed; `meridiem` records whether the
+   * user wrote am/pm so the answer can be rendered in the same style.
+   */
+  | { op: "clock"; startMinutes: number; deltaMinutes: number; meridiem: boolean };
 
 function isDatetimeArgs(value: unknown): value is DatetimeArgs {
   if (typeof value !== "object" || value === null) {
@@ -40,6 +48,15 @@ function isDatetimeArgs(value: unknown): value is DatetimeArgs {
   }
   if (v.op === "until") {
     return typeof v.target === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v.target);
+  }
+  if (v.op === "clock") {
+    return (
+      Number.isInteger(v.startMinutes) &&
+      (v.startMinutes as number) >= 0 &&
+      (v.startMinutes as number) < 1440 &&
+      Number.isInteger(v.deltaMinutes) &&
+      typeof v.meridiem === "boolean"
+    );
   }
   return false;
 }
@@ -140,6 +157,105 @@ export function resolveNamedDayTarget(lower: string, now: Date): string | null {
   return null;
 }
 
+/**
+ * Words that decide the direction of clock arithmetic. Arrival-style asks add
+ * the duration to the start; departure-style asks ("when should I leave")
+ * subtract it. Without a cue the tool abstains — guessing the direction would
+ * be worse than letting the model answer.
+ */
+const CLOCK_SUBTRACT = /\b(?:leave|depart|set\s+off|head\s+out|start\s+driving|go)\b/;
+const CLOCK_ADD = /\b(?:arrive|arrival|get\s+there|finish|finished|end|ends|done|be\s+over|ready|get\s+home)\b/;
+
+/** Parse "2:15pm", "6am", "9:30" into minutes since midnight. Bare "6" is ambiguous → skipped. */
+function parseClockTimes(lower: string): { minutes: number; meridiem: boolean }[] {
+  const out: { minutes: number; meridiem: boolean }[] = [];
+  const re = /\b(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?(?![\d:])/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(lower)) !== null) {
+    const hasColon = m[2] !== undefined;
+    const meridiem = m[3]?.replace(/\./g, "");
+    if (!hasColon && meridiem === undefined) {
+      continue;
+    }
+    let hour = Number(m[1]);
+    const minute = m[2] === undefined ? 0 : Number(m[2]);
+    if (minute > 59) {
+      continue;
+    }
+    if (meridiem !== undefined) {
+      if (hour < 1 || hour > 12) {
+        continue;
+      }
+      hour = (hour % 12) + (meridiem === "pm" ? 12 : 0);
+    } else if (hour > 23) {
+      continue;
+    }
+    out.push({ minutes: hour * 60 + minute, meridiem: meridiem !== undefined });
+  }
+  return out;
+}
+
+/** Sum every duration mention ("1 hour 50 minutes", "90 min", "1.5 hrs", "half an hour"). */
+function sumDurationMinutes(lower: string): number {
+  let total = 0;
+  let found = false;
+  const hours = /\b(\d+(?:\.\d+)?)\s*(?:hours?|hrs?|h)\b/g;
+  const minutes = /\b(\d+)\s*(?:minutes?|mins?|m)\b/g;
+  let m: RegExpExecArray | null;
+  while ((m = hours.exec(lower)) !== null) {
+    total += Number(m[1]) * 60;
+    found = true;
+  }
+  while ((m = minutes.exec(lower)) !== null) {
+    total += Number(m[1]);
+    found = true;
+  }
+  if (/\b(?:half\s+an\s+hour|half\s+hour|half\s+an\s+hr)\b/.test(lower)) {
+    total += 30;
+    found = true;
+  } else if (/\b(?:an|one)\s+hour\b/.test(lower)) {
+    total += 60;
+    found = true;
+  }
+  return found ? Math.round(total) : Number.NaN;
+}
+
+function matchClock(lower: string): DatetimeArgs | null {
+  // Must be a question about a time of day.
+  if (!/\b(?:what\s+time|when)\b/.test(lower)) {
+    return null;
+  }
+  const times = parseClockTimes(lower);
+  if (times.length !== 1) {
+    return null;
+  }
+  const delta = sumDurationMinutes(lower);
+  if (!Number.isFinite(delta) || delta <= 0) {
+    return null;
+  }
+  const subtract = CLOCK_SUBTRACT.test(lower);
+  const add = CLOCK_ADD.test(lower);
+  // "when should I leave … to arrive" carries both cues; the ask is the verb
+  // next to the question word, so prefer that one.
+  let sign: 1 | -1 | null = null;
+  if (subtract && add) {
+    const q = /\b(?:what\s+time|when)\b.*$/.exec(lower)?.[0] ?? "";
+    sign = CLOCK_SUBTRACT.test(q) ? -1 : CLOCK_ADD.test(q) ? 1 : null;
+  } else if (subtract) {
+    sign = -1;
+  } else if (add) {
+    sign = 1;
+  }
+  if (sign === null) {
+    return null;
+  }
+  const start = times[0];
+  if (start === undefined) {
+    return null;
+  }
+  return { op: "clock", startMinutes: start.minutes, deltaMinutes: sign * delta, meridiem: start.meridiem };
+}
+
 function matchDatetime(userText: string): DatetimeArgs | null {
   if (typeof userText !== "string" || userText.trim() === "") {
     return null;
@@ -198,11 +314,20 @@ function matchDatetime(userText: string): DatetimeArgs | null {
     return { op: "current", kind: "dayOfWeek" };
   }
 
+  // ── clock arithmetic ─────────────────────────────────────────────────────
+  // "leaves at 2:15pm, takes 1 hour 50 minutes, what time does it arrive"
+  const clock = matchClock(lower);
+  if (clock !== null) {
+    return clock;
+  }
+
   // ── current time ──────────────────────────────────────────────────────────
-  // "what time is it", "what's the current time"
+  // "what time is it", "what's the current time", "what's the time".
+  // Requires "the"/"current"/"is it" — a bare `what's … time` matched "what
+  // time does it arrive" and answered the wrong question (seen live 2026-08-26).
   if (
     /\bwhat\s+time\s+is\s+it\b/.test(lower) ||
-    /\bwhat'?s?\s+(?:the\s+)?(?:current\s+)?time\b/.test(lower) ||
+    /\bwhat(?:'s|\s+is)\s+the\s+(?:current\s+)?time\b/.test(lower) ||
     /\bcurrent\s+time\b/.test(lower)
   ) {
     return { op: "current", kind: "time" };
@@ -266,6 +391,19 @@ function executeDatetime(args: DatetimeArgs, now: Date = new Date()): EcoToolRes
     };
   }
 
+  if (args.op === "clock") {
+    const end = (((args.startMinutes + args.deltaMinutes) % 1440) + 1440) % 1440;
+    const startText = formatClock(args.startMinutes, args.meridiem);
+    const endText = formatClock(end, args.meridiem);
+    const op = args.deltaMinutes < 0 ? "−" : "+";
+    const display = `${startText} ${op} ${formatDuration(Math.abs(args.deltaMinutes))} = ${endText}.`;
+    return {
+      display,
+      forModel: `A time calculator already computed the exact answer: ${display} State ${endText} as the answer; repeat it exactly rather than calculating your own.`,
+      ok: true,
+    };
+  }
+
   // until
   const target = parseIsoDate(args.target);
   if (target === null) {
@@ -302,6 +440,30 @@ function executeDatetime(args: DatetimeArgs, now: Date = new Date()): EcoToolRes
   };
 }
 
+/** Render minutes-since-midnight as "4:05 PM", or "7:05" / "0:30" when the user gave no am/pm. */
+function formatClock(minutes: number, meridiem: boolean): string {
+  const h = Math.floor(minutes / 60);
+  const mm = String(minutes % 60).padStart(2, "0");
+  if (!meridiem) {
+    return `${String(h)}:${mm}`;
+  }
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${String(h12)}:${mm} ${h < 12 ? "AM" : "PM"}`;
+}
+
+function formatDuration(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  const parts: string[] = [];
+  if (h > 0) {
+    parts.push(`${String(h)} hour${h === 1 ? "" : "s"}`);
+  }
+  if (m > 0) {
+    parts.push(`${String(m)} minute${m === 1 ? "" : "s"}`);
+  }
+  return parts.join(" ");
+}
+
 /** Friendly headline framing the date/time question the tool is answering. */
 function summarizeDatetime(args: DatetimeArgs): string {
   if (args.op === "current") {
@@ -320,13 +482,16 @@ function summarizeDatetime(args: DatetimeArgs): string {
       ? `${String(magnitude)} day${plural} from today`
       : `${String(magnitude)} day${plural} ago`;
   }
+  if (args.op === "clock") {
+    return args.deltaMinutes < 0 ? "Time to leave" : "Time it ends";
+  }
   return `Days until ${args.target}`;
 }
 
 export const datetimeTool: EcoTool<DatetimeArgs> = {
   name: "datetime",
   description:
-    "Answer date/time questions: current date/time/day, date offsets, days until a date.",
+    "Answer date/time questions: current date/time/day, date offsets, days until a date, start time plus or minus a duration.",
   validate: isDatetimeArgs,
   match: matchDatetime,
   execute: (args) => executeDatetime(args),

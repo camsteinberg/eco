@@ -287,3 +287,88 @@ describe("datetimeTool.summarize — friendly headline", () => {
     );
   });
 });
+
+describe("datetimeTool.match — current-time must not fire on clock arithmetic", () => {
+  it("does not treat 'what time does it arrive' as a current-time ask", () => {
+    const args = match(
+      "my train leaves at 2:15pm and the journey takes 1 hour 50 minutes, what time does it arrive"
+    );
+    expect(args).not.toMatchObject({ op: "current" });
+  });
+  it("still matches 'what's the time'", () => {
+    expect(match("what's the time")).toMatchObject({ op: "current", kind: "time" });
+  });
+});
+
+describe("datetimeTool.match — clock arithmetic", () => {
+  it("adds a duration for an arrival ask", () => {
+    expect(
+      match("my train leaves at 2:15pm and the journey takes 1 hour 50 minutes, what time does it arrive")
+    ).toEqual({ op: "clock", startMinutes: 14 * 60 + 15, deltaMinutes: 110, meridiem: true });
+  });
+  it("subtracts summed durations for a 'when should i leave' ask", () => {
+    expect(
+      match(
+        "my flight is at 6am and i want to be at the airport 90 minutes before. it's a 40 minute drive. what time should i leave?"
+      )
+    ).toEqual({ op: "clock", startMinutes: 6 * 60, deltaMinutes: -130, meridiem: true });
+  });
+  it("handles a bare h:mm start with no am/pm", () => {
+    expect(match("if i start a 45 minute workout at 6:20 what time do i finish")).toEqual({
+      op: "clock",
+      startMinutes: 6 * 60 + 20,
+      deltaMinutes: 45,
+      meridiem: false,
+    });
+  });
+  it("subtracts for 'when should i leave'", () => {
+    expect(
+      match("i need to be at the dentist at 9:30 and it takes 25 minutes to get there, when should i leave")
+    ).toEqual({ op: "clock", startMinutes: 9 * 60 + 30, deltaMinutes: -25, meridiem: false });
+  });
+  it("adds hours and minutes for a movie end", () => {
+    expect(match("a movie is 2 hours 20 minutes long and starts at 7:40pm, when does it end")).toEqual({
+      op: "clock",
+      startMinutes: 19 * 60 + 40,
+      deltaMinutes: 140,
+      meridiem: true,
+    });
+  });
+  it("abstains without a question", () => {
+    expect(match("i ran for 30 minutes at 5pm and felt great")).toBeNull();
+  });
+  it("abstains without a direction cue", () => {
+    expect(match("what time is 6:20 plus 45 minutes in france")).toBeNull();
+  });
+  it("abstains when the start time is ambiguous (no colon, no am/pm)", () => {
+    expect(match("i leave at 6 and drive 40 minutes, when do i arrive")).toBeNull();
+  });
+  it("abstains on two clock times", () => {
+    expect(match("from 2:15pm to 4:05pm is how long, when does it end in 10 minutes")).toBeNull();
+  });
+});
+
+describe("executeDatetime — clock arithmetic", () => {
+  it("formats an am/pm result and leads the note with the answer", () => {
+    const r = executeDatetime({ op: "clock", startMinutes: 14 * 60 + 15, deltaMinutes: 110, meridiem: true });
+    expect(r.ok).toBe(true);
+    expect(r.display).toBe("2:15 PM + 1 hour 50 minutes = 4:05 PM.");
+    expect(r.forModel).toContain("4:05 PM");
+  });
+  it("formats subtraction with am/pm", () => {
+    const r = executeDatetime({ op: "clock", startMinutes: 6 * 60, deltaMinutes: -130, meridiem: true });
+    expect(r.display).toBe("6:00 AM − 2 hours 10 minutes = 3:50 AM.");
+  });
+  it("keeps a bare 12-hour style when the input had no am/pm", () => {
+    const r = executeDatetime({ op: "clock", startMinutes: 6 * 60 + 20, deltaMinutes: 45, meridiem: false });
+    expect(r.display).toBe("6:20 + 45 minutes = 7:05.");
+  });
+  it("wraps across midnight", () => {
+    const r = executeDatetime({ op: "clock", startMinutes: 23 * 60 + 30, deltaMinutes: 60, meridiem: true });
+    expect(r.display).toBe("11:30 PM + 1 hour = 12:30 AM.");
+  });
+  it("rejects out-of-range args in validate", () => {
+    expect(validate({ op: "clock", startMinutes: 1500, deltaMinutes: 5, meridiem: true })).toBe(false);
+    expect(validate({ op: "clock", startMinutes: 60, deltaMinutes: 5, meridiem: true })).toBe(true);
+  });
+});
