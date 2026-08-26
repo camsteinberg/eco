@@ -586,7 +586,7 @@ describe("schema upgrade durability", () => {
     expect(convs.map((c) => c.id)).toEqual(["old-conv"]);
     expect(convs[0]?.pinnedAt).toBeUndefined();
 
-    const branch = await getActiveBranch(db, "old-conv");
+    const branch = await getActiveBranch(db, "old-conv", "old-msg");
     expect(branch.map((m) => m.content)).toEqual(["still here?"]);
     expect(db.transaction("conversations").store.indexNames).toContain("by-updated");
   });
