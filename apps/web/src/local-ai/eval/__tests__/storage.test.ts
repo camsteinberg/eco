@@ -510,3 +510,25 @@ describe('buildJudgeSkeleton', () => {
     expect(buildJudgeSkeleton(run)).toEqual([]);
   });
 });
+
+describe('every EvalCategory survives a save/load round-trip', () => {
+  // Regression: `known-answer` and `conversation-integrity` were missing from the
+  // storage allowlist, so their results were silently dropped on reload and the
+  // emptied run was written back on the next save — two real 2026-08-26 runs
+  // (114 + 38 generations) were lost this way.
+  const categories = [
+    'known-answer',
+    'conversation-integrity',
+    'capability-probe',
+    'everyday-use',
+    'everyday-conversation',
+    'captured',
+  ] as const;
+  for (const category of categories) {
+    it(`keeps ${category} results`, () => {
+      saveEvalRun(makeRun({ runId: `rt-${category}`, results: [makeResult({ category })] }));
+      const loaded = loadEvalRuns().find((r) => r.runId === `rt-${category}`);
+      expect(loaded?.results).toHaveLength(1);
+    });
+  }
+});
