@@ -121,7 +121,7 @@ describe('scoreTrust', () => {
 describe('scoreContextFit', () => {
   it('scores a longer catalog window higher (on merit)', () => {
     // 8192-token window (at the target) beats a 4096 window beats a 2048 window (at the floor).
-    const long = scoreContextFit(model('candidate/lfm2.5-1.2b-instruct-onnx')); // ctx 8192
+    const long = scoreContextFit(model('candidate/qwen3.5-2b-onnx')); // ctx 8192
     const mid = scoreContextFit(model('candidate/lfm2.5-350m-onnx')); // ctx 4096
     const short = scoreContextFit(model('candidate/gemma-4-e2b-litert')); // ctx 2048
     expect(long).toBeGreaterThan(mid);
@@ -129,7 +129,7 @@ describe('scoreContextFit', () => {
   });
 
   it('saturates: 1 at/above the target window, 0 at/below the floor', () => {
-    expect(scoreContextFit(model('candidate/lfm2.5-1.2b-instruct-onnx'))).toBe(1); // ctx 8192 = target
+    expect(scoreContextFit(model('candidate/qwen3.5-2b-onnx'))).toBe(1); // ctx 8192 = target
     expect(scoreContextFit(model('candidate/gemma-4-e2b-litert'))).toBe(0); // ctx 2048 = floor
   });
 
@@ -145,7 +145,7 @@ describe('scoreContextFit', () => {
 
 describe('scoreFit — contextFit is behavior-neutral (Wave 3 scaffolding)', () => {
   it('a nonzero contextFit does not move the total (weighted 0 today)', () => {
-    const m = model('candidate/lfm2.5-1.2b-instruct-onnx'); // ctx 8192 → contextFit 1
+    const m = model('candidate/qwen3.5-2b-onnx'); // ctx 8192 → contextFit 1
     const score = scoreFit({
       model: m,
       profile: PROFILE_24GB,

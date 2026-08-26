@@ -52,7 +52,7 @@
       "capabilities": {
         "intent": ["snappy", "balanced"],
         "tasks": ["chat", "writing", "reasoning"],
-        "contextTokens": 8192
+        "contextTokens": 4096
       },
       "bestFor": "The fastest, lightest local model — quick instruction-tuned replies for chat, writing, reasoning, and light code, and the automatic default on low-memory devices and other browsers.",
       "knownLimitation": "Validated on high-memory Chromium WebGPU; broader device classes (Safari/Firefox/mobile/low-memory) not yet proven. Shallower answers than the everyday default, and open-world factual answers can be wrong without grounding.",
@@ -82,7 +82,7 @@
       "capabilities": {
         "intent": ["snappy", "balanced"],
         "tasks": ["chat", "writing", "reasoning"],
-        "contextTokens": 8192
+        "contextTokens": 4096
       },
       "bestFor": "The fast, light everyday model — quick instruction-tuned replies for chat, writing, reasoning, and light code, and the automatic pick on older graphics hardware that can't run the standard build.",
       "knownLimitation": "A slightly larger download than the standard build of the same model, and open-world factual answers can be wrong without grounding.",
