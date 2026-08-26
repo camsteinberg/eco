@@ -8,7 +8,6 @@ import { EcoLogo } from "../../src/components/EcoLogo";
 import { PublicFooter } from "../../src/components/public/PublicFooter";
 import { PublicNav } from "../../src/components/public/PublicNav";
 import { resolvePublicAppDestination } from "../../src/lib/access-policy";
-import { isBillingUiEnabled } from "../../src/lib/billing-ui-gate";
 import { resolveReturnTo } from "../../src/lib/navigation-return";
 
 type SearchParamValue = string | string[] | undefined;
@@ -259,26 +258,17 @@ export default function TermsPage({
             </p>
           </section>
 
-          {/* 8. Subscription Billing — hidden when billing UI is disabled */}
-          {isBillingUiEnabled() && (
-            <section>
-              <h2 className="mb-3 font-serif text-xl font-medium text-[var(--eco-text)]">
-                8. Subscription Billing
-              </h2>
-              <p>
-                Eco is free to use, and the free tier includes the complete product
-                &mdash; no locked features, no usage limits. Supporter is an
-                optional $15/month membership that unlocks nothing extra; it simply
-                helps keep Eco independent. Payments are processed through Stripe and
-                billed monthly. You can cancel anytime from the billing portal in
-                your account settings; cancellation takes effect at the end of the
-                billing period, and your access to Eco is the same whether or not
-                you subscribe. Refunds are handled case by case &mdash; contact us
-                if you believe a charge was made in error. We may change pricing
-                with 30 days&apos; notice.
-              </p>
-            </section>
-          )}
+          {/* 8. Pricing */}
+          <section>
+            <h2 className="mb-3 font-serif text-xl font-medium text-[var(--eco-text)]">
+              8. Pricing
+            </h2>
+            <p>
+              Eco is free to use, and the free experience is the complete product
+              &mdash; no locked features and no usage limits. There are no paid
+              tiers, subscriptions, or charges.
+            </p>
+          </section>
 
           {/* 9. Data Handling */}
           <section>
@@ -290,7 +280,7 @@ export default function TermsPage({
               browser. Your conversations are not sent to Eco servers for
               inference. Conversations can persist locally in your browser
               storage if you keep them, and you can clear them at any time. We
-              still process account, billing, and operational data to run the
+              still process account and operational data to run the
               Service. For full details on data collection, processing,
               retention, and your rights, please see our{" "}
               <Link
@@ -458,8 +448,8 @@ export default function TermsPage({
                 <strong className="text-[var(--eco-text)]">
                   Entire Agreement.
                 </strong>{" "}
-                These Terms, together with the Privacy Policy and any
-                subscription agreement, constitute the entire agreement between
+                These Terms, together with the Privacy Policy, constitute the
+                entire agreement between
                 you and Bos Computing LLC regarding the Service and supersede
                 all prior agreements, communications, and understandings.
               </li>
