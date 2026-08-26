@@ -458,6 +458,7 @@ export function EvalHarnessPanel() {
           { CAPABILITY_PROBE_PROBES },
           { CONVERSATION_INTEGRITY_PROBES },
           { CONTEXT_STRESS_PROBES },
+          { KNOWN_ANSWER_PROBES },
         ] = await Promise.all([
           import('../../../src/local-ai/eval/prompts'),
           import('../../../src/local-ai/eval/shape-probes'),
@@ -467,6 +468,7 @@ export function EvalHarnessPanel() {
           import('../../../src/local-ai/eval/capability-probe'),
           import('../../../src/local-ai/eval/conversation-integrity-probe'),
           import('../../../src/local-ai/eval/context-stress-probes'),
+          import('../../../src/local-ai/eval/known-answer-probes'),
         ]);
         return [
           ...EVAL_PROMPTS,
@@ -481,6 +483,9 @@ export function EvalHarnessPanel() {
           // `eco-eval-categories=conversation-integrity` and their `ci-*` ids
           // resolve; they carry history, so they must join as extraPrompts below.
           ...CONVERSATION_INTEGRITY_PROBES,
+          // The known-answer set (right-answer accuracy) rides the same way so
+          // `eco-eval-categories=known-answer` and its `ka-*` ids resolve.
+          ...KNOWN_ANSWER_PROBES,
           // Mirror the harness's selectPrompts pool: the diagnostic context-
           // stress headroom probes are reachable only under the research-arms
           // gate, so `eco-eval-prompts=ctx-stress-…` (with eco-eval-arms=1)
@@ -552,11 +557,13 @@ export function EvalHarnessPanel() {
           { EVERYDAY_CONVERSATION_PROBES },
           { CAPABILITY_PROBE_PROBES },
           { CONVERSATION_INTEGRITY_PROBES },
+          { KNOWN_ANSWER_PROBES },
         ] = await Promise.all([
           import('../../../src/local-ai/eval/everyday-probes'),
           import('../../../src/local-ai/eval/everyday-conversation-probes'),
           import('../../../src/local-ai/eval/capability-probe'),
           import('../../../src/local-ai/eval/conversation-integrity-probe'),
+          import('../../../src/local-ai/eval/known-answer-probes'),
         ]);
         const wanted = new Set(promptIds);
         derivedExtraProbes = [
@@ -564,6 +571,7 @@ export function EvalHarnessPanel() {
           ...EVERYDAY_CONVERSATION_PROBES,
           ...CAPABILITY_PROBE_PROBES,
           ...CONVERSATION_INTEGRITY_PROBES,
+          ...KNOWN_ANSWER_PROBES,
         ].filter((p) => wanted.has(p.id));
       }
       const extraPrompts = [...tangentProbes, ...derivedExtraProbes];
