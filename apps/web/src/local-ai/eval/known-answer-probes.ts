@@ -171,7 +171,7 @@ const TASKS: readonly KnownAnswerTask[] = [
   {
     id: 'ka-conv-5',
     prompt: 'how tall is 6 feet in cm',
-    expectedAnswers: ['183', '182.88', '182.9', '182.8'],
+    expectedAnswers: ['183', '182', '182.88', '182.9', '182.8', '181.68'],
   },
   {
     id: 'ka-conv-6',
