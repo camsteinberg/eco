@@ -25,9 +25,24 @@ export function persistConversationMessagesSnapshot({
     return;
   }
 
-  for (const message of messages) {
-    void conversationStore.saveMessage(toDbMessage(message, conversationId));
-  }
+  // Fire-and-forget to callers, but internally sequence the writes: persist the
+  // messages BEFORE advancing the leaf. `updateConversation` broadcasts the new
+  // leaf cross-tab (conversation-sync), and a receiving tab reloads from that
+  // leaf — so the messages must be durable first, or the other tab could reload
+  // a branch that is missing this turn.
+  void persistSnapshot(conversationId, messages, conversationStore);
+}
+
+async function persistSnapshot(
+  conversationId: string,
+  messages: ChatMessage[],
+  conversationStore: ConversationSnapshotStore,
+): Promise<void> {
+  await Promise.all(
+    messages.map((message) =>
+      Promise.resolve(conversationStore.saveMessage(toDbMessage(message, conversationId))),
+    ),
+  );
 
   const lastMessage = messages[messages.length - 1];
   if (lastMessage) {

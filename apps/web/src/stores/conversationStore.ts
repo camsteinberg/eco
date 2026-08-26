@@ -13,6 +13,10 @@ import {
   NEW_CHAT_STORAGE_KEY,
 } from '../lib/chat-workspace-storage'
 import { safeStorage } from '../lib/local-storage'
+import {
+  broadcastConversationUpdate,
+  subscribeConversationUpdates,
+} from '../lib/conversation-sync'
 import { logger } from '../lib/logger'
 import type { EcoDB, DbConversation, DbMessage } from '../lib/db'
 import type { IDBPDatabase } from 'idb'
@@ -50,6 +54,15 @@ type ConversationActions = {
   /** Activate the branch that contains a searched message. */
   activateSearchResult: (conversationId: string, messageId: string) => Promise<void>
   clearPersistenceError: () => void
+  /**
+   * Apply a leaf advance that another tab broadcast (conversation-sync), by
+   * updating only this tab's in-memory `activeLeafId`. State-only: it does NOT
+   * persist or re-broadcast (the origin tab already did), so it cannot loop.
+   * When the updated conversation is the active one, the leaf change re-runs the
+   * workspace-load effect, which live-reloads the branch — the actual fix for
+   * the cross-tab orphaned turn.
+   */
+  applyRemoteConversationUpdate: (conversationId: string, leafId: string | null) => void
 }
 
 /** Lazily-opened DB handle; null until initConversationStore() runs. */
@@ -294,6 +307,13 @@ export const useConversationStore = create<ConversationState & ConversationActio
             ...(pinnedAt !== undefined && { pinnedAt }),
           }
           await db.put('conversations', merged)
+          // Tell other tabs the branch advanced so a tab viewing this
+          // conversation live-reloads instead of writing over a stale leaf and
+          // orphaning this turn. Only on a leaf change — title/pin/preview edits
+          // don't move the branch. Fires after the record is durable.
+          if (activeLeafId !== undefined) {
+            broadcastConversationUpdate(id, merged.activeLeafId)
+          }
         }
       })
     },
@@ -466,6 +486,22 @@ export const useConversationStore = create<ConversationState & ConversationActio
     clearPersistenceError() {
       set({ persistenceError: null })
     },
+
+    applyRemoteConversationUpdate(conversationId, leafId) {
+      const { conversations } = useConversationStore.getState()
+      const target = conversations.find((c) => c.id === conversationId)
+      // Only reflect updates for a conversation this tab already knows about,
+      // and only when the leaf actually moved — otherwise this is a no-op and
+      // must not disturb state (which would re-run the workspace-load effect).
+      if (!target || target.activeLeafId === leafId) {
+        return
+      }
+      set((state) => ({
+        conversations: state.conversations.map((c) =>
+          c.id === conversationId ? { ...c, activeLeafId: leafId } : c,
+        ),
+      }))
+    },
   })
 )
 
@@ -545,4 +581,9 @@ async function initConversationStore() {
 // Initialize on module load in the browser
 if (typeof window !== 'undefined') {
   initConversationStore()
+  // Live-sync leaf advances from other tabs so two tabs on the same
+  // conversation converge instead of silently orphaning a turn.
+  subscribeConversationUpdates(({ conversationId, leafId }) => {
+    useConversationStore.getState().applyRemoteConversationUpdate(conversationId, leafId)
+  })
 }
