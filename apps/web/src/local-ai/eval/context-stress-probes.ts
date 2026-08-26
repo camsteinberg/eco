@@ -99,6 +99,8 @@ function buildHeadroomProbe(opts: {
   id: string;
   historyTurns: number;
   perTurnChars: number;
+  /** Human label for the window the probe exercises ("~8k", "~4k"). */
+  windowLabel: string;
 }): EvalPromptSpec {
   const openingUser: EvalHistoryTurn = {
     role: 'user',
@@ -140,7 +142,7 @@ function buildHeadroomProbe(opts: {
       'CONTEXT-STRESS HEADROOM PROBE (diagnostic, not the quality bar). Pass = loads + ' +
       'streams without OOM/device-lost, reply is coherent, and BOTH planted facts ' +
       `("${PLANTED_CODENAME}" and "${PLANTED_COMBINATION}") come back verbatim — proving the ` +
-      'KV cache holds and attention spans the full ~8k-token window.',
+      `KV cache holds and attention spans the full ${opts.windowLabel}-token window.`,
   };
 }
 
@@ -151,5 +153,20 @@ function buildHeadroomProbe(opts: {
  * sizes as needed.
  */
 export const CONTEXT_STRESS_PROBES: readonly EvalPromptSpec[] = [
-  buildHeadroomProbe({ id: 'ctx-stress-8k-recall', historyTurns: 38, perTurnChars: 820 }),
+  buildHeadroomProbe({
+    id: 'ctx-stress-8k-recall',
+    historyTurns: 38,
+    perTurnChars: 820,
+    windowLabel: '~8k',
+  }),
+  // Half-size sibling for models declared at 4096 (the LFM2-2.6B): proves the
+  // DECLARED window actually holds. Added 2026-08-26 after the 8k probe GPU-OOMed
+  // the 2.6B on an Apple-silicon Mac ("Failed to allocate memory for buffer
+  // mapping") — the line has to be measured, not assumed.
+  buildHeadroomProbe({
+    id: 'ctx-stress-4k-recall',
+    historyTurns: 18,
+    perTurnChars: 820,
+    windowLabel: '~4k',
+  }),
 ];

@@ -53,3 +53,18 @@ describe('context-stress headroom probes', () => {
     }
   });
 });
+
+describe('ctx-stress-4k-recall', () => {
+  it('is about half the 8k probe and still plants both facts', () => {
+    const p8 = CONTEXT_STRESS_PROBES.find((p) => p.id === 'ctx-stress-8k-recall');
+    const p4 = CONTEXT_STRESS_PROBES.find((p) => p.id === 'ctx-stress-4k-recall');
+    expect(p4).toBeDefined();
+    expect(p8).toBeDefined();
+    const chars = (p: typeof p4) => (p?.history ?? []).reduce((n, t) => n + t.content.length, 0);
+    const ratio = chars(p4) / chars(p8);
+    expect(ratio).toBeGreaterThan(0.4);
+    expect(ratio).toBeLessThan(0.6);
+    expect(p4?.expectedAnswers).toEqual(p8?.expectedAnswers);
+    expect(p4?.notes).toContain('~4k');
+  });
+});
