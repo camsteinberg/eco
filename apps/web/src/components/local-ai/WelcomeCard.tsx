@@ -3,7 +3,7 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
 
 /**
@@ -20,6 +20,16 @@ import { motion, useReducedMotion } from 'motion/react';
  * Deeper on capable desktops, Fast on mobile / limited hardware). One to two
  * options; a single-option device shows no false choice.
  */
+
+/**
+ * Set on <html> while the welcome dialog is mounted. On phones the fixed cookie
+ * notice otherwise lands on the "Start with …" button at first paint (measured
+ * 390×844: button y≈760, notice y≈783); the reservation padding in globals.css
+ * only lengthens the scroll run there, it cannot move the initial fold. While
+ * this class is present the notice yields (globals.css) and returns as soon as
+ * the person has chosen — on the download screen, where it has room.
+ */
+export const WELCOME_CARD_OPEN_CLASS = 'eco-welcome-card-open';
 
 export type WelcomeModelChoice = {
   /** Catalog model id to bind on choose. */
@@ -59,6 +69,12 @@ export function WelcomeCard({
   );
   const selected = choices.find((c) => c.id === selectedId) ?? choices[0];
   const single = choices.length === 1;
+
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.add(WELCOME_CARD_OPEN_CLASS);
+    return () => root.classList.remove(WELCOME_CARD_OPEN_CLASS);
+  }, []);
 
   return (
     <div
