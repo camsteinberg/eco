@@ -10,6 +10,7 @@ import { springPresets, WarningTriangle } from "@eco/ui";
 import { timeGreeting } from "./greeting";
 import { ErrorLine, ErrorNotice } from "../ui/ErrorNotice";
 import { ContextWindowNotice } from "./ContextWindowNotice";
+import { PersistenceNotice } from "./PersistenceNotice";
 import { MessageList } from "./MessageList";
 import type { AssistantReplyControl } from "./MessageActions";
 import type { LocalModelPrepareState } from "./ErrorMessage";
@@ -441,6 +442,10 @@ export function ChatSurface(props: ChatSurfaceProps) {
           {error && (
             <ErrorNotice className="mx-4 mb-2" lead={error} />
           )}
+
+          {/* A failed chat save, by the composer. The sidebar shows the same
+              message, but on a phone the sidebar is a closed sheet. */}
+          <PersistenceNotice className="mx-4 mb-2" />
 
           {/* Sits just above the composer, where the next message is written,
               and says how much of the chat the model no longer reads. Owns its
