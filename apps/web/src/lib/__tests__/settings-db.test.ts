@@ -9,6 +9,8 @@ import {
   encryptSetting,
   decryptSetting,
   getOrCreateKey,
+  ensureSettingsKey,
+  resetSettingsKeyCacheForTests,
 } from "../settings-db";
 import type { SettingsDB } from "../settings-db";
 
@@ -17,6 +19,33 @@ beforeEach(async () => {
   const { deleteDB } = await import("idb");
   await deleteDB("eco-settings");
   localStorage.clear();
+  resetSettingsKeyCacheForTests();
+});
+
+describe("ensureSettingsKey", () => {
+  it("recovers the key from IndexedDB after localStorage is cleared, so old records still decrypt", async () => {
+    await ensureSettingsKey();
+    const encrypted = encryptSetting("keep my instructions");
+
+    // Someone clears localStorage (privacy tool, storage pressure) and the page reloads.
+    localStorage.clear();
+    resetSettingsKeyCacheForTests();
+
+    await ensureSettingsKey();
+    expect(decryptSetting(encrypted.ciphertext, encrypted.nonce)).toBe("keep my instructions");
+    expect(localStorage.getItem("eco-settings-key")).not.toBeNull();
+  });
+
+  it("backs up a key that already exists only in localStorage", async () => {
+    const before = localStorage.getItem("eco-settings-key") ?? (getOrCreateKey(), localStorage.getItem("eco-settings-key"));
+    await ensureSettingsKey();
+    const db = await openSettingsDB();
+    try {
+      expect((await db.get("meta", "encryption-key"))?.value).toBe(before);
+    } finally {
+      db.close();
+    }
+  });
 });
 
 describe("getOrCreateKey", () => {
