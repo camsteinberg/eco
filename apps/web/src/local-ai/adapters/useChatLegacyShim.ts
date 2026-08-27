@@ -205,7 +205,17 @@ export function createLocalAiLegacyInference(): LocalAiLegacyInference {
               return;
             }
 
-            await ensureLoaded(model, loadOptions);
+            try {
+              await ensureLoaded(model, loadOptions);
+            } catch (err) {
+              // A load-phase OOM means the model doesn't fit this device right
+              // now — a different problem (and different advice) from a
+              // mid-reply OOM, which is usually the prompt's size.
+              if (err instanceof AdapterError && err.code === 'oom') {
+                throw new LocalInferenceStreamError('LOAD_OOM', err.message, true);
+              }
+              throw err;
+            }
             if (abortController.signal.aborted) {
               // Consumer cancelled while we were loading.
               controller.close();

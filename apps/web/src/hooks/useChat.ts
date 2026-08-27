@@ -774,6 +774,21 @@ export function useChat() {
         return;
       }
 
+      if (err.code === "LOAD_OOM") {
+        // The model didn't fit in memory at LOAD time — nothing about the
+        // message caused it, so "shorten the message" would be wrong. Show the
+        // card that offers a genuinely lighter model for this device (the
+        // lighter-model nudge keys on this exact copy). Not a streak event:
+        // the failure is deterministic, not a flaky run.
+        updateMessage(assistantId, {
+          status: "error",
+          errorMessage: LOCAL_GENERATION_REPEATED_MESSAGE,
+          inferenceMethod: "local",
+        });
+        setError(LOCAL_GENERATION_REPEATED_MESSAGE);
+        return;
+      }
+
       if (err.code === "OOM") {
         // A mid-reply OOM is almost always the prompt's size, not the model's:
         // the runtime resets the model and the next send reloads it cleanly

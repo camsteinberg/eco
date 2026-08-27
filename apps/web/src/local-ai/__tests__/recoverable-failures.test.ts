@@ -135,10 +135,25 @@ afterEach(() => {
   setAdapterFactory(null);
 });
 
-const COOLDOWN_TRIGGER_CODES: AdapterErrorCode[] = ['oom', 'device-lost', 'init-failed'];
+// 'oom' during LOAD is deliberately NOT here: weights that don't fit are a
+// "doesn't fit" verdict, not a crash — see the dedicated case below.
+const COOLDOWN_TRIGGER_CODES: AdapterErrorCode[] = ['device-lost', 'init-failed'];
 const NON_TRIGGER_CODES: AdapterErrorCode[] = ['webgpu-unavailable', 'generation-failed', 'timeout'];
 
 describe('Invariant 8 — load() failures are recoverable per AdapterErrorCode', () => {
+  it('oom during load: leaves no active adapter, records NO cooldown, second load is not blocked (chat offers a lighter model)', async () => {
+    setAdapterFactory((m) => failingLoadAdapter(m, 'oom'));
+
+    await expect(loadModel(TEST_MODEL)).rejects.toMatchObject({ name: 'AdapterError', code: 'oom' });
+    expect(getActiveAdapter()).toBeNull();
+    expect(getActiveModel()).toBeNull();
+    expect(getCooldown(TEST_MODEL.id)).toBeNull();
+
+    // Retry is free to fail fast with the real reason, never 'cooldown-active'.
+    await expect(loadModel(TEST_MODEL)).rejects.toMatchObject({ name: 'AdapterError', code: 'oom' });
+    expect(getCooldown(TEST_MODEL.id)).toBeNull();
+  });
+
   it.each(COOLDOWN_TRIGGER_CODES)(
     '%s during load: records a cooldown, leaves no active adapter, second load is blocked until cooldown clears',
     async (code) => {

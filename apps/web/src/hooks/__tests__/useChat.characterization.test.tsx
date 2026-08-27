@@ -1142,6 +1142,27 @@ describe("useChat — runtime error handling", () => {
     },
   );
 
+  it("offers a lighter model when the model fails to LOAD for lack of memory (never 'shorten the message')", async () => {
+    setScripts([
+      {
+        kind: "error",
+        tokens: [],
+        error: new LocalInferenceStreamError("LOAD_OOM", "Out of memory", true),
+      },
+    ]);
+
+    const { result } = renderHook(() => useChat());
+    await act(async () => {
+      await result.current.sendMessage("hi");
+    });
+
+    const assistant = lastAssistant()!;
+    expect(assistant.status).toBe("error");
+    expect(assistant.errorMessage).toBe(LOCAL_GENERATION_REPEATED_MESSAGE);
+    expect(assistant.errorMessage).not.toMatch(/shorten/i);
+    expect(useChatStore.getState().error).toBe(LOCAL_GENERATION_REPEATED_MESSAGE);
+  });
+
   it("maps a TEMPLATE_MISSING stream error to the dedicated user message", async () => {
     setScripts([
       {

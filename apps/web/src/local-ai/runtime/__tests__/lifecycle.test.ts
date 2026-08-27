@@ -156,15 +156,30 @@ describe('singleton behavior', () => {
 // ─── Cooldown ──────────────────────────────────────────────────────────────
 
 describe('cooldown', () => {
-  it('records a cooldown when load throws an OOM AdapterError', async () => {
+  // A load-time OOM means the weights don't fit this device right now — a
+  // deterministic "doesn't fit", not a GPU crash. Cooling it down for five
+  // minutes just loops the person through "breather" cards (the silent mount
+  // warm-up already OOMs once before they type). The next load must be free
+  // to fail fast so the chat can offer a lighter model instead.
+  it('does NOT record a cooldown when load throws an OOM — the next load is not blocked', async () => {
     const adapter = new FakeAdapter();
     adapter.failOnLoad = new AdapterError('out of memory', 'oom', true);
     setAdapterFactory(() => adapter);
 
+    await expect(loadModel(MODEL_A)).rejects.toMatchObject({ code: 'oom' });
+    expect(getCooldown(MODEL_A.id)).toBeNull();
+    await expect(loadModel(MODEL_A)).rejects.toMatchObject({ code: 'oom' });
+    expect(getCooldown(MODEL_A.id)).toBeNull();
+    expect(adapter.loadCalls).toBe(2);
+  });
+
+  it('still records a cooldown when load throws device-lost', async () => {
+    const adapter = new FakeAdapter();
+    adapter.failOnLoad = new AdapterError('device lost', 'device-lost', true);
+    setAdapterFactory(() => adapter);
+
     await expect(loadModel(MODEL_A)).rejects.toBeInstanceOf(AdapterError);
-    const cooldown = getCooldown(MODEL_A.id);
-    expect(cooldown).not.toBeNull();
-    expect(cooldown!.code).toBe('oom');
+    expect(getCooldown(MODEL_A.id)?.code).toBe('device-lost');
   });
 
   it('does NOT record a cooldown for non-trigger error codes', async () => {
@@ -302,13 +317,8 @@ describe('generate', () => {
     expect(getCooldown(MODEL_A.id)).toBeNull();
   });
 
-  it('a load-time OOM still cools down immediately (weights that did not fit will not fit on retry)', async () => {
-    const adapter = new FakeAdapter();
-    adapter.failOnLoad = new AdapterError('oom', 'oom', true);
-    setAdapterFactory(() => adapter);
-    await expect(loadModel(MODEL_A)).rejects.toBeInstanceOf(AdapterError);
-    expect(getCooldown(MODEL_A.id)).not.toBeNull();
-  });
+  // A load-time OOM no longer cools down — see the 'cooldown' block above: the
+  // chat offers a lighter model instead of a five-minute wait.
 });
 
 // ─── Fault unload ───────────────────────────────────────────────────────────
