@@ -319,6 +319,9 @@ export async function defaultRunAttempt(
       logSetupAttemptFailure({ modelId: model.id, runtime: model.runtime, phase: 'download', reason, error: err });
       tracker.error(reason);
       const reasonCode = downloadFailureReasonCode(err);
+      if (err instanceof InsufficientStorageError) {
+        return { ok: false, phase: 'download', reason, reasonCode, requiredBytes: err.requiredBytes };
+      }
       return reasonCode
         ? { ok: false, phase: 'download', reason, reasonCode }
         : { ok: false, phase: 'download', reason };

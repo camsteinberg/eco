@@ -139,6 +139,8 @@ describe('DEFAULT_SEAMS.runAttempt — download vs load/smoke phase classificati
       phase: 'download',
       reason: 'not enough free space',
       reasonCode: 'insufficient-storage',
+      // The figure lets exhaustion quote the smallest requirement tried.
+      requiredBytes: 2_000_000_000,
     });
     expect(runSmoke).not.toHaveBeenCalled();
   });
