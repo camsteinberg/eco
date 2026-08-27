@@ -43,7 +43,7 @@ const MODELS_BY_ID: ReadonlyMap<string, ModelConfig> = new Map(
 );
 
 /**
- * Return the full v1.0 catalog (8 models). Order matches catalog-data.json,
+ * Return the full shipping catalog. Order matches catalog-data.json,
  * which is the canonical source of truth.
  */
 export function getCatalog(): ModelConfig[] {

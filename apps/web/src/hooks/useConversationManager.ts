@@ -485,10 +485,10 @@ export function useConversationManager(
         return;
       }
 
-      // Read the live reply, not the persisted copy: `possiblyTruncated` and
-      // `localCompletionTokens` are written to the chat store on completion and
-      // are NOT carried by `toDbMessage`, so a reply restored from IndexedDB
-      // has neither. Both guards below therefore fail OPEN on absence.
+      // Read the live reply from the chat store. `possiblyTruncated` and
+      // `localCompletionTokens` are written there on completion and persist
+      // with the message, so a restored reply carries them too. Both guards
+      // below fail OPEN when a reply simply never had the value.
       const target = useChatStore.getState().messages.find((m) => m.id === messageId);
 
       if (action === "expand") {

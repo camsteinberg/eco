@@ -4,16 +4,16 @@
 /**
  * Self-heal — boot-time cleanup.
  *
- * Runs once at app boot before any rendering. Cleans:
+ * Runs once per page load from `bootstrap.ts` (a client effect, not before
+ * first render). `runSelfHeal` cleans:
  *   1. Stale download-in-progress markers older than 5 minutes.
  *   2. Stale smoke-ready markers for models the user no longer has
  *      assigned to either slot.
- *   3. Cooldown records that have expired (timestamp-based; the
- *      lifecycle module owns the read/write).
- *   4. (Optional) Per-model storage cache verification for the
- *      currently-assigned slot models. Off by default — runs on demand
- *      when a slot transitions to 'error' so the user has a clean
- *      retry path.
+ *   3. Slot re-gates (WebKit-mobile, device-scope), retired-model and
+ *      artifact migrations, dead model-cache sweeps, orphaned parts.
+ * Cooldown expiry is NOT handled here (see the note on `SelfHealReport`).
+ * `repairModelCache` is a separate, on-demand repair for one model's bytes;
+ * nothing triggers it automatically on a slot error.
  *
  * Migration: also calls into slots.ts's legacy-key reader, which
  * promotes legacy slot ids forward as a side effect.

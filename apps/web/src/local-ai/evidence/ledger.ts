@@ -58,8 +58,9 @@ const DEFAULT_DOWNLOAD_FAIL_DAYS = 7;
  * failure-counting read (`countRecentFailures`, `hasRecentFailure`,
  * `countRecentDownloadFailures`) ignores failure rows recorded before it —
  * those rows predate a shipped fix that invalidated them as device verdicts.
- * No row is ever deleted or rewritten, and SUCCESS rows are never gated: a pass
- * is a pass, whenever it happened.
+ * No row is rewritten by this cutoff (rows only leave through the MAX_ENTRIES
+ * newest-kept trim), and SUCCESS rows are never gated: a pass is a pass,
+ * whenever it happened.
  *
  * Bump this ONLY when a shipped fix to the download/serving funnel invalidates
  * prior failure verdicts (i.e. a funnel defect was producing false device

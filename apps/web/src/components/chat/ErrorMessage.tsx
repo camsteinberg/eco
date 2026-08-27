@@ -45,11 +45,6 @@ const ERROR_MESSAGES = [
   },
 ];
 
-const CAPACITY_MESSAGE = {
-  title: "Something interrupted that response",
-  body: "Your turn stays right here in this chat. Try again, or set up a local model to keep going on this device.",
-};
-
 const LOCAL_SETUP_MESSAGE_TITLE = "Eco needs one quick setup";
 const LOCAL_GENERATION_FAILURE_TITLE = "That reply hit a snag";
 const LOCAL_COOLDOWN_MESSAGE_TITLE = "Let this device cool down";
@@ -138,27 +133,6 @@ type ErrorMessageProps = {
   onPrepareLocalModel?: (modelId: string) => void;
 };
 
-type CapacityNudge = {
-  slot: Slot;
-  modelName: string;
-};
-
-function detectCapacityNudge(selectedModel: string): CapacityNudge | null {
-  if (typeof window === "undefined") return null;
-  const slotKey: Slot = isLocalAiSlot(selectedModel) ? selectedModel : "eco-fast";
-  const profile = getDeviceProfile();
-  try {
-    const candidates = listCandidates(slotKey, profile);
-    if (candidates.length === 0) return null;
-    const topModel = candidates[0]!.model;
-    // Branded display name, same as every choice surface — the raw catalog
-    // name ("LFM2.5 1.2B") must not leak into the error path.
-    return { slot: slotKey, modelName: getDisplayInfo(topModel.id, topModel).friendlyName };
-  } catch {
-    return null;
-  }
-}
-
 type LighterModelNudge = {
   slot: Slot;
   modelName: string;
@@ -211,24 +185,8 @@ export function ErrorMessage({
   const [perking, setPerking] = useState(false);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const selectedModel = useChatStore((s) => s.selectedModel);
-  const [capacityNudge, setCapacityNudge] = useState<CapacityNudge | null>(null);
   const [lighterNudge, setLighterNudge] = useState<LighterModelNudge | null>(null);
 
-  // Check if this is a capacity-related error
-  const isCapacityError =
-    message &&
-    /miner|contributor|capacity|queue/i.test(message);
-
-  // When a response is interrupted AND the user has a manual-ready local model
-  // available for their profile, surface a quiet "set up a local model" link
-  // so they have a discoverable path instead of being stranded.
-  useEffect(() => {
-    if (!isCapacityError) {
-      setCapacityNudge(null);
-      return;
-    }
-    setCapacityNudge(detectCapacityNudge(selectedModel));
-  }, [isCapacityError, selectedModel]);
   const isBrowserUnsupportedError = Boolean(
     message && message.includes(BROWSER_UNSUPPORTED_MARKER),
   );
@@ -306,8 +264,6 @@ export function ErrorMessage({
         title: LOCAL_COOLDOWN_MESSAGE_TITLE,
         body: message,
       }
-    : isCapacityError
-    ? CAPACITY_MESSAGE
     : isModelPreparingError
     ? {
         title: MODEL_PREPARING_TITLE,
@@ -366,8 +322,7 @@ export function ErrorMessage({
    * honest action (or, for a wait, none) instead.
    */
   const retryCanHelp =
-    !isCapacityError
-    && !isLocalSetupError
+    !isLocalSetupError
     && !isLocalCooldownError
     && !isContextWindowRefusal
     && !isModelPreparingError
@@ -484,16 +439,6 @@ export function ErrorMessage({
           className="inline-flex min-h-8 items-center rounded-md text-xs font-medium text-[var(--eco-primary)] underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--eco-primary)]"
         >
           Manage Models
-        </a>
-      )}
-
-      {isCapacityError && capacityNudge && (
-        <a
-          data-testid="capacity-local-setup-link"
-          href={`/settings?tab=models&setup=${capacityNudge.slot}`}
-          className="inline-flex min-h-8 items-center rounded-md text-xs font-medium text-[var(--eco-primary)] underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--eco-primary)]"
-        >
-          {setUpOnThisDeviceLabel(capacityNudge.modelName)}
         </a>
       )}
 

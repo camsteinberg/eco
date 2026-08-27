@@ -182,17 +182,6 @@ describe("ErrorMessage", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows a calm, on-device interruption message without network references", () => {
-    render(<ErrorMessage message="No contributor available" />);
-    const heading = screen.getByRole("heading");
-    expect(heading).toHaveTextContent("Something interrupted that response");
-    expect(screen.getByText(/your turn stays right here in this chat/i)).toBeInTheDocument();
-    expect(screen.queryByText(/eco network/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/contributors/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/miner/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/p2p/i)).not.toBeInTheDocument();
-  });
-
   it("shows the 'open in another tab' state with its own title and keeps Try again", () => {
     render(<ErrorMessage message={LOCAL_MODEL_OTHER_TAB_MESSAGE} onRetry={() => {}} />);
     // Its own calm title — not mislabelled "Eco needs one quick setup" by the
@@ -473,51 +462,6 @@ describe("ErrorMessage", () => {
     expect(screen.getByRole("heading")).toHaveTextContent("Paused to protect your device");
     // The body tells them to plug in and try again, so that button must exist.
     expect(screen.getByRole("button", { name: /try again/i })).toBeInTheDocument();
-  });
-
-  // ─── Bundle 3: capacity-error local-setup link ────────────────────────────
-  it("renders a Set up <model> link in the capacity branch when a manual recommendation exists", async () => {
-    recommendationState.current = {
-      slot: "eco-fast",
-      model: { id: "local/qwen3-0.6b", friendlyName: "Qwen3 0.6B", vendor: "Alibaba", sizeGB: 0.6 },
-    };
-    render(<ErrorMessage message="No contributor available — capacity busy" />);
-    await waitFor(() => {
-      expect(screen.getByTestId("capacity-local-setup-link")).toBeInTheDocument();
-    });
-    const link = screen.getByTestId("capacity-local-setup-link");
-    expect(link).toHaveAttribute("href", "/settings?tab=models&setup=eco-fast");
-    // The branded name every choice surface shows — not the raw catalog name.
-    expect(link).toHaveTextContent(/Set up Eco Compact \(Qwen\)/);
-    expect(link).not.toHaveTextContent(/Qwen3 0\.6B/);
-  });
-
-  it("renders the capacity Set up label as one text run (flex drops inter-item whitespace)", async () => {
-    recommendationState.current = {
-      slot: "eco-fast",
-      model: { id: "local/qwen3-0.6b", friendlyName: "Qwen3 0.6B", vendor: "Alibaba", sizeGB: 0.6 },
-    };
-    render(<ErrorMessage message="No contributor available — capacity busy" />);
-    await waitFor(() => {
-      expect(screen.getByTestId("capacity-local-setup-link")).toBeInTheDocument();
-    });
-    const link = screen.getByTestId("capacity-local-setup-link");
-    expect(link.textContent).toBe("Set up Eco Compact (Qwen) on this device →");
-    // The link is `inline-flex`, so any whitespace that lives in its own node
-    // is layout the flex container may drop ("Set up Eco Compact (Qwen)on this
-    // device"). The label must therefore be a single text node.
-    expect(link.childNodes).toHaveLength(1);
-    expect(link.firstChild?.nodeType).toBe(Node.TEXT_NODE);
-  });
-
-  it("does NOT render the Set up link when no manual recommendation exists", async () => {
-    recommendationState.current = null;
-    render(<ErrorMessage message="No contributor available — capacity busy" />);
-    // Tick to allow the effect to run + assert the link still isn't present.
-    await waitFor(() => {
-      expect(screen.getByRole("heading")).toHaveTextContent("Something interrupted that response");
-    });
-    expect(screen.queryByTestId("capacity-local-setup-link")).not.toBeInTheDocument();
   });
 
   it("does NOT render the Set up link for non-capacity errors even when a recommendation exists", async () => {

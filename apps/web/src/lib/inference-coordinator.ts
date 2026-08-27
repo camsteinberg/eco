@@ -2,47 +2,30 @@
 // Copyright (C) 2026 Bos Computing LLC
 
 /**
- * Multi-tab inference coordinator.
+ * Multi-tab GPU leader election.
  *
- * Uses the Web Locks API for leader election and BroadcastChannel for
- * cross-tab token forwarding. Ensures only one tab owns the GPU inference
- * Worker at a time, preventing WebGPU device-loss errors from concurrent
- * access across tabs.
+ * Uses the Web Locks API so only one tab owns on-device inference at a time
+ * (concurrent WebGPU use across tabs causes device-loss errors), and a
+ * BroadcastChannel for the leader's heartbeat and new-leader announcement.
  *
- * Leader tab: creates and owns the inference Worker, broadcasts tokens.
- * Follower tabs: route generate requests to the leader via BroadcastChannel,
- * receive tokens back for rendering.
+ * The only consumer is `local-ai/runtime/gpu-ownership.ts`, which uses the
+ * leader/follower callbacks to gate generation. Followers do NOT relay
+ * prompts to the leader or receive tokens back — a follower tab waits for
+ * ownership instead. (A token-relay half once lived here, unwired; it was
+ * removed rather than left describing behaviour Eco does not have.)
  *
  * When the leader tab closes, the Web Lock is automatically released and
  * the next waiting follower acquires it, becoming the new leader.
  */
 
 const LOCK_NAME = "eco-inference-leader";
-const CHANNEL_NAME = "eco-inference-tokens";
+const CHANNEL_NAME = "eco-inference-leader";
 const HEARTBEAT_INTERVAL_MS = 5_000;
 const HEARTBEAT_TIMEOUT_MS = 10_000;
 
 // ---------------------------------------------------------------------------
 // Channel message types
 // ---------------------------------------------------------------------------
-
-type TokenMessage = {
-  type: "token";
-  token: string;
-  messageId: string;
-  seq: number;
-};
-
-type DoneMessage = {
-  type: "done";
-  messageId: string;
-};
-
-type GenerateMessage = {
-  type: "generate";
-  prompt: string;
-  messageId: string;
-};
 
 type NewLeaderMessage = {
   type: "new-leader";
@@ -52,12 +35,7 @@ type HeartbeatMessage = {
   type: "heartbeat";
 };
 
-type ChannelMessage =
-  | TokenMessage
-  | DoneMessage
-  | GenerateMessage
-  | NewLeaderMessage
-  | HeartbeatMessage;
+type ChannelMessage = NewLeaderMessage | HeartbeatMessage;
 
 // ---------------------------------------------------------------------------
 // Coordinator callbacks
@@ -66,12 +44,8 @@ type ChannelMessage =
 export type CoordinatorCallbacks = {
   onBecomeLeader: () => void;
   onBecomeFollower: () => void;
-  onTokenFromLeader: (token: string, messageId: string, seq: number) => void;
-  onGenerateRequest: (prompt: string, messageId: string) => void;
   /** Called when a new leader announces itself (optional). */
   onNewLeader?: () => void;
-  /** Called when generation completes for a forwarded request (optional). */
-  onDone?: (messageId: string) => void;
 };
 
 // ---------------------------------------------------------------------------
@@ -105,7 +79,7 @@ export class InferenceCoordinator {
     if (this._started) return;
     this._started = true;
 
-    // Create BroadcastChannel for token forwarding
+    // Create BroadcastChannel for heartbeat + new-leader announcements
     if (typeof BroadcastChannel !== "undefined") {
       this.channel = new BroadcastChannel(CHANNEL_NAME);
       this._setupChannelHandler();
@@ -190,20 +164,6 @@ export class InferenceCoordinator {
       const msg = event.data as ChannelMessage;
 
       switch (msg.type) {
-        case "token":
-          this.callbacks.onTokenFromLeader(msg.token, msg.messageId, msg.seq);
-          break;
-
-        case "done":
-          this.callbacks.onDone?.(msg.messageId);
-          break;
-
-        case "generate":
-          if (this._isLeader) {
-            this.callbacks.onGenerateRequest(msg.prompt, msg.messageId);
-          }
-          break;
-
         case "new-leader":
           this.callbacks.onNewLeader?.();
           break;
@@ -247,48 +207,6 @@ export class InferenceCoordinator {
     if (this._isLeader) return false;
     if (this.lastHeartbeat === 0) return false;
     return Date.now() - this.lastHeartbeat > HEARTBEAT_TIMEOUT_MS;
-  }
-
-  // -------------------------------------------------------------------------
-  // Public API for cross-tab communication
-  // -------------------------------------------------------------------------
-
-  /**
-   * Broadcast a generated token to all follower tabs.
-   * Should only be called by the leader.
-   */
-  broadcastToken(token: string, messageId: string, seq: number): void {
-    if (!this.channel || this._cleanedUp) return;
-    this.channel.postMessage({
-      type: "token",
-      token,
-      messageId,
-      seq,
-    } satisfies TokenMessage);
-  }
-
-  /**
-   * Broadcast that generation is complete for a given message.
-   * Should only be called by the leader.
-   */
-  broadcastDone(messageId: string): void {
-    if (!this.channel || this._cleanedUp) return;
-    this.channel.postMessage({
-      type: "done",
-      messageId,
-    } satisfies DoneMessage);
-  }
-
-  /**
-   * Request the leader to generate a response. Called by follower tabs.
-   */
-  requestGenerate(prompt: string, messageId: string): void {
-    if (!this.channel || this._cleanedUp) return;
-    this.channel.postMessage({
-      type: "generate",
-      prompt,
-      messageId,
-    } satisfies GenerateMessage);
   }
 
   /**
