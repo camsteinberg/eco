@@ -164,7 +164,7 @@ function SignInForm() {
   }
 
   return (
-    <main className="grain relative flex min-h-dvh items-start justify-center overflow-y-auto overflow-x-hidden bg-[var(--color-surface)] px-4 pb-6 pt-4 sm:items-center sm:overflow-hidden sm:pb-28 sm:pt-12">
+    <main data-eco-full-bleed className="grain relative flex min-h-dvh items-start justify-center overflow-y-auto overflow-x-hidden bg-[var(--color-surface)] px-4 pb-6 pt-4 sm:items-center sm:overflow-hidden sm:pb-28 sm:pt-12">
       {/* Mountain silhouettes — connects to landing valley */}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-80 sm:h-96" aria-hidden="true">
         <svg viewBox="0 0 1440 320" fill="none" preserveAspectRatio="none" className="absolute inset-0 h-full w-full">

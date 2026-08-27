@@ -853,4 +853,10 @@ button:disabled,
 html.eco-page-cookie-notice body {
   padding-bottom: calc(6.5rem + env(safe-area-inset-bottom));
 }
+/* Full-bleed surfaces (the auth pages) end in an illustration pinned to the
+   page bottom, not in readable text. The reserved strip would show as the hills
+   ending in a hard edge with bare background beneath — so they opt out. */
+html.eco-page-cookie-notice body:has([data-eco-full-bleed]) {
+  padding-bottom: 0;
+}
 
