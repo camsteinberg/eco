@@ -4,9 +4,10 @@
 "use client";
 
 /**
- * OfflineDivider -- inline divider shown when the network drops mid-stream
- * and inference continues locally. This is a hybrid/offline continuation, not
- * a pure on-device turn.
+ * OfflineDivider -- inline divider drawn above a reply that was interrupted
+ * (reload, crash) and then resumed on this device via Try again while
+ * offline. The reply never used a connection, so the copy says what happened
+ * — it was picked up where it left off — rather than blaming the network.
  *
  * Design: centered line with label text, like an `<hr>` with a message.
  * Muted colors, small font, calm and reassuring -- this is a trust moment,
@@ -22,7 +23,7 @@ type OfflineDividerProps = {
 export function OfflineDivider({
   // Keep this short. The label is `shrink-0`, so copy longer than roughly the
   // width of this line clips off the right edge at 375px instead of wrapping.
-  message = "Connection dropped — finished on your device",
+  message = "Picked up where it left off — on your device",
 }: OfflineDividerProps) {
   return (
     <div

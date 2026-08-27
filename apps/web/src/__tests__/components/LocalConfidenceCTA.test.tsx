@@ -39,7 +39,7 @@ describe("OfflineDivider", () => {
   it("says in plain words what happened, without engineering vocabulary", () => {
     render(<OfflineDivider />);
     expect(
-      screen.getByText(/connection dropped — finished on your device/i)
+      screen.getByText(/picked up where it left off — on your device/i)
     ).toBeDefined();
     // "Hybrid/offline continuation" is how the code talks about this, not how a
     // person would. It must never reach the screen.
@@ -56,7 +56,7 @@ describe("OfflineDivider", () => {
 
   it("has muted, centered styling", () => {
     render(<OfflineDivider />);
-    const text = screen.getByText(/connection dropped/i);
+    const text = screen.getByText(/picked up where it left off/i);
     // The element should exist and be styled as a divider
     expect(text).toBeDefined();
   });
