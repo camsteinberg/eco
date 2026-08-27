@@ -13,6 +13,7 @@ import {
   _resetSetupFailuresForTesting,
   logSetupAttemptFailure,
 } from '../../lifecycle/setup-diagnostics';
+import { recordSustainedProbe } from '../sustained-probe';
 import {
   clearGenerationReceipts,
   recordGenerationReceipt,
@@ -297,6 +298,29 @@ describe('exportDiagnostics — redaction', () => {
     expect(dump.entries[0].error.stack).toBe('Error at [redacted-url]');
     expect(dump.entries[0].webgpu.adapterError).toBe('see [redacted-url]');
     expect(dump.setupFailures[0].reason).toBe('HTTP 403 from [redacted-url]');
+  });
+
+  it('scrubs sustained-probe error fields (record and per-turn)', async () => {
+    recordSustainedProbe({
+      version: 1,
+      recordedAt: '2026-08-27T00:00:00.000Z',
+      modelId: 'm',
+      backend: 'webgpu',
+      outcome: 'error',
+      turnsRequested: 1,
+      turnsCompleted: 0,
+      targetTokensPerTurn: 64,
+      levers: { ortArtifact: null, numThreads: null, forceWasm: false },
+      crossOriginIsolated: false,
+      memoryApi: { performanceMemory: false, measureUserAgent: false },
+      turns: [{ turn: 1, promptTokens: null, completionTokens: null, cumulativeContextTokens: null, ttftMs: null, tokensPerSecond: null, error: 'turn failed https://a.b/c' }],
+      samples: [],
+      peakUsedJSHeapMB: null,
+      error: 'probe failed https://a.b/d?token=zzz',
+    });
+    const json = await exportDiagnostics();
+    expect(json).not.toMatch(/https?:\/\//);
+    expect(json).not.toContain('zzz');
   });
 
   it('leaves the on-device ledger untouched (redaction is export-only)', async () => {

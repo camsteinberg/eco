@@ -238,6 +238,14 @@ function redactDump(dump: DiagnosticDump): DiagnosticDump {
       ...failure,
       reason: scrub(failure.reason) ?? '',
     })),
+    sustainedProbes: dump.sustainedProbes?.map((probe) => ({
+      ...probe,
+      error: probe.error === null ? null : (scrub(probe.error) ?? ''),
+      turns: probe.turns.map((turn) => ({
+        ...turn,
+        error: turn.error === null ? null : (scrub(turn.error) ?? ''),
+      })),
+    })),
   };
 }
 
