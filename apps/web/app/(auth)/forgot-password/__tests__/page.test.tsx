@@ -43,7 +43,7 @@ describe("ForgotPasswordPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /send reset link/i }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Failed to send reset email",
+      "We couldn't send the reset email. Check your connection and try again.",
     );
     expect(screen.getByLabelText("Email")).toHaveValue("friend@eco.local");
     expect(screen.getByRole("button", { name: /send reset link/i })).not.toBeDisabled();
