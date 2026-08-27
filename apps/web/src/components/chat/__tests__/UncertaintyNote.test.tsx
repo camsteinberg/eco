@@ -72,6 +72,21 @@ describe("UncertaintyNote", () => {
     expect(note).not.toHaveTextContent(/double-check/i);
   });
 
+  it("renders the lookups-off copy: answered from memory, not checked", () => {
+    render(<UncertaintyNote status="lookups-off" />);
+
+    const note = screen.getByTestId("uncertainty-note");
+    expect(note).toHaveAttribute("data-status", "lookups-off");
+    expect(note).toHaveAttribute(
+      "aria-label",
+      "From memory: web lookups are off, so this wasn’t checked against a source",
+    );
+    expect(note).toHaveTextContent(/from memory/i);
+    expect(note).toHaveTextContent(/not checked against a source/i);
+    // Points the user at the setting that changes this, without homework.
+    expect(note).toHaveTextContent(/web lookups are off/i);
+  });
+
   it("renders the distinct unreachable (transient) copy", () => {
     render(<UncertaintyNote status="unreachable" />);
 

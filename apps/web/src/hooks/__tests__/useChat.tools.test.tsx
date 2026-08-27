@@ -192,7 +192,6 @@ vi.mock("../../lib/grounding", () => ({
 import { useChat } from "../useChat";
 import { useChatStore } from "../../stores/chatStore";
 import { useSettingsStore } from "../../stores/settingsStore";
-import { WEB_LOOKUPS_OFF_DECLINE_MESSAGE } from "../useChat/tool-step";
 import {
   DATA_LOCATION_HOST_ANSWER,
   IDENTITY_HOST_ANSWER,
@@ -667,20 +666,21 @@ describe("useChat — web lookup setting gate", () => {
     expect(assistant.content).toBe("Paris is the capital of France.");
   });
 
-  it("declines DETERMINISTICALLY for a factual entity ask when explicitly disabled: host message, model NOT called (F-1)", async () => {
+  it("answers a factual entity ask from the model's memory when lookups are explicitly OFF, with the host 'lookups-off' marker and zero lookup", async () => {
     // Turn grounding OFF explicitly. A factual entity ask that would normally ground
-    // (case 5) must NOT reach the model at all — the host renders a fixed decline so
-    // the model can never fabricate a falsely-sourced answer.
+    // (case 5) still gets an answer — from the model's own knowledge — and the HOST
+    // marks it as not checked against a source. (2026-08-27: the old canned decline
+    // made Eco refuse "who painted the Mona Lisa" outright, which the Settings copy
+    // never promised.)
     useSettingsStore.setState({ groundingEnabled: false });
-    // Script a FOUND result + model tokens so the test would visibly ground OR
-    // generate if the gate failed — the assertions below prove neither happens.
+    // Script a FOUND result so a gate failure would visibly ground.
     groundingMock.wikiResult = {
       found: true,
       title: "Paris",
       extract: "Paris is the capital of France.",
       url: "https://en.wikipedia.org/wiki/Paris",
     };
-    setScripts([{ kind: "tokens", tokens: ["FABRICATED MODEL OUTPUT"] }]);
+    setScripts([{ kind: "tokens", tokens: ["Paris is the capital of France."] }]);
 
     const { result } = renderHook(() => useChat());
     await act(async () => {
@@ -689,20 +689,22 @@ describe("useChat — web lookup setting gate", () => {
 
     // The grounding lookup NEVER ran (citation tool filtered out before detection).
     expect(groundingMock.lookupCalls).toHaveLength(0);
-    // No ToolCallBlock, no citation chip, no verification marker.
+    // No ToolCallBlock, no citation chip.
     expect(useChatStore.getState().activeToolCalls).toHaveLength(0);
     expect(lastAssistant()!.citations).toBeUndefined();
-    expect(lastAssistant()!.verification).toBeUndefined();
 
-    // The model is NEVER called — the decline is host-rendered, so fabrication is
-    // impossible by construction (the crux of the deterministic F-1 fix).
-    expect(generateCalls).toHaveLength(0);
+    // The model IS called, with the from-memory note in the system prompt.
+    expect(generateCalls).toHaveLength(1);
+    const sys = systemMessageOf(generateCalls[0]!);
+    expect(sys).toContain("web lookups are turned off");
+    expect(sys).toContain("own knowledge");
 
     const assistant = lastAssistant()!;
     expect(assistant.status).toBe("complete");
     expect(assistant.inferenceMethod).toBe("local");
-    expect(assistant.content).toBe(WEB_LOOKUPS_OFF_DECLINE_MESSAGE);
-    expect(assistant.content).not.toContain("FABRICATED MODEL OUTPUT");
+    expect(assistant.content).toBe("Paris is the capital of France.");
+    // The host-drawn marker, independent of whether the prose hedged.
+    expect(assistant.verification).toEqual({ status: "lookups-off" });
   });
 
   it("still fires the deterministic calculator tool when grounding is OFF (and skips generation)", async () => {
@@ -782,7 +784,7 @@ describe("useChat — host-authoritative identity/privacy (Finding G)", () => {
     expect(assistant.content).not.toContain("LLaMA");
   });
 
-  it("answers 'are you ChatGPT?' with the host denial when web lookups are OFF — NOT the lookups-off decline", async () => {
+  it("answers 'are you ChatGPT?' with the host denial when web lookups are OFF — NOT a from-memory model turn", async () => {
     // This is the structural not-gated-by-lookups guarantee: with lookups explicitly
     // off, the identity tool (presentation:"host-answer", never filtered by the gate)
     // must still fire and win over the declineTools path.
@@ -800,8 +802,8 @@ describe("useChat — host-authoritative identity/privacy (Finding G)", () => {
 
     const assistant = lastAssistant()!;
     expect(assistant.content).toBe(areYouXHostAnswer("ChatGPT"));
-    // NOT the web-lookups-off decline — the identity truth takes precedence.
-    expect(assistant.content).not.toBe(WEB_LOOKUPS_OFF_DECLINE_MESSAGE);
+    // NOT the web-lookups-off from-memory path — the identity truth takes precedence.
+    expect(assistant.verification).toBeUndefined();
     expect(assistant.content).not.toContain("Yes, I'm ChatGPT");
   });
 });

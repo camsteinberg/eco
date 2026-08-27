@@ -76,29 +76,18 @@ export type ToolStepResult = {
    */
   citation?: EcoCitation;
   /**
-   * Set by a grounding tool's no-source outcomes; the caller maps it onto the
-   * assistant message so the host renders the uncertainty marker. Absent on FOUND
-   * (which carries `citation`) and on abstain.
+   * Set by a grounding tool's no-source outcomes, and by the lookups-off path
+   * (`status:"lookups-off"`); the caller maps it onto the assistant message so the
+   * host renders the uncertainty marker. Absent on FOUND (which carries `citation`)
+   * and on abstain.
    */
   verification?: GroundingVerification;
-  /**
-   * Set ONLY when web lookups are off and the turn would have needed one (F-1): the
-   * authoritative, host-rendered decline shown verbatim AS the assistant's answer,
-   * with NO model generation. We do not inject a "please decline" system note and
-   * hope the model obeys — a 1–2B model treats a decline instruction as conflicting
-   * with the user's direct question and fabricates a falsely-sourced answer anyway
-   * (prod-verified, see `pitfall-lookups-off-hallucinated-source`). The caller sets
-   * this as the message content, finalizes it, and SKIPS generation entirely.
-   * Mutually exclusive with `systemNote` (which is `null` here), `citation`,
-   * `verification`, `canonicalAnswer`, and `hostAnswer`.
-   */
-  declineMessage?: string;
   /**
    * Set ONLY when a CANONICAL exact-answer tool (calculator/datetime/unit —
    * `presentation:"tool-block"`) produced a result: the host-computed `display`
    * string ("2 + 2 = 4", "5 miles = 8.05 kilometers", or the honest "Couldn't
    * compute…" on `ok:false`) shown verbatim AS the assistant's answer, with NO
-   * model generation. Same rationale as {@link declineMessage} (F-1): the host holds
+   * model generation. Same rationale as {@link hostAnswer}: the host holds
    * the exact answer and a sub-1B model reliably corrupts it in prose ("2 + 2 = 5"),
    * so we take the model out of the loop. The caller sets this as the message
    * content, marks the message canonical, finalizes, and SKIPS generation — which
@@ -106,7 +95,7 @@ export type ToolStepResult = {
    * closes the "model elaborates a contradicting worked breakdown" watch item
    * (calculator-tool.ts RC1). Set for BOTH ok and failure: each `display` is a
    * complete, honest answer. Mutually exclusive with `systemNote` (null here),
-   * `citation`, `verification`, `declineMessage`, and `hostAnswer`.
+   * `citation`, `verification`, and `hostAnswer`.
    */
   canonicalAnswer?: string;
   /**
@@ -114,7 +103,7 @@ export type ToolStepResult = {
    * (Finding G, launch-bar 2026-07-03; engineering-review Corollary): the host-
    * authored on-device truth for an identity / privacy / "are you <product>?" turn,
    * shown VERBATIM as the assistant's markdown reply with NO model generation. Same
-   * rationale as {@link declineMessage} and {@link canonicalAnswer}: the model must
+   * rationale as {@link canonicalAnswer}: the model must
    * not narrate Eco's own identity or privacy posture — the 350m starter fabricates
    * false cloud-privacy claims ("your data goes to Amazon S3") and invents base
    * identities, inverting a privacy-first product's core promise. Taking the model
@@ -123,7 +112,7 @@ export type ToolStepResult = {
    * set `canonicalToolAnswer`; it finalizes with `finalizeAssistantMarkdown` exactly
    * like the decline path, so the answer persists, is copyable, and survives scroll-
    * back. Mutually exclusive with `systemNote` (null here), `citation`,
-   * `verification`, `declineMessage`, and `canonicalAnswer`.
+   * `verification`, and `canonicalAnswer`.
    */
   hostAnswer?: string;
 };
@@ -137,24 +126,27 @@ function nextToolCallId(): string {
 }
 
 /**
- * The authoritative, host-rendered answer shown verbatim when web lookups are OFF
- * but the turn WOULD have matched a disabled browser-direct lookup tool
- * (grounding) — see the `declineTools` branch in {@link runToolStep} (F-1,
- * 2026-06-24 launch rehearsal).
+ * The system note for a turn that WOULD have matched a browser-direct lookup tool
+ * while web lookups are OFF — see the `declineTools` branch in {@link runToolStep}.
  *
- * This is rendered DETERMINISTICALLY as the assistant's reply with NO model
- * generation. We deliberately do NOT inject a "please decline" system note and hope
- * the model obeys: prod verification showed a 1–2B model treats a decline
- * instruction as conflicting with the user's direct question and fabricates a
- * falsely-sourced answer anyway (manufactured provenance, corrosive for a
- * trust-first product; see `pitfall-lookups-off-hallucinated-source`). Taking the
- * model out of the loop makes fabrication impossible. Warm-voiced, honest,
- * and actionable (points to the setting).
+ * History: the first cut (2026-06-24, F-1) told the model to DECLINE; a 1–2B model
+ * treats that as conflicting with the user's question and fabricated a falsely-
+ * sourced answer (`pitfall-lookups-off-hallucinated-source`). The second cut was a
+ * canned host decline with no generation — which made Eco refuse ordinary questions
+ * ("who painted the Mona Lisa?") the moment lookups were off, something the
+ * Settings copy never promised (2026-08-27). This cut ALIGNS with the user's ask:
+ * answer from memory. Provenance honesty no longer rides on the prose — the host
+ * draws the `lookups-off` uncertainty marker deterministically (the same seam the
+ * no-source hedge uses). Same constraints as the grounding notes: positive
+ * instructions only, no example phrasing to echo, no URLs.
  */
-export const WEB_LOOKUPS_OFF_DECLINE_MESSAGE =
-  "I can't look that up right now — web lookups are turned off, so I don't have live " +
-  "data for it. You can turn them back on in Settings → Eco, and I'll be able to " +
-  "check a real source. Happy to help with something else in the meantime.";
+export const WEB_LOOKUPS_OFF_NOTE = [
+  "[Answering from your own knowledge — web lookups are turned off.]",
+  "Answer from your own knowledge if you can, and clearly qualify any specific facts, figures, and dates as from memory rather than confirmed. Do not claim to have looked anything up or name a source you did not read. Keep the rest of your answer natural.",
+].join("\n");
+
+/** The verification carried by every lookups-off turn — the host draws the marker. */
+const VERIFICATION_LOOKUPS_OFF: GroundingVerification = { status: "lookups-off" };
 
 /**
  * Run the host-driven tool step for the current turn.
@@ -188,10 +180,10 @@ export const WEB_LOOKUPS_OFF_DECLINE_MESSAGE =
  * @param options.declineTools - OPTIONAL tools that are currently DISABLED (e.g. the
  *   citation tools when web lookups are off). When the enabled `tools` abstain, the
  *   step runs detection over these (pure `match`, no execute, no network); a
- *   would-be match yields a host-rendered {@link WEB_LOOKUPS_OFF_DECLINE_MESSAGE} as
- *   `declineMessage` (the caller shows it verbatim and SKIPS generation) instead of
- *   falling through to normal chat where the model fabricates a falsely-sourced
- *   answer (F-1). Omit it (lookups on) and the abstain path is exactly as before.
+ *   would-be match yields {@link WEB_LOOKUPS_OFF_NOTE} as `systemNote` plus a
+ *   `lookups-off` `verification`, so the model answers from memory and the host
+ *   marks the reply as not checked against a source. Omit it (lookups on) and the
+ *   abstain path is exactly as before.
  * @param options.matchContext - OPTIONAL conversation-derived hints forwarded into
  *   detection (each tool's `match`), e.g. the previously grounded subject so a
  *   pronoun follow-up resolves. The caller derives it from the chat store; tools
@@ -222,11 +214,11 @@ export async function runToolStep(
     : detectTool(latestUserText, options?.matchContext);
   if (!detection) {
     // Before falling through to normal chat, check whether this turn WOULD have
-    // matched a currently-DISABLED browser-direct lookup tool (web lookups off,
-    // F-1). If so, inject an honest-decline note so the model says it can't look it
-    // up — it must never free-generate a fabricated, falsely-sourced answer. This is
-    // detection-ONLY: `match` is a pure heuristic, so nothing executes, no network is
-    // hit, no ToolCallBlock renders, and no citation/verification is set. The caller
+    // matched a currently-DISABLED browser-direct lookup tool (web lookups off).
+    // If so, let the model answer from memory with the from-memory note, and hand
+    // back the `lookups-off` verification so the host marks the reply as unchecked.
+    // This is detection-ONLY: `match` is a pure heuristic, so nothing executes, no
+    // network is hit, no ToolCallBlock renders, and no citation is set. The caller
     // supplies `declineTools` only when the setting is off; omitted ⇒ no-op (the
     // abstain path is exactly as before).
     if (options?.declineTools && options.declineTools.length > 0) {
@@ -236,9 +228,7 @@ export async function runToolStep(
         options.matchContext,
       );
       if (wouldHaveMatched) {
-        // Host-rendered deterministic decline — the caller shows this verbatim and
-        // skips generation. `systemNote` stays null: there is no model turn to hint.
-        return { systemNote: null, declineMessage: WEB_LOOKUPS_OFF_DECLINE_MESSAGE };
+        return { systemNote: WEB_LOOKUPS_OFF_NOTE, verification: VERIFICATION_LOOKUPS_OFF };
       }
     }
     // Common path: abstain → normal chat, zero further work. The phase stays as
@@ -253,7 +243,7 @@ export async function runToolStep(
   // synchronous (a constant-string return — no network, no I/O), so unlike the
   // citation and tool-block paths there is nothing to look up: we render NO
   // ToolCallBlock and never flip the phase to "tool-executing" (which would flash a
-  // spurious "Looking it up…"). Mirror the F-1 declineMessage seam — hand the
+  // spurious "Looking it up…"). Hand the
   // `display` back as `hostAnswer` and let the caller show it verbatim and SKIP
   // generation. No citation/verification/canonical applies.
   if (tool.presentation === "host-answer") {
@@ -322,7 +312,7 @@ export async function runToolStep(
       result: result.display,
     });
     // Canonical exact-answer tool: the host computed the authoritative answer and a
-    // sub-1B model reliably corrupts it in prose. Mirror the F-1 decline seam — hand
+    // sub-1B model reliably corrupts it in prose. Mirror the host-answer seam — hand
     // the `display` back as the answer and SKIP generation (`systemNote` null). Set
     // for BOTH ok and failure: each `display` is a complete, honest reply, so the
     // model never runs and can never fabricate/contradict a number. The caller

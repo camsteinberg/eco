@@ -61,9 +61,9 @@ export { wikipediaGroundingTool } from "./wikipedia-grounding-tool";
  * frame a preceding tool answers).
  *
  * `identityTool` is `presentation:"host-answer"` (Finding G): the host states Eco's
- * on-device truth verbatim and the model never generates — the third instance of
- * the host-authoritative pattern (calculator/datetime/unit canonical answers; the
- * F-1 lookups-off decline). Because it is NOT `presentation:"citation"`, the web-
+ * on-device truth verbatim and the model never generates — the second instance of
+ * the host-authoritative pattern (calculator/datetime/unit canonical answers).
+ * Because it is NOT `presentation:"citation"`, the web-
  * lookups gate never removes it, so the identity/privacy truth is stated whether
  * lookups are on or off. Grounding is the network-backed CITATION tool: its
  * `execute` is ASYNC and its `presentation` is `"citation"` (no ToolCallBlock; the
