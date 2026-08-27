@@ -5,11 +5,13 @@
  * Compact, privacy-safe support summary for a user-initiated email handoff.
  * Contains device class + recent smoke outcomes + error messages ONLY — never
  * conversation or file content (the source LocalAiDiagnostic carries none).
+ * Error messages are scrubbed of URLs/secrets, same as the JSON export.
  * Bounded in length so it fits a mailto body; the full report is the separate
  * "Copy as JSON" action.
  */
 
 import type { LocalAiDiagnostic } from './capture';
+import { redactPrivacyUnsafeString } from '../../lib/privacy-safe-redaction';
 
 const MAX_ENTRIES = 5;
 
@@ -18,7 +20,8 @@ export function buildSupportSummary(entries: LocalAiDiagnostic[]): string {
   const recent = entries.slice(-MAX_ENTRIES).reverse();
   const env = recent[0]!.env;
   const lines = recent.map((e) => {
-    const err = e.error?.message ? ` — ${e.error.message}` : '';
+    const message = redactPrivacyUnsafeString(e.error?.message);
+    const err = message ? ` — ${message}` : '';
     const ep = e.resolvedBackend ? ` ep=${e.resolvedBackend}` : '';
     return `• ${e.modelId} [${e.profileKey}]${ep} ${e.outcome} (load=${e.durations.loadMs ?? '—'}ms total=${Math.round(e.durations.totalMs)}ms)${err}`;
   });

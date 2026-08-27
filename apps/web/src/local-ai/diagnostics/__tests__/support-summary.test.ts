@@ -34,3 +34,26 @@ describe('buildSupportSummary', () => {
     expect(buildSupportSummary([])).toContain('No diagnostics');
   });
 });
+
+describe('buildSupportSummary — redaction', () => {
+  it('scrubs URLs from error messages', () => {
+    const entry = {
+      schemaVersion: 2 as const,
+      recordedAt: '2026-08-27T00:00:00.000Z',
+      modelId: 'm',
+      profileKey: 'p',
+      runtimeAdapter: 'transformers' as const,
+      outcome: 'smoke-fail' as const,
+      durations: { loadMs: null, firstTokenMs: null, totalMs: 1 },
+      tokensReceived: 0,
+      error: { message: 'failed https://cdn.example.com/x?token=abc' },
+      webgpu: { available: false, adapterRequested: false },
+      cache: null,
+      env: { userAgent: 'ua', deviceMemoryGB: null, hardwareConcurrency: null },
+      events: [],
+    };
+    const text = buildSupportSummary([entry]);
+    expect(text).not.toMatch(/https?:\/\//);
+    expect(text).toContain('[redacted-url]');
+  });
+});

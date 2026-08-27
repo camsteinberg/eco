@@ -285,7 +285,8 @@ export default function PrivacyPage({
               as theme preference, cookie-notice preference, one-time prompt
               handoff, guest chat context, composer draft, a local diagnostic
               failure ledger (dates, model identifiers, error codes, and
-              backend), onboarding/workspace settings, service-worker recovery
+              backend), a local diagnostics store that feeds the support report
+              described below, onboarding/workspace settings, service-worker recovery
               metadata, and on-device model cache state. Local model files and cache
               records stay in your browser storage so guests can prepare local
               AI without an account. Clearing browser storage may reset those
@@ -298,11 +299,15 @@ export default function PrivacyPage({
             </p>
             <p className="mt-3">
               If local AI fails, Eco can prepare a support report that stays in
-              your browser until you copy or download it. That report may include
-              browser class, device memory bucket, model readiness, cache status,
-              compatibility blockers, and error codes. It is designed to exclude
-              prompts, generated text, uploaded file contents, account content,
-              raw URLs, and secrets.
+              your browser until you copy or download it. That report includes
+              your browser&apos;s user-agent string, device memory, CPU core
+              count, platform details, graphics (WebGPU) capability and limits,
+              model identifiers, the names of cached model files, load and
+              generation timings, and the error messages and stack traces the
+              runtime produced. Before export, error text is scrubbed of web
+              addresses and anything that looks like a secret. The report never
+              contains prompts, generated text, uploaded file contents, or
+              account content. Nothing is sent until you choose to share it.
             </p>
           </section>
 

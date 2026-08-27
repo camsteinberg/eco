@@ -13,6 +13,7 @@ import {
   _resetSetupFailuresForTesting,
   logSetupAttemptFailure,
 } from '../../lifecycle/setup-diagnostics';
+import { recordSustainedProbe } from '../sustained-probe';
 import {
   clearGenerationReceipts,
   recordGenerationReceipt,
@@ -266,5 +267,65 @@ describe('exportDiagnostics', () => {
     // Pretty-printed = has newlines
     expect(json).toContain('\n');
     expect(() => JSON.parse(json)).not.toThrow();
+  });
+});
+
+describe('exportDiagnostics — redaction', () => {
+  it('strips raw URLs and secrets from error text, stacks, notes, and setup reasons', async () => {
+    recordDiagnostic(
+      makeDiagnostic({
+        error: {
+          message: 'fetch failed for https://cdn.example.com/models/q.onnx?token=abc123',
+          stack: 'Error at https://econetwork.ai/_next/static/chunk.js:1:2',
+        },
+        webgpu: { available: false, adapterRequested: true, adapterError: 'see https://x.y/z' },
+        events: [{ at: 0, phase: 'load-fail', note: 'api_key=sk-abcdefghijklmnop123' }],
+      }),
+    );
+    logSetupAttemptFailure({
+      modelId: 'local/qwen3-0.6b',
+      runtime: 'transformers',
+      phase: 'download',
+      reason: 'HTTP 403 from https://r2.example.com/weights.bin',
+    });
+    const json = await exportDiagnostics();
+    expect(json).not.toMatch(/https?:\/\//);
+    expect(json).not.toContain('abc123');
+    expect(json).not.toContain('sk-abcdefghijklmnop123');
+    expect(json).toContain('[redacted-url]');
+    const dump = JSON.parse(json);
+    expect(dump.entries[0].error.message).toBe('fetch failed for [redacted-url]');
+    expect(dump.entries[0].error.stack).toBe('Error at [redacted-url]');
+    expect(dump.entries[0].webgpu.adapterError).toBe('see [redacted-url]');
+    expect(dump.setupFailures[0].reason).toBe('HTTP 403 from [redacted-url]');
+  });
+
+  it('scrubs sustained-probe error fields (record and per-turn)', async () => {
+    recordSustainedProbe({
+      version: 1,
+      recordedAt: '2026-08-27T00:00:00.000Z',
+      modelId: 'm',
+      backend: 'webgpu',
+      outcome: 'error',
+      turnsRequested: 1,
+      turnsCompleted: 0,
+      targetTokensPerTurn: 64,
+      levers: { ortArtifact: null, numThreads: null, forceWasm: false },
+      crossOriginIsolated: false,
+      memoryApi: { performanceMemory: false, measureUserAgent: false },
+      turns: [{ turn: 1, promptTokens: null, completionTokens: null, cumulativeContextTokens: null, ttftMs: null, tokensPerSecond: null, error: 'turn failed https://a.b/c' }],
+      samples: [],
+      peakUsedJSHeapMB: null,
+      error: 'probe failed https://a.b/d?token=zzz',
+    });
+    const json = await exportDiagnostics();
+    expect(json).not.toMatch(/https?:\/\//);
+    expect(json).not.toContain('zzz');
+  });
+
+  it('leaves the on-device ledger untouched (redaction is export-only)', async () => {
+    recordDiagnostic(makeDiagnostic({ error: { message: 'x https://a.b/c' } }));
+    await exportDiagnostics();
+    expect(loadDiagnostics()[0]!.error?.message).toBe('x https://a.b/c');
   });
 });
