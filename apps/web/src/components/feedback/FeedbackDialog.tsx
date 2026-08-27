@@ -19,6 +19,7 @@ import { useEffect, useRef, useState } from "react";
 import { Button, Modal, SproutIllustration } from "@eco/ui";
 import { ErrorLine } from "../ui/ErrorNotice";
 import { buildFeedbackDeviceSummary } from "../../lib/feedback-device-summary";
+import { buildFeedbackFailureSummary } from "../../lib/feedback-failure-summary";
 
 export const FEEDBACK_DIALOG_AUTO_CLOSE_MS = 1600;
 const MAX_MESSAGE_LENGTH = 4000;
@@ -32,6 +33,9 @@ export function FeedbackDialog({ open, onClose }: FeedbackDialogProps) {
   const [message, setMessage] = useState("");
   const [includeDevice, setIncludeDevice] = useState(false);
   const [deviceSummary, setDeviceSummary] = useState<string | null>(null);
+  const [includeFailures, setIncludeFailures] = useState(false);
+  // undefined = not computed yet; null = computed, the ledger holds no failures.
+  const [failureSummary, setFailureSummary] = useState<string | null | undefined>(undefined);
   const [phase, setPhase] = useState<"form" | "sending" | "sent" | "error">("form");
   const [errorText, setErrorText] = useState<string | null>(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -52,6 +56,15 @@ export function FeedbackDialog({ open, onClose }: FeedbackDialogProps) {
     }
   }
 
+  // Same rule as the device summary: compute on tick, keep the string, show it,
+  // send exactly that. A device with no recorded failures sends nothing extra.
+  function toggleIncludeFailures(next: boolean): void {
+    setIncludeFailures(next);
+    if (next && failureSummary === undefined) {
+      setFailureSummary(buildFeedbackFailureSummary());
+    }
+  }
+
   async function handleSend(): Promise<void> {
     const trimmed = message.trim();
     if (trimmed.length === 0) return;
@@ -65,6 +78,7 @@ export function FeedbackDialog({ open, onClose }: FeedbackDialogProps) {
         body: JSON.stringify({
           message: trimmed,
           ...(includeDevice && deviceSummary ? { deviceSummary } : {}),
+          ...(includeFailures && failureSummary ? { failureSummary } : {}),
         }),
       });
       if (!res.ok) {
@@ -134,6 +148,29 @@ export function FeedbackDialog({ open, onClose }: FeedbackDialogProps) {
           {includeDevice && deviceSummary && (
             <p className="mt-2 rounded-[var(--eco-radius-sm)] border border-[var(--eco-border-muted)] bg-[var(--eco-surface-elevated)] px-3 py-2 font-mono text-xs leading-relaxed text-[var(--eco-text-secondary)]">
               {deviceSummary}
+            </p>
+          )}
+
+          <label className="mt-3 flex cursor-pointer items-start gap-2.5">
+            <input
+              type="checkbox"
+              checked={includeFailures}
+              onChange={(e) => {
+                toggleIncludeFailures(e.target.checked);
+              }}
+              className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--eco-primary)]"
+            />
+            <span className="text-sm text-[var(--eco-text-secondary)]">
+              Include the last failures Eco recorded on this device — what failed, never what you typed
+            </span>
+          </label>
+
+          {includeFailures && failureSummary !== undefined && (
+            <p
+              data-testid="feedback-failure-summary"
+              className="mt-2 whitespace-pre-line rounded-[var(--eco-radius-sm)] border border-[var(--eco-border-muted)] bg-[var(--eco-surface-elevated)] px-3 py-2 font-mono text-xs leading-relaxed text-[var(--eco-text-secondary)]"
+            >
+              {failureSummary ?? "Eco has recorded no failures on this device — nothing to include."}
             </p>
           )}
 

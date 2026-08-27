@@ -17,6 +17,7 @@ type Env = {
 // (wired in index.ts); these caps bound what actually reaches the table.
 const MAX_MESSAGE_LENGTH = 4000
 const MAX_DEVICE_SUMMARY_LENGTH = 1000
+const MAX_FAILURE_SUMMARY_LENGTH = 2000
 
 export function createFeedbackRouter({ db }: { db: Db }) {
   const router = new Hono<Env>()
@@ -76,8 +77,26 @@ export function createFeedbackRouter({ db }: { db: Db }) {
       deviceSummary = trimmed.length > 0 ? trimmed : null
     }
 
+    let failureSummary: string | null = null
+    if (body.failureSummary !== undefined && body.failureSummary !== null) {
+      if (typeof body.failureSummary !== 'string') {
+        return c.json(
+          { error: { message: 'failureSummary must be a string when provided', type: 'validation_error' } },
+          400,
+        )
+      }
+      const trimmed = body.failureSummary.trim()
+      if (trimmed.length > MAX_FAILURE_SUMMARY_LENGTH) {
+        return c.json(
+          { error: { message: `failureSummary must be at most ${MAX_FAILURE_SUMMARY_LENGTH} characters`, type: 'validation_error' } },
+          400,
+        )
+      }
+      failureSummary = trimmed.length > 0 ? trimmed : null
+    }
+
     try {
-      await db.insert(feedback).values({ message, deviceSummary })
+      await db.insert(feedback).values({ message, deviceSummary, failureSummary })
     } catch (err) {
       // Catch here rather than letting the global onError handle it: driver
       // errors can carry the bound SQL parameters (the feedback text), and the
