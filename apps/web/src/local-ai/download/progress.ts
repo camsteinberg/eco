@@ -4,26 +4,29 @@
 /**
  * Progress — single-channel progress + stall detection.
  *
- * Replaces the ad-hoc download progress in `hooks/useModelDownload.ts`
- * plus the missing smoke-stall coverage that the Layer 3 audit (BLOCKER-02)
- * flagged.
+ * Replaces the ad-hoc download progress in `hooks/useModelDownload.ts`.
  *
- * Invariant 9 (vision-and-architecture §2.2): the stall detector covers
- * BOTH the download phase AND the smoke phase. A consumer subscribes once
- * and observes:
+ * Invariant 9 (vision-and-architecture §2.2): stall detection covers the
+ * download phase. A consumer subscribes once and observes:
  *
- *   - `progress` events while bytes flow (downloading) or while the smoke
- *     driver pings (smoke)
+ *   - `progress` events while bytes flow (downloading) or as the smoke
+ *     runner reports its stages (smoke)
  *   - `phase` events on transitions (downloading → smoke → done/error)
  *   - `stall` events when no forward motion has been observed for the
- *     phase's stall window:
- *       • downloading + percent < 0.99 → `early-stall` after 30s
- *       • downloading + percent ≥ 0.99 → `finalize-stall` after 60s
- *       • smoke (any stage) → `smoke-timeout` after 30s
+ *     download's stall window:
+ *       • percent < 0.99 → `early-stall` after 30s
+ *       • percent ≥ 0.99 → `finalize-stall` after 60s
+ *
+ * The smoke phase has NO tracker-side stall timer. The smoke runner
+ * (`lifecycle/smoke.ts`) owns that deadline — a device-scaled cold-load
+ * budget (120–300s) plus a first-token deadline — and reports a failed smoke
+ * through the attempt result. A second, uninformed 30s timer here fired on
+ * every healthy cold load longer than that; nothing could ping it during a
+ * model load, and nothing consumed the event.
  *
  * The tracker never decides what to do about a stall — consumers may
  * retry, force-complete, or surface an error. Routing decisions live in
- * `lifecycle/self-heal.ts` and the consumer surface.
+ * `lifecycle/setup-runner.ts` and the consumer surface.
  *
  * ProgressTracker is the single source of truth for download status
  * within `local-ai/` (Invariant 4). Everything that wants to know whether
@@ -37,7 +40,7 @@ export type ProgressPhase = 'downloading' | 'smoke' | 'done' | 'error';
 
 export type SmokeStage = 'starting' | 'running' | 'done' | 'timeout';
 
-export type StallKind = 'early-stall' | 'finalize-stall' | 'smoke-timeout';
+export type StallKind = 'early-stall' | 'finalize-stall';
 
 export type ProgressEvent =
   | {
@@ -61,7 +64,7 @@ export type ProgressEvent =
     }
   | {
       kind: 'stall';
-      phase: 'downloading' | 'smoke';
+      phase: 'downloading';
       stall: StallKind;
       lastPercent: number;
     };
@@ -81,8 +84,6 @@ export type ProgressTrackerOptions = {
   earlyStallMs?: number;
   /** Finalize-stall window: download ≥99% with no flip to done. Default 60s. */
   finalizeStallMs?: number;
-  /** Smoke-stall window: no `running` ping in the smoke phase. Default 30s. */
-  smokeStallMs?: number;
   /** Percent threshold separating early-stall from finalize-stall. Default 0.99. */
   finalizeThreshold?: number;
   /** Sliding window for speed/ETA computation. Default 10s. */
@@ -99,7 +100,6 @@ const DEFAULT_OPTIONS: ResolvedOptions = {
   clearTimer: ((handle: unknown) => clearTimeout(handle as ReturnType<typeof setTimeout>)) as ResolvedOptions['clearTimer'],
   earlyStallMs: 30_000,
   finalizeStallMs: 60_000,
-  smokeStallMs: 30_000,
   finalizeThreshold: 0.99,
   speedWindowMs: 10_000,
 };
@@ -222,20 +222,21 @@ export class ProgressTracker {
   }
 
   /**
-   * Transition into the smoke phase. The first call arms the smoke stall
-   * timer; subsequent `reportSmokeStage('running')` calls re-arm it.
+   * Transition into the smoke phase. Cancels the download stall timer: from
+   * here the smoke runner's own deadline is the watchdog.
    */
   startSmoke(): void {
     if (this.destroyed) return;
+    this.cancelStallTimer();
     this.setPhase('smoke');
     this.currentSmokeStage = 'starting';
     this.emit({ kind: 'progress', phase: 'smoke', stage: 'starting' });
-    this.armSmokeStallTimer();
   }
 
   /**
-   * Report a smoke-phase stage. `'running'` re-arms the stall timer.
-   * `'done'` and `'timeout'` clear it and emit the appropriate phase event.
+   * Relay a smoke-phase stage from the smoke runner. `'running'` means the
+   * model load finished and generation started; `'done'` and `'timeout'`
+   * emit the matching phase event.
    */
   reportSmokeStage(stage: SmokeStage): void {
     if (this.destroyed) return;
@@ -244,13 +245,6 @@ export class ProgressTracker {
     }
     this.currentSmokeStage = stage;
     this.emit({ kind: 'progress', phase: 'smoke', stage });
-
-    if (stage === 'running') {
-      this.armSmokeStallTimer();
-      return;
-    }
-
-    this.cancelStallTimer();
 
     if (stage === 'done') {
       this.complete();
@@ -329,21 +323,6 @@ export class ProgressTracker {
         lastPercent: this.currentPercent,
       });
     }, ms);
-  }
-
-  private armSmokeStallTimer(): void {
-    this.cancelStallTimer();
-    this.stallTimer = this.options.setTimer(() => {
-      this.stallTimer = null;
-      if (this.destroyed) return;
-      if (this.currentPhase !== 'smoke') return;
-      this.emit({
-        kind: 'stall',
-        phase: 'smoke',
-        stall: 'smoke-timeout',
-        lastPercent: this.currentPercent,
-      });
-    }, this.options.smokeStallMs);
   }
 
   private cancelStallTimer(): void {

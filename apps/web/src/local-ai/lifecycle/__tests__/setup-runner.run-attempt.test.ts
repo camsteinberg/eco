@@ -199,6 +199,21 @@ describe('DEFAULT_SEAMS.runAttempt — download vs load/smoke phase classificati
     });
   });
 
+  it('reports the smoke "running" stage when the smoke runner says the model load finished', async () => {
+    downloadOk();
+    vi.mocked(runSmoke).mockImplementation(async (_slot, _model, options) => {
+      options?.onLoadComplete?.();
+      return passSmoke();
+    });
+    const onProgress = vi.fn();
+
+    const result = await DEFAULT_SEAMS.runAttempt(SLOT, MODEL, onProgress);
+
+    expect(result).toEqual({ ok: true });
+    const events = eventsOf(onProgress);
+    expect(events.some((e) => e.kind === 'progress' && e.phase === 'smoke' && e.stage === 'running')).toBe(true);
+  });
+
   it('classifies a smoke rejection as phase "load-or-smoke" (cascade demotes immediately)', async () => {
     downloadOk();
     vi.mocked(runSmoke).mockRejectedValue(new Error('WebGPU device lost'));

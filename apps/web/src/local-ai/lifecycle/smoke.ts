@@ -185,6 +185,12 @@ export type SmokeOptions = {
   generationFn?: SmokeGenerationFn;
   /** Skip diagnostic capture (tests that don't have localStorage). */
   skipDiagnostics?: boolean;
+  /**
+   * Fires once, when the model load finishes and the first-token deadline
+   * starts. The setup runner relays it to the progress tracker as the smoke
+   * `running` stage. Not called if the load is aborted or never settles.
+   */
+  onLoadComplete?: () => void;
 };
 
 export type SmokeResult =
@@ -398,6 +404,7 @@ export async function runSmoke(
     pushDiagEvent('load-finish');
     clearTimeout(timer);
     timer = setTimeout(() => internal.abort(), tokenTimeoutMs);
+    options?.onLoadComplete?.();
   };
 
   try {

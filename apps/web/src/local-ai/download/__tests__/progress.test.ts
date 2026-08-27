@@ -199,41 +199,36 @@ describe('ProgressTracker — finalize-stall (download ≥99%)', () => {
   });
 });
 
-// ─── Stall detection — smoke phase ─────────────────────────────────────────
+// ─── Smoke phase has no tracker-side stall timer ───────────────────────────
+//
+// The smoke runner (`lifecycle/smoke.ts`) owns the smoke deadline: a cold-load
+// budget of 120–300s and a 15s first-token deadline after the load. A second,
+// uninformed 30s timer here fired on every healthy cold load — a false signal
+// nothing consumed. The tracker only relays the runner's stages now.
 
-describe('ProgressTracker — smoke-timeout', () => {
-  it('fires after 30s of no smoke ping', () => {
+describe('ProgressTracker — smoke phase', () => {
+  it('never emits a stall event during smoke, however long it takes', () => {
     const { tracker, events, harness } = makeTracker();
+    tracker.reportDownloadProgress(100, 100);
     tracker.startSmoke();
-    harness.advance(30_000);
-
-    const stall = events.find((e) => e.kind === 'stall');
-    expect(stall).toBeDefined();
-    if (stall?.kind === 'stall') {
-      expect(stall.phase).toBe('smoke');
-      expect(stall.stall).toBe('smoke-timeout');
-    }
+    harness.advance(600_000);
+    expect(events.find((e) => e.kind === 'stall')).toBeUndefined();
     void tracker;
   });
 
-  it('re-arms on running ping', () => {
-    const { tracker, events, harness } = makeTracker();
+  it('relays a running stage as a smoke progress event', () => {
+    const { tracker, events } = makeTracker();
     tracker.startSmoke();
-    harness.advance(15_000);
     tracker.reportSmokeStage('running');
-    harness.advance(15_000);
-    const stall = events.find((e) => e.kind === 'stall');
-    expect(stall).toBeUndefined();
+    const running = events.find((e) => e.kind === 'progress' && e.phase === 'smoke' && e.stage === 'running');
+    expect(running).toBeDefined();
     void tracker;
   });
 
-  it('done stage clears the stall timer and emits phase=done', () => {
-    const { tracker, events, harness } = makeTracker();
+  it('done stage emits phase=done', () => {
+    const { tracker, events } = makeTracker();
     tracker.startSmoke();
     tracker.reportSmokeStage('done');
-    harness.advance(60_000);
-    const stall = events.find((e) => e.kind === 'stall');
-    expect(stall).toBeUndefined();
     const done = events.find((e) => e.kind === 'phase' && e.phase === 'done');
     expect(done).toBeDefined();
     void tracker;

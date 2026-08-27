@@ -297,7 +297,7 @@ describe('local-ai invariants', () => {
     expect(exists).toBe(true);
   });
 
-  it('Invariant 9 — Stall detector covers both phases: ProgressTracker fires stall events for download (early + finalize) AND smoke', async () => {
+  it('Invariant 9 — Stall detection: ProgressTracker fires stall events for download (early + finalize); the smoke deadline belongs to the smoke runner, so smoke never stalls tracker-side', async () => {
     const { ProgressTracker } = await import('../download/progress');
     type StallEvent = {
       kind: 'stall';
@@ -367,7 +367,8 @@ describe('local-ai invariants', () => {
     expect(events2[0]!.phase).toBe('downloading');
     expect(events2[0]!.stall).toBe('finalize-stall');
 
-    // Smoke-timeout: smoke phase no-progress for 30s
+    // Smoke: no tracker-side stall, however long the load takes. The smoke
+    // runner enforces its own load budget + token deadline (lifecycle/smoke.ts).
     const h3 = harness();
     const events3: StallEvent[] = [];
     const t3 = new ProgressTracker({
@@ -377,10 +378,8 @@ describe('local-ai invariants', () => {
     });
     t3.subscribe((e) => { if (e.kind === 'stall') events3.push(e); });
     t3.startSmoke();
-    h3.advance(30_000);
-    expect(events3.length, 'smoke-timeout must fire after 30s with no smoke ping').toBeGreaterThan(0);
-    expect(events3[0]!.phase).toBe('smoke');
-    expect(events3[0]!.stall).toBe('smoke-timeout');
+    h3.advance(600_000);
+    expect(events3.length, 'smoke must never stall tracker-side').toBe(0);
   });
 
   it('Invariant 10 — No technical model IDs in user copy: components/local-ai/ JSX has no q4f16/webllm/onnx/fp16/q8/q4/bnb4 literals in user-visible strings (Phase K)', () => {
