@@ -192,6 +192,17 @@ describe('AppShell', () => {
     expect(header).toHaveTextContent('New chat')
   })
 
+  it('titles the header "Settings" on the settings page, not with the open chat', () => {
+    mockState.pathname = '/settings'
+    conversationStoreState.activeConversationId = 'conv-123'
+    conversationStoreState.conversations = [{ id: 'conv-123', title: 'Local chat' }]
+
+    render(<AppShell><div>Settings</div></AppShell>)
+
+    expect(screen.getByTestId('header')).toHaveTextContent('Settings')
+    expect(screen.getByTestId('header')).not.toHaveTextContent('Local chat')
+  })
+
   it('opens the conversation share dialog from the chat share event', () => {
     conversationStoreState.activeConversationId = 'conv-123'
     conversationStoreState.conversations = [{ id: 'conv-123', title: 'Local chat' }]
