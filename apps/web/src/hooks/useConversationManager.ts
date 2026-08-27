@@ -32,6 +32,9 @@ import { useScrollToMessage } from "./useScrollToMessage";
 const SYNC_FIELD_SEPARATOR = String.fromCharCode(1);
 const SYNC_RECORD_SEPARATOR = String.fromCharCode(2);
 
+/** How often, at most, a still-streaming reply is written to disk. */
+export const STREAMING_CHECKPOINT_MS = 1000;
+
 function getMessageSyncSignature(messages: ChatMessage[]): string {
   return messages
     .map((message) =>
@@ -349,6 +352,45 @@ export function useConversationManager(
       setEditingMessageId(null);
     }
   }, [activeConversationId, activeConversationLeafId, loadAllMessages, rememberConversationSnapshot]);
+
+  // Checkpoint the reply that is still streaming so a crash, reload, or killed
+  // tab mid-answer keeps the words that already arrived. Throttled: one write
+  // per STREAMING_CHECKPOINT_MS at most, not one per token. The final sync
+  // below still writes the finished record when streaming stops.
+  const streamingCheckpointRef = useRef<{
+    timer: ReturnType<typeof setTimeout> | null;
+    lastWriteAt: number;
+    lastWritten: string;
+    latest: ChatMessage | null;
+    conversationId: string | null;
+  }>({ timer: null, lastWriteAt: 0, lastWritten: "", latest: null, conversationId: null });
+  useEffect(() => {
+    const checkpoint = streamingCheckpointRef.current;
+    if (!isStreaming) {
+      if (checkpoint.timer) clearTimeout(checkpoint.timer);
+      checkpoint.timer = null;
+      checkpoint.latest = null;
+      checkpoint.lastWritten = "";
+      return;
+    }
+    const convId = useConversationStore.getState().activeConversationId;
+    if (!convId || displayedConversationIdRef.current !== convId) return;
+    const streaming = [...messages].reverse().find((m) => m.role === "assistant" && m.status === "streaming");
+    if (!streaming || !streaming.content || streaming.content === checkpoint.lastWritten) return;
+    checkpoint.latest = streaming;
+    checkpoint.conversationId = convId;
+    if (checkpoint.timer) return; // a write is already scheduled; it will pick up the latest content
+    const write = () => {
+      checkpoint.timer = null;
+      const { latest, conversationId } = checkpoint;
+      if (!latest || !conversationId || latest.content === checkpoint.lastWritten) return;
+      checkpoint.lastWritten = latest.content;
+      checkpoint.lastWriteAt = Date.now();
+      void useConversationStore.getState().saveMessage(toDbMessage(latest, conversationId));
+    };
+    const wait = Math.max(0, STREAMING_CHECKPOINT_MS - (Date.now() - checkpoint.lastWriteAt));
+    checkpoint.timer = setTimeout(write, wait);
+  }, [isStreaming, messages]);
 
   // Sync chat messages back to IndexedDB whenever streaming stops.
   useEffect(() => {
