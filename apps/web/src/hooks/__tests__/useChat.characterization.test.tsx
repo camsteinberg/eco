@@ -1678,6 +1678,40 @@ describe("useChat — retryMessage (offline continue-interrupted)", () => {
 
     onLineSpy.mockRestore();
   });
+
+  it("does not draw the 'finished on your device' divider when the continuation fails", async () => {
+    useChatStore.setState({
+      selectedModel: TEST_MODEL_ID,
+      messages: [
+        { id: "u1", role: "user", content: "Write a haiku", createdAt: 1, parentId: null, status: "complete" },
+        {
+          id: "a1",
+          role: "assistant",
+          content: "An old silent pond",
+          createdAt: 2,
+          parentId: "u1",
+          status: "complete",
+          streamInterrupted: true,
+          inferenceMethod: "local",
+        },
+      ],
+    });
+    const onLineSpy = vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+
+    setScripts([{ kind: "error", tokens: [], error: new Error("worker crashed") }]);
+    const { result } = renderHook(() => useChat());
+    await act(async () => {
+      await result.current.retryMessage("a1");
+    });
+
+    const failed = useChatStore.getState().messages.find((m) => m.id === "a1");
+    expect(failed).toBeDefined();
+    expect(failed!.status).toBe("error");
+    // Nothing finished, so the divider that says it did must not appear.
+    expect(failed!.offlineDivider).toBeFalsy();
+
+    onLineSpy.mockRestore();
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

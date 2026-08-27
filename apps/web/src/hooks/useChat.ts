@@ -1783,11 +1783,13 @@ export function useChat() {
     // as streamResponse — this is the third former duplicated read loop.
     const generation = createGeneration(appendToMessage);
     setActiveGeneration(generation);
+    // The "finished on your device" divider is set only once the continuation
+    // actually completes (below). Setting it up front persisted a false
+    // "finished" line above a reply whose continuation then failed.
     updateMessage(assistantId, {
       status: "streaming",
       streamInterrupted: false,
       errorMessage: undefined,
-      offlineDivider: true,
       currentGenerationId: generation.id,
       lastSeq: 0,
     });
@@ -1856,6 +1858,7 @@ export function useChat() {
         status: "complete",
         inferenceMethod: "local",
         confidence: null,
+        offlineDivider: true,
       });
       // A clean continuation breaks any prior generic-failure streak.
       resetLocalGenerationFailureStreak();
