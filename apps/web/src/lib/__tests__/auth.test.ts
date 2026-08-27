@@ -77,6 +77,7 @@ vi.mock("better-auth/react", () => ({
 
 import {
   clearClientState,
+  clearSessionClientState,
   clearUnsafeClientState,
   signOutCurrentUser,
   settleWithinBudget,
@@ -369,5 +370,29 @@ describe("settleWithinBudget", () => {
   it("exposes a sane default cleanup budget", () => {
     expect(CLIENT_CLEANUP_BUDGET_MS).toBeGreaterThan(0);
     expect(CLIENT_CLEANUP_BUDGET_MS).toBeLessThanOrEqual(10_000);
+  });
+});
+
+describe("clearSessionClientState", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
+  });
+
+  it("keeps this device's chats and settings: never deletes IndexedDB", () => {
+    const spy = vi.spyOn(indexedDB, "deleteDatabase");
+    clearSessionClientState();
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it("drops only session-bound state", () => {
+    sessionStorage.setItem("eco-draft", "x");
+    sessionStorage.setItem("unrelated", "y");
+    clearSessionClientState();
+    expect(sessionStorage.getItem("eco-draft")).toBeNull();
+    expect(sessionStorage.getItem("unrelated")).toBe("y");
+    expect(clearInviteCodeCookie).toHaveBeenCalledTimes(1);
+    expect(clearPendingChatPrompt).toHaveBeenCalledTimes(1);
   });
 });
