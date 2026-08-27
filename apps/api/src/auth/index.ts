@@ -66,6 +66,9 @@ export async function createAuth(db: Db) {
     }),
     emailAndPassword: {
       enabled: true,
+      // Pinned explicitly so the sign-up and reset-password forms' "at least
+      // 8 characters" copy can't drift from the server rule on a library bump.
+      minPasswordLength: 8,
       // Soft verification, deliberately: verification emails go out on signup
       // (sendOnSignUp below), but sign-in is NOT gated on them. In better-auth
       // 1.6.23, requireEmailVerification also suppresses the session at
@@ -131,10 +134,11 @@ export async function createAuth(db: Db) {
           })
         },
         sendOnSignUp: true,
-        // Re-send the verification link when an unverified user tries to sign
-        // in (sign-in is blocked with 403 EMAIL_NOT_VERIFIED until verified) —
-        // otherwise a user who lost the original email has no recovery path.
-        // The tight `auth` rate-limit tier bounds how often this can fire.
+        // Inert today: better-auth only re-sends on sign-in when
+        // requireEmailVerification is true (sign-in.mjs), and it is false above
+        // — unverified users sign in normally and are never re-sent a link.
+        // Kept so flipping requireEmailVerification gives a recovery path; the
+        // tight `auth` rate-limit tier bounds how often it could fire.
         sendOnSignIn: true,
       },
     } : {}),
