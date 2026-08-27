@@ -563,20 +563,11 @@ export function Sidebar({
           <>
             <Link
               href={signUpHref}
-              className="flex min-h-11 w-full items-center justify-between rounded-xl border border-[var(--eco-border)]/70 bg-[var(--eco-surface)] px-3 py-2.5 text-left text-sm text-[var(--eco-text)] transition-colors hover:border-[var(--eco-primary)]/40 hover:bg-[var(--eco-primary-soft)]/30"
+              className="flex min-h-11 w-full items-center rounded-xl border border-[var(--eco-border)]/70 bg-[var(--eco-surface)] px-3 py-2.5 text-left text-sm text-[var(--eco-text)] transition-colors hover:border-[var(--eco-primary)]/40 hover:bg-[var(--eco-primary-soft)]/30"
             >
               <span className="flex items-center gap-2.5">
                 <AccountAddIcon className="h-4 w-4 shrink-0 text-[var(--eco-primary)]" />
                 Create account
-              </span>
-              <span
-                className="rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em]"
-                style={{
-                  backgroundColor: 'color-mix(in srgb, var(--eco-primary-soft) 72%, white 12%)',
-                  color: 'var(--eco-primary)',
-                }}
-              >
-                Sync
               </span>
             </Link>
             <Link
