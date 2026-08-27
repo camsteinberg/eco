@@ -38,6 +38,7 @@ import {
 } from '@huggingface/transformers';
 import { CacheApiStorage, type Storage } from '../local-ai/download/storage';
 import { createStorageBridge } from '../local-ai/runtime/storage-bridge';
+import { createFetchFailureTracker, type FetchLike } from './fetch-failure-tracker';
 import {
   createFilterChain,
   flushFilterChain,
@@ -252,7 +253,7 @@ async function handleInit(msg: Extract<WorkerInbound, { type: 'init' }>): Promis
   cjkScan = null;
 
   const storage: Storage = new CacheApiStorage();
-  const bridge = createStorageBridge({ storage, modelId: msg.modelId });
+  const bridge = createStorageBridge({ storage, modelId: msg.modelId, revision: msg.revision });
 
   // Configure TJS to consume our cache exclusively. allowRemoteModels=true is
   // safe because the customCache resolves first; remote falls through only
@@ -302,6 +303,15 @@ async function handleInit(msg: Extract<WorkerInbound, { type: 'init' }>): Promis
     ...baseOptions,
     progress_callback: progressCallback,
   };
+
+  // Every model-file request TJS makes during this load goes through
+  // `env.fetch`; track failures so a crash that FOLLOWS a failed fetch is
+  // reported as "the files aren't here and couldn't be fetched" rather than
+  // as a generic init failure (which cools the model down for five minutes).
+  const tjsEnv = env as unknown as { fetch: FetchLike };
+  const originalFetch = tjsEnv.fetch;
+  const fetchTracker = createFetchFailureTracker(originalFetch);
+  tjsEnv.fetch = fetchTracker.fetch;
 
   try {
     // Use hfId for from_pretrained so TJS constructs URLs matching the proxy
@@ -475,8 +485,10 @@ async function handleInit(msg: Extract<WorkerInbound, { type: 'init' }>): Promis
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    const code = classifyInitError(message);
+    const code = fetchTracker.failed ? 'model-files-missing' : classifyInitError(message);
     post({ type: 'error', code, message });
+  } finally {
+    tjsEnv.fetch = originalFetch;
   }
 }
 

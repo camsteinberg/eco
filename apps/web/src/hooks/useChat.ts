@@ -72,6 +72,8 @@ import {
   LOCAL_GENERATION_REPEATED_MESSAGE,
   DEVICE_PROTECTION_MESSAGE,
   LOCAL_MODEL_OTHER_TAB_MESSAGE,
+  LOCAL_MODEL_FILES_MISSING_MESSAGE,
+  LOCAL_MODEL_FILES_MISSING_OFFLINE_MESSAGE,
   describeLocalCooldownMessage,
 } from "../local-ai/adapters/error-messages";
 import {
@@ -412,6 +414,7 @@ const DEDICATED_LOCAL_ERROR_CODES: ReadonlySet<string> = new Set([
   "OOM",
   "TEMPLATE_MISSING",
   "GPU_BUSY_OTHER_TAB",
+  "MODEL_FILES_MISSING",
 ]);
 
 function errorHasDedicatedLocalMessage(err: unknown): boolean {
@@ -771,6 +774,25 @@ export function useChat() {
         const recovery = getLocalRuntimeCrashRecovery(true);
         setError(recovery.globalError);
         updateMessage(assistantId, recovery.assistantUpdate);
+        return;
+      }
+
+      if (err.code === "MODEL_FILES_MISSING") {
+        // The browser evicted this model's weights and the load could not
+        // fetch them back. Say that — the person needs to know the model is
+        // gone and (offline) that reconnecting is the fix. No cooldown was
+        // recorded, so the retry after reconnecting runs the normal
+        // presence probe, demotes the slot, and re-downloads with progress.
+        const message =
+          typeof navigator !== "undefined" && navigator.onLine === false
+            ? LOCAL_MODEL_FILES_MISSING_OFFLINE_MESSAGE
+            : LOCAL_MODEL_FILES_MISSING_MESSAGE;
+        updateMessage(assistantId, {
+          status: "error",
+          errorMessage: message,
+          inferenceMethod: "local",
+        });
+        setError(message);
         return;
       }
 

@@ -128,6 +128,17 @@ describe('TransformersAdapter — load', () => {
     await expect(loadPromise).rejects.toThrowError(/no webgpu/i);
   });
 
+  it("passes the worker's 'model-files-missing' verdict through as its own AdapterError code (not 'init-failed')", async () => {
+    const loadPromise = adapter.load(MODEL);
+    await Promise.resolve();
+    worker.emit({ type: 'error', code: 'model-files-missing', message: "Cannot read properties of undefined (reading 'tokenizer_class')" });
+    await expect(loadPromise).rejects.toMatchObject({
+      name: 'AdapterError',
+      code: 'model-files-missing',
+      recoverable: true,
+    });
+  });
+
   it("classifies an aborted load as 'aborted', not 'init-failed' (an abort is not a crash — must not poison the cooldown)", async () => {
     const controller = new AbortController();
     const loadPromise = adapter.load(MODEL, { signal: controller.signal });

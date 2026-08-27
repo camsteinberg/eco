@@ -59,6 +59,23 @@ describe('createStorageBridge', () => {
     expect(result?.headers.get('x-eco-cache-size-bytes')).toBe('3');
   });
 
+  it("answers a 'resolve/main/…' lookup from the pinned-revision entry (TJS 4.2.0 asks for tokenizer_config.json without a revision — offline, that miss became a network probe and a crash)", async () => {
+    const pinned = 'https://hf.co/test/resolve/abc123/tokenizer_config.json';
+    await storage.put({ modelId: MODEL_ID, url: pinned }, new Response(new Uint8Array([1, 2, 3])));
+
+    const bridge = createStorageBridge({ storage, modelId: MODEL_ID, revision: 'abc123' });
+    const result = await bridge.match('https://hf.co/test/resolve/main/tokenizer_config.json');
+    expect(result).toBeDefined();
+    expect(result?.headers.get('x-eco-cache-size-bytes')).toBe('3');
+  });
+
+  it("does not alias 'main' when no revision is pinned, or for a file that is not cached", async () => {
+    const noRevision = createStorageBridge({ storage, modelId: MODEL_ID });
+    expect(await noRevision.match('https://hf.co/test/resolve/main/tokenizer_config.json')).toBeUndefined();
+    const bridge = createStorageBridge({ storage, modelId: MODEL_ID, revision: 'abc123' });
+    expect(await bridge.match('https://hf.co/test/resolve/main/absent.json')).toBeUndefined();
+  });
+
   it('match sets Content-Length from the verified cache size so the loader preallocates', async () => {
     const url = 'https://hf.co/test/model.onnx_data';
     await storage.put({ modelId: MODEL_ID, url }, new Response(new Uint8Array([1, 2, 3, 4, 5])));

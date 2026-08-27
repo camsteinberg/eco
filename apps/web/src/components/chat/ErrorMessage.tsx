@@ -19,6 +19,8 @@ import {
   LOCAL_RUNTIME_HICCUP_MESSAGE,
   DEVICE_PROTECTION_MESSAGE,
   LOCAL_MODEL_OTHER_TAB_MESSAGE,
+  LOCAL_MODEL_FILES_MISSING_MESSAGE,
+  LOCAL_MODEL_FILES_MISSING_OFFLINE_MESSAGE,
   TEMPLATE_MISSING_USER_MESSAGE,
 } from "../../local-ai/adapters/error-messages";
 import { getDisplayInfo } from "../../local-ai/display";
@@ -218,6 +220,14 @@ export function ErrorMessage({
   // that also suppresses Try again, leaving the card with no action while its
   // own body told the user to go to Settings. Classify it by exact string.
   const isTemplateMissingError = message === TEMPLATE_MISSING_USER_MESSAGE;
+  // The browser evicted the model's files and Eco couldn't fetch them back. The
+  // copy says "download", so the setup regex would relabel it and hide Try
+  // again — the one action that works once the person is back online. Same
+  // "fresh copy" title as the damaged-template card: both mean "this model
+  // needs re-downloading", but here the body already says what to do.
+  const isModelFilesMissingError =
+    message === LOCAL_MODEL_FILES_MISSING_MESSAGE
+    || message === LOCAL_MODEL_FILES_MISSING_OFFLINE_MESSAGE;
   const isLocalSetupError =
     !isBrowserUnsupportedError
     && !isLocalGenerationFailure
@@ -226,6 +236,7 @@ export function ErrorMessage({
     && !isDeviceProtectionPause
     && !isOtherTabBusy
     && !isTemplateMissingError
+    && !isModelFilesMissingError
     && (Boolean(localReadiness)
       || Boolean(
         message
@@ -282,6 +293,11 @@ export function ErrorMessage({
     : isOtherTabBusy
     ? {
         title: OTHER_TAB_TITLE,
+        body: message,
+      }
+    : isModelFilesMissingError
+    ? {
+        title: TEMPLATE_MISSING_TITLE,
         body: message,
       }
     : isTemplateMissingError

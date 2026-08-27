@@ -339,6 +339,12 @@ function translateAdapterError(
       // WebGPU device-init crash). Recoverable: retrying after the other tab
       // releases the GPU succeeds.
       return new LocalInferenceStreamError('GPU_BUSY_OTHER_TAB', message, true);
+    case 'model-files-missing':
+      // The weights are gone from this device and could not be fetched. Its
+      // own useChat branch says so (offline vs. online wording) — never the
+      // "needed a moment" crash card, which would tell the person to retry
+      // something that cannot work until they reconnect.
+      return new LocalInferenceStreamError('MODEL_FILES_MISSING', message, true);
     case 'webgpu-unavailable':
     case 'init-failed':
       return new LocalInferenceStreamError('WORKER_CRASHED', message, true);

@@ -571,6 +571,19 @@ describe('load timeout / cancellation', () => {
 // lifecycle loses its only reference to the adapter. Its worker (potentially
 // multi-GB) must be unloaded on the failure path or it is orphaned forever.
 
+describe('missing model files at load time', () => {
+  it('records NO cooldown — the files are gone, not crashed; retrying once online is the fix', async () => {
+    const adapter = new FakeAdapter();
+    adapter.failOnLoad = new AdapterError('Failed to fetch', 'model-files-missing', true);
+    setAdapterFactory(() => adapter);
+
+    await expect(loadModel(MODEL_A)).rejects.toMatchObject({ code: 'model-files-missing' });
+
+    expect(getCooldown(MODEL_A.id)).toBeNull();
+    expect(adapter.unloadCalls).toBe(1);
+  });
+});
+
 describe('load failure cleanup (RT-1)', () => {
   it('unloads the adapter when the load fails, so no worker is orphaned', async () => {
     const adapter = new FakeAdapter();
