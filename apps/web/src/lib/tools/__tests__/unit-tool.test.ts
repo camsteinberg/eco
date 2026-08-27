@@ -138,3 +138,65 @@ describe("unitTool.summarize — friendly headline", () => {
     expect(unitTool.summarize?.(args)).toBe("10 kilograms → pounds");
   });
 });
+
+describe("unitTool.match — 'how many X in a Y' (one-unit frame)", () => {
+  const cases: Array<{ input: string; args: UnitArgs; display: string }> = [
+    {
+      input: "how many cups are in a gallon",
+      args: { family: "volume", from: "gal", to: "cup", value: 1 },
+      display: "1 gal = 16 cup",
+    },
+    {
+      input: "how many ounces in a pound",
+      args: { family: "mass", from: "lb", to: "oz", value: 1 },
+      display: "1 lb = 16 oz",
+    },
+    {
+      input: "how many grams in a kilogram",
+      args: { family: "mass", from: "kg", to: "g", value: 1 },
+      display: "1 kg = 1000 g",
+    },
+    {
+      input: "How many feet are in one mile?",
+      args: { family: "length", from: "mi", to: "ft", value: 1 },
+      display: "1 mi = 5280 ft",
+    },
+    {
+      input: "how many minutes are in a day",
+      args: { family: "time", from: "day", to: "min", value: 1 },
+      display: "1 day = 1440 min",
+    },
+    {
+      input: "how many seconds in an hour",
+      args: { family: "time", from: "h", to: "s", value: 1 },
+      display: "1 h = 3600 s",
+    },
+  ];
+
+  for (const { input, args, display } of cases) {
+    it(`"${input}" → ${display}`, async () => {
+      expect(match(input)).toEqual(args);
+      const result = await execute(args);
+      expect(result.ok).toBe(true);
+      expect(result.display).toBe(display);
+    });
+  }
+
+  it("headline uses the singular for an implicit 1", () => {
+    expect(unitTool.summarize?.(match("how many cups are in a gallon")!)).toBe("1 gallon → cups");
+    expect(unitTool.summarize?.(match("how many cm in 1 foot")!)).toBe("1 foot → centimeters");
+    expect(unitTool.summarize?.(match("5 miles in km")!)).toBe("5 miles → kilometers");
+  });
+
+  it("abstains when the container is not a unit", () => {
+    for (const input of [
+      "how many miles in a marathon",
+      "how many days in a leap year",
+      "how many weeks are in a year",
+      "how many cups in the cupboard",
+      "how many hours in a work week is normal",
+    ]) {
+      expect(match(input), input).toBeNull();
+    }
+  });
+});
