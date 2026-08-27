@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Bos Computing LLC
 
 import { describe, it, expect, vi } from 'vitest';
-import { runSetupCascade, SETUP_EXHAUSTED_REASON, type AttemptResult } from '../setup-cascade';
+import { runSetupCascade, SETUP_EXHAUSTED_REASON, SETUP_NETWORK_WAITS_MAX, type AttemptResult } from '../setup-cascade';
 import type { ModelConfig, DeviceProfile } from '../../types';
 
 const PROFILE = { browserClass: 'chromium', webgpuSupport: 'webgpu', deviceMemoryGB: 16, isMobile: false, override: 'auto' } as DeviceProfile;
@@ -144,6 +144,71 @@ describe('runSetupCascade', () => {
       expect(res.reason).toBe(need('0.3'));
       expect(res.reasonCode).toBe('insufficient-storage');
     }
+  });
+
+  it('waits for the network to return and retries the SAME model, spending nothing', async () => {
+    // Measured on a real first run: a 45 s Wi-Fi drop at 88% ran the whole
+    // ladder in seconds and rebound the chosen slot to a smaller model.
+    let aAttempts = 0;
+    const waitForNetwork = vi.fn(async () => true);
+    const h = harness({
+      waitForNetwork,
+      runAttempt: async (m) => {
+        if (m.id === 'a' && aAttempts++ === 0) {
+          return { ok: false, phase: 'download', reason: 'Failed to fetch', reasonCode: 'network-or-host' };
+        }
+        return { ok: true };
+      },
+    });
+    const res = await runSetupCascade(h.opts);
+    expect(res).toEqual({ kind: 'ready', model: h.A });
+    expect(waitForNetwork).toHaveBeenCalledTimes(1);
+    expect(aAttempts).toBe(2);
+    expect(h.nextInCascade).not.toHaveBeenCalled();
+    // The re-attempt is a retry of the same pick at the same ladder position.
+    expect(h.onSelect).toHaveBeenLastCalledWith(h.A, { attemptIndex: 0, kind: 'retry' });
+  });
+
+  it('still grants the normal transient retry after an offline wait', async () => {
+    let aAttempts = 0;
+    let waited = false;
+    const h = harness({
+      waitForNetwork: async () => { if (waited) return false; waited = true; return true; },
+      runAttempt: async (m) => {
+        if (m.id === 'a') { aAttempts++; return { ok: false, phase: 'download', reason: 'Failed to fetch', reasonCode: 'network-or-host' }; }
+        return { ok: true };
+      },
+    });
+    const res = await runSetupCascade(h.opts);
+    // offline wait → retry (free) → genuine failure → the one transient retry → demote
+    expect(aAttempts).toBe(3);
+    expect(res).toEqual({ kind: 'ready', model: h.B });
+  });
+
+  it('does not wait when the device was online (a real host failure demotes as before)', async () => {
+    const waitForNetwork = vi.fn(async () => false);
+    let aAttempts = 0;
+    const h = harness({
+      waitForNetwork,
+      runAttempt: async (m) => {
+        if (m.id === 'a') { aAttempts++; return { ok: false, phase: 'download', reason: 'HTTP 500', reasonCode: 'network-or-host' }; }
+        return { ok: true };
+      },
+    });
+    const res = await runSetupCascade(h.opts);
+    expect(aAttempts).toBe(2); // first try + the one transient retry
+    expect(res).toEqual({ kind: 'ready', model: h.B });
+  });
+
+  it('gives up waiting on a flapping link after SETUP_NETWORK_WAITS_MAX', async () => {
+    const waitForNetwork = vi.fn(async () => true);
+    const h = harness({
+      waitForNetwork,
+      runAttempt: async () => ({ ok: false, phase: 'download', reason: 'Failed to fetch', reasonCode: 'network-or-host' }),
+    });
+    const res = await runSetupCascade(h.opts);
+    expect(res.kind).toBe('exhausted');
+    expect(waitForNetwork).toHaveBeenCalledTimes(SETUP_NETWORK_WAITS_MAX);
   });
 
   it('carries a network/host code out of exhaustion, since the reason text is replaced', async () => {

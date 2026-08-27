@@ -439,6 +439,11 @@ function classifyDownloadError(err: unknown): LedgerErrorCode {
  */
 function recordDownloadFailure(model: ModelConfig, err: unknown): void {
   if (err instanceof DownloadAbortedError) return;
+  // A device that is offline says nothing about the model: the fetch fails for
+  // every model alike. Two such rows would auto-demote the chosen model on
+  // this device for a month (DOWNLOAD_FAIL_DEMOTION_THRESHOLD = 2) — measured
+  // on a real first run: one 45 s Wi-Fi drop at 88% wrote two rows.
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
   try {
     recordEvidence({
       modelId: model.id,

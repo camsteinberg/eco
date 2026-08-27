@@ -91,7 +91,37 @@ export type SetupSeams = {
    *  from — Eco's own cache, or (for a `webllm` model) WebLLM's cache, into
    *  which the bridge stages and empties the Eco copy. */
   isModelCached: (model: ModelConfig) => Promise<boolean>;
+  /** See `RunSetupCascadeOptions.waitForNetwork`. Default: `waitForNetworkIfOffline`. */
+  waitForNetwork: () => Promise<boolean>;
 };
+
+/** Longest the ladder will hold for a dropped connection before giving up. */
+export const NETWORK_WAIT_MAX_MS = 10 * 60_000;
+
+/**
+ * Resolve `true` once an offline device is back online (or `false` on timeout);
+ * resolve `false` immediately when the device is not offline. The WelcomeSetup
+ * screen names the wait ("Waiting for your connection…") from the same signal.
+ */
+export function waitForNetworkIfOffline(maxMs: number = NETWORK_WAIT_MAX_MS): Promise<boolean> {
+  if (
+    typeof navigator === 'undefined'
+    || typeof window === 'undefined'
+    || navigator.onLine !== false
+  ) {
+    return Promise.resolve(false);
+  }
+  return new Promise<boolean>((resolve) => {
+    const finish = (value: boolean): void => {
+      clearTimeout(timer);
+      window.removeEventListener('online', onOnline);
+      resolve(value);
+    };
+    const onOnline = (): void => finish(true);
+    const timer = setTimeout(() => finish(false), maxMs);
+    window.addEventListener('online', onOnline);
+  });
+}
 
 export type SetupRunnerOptions = {
   slot?: Slot;
@@ -370,6 +400,7 @@ export const DEFAULT_SEAMS: SetupSeams = {
   runAttempt: defaultRunAttempt,
   starterModelForSlot: (slot, profile) => starterModelForSlot(slot, profile),
   deriveFirstRunChoices,
+  waitForNetwork: () => waitForNetworkIfOffline(),
   isModelCached: (model) => isModelDownloaded(model),
 };
 
@@ -467,6 +498,7 @@ export async function executeSetup(
       recommend: () => firstPick,
       nextInCascade: seams.nextInCascade,
       runAttempt: (model) => seams.runAttempt(slot, model, actions.onProgressEvent),
+      waitForNetwork: seams.waitForNetwork,
       recordFailure: (model) => seams.recordEvidence({ modelId: model.id, profile, outcome: 'smoke-fail' }),
       recordSuccess: (model) => seams.recordEvidence({ modelId: model.id, profile, outcome: 'smoke-pass' }),
       onSelect: (model, info) => {
