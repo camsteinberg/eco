@@ -83,6 +83,24 @@ describe('SetupErrorState', () => {
     expect(container.querySelector('[data-eco-setup-error-surface]')).not.toBeNull();
   });
 
+  it('does not blame the device in the headline when an exhausted ladder failed on the host', () => {
+    render(
+      <SetupErrorState
+        reason={SETUP_EXHAUSTED_REASON}
+        reasonCode="network-or-host"
+        exhausted
+        triedModelCount={3}
+        onTryAgain={() => {}}
+        onTellUsMore={() => {}}
+      />,
+    );
+    // Every attempt died on the network, so "couldn't get one running on this
+    // device" is a claim about the device we have no evidence for.
+    expect(screen.queryByText(/on this device/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/couldn't download your AI/i)).toBeInTheDocument();
+    expect(screen.getByText(/check your connection/i)).toBeInTheDocument();
+  });
+
   it('keeps the device-neutral exhausted copy when the failure is not network-shaped', () => {
     render(
       <SetupErrorState
