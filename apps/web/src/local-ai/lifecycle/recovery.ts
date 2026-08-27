@@ -45,10 +45,12 @@ export async function resolveReadyLocalRecoveryModelId(
 ): Promise<string | null> {
   const { currentModelId, preferredModelId } = opts;
 
-  // 1. Prefer currentModelId if it's a ready slot model.
-  if (currentModelId) {
-    if (isReadySlotModel(currentModelId)) return currentModelId;
-    return null;
+  // 1. Prefer currentModelId if it's a ready slot model. When it is not
+  // (still preparing, errored, or not a slot model at all) keep walking the
+  // ladder: callers pass whichever slot has a model BOUND, and a bound-but-
+  // preparing eco-fast must not hide a ready eco-smart.
+  if (currentModelId && isReadySlotModel(currentModelId)) {
+    return currentModelId;
   }
 
   // 2. Prefer preferredModelId if it's a ready slot model.

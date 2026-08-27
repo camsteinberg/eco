@@ -53,17 +53,38 @@ describe('resolveReadyLocalRecoveryModelId', () => {
     expect(result).toBe('candidate/lfm2.5-1.2b-instruct-onnx');
   });
 
-  it('returns null when currentModelId is not a ready slot model', async () => {
+  it('falls through to the other ready slot when currentModelId is not a slot model', async () => {
     bindReady('eco-fast', 'candidate/lfm2.5-1.2b-instruct-onnx');
     const result = await resolveReadyLocalRecoveryModelId({
       currentModelId: 'local/qwen3-0.6b',
     });
-    expect(result).toBeNull();
+    expect(result).toBe('candidate/lfm2.5-1.2b-instruct-onnx');
   });
 
-  it('returns null when currentModelId is set and its slot is not ready', async () => {
+  it('falls through to the other ready slot when currentModelId is still preparing', async () => {
+    // The caller passes whichever slot has a model bound (eco-fast first), so
+    // a prepared eco-smart must still be found while eco-fast is mid-setup.
     setSlot('eco-fast', 'candidate/lfm2.5-1.2b-instruct-onnx');
     // status defaults to 'preparing', not 'ready'
+    bindReady('eco-smart', 'candidate/qwen3.5-2b-onnx');
+    const result = await resolveReadyLocalRecoveryModelId({
+      currentModelId: 'candidate/lfm2.5-1.2b-instruct-onnx',
+    });
+    expect(result).toBe('candidate/qwen3.5-2b-onnx');
+  });
+
+  it('prefers a ready preferredModelId over the slot scan when currentModelId is not ready', async () => {
+    setSlot('eco-fast', 'candidate/lfm2.5-1.2b-instruct-onnx');
+    bindReady('eco-smart', 'candidate/qwen3.5-2b-onnx');
+    const result = await resolveReadyLocalRecoveryModelId({
+      currentModelId: 'candidate/lfm2.5-1.2b-instruct-onnx',
+      preferredModelId: 'candidate/qwen3.5-2b-onnx',
+    });
+    expect(result).toBe('candidate/qwen3.5-2b-onnx');
+  });
+
+  it('returns null when currentModelId is set, not ready, and nothing else is ready', async () => {
+    setSlot('eco-fast', 'candidate/lfm2.5-1.2b-instruct-onnx');
     const result = await resolveReadyLocalRecoveryModelId({
       currentModelId: 'candidate/lfm2.5-1.2b-instruct-onnx',
     });
