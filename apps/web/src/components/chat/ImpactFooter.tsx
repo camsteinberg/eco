@@ -51,7 +51,13 @@ export function ImpactFooter({ queryCount, onShare }: ImpactFooterProps) {
       aria-label="Environmental impact summary"
     >
       <div className="mx-auto flex w-full flex-wrap items-center justify-between gap-x-4 gap-y-1 min-[84rem]:max-w-4xl">
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[var(--eco-text-secondary)]">
+      {/* On phones this row is the whole strip: one line, and it links to
+          the methodology itself so the page below can drop its own links. */}
+      <a
+        href="/impact"
+        className="flex min-h-[44px] flex-wrap items-center gap-x-3 text-xs text-[var(--eco-text-secondary)] sm:min-h-0 sm:gap-x-4"
+        aria-label="Environmental impact of this chat — how it is calculated"
+      >
         {/* Water saved */}
         <span className="flex items-center gap-1">
           <svg
@@ -64,7 +70,8 @@ export function ImpactFooter({ queryCount, onShare }: ImpactFooterProps) {
           >
             <path d="M10 2.083c-.376 0-.752.12-1.072.364C6.932 4.052 4 7.334 4 11a6 6 0 1012 0c0-3.666-2.932-6.948-4.928-8.553A1.727 1.727 0 0010 2.083z" />
           </svg>
-          {formatImpactWater(impact.waterSavedLiters)} saved
+          {formatImpactWater(impact.waterSavedLiters)}
+          <span className="hidden sm:inline"> saved</span>
         </span>
 
         {/* Energy saved */}
@@ -79,7 +86,8 @@ export function ImpactFooter({ queryCount, onShare }: ImpactFooterProps) {
           >
             <path d="M11.983 1.907a.75.75 0 00-1.292-.657l-8.5 9.5A.75.75 0 002.75 12h6.572l-1.305 6.093a.75.75 0 001.292.657l8.5-9.5A.75.75 0 0017.25 8h-6.572l1.305-6.093z" />
           </svg>
-          {formatImpactEnergy(impact.energySavedWh)} saved
+          {formatImpactEnergy(impact.energySavedWh)}
+          <span className="hidden sm:inline"> saved</span>
         </span>
 
         {/* CO2 avoided */}
@@ -98,14 +106,32 @@ export function ImpactFooter({ queryCount, onShare }: ImpactFooterProps) {
               clipRule="evenodd"
             />
           </svg>
-          {formatImpactCo2(impact.co2SavedGrams)} CO2 avoided
+          {formatImpactCo2(impact.co2SavedGrams)} CO2
+          <span className="sm:hidden"> saved</span>
+          <span className="hidden sm:inline"> avoided</span>
         </span>
-      </div>
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 20 20"
+          fill="currentColor"
+          className="h-3 w-3 sm:hidden"
+          style={{ color: "var(--eco-primary)" }}
+          aria-hidden="true"
+        >
+          <path
+            fillRule="evenodd"
+            d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z"
+            clipRule="evenodd"
+          />
+        </svg>
+      </a>
 
-      <div className="flex w-full items-center gap-3 text-xs sm:w-auto">
+      {/* Phones get Share from the header and the methodology from the row
+          above, so this row only appears from sm up. */}
+      <div className="hidden items-center gap-3 text-xs sm:flex">
         <a
           href="/impact"
-          className="min-h-[44px] md:min-h-0 flex items-center gap-0.5 whitespace-nowrap transition-colors hover:underline"
+          className="flex items-center gap-0.5 whitespace-nowrap transition-colors hover:underline"
           style={{ color: "var(--eco-primary)" }}
           aria-label="Learn more about environmental impact"
         >
@@ -127,7 +153,7 @@ export function ImpactFooter({ queryCount, onShare }: ImpactFooterProps) {
         <button
           type="button"
           onClick={onShare}
-          className="cursor-pointer rounded-md px-2 py-0.5 min-h-[44px] md:min-h-0 flex items-center whitespace-nowrap font-medium transition-colors hover:bg-[var(--eco-primary-soft)]"
+          className="cursor-pointer rounded-md px-2 py-0.5 flex items-center whitespace-nowrap font-medium transition-colors hover:bg-[var(--eco-primary-soft)]"
           style={{ color: "var(--eco-primary)" }}
           aria-label="Share conversation"
         >

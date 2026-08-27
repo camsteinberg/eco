@@ -58,6 +58,13 @@ describe("ImpactFooter", () => {
     expect(link.getAttribute("href")).toBe("/impact");
   });
 
+  it("links the metrics themselves to /impact (the only link on phones)", () => {
+    render(<ImpactFooter queryCount={1} onShare={() => {}} />);
+    const link = screen.getByRole("link", { name: /environmental impact of this chat/i });
+    expect(link.getAttribute("href")).toBe("/impact");
+    expect(link).toHaveTextContent(/0\.25 L/);
+  });
+
   it("has accessible labels", () => {
     render(<ImpactFooter queryCount={1} onShare={() => {}} />);
     expect(screen.getByLabelText(/environmental impact summary/i)).toBeInTheDocument();
