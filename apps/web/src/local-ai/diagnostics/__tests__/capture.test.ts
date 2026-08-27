@@ -268,3 +268,40 @@ describe('exportDiagnostics', () => {
     expect(() => JSON.parse(json)).not.toThrow();
   });
 });
+
+describe('exportDiagnostics — redaction', () => {
+  it('strips raw URLs and secrets from error text, stacks, notes, and setup reasons', async () => {
+    recordDiagnostic(
+      makeDiagnostic({
+        error: {
+          message: 'fetch failed for https://cdn.example.com/models/q.onnx?token=abc123',
+          stack: 'Error at https://econetwork.ai/_next/static/chunk.js:1:2',
+        },
+        webgpu: { available: false, adapterRequested: true, adapterError: 'see https://x.y/z' },
+        events: [{ at: 0, phase: 'load-fail', note: 'api_key=sk-abcdefghijklmnop123' }],
+      }),
+    );
+    logSetupAttemptFailure({
+      modelId: 'local/qwen3-0.6b',
+      runtime: 'transformers',
+      phase: 'download',
+      reason: 'HTTP 403 from https://r2.example.com/weights.bin',
+    });
+    const json = await exportDiagnostics();
+    expect(json).not.toMatch(/https?:\/\//);
+    expect(json).not.toContain('abc123');
+    expect(json).not.toContain('sk-abcdefghijklmnop123');
+    expect(json).toContain('[redacted-url]');
+    const dump = JSON.parse(json);
+    expect(dump.entries[0].error.message).toBe('fetch failed for [redacted-url]');
+    expect(dump.entries[0].error.stack).toBe('Error at [redacted-url]');
+    expect(dump.entries[0].webgpu.adapterError).toBe('see [redacted-url]');
+    expect(dump.setupFailures[0].reason).toBe('HTTP 403 from [redacted-url]');
+  });
+
+  it('leaves the on-device ledger untouched (redaction is export-only)', async () => {
+    recordDiagnostic(makeDiagnostic({ error: { message: 'x https://a.b/c' } }));
+    await exportDiagnostics();
+    expect(loadDiagnostics()[0]!.error?.message).toBe('x https://a.b/c');
+  });
+});

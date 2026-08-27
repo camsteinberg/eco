@@ -27,6 +27,7 @@
 import type { RuntimeBackend } from '../runtime/types';
 import { getDiagnosticEnv } from '../device/profile';
 import { safeStorage } from '../../lib/local-storage';
+import { redactPrivacyUnsafeString } from '../../lib/privacy-safe-redaction';
 import {
   loadSustainedProbes,
   readActiveLevers,
@@ -208,7 +209,36 @@ export async function exportDiagnostics(): Promise<string> {
     setupFailures: getRecentSetupFailures(),
     generationReceipts: getRecentReceipts(),
   };
-  return JSON.stringify(dump, null, 2);
+  return JSON.stringify(redactDump(dump), null, 2);
+}
+
+/**
+ * The export is what a person copies or downloads to send us, so it is the one
+ * place free-text fields get scrubbed. Error messages, stacks, adapter errors,
+ * event notes, and setup-failure reasons are whatever the runtime threw — they
+ * can carry full request URLs (with query tokens) or key-looking strings. The
+ * on-device ledger keeps the raw text; only the exported copy is redacted.
+ * Structured fields (ids, numbers, model file names, user agent) pass through —
+ * the privacy policy names them.
+ */
+function redactDump(dump: DiagnosticDump): DiagnosticDump {
+  const scrub = (value: string | undefined): string | undefined =>
+    value === undefined ? undefined : (redactPrivacyUnsafeString(value, 2000) ?? '');
+  return {
+    ...dump,
+    entries: dump.entries.map((entry) => ({
+      ...entry,
+      error: entry.error
+        ? { ...entry.error, message: scrub(entry.error.message) ?? '', stack: scrub(entry.error.stack) }
+        : null,
+      webgpu: { ...entry.webgpu, adapterError: scrub(entry.webgpu.adapterError) },
+      events: entry.events.map((event) => ({ ...event, note: scrub(event.note) })),
+    })),
+    setupFailures: dump.setupFailures?.map((failure) => ({
+      ...failure,
+      reason: scrub(failure.reason) ?? '',
+    })),
+  };
 }
 
 // ─── Internal ─────────────────────────────────────────────────────────────

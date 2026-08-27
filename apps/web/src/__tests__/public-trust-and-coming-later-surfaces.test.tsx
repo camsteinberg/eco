@@ -228,7 +228,10 @@ describe("public trust and coming-later surfaces", () => {
       screen.getAllByText(/model file names/i).length,
     ).toBeGreaterThan(0);
     expect(screen.getByText(/support report that stays in/i)).toBeInTheDocument();
-    expect(text).toMatch(/exclude prompts, generated text, uploaded file contents/i);
+    // Pins the claims the support report must keep true (capture.ts redacts at export).
+    expect(text).toMatch(/error messages and stack traces the runtime produced/i);
+    expect(text).toMatch(/scrubbed of web addresses and anything that looks like a secret/i);
+    expect(text).toMatch(/never contains prompts, generated text, uploaded file contents/i);
     expect(screen.getByText(/do not use tracking cookies/i)).toBeInTheDocument();
   });
 
