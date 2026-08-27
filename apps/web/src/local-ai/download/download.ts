@@ -675,9 +675,10 @@ export async function downloadByPlan(
             fetched.sizeBytes,
           );
         } else {
-          // Test-fake fallback: backends without putStreamed OR finalizeParts
-          // (never a real backend) compose the part blobs the old way. Real
-          // backends implement finalizeParts, so shipping devices never hit this.
+          // Fallback for backends without putStreamed OR finalizeParts: test
+          // fakes, and `OpfsStorage` (which implements neither — it is never
+          // selected in production; `pickStorage` defaults to Cache API). The
+          // shipping backend implements finalizeParts, so real devices skip this.
           const parts: Blob[] = [];
           for (const key of fetched.partKeys) {
             const entry = await storage.get({ modelId: plan.modelId, url: key });

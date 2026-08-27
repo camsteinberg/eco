@@ -110,10 +110,6 @@ export async function acquireGpuOwnership(): Promise<'owner' | 'blocked'> {
         settle?.('blocked');
       }
     },
-    // Election-only: token forwarding is not used here (that is the future
-    // full-relay feature). These callbacks are intentional no-ops.
-    onTokenFromLeader: () => {},
-    onGenerateRequest: () => {},
   });
   coordinator = nextCoordinator;
 

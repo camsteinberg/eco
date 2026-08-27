@@ -13,8 +13,10 @@
  * Downstream consumers:
  *   - `selection/recommend.ts` refuses to return any model where
  *     `isAssignable(model, profile)` is false.
- *   - The Switch dialog uses `isCompatible(...) === 'with-warning'` to
- *     tag models that run but with a caveat.
+ *   - `evidence/admission.ts` maps `'with-warning'` to a with-warning
+ *     admission, which `selection/fit-scoring.ts` scores at 0.6 instead of
+ *     1.0. The Switch dialog shows no warning tag (every surfaced entry is
+ *     admitted); the caveat lowers a model's rank, it does not label it.
  *
  * Adding a catalog model means adding a rule here. A grep test in
  * `__tests__/compatibility.test.ts` asserts every catalog id has a rule.

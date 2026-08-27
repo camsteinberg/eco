@@ -70,10 +70,11 @@ export const REPLY_CONTROL_TREATMENTS = {
  * a short answer worse.
  *
  * Measured against `ChatMessage.localCompletionTokens`, which useChat writes
- * on completion. That value lives in the in-memory chat store ONLY — it is not
- * copied by `toDbMessage`, so it is absent for any reply restored from
- * IndexedDB. Absent ⇒ allow the action: never block a control on state we
- * simply do not have.
+ * on completion and which persists with the message (`db.ts` toDbMessage /
+ * `conversationStore.ts` restore), so a restored reply is judged exactly like
+ * a fresh one. The count is absent only for replies that never carried one
+ * (older rows, non-local replies). Absent ⇒ allow the action: never block a
+ * control on state we simply do not have.
  */
 export const SHORTER_MIN_COMPLETION_TOKENS = 64;
 

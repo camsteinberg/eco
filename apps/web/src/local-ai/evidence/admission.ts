@@ -63,8 +63,9 @@ export type AdmissionResult = {
   seedProofSource: SeedEvidenceSource | null;
   /**
    * Count of recent smoke/generate failures for this (model × profile) in
-   * the ledger. Used by `listCatalog` to auto-hide models the user has
-   * already discovered don't work on this device.
+   * the ledger. `selection/recommend.ts` (`applyConfidenceFloor`) hides a
+   * model with any recent failure from the automatic surfaces; the manual
+   * Settings list passes `hideOnRecentFailure: false` and shows it anyway.
    */
   recentFailureCount: number;
   /**

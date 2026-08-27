@@ -11,9 +11,10 @@
  * persistent, exempting it from automatic eviction (the user can still clear
  * it manually — and Eco's own delete flows are unaffected).
  *
- * Requested ONCE per session, fired at the start of a model download — the
- * moment of explicit user intent to store large weights, which is also when
- * browsers are most willing to grant. Best-effort by design: a denial or a
+ * Requested ONCE per session, from whichever comes first: the start of a
+ * model download (explicit intent to store large weights, when browsers are
+ * most willing to grant) or the first conversation write (so a chat history
+ * is protected from eviction even before any model is downloaded). Best-effort by design: a denial or a
  * missing API degrades to today's behavior, never blocks or fails the
  * download.
  *

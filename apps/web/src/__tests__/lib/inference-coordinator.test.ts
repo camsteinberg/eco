@@ -171,8 +171,6 @@ describe("InferenceCoordinator", () => {
     const coordinator = new InferenceCoordinator({
       onBecomeLeader,
       onBecomeFollower,
-      onTokenFromLeader: vi.fn(),
-      onGenerateRequest: vi.fn(),
     });
 
     await coordinator.start();
@@ -192,8 +190,6 @@ describe("InferenceCoordinator", () => {
     const leader = new InferenceCoordinator({
       onBecomeLeader: vi.fn(),
       onBecomeFollower: vi.fn(),
-      onTokenFromLeader: vi.fn(),
-      onGenerateRequest: vi.fn(),
     });
     await leader.start();
     await new Promise((r) => setTimeout(r, 10));
@@ -204,8 +200,6 @@ describe("InferenceCoordinator", () => {
     const follower = new InferenceCoordinator({
       onBecomeLeader,
       onBecomeFollower,
-      onTokenFromLeader: vi.fn(),
-      onGenerateRequest: vi.fn(),
     });
 
     await follower.start();
@@ -232,8 +226,6 @@ describe("InferenceCoordinator", () => {
     const coordinator = new InferenceCoordinator({
       onBecomeLeader,
       onBecomeFollower,
-      onTokenFromLeader: vi.fn(),
-      onGenerateRequest: vi.fn(),
     });
 
     await coordinator.start();
@@ -245,115 +237,6 @@ describe("InferenceCoordinator", () => {
     coordinator.cleanup();
   });
 
-  it("leader broadcasts tokens via BroadcastChannel with sequence numbers", async () => {
-    const { InferenceCoordinator } = await loadCoordinator();
-
-    const followerTokens: { token: string; messageId: string; seq: number }[] = [];
-
-    const leader = new InferenceCoordinator({
-      onBecomeLeader: vi.fn(),
-      onBecomeFollower: vi.fn(),
-      onTokenFromLeader: vi.fn(),
-      onGenerateRequest: vi.fn(),
-    });
-    await leader.start();
-    await new Promise((r) => setTimeout(r, 10));
-
-    const follower = new InferenceCoordinator({
-      onBecomeLeader: vi.fn(),
-      onBecomeFollower: vi.fn(),
-      onTokenFromLeader: (token, messageId, seq) => {
-        followerTokens.push({ token, messageId, seq });
-      },
-      onGenerateRequest: vi.fn(),
-    });
-    await follower.start();
-    await new Promise((r) => setTimeout(r, 10));
-
-    // Leader broadcasts tokens
-    leader.broadcastToken("Hello", "msg-1", 0);
-    leader.broadcastToken(" world", "msg-1", 1);
-    await new Promise((r) => setTimeout(r, 10));
-
-    expect(followerTokens).toHaveLength(2);
-    expect(followerTokens[0]).toEqual({ token: "Hello", messageId: "msg-1", seq: 0 });
-    expect(followerTokens[1]).toEqual({ token: " world", messageId: "msg-1", seq: 1 });
-
-    leader.cleanup();
-    follower.cleanup();
-  });
-
-  it("follower receives tokens in correct order", async () => {
-    const { InferenceCoordinator } = await loadCoordinator();
-
-    const received: string[] = [];
-
-    const leader = new InferenceCoordinator({
-      onBecomeLeader: vi.fn(),
-      onBecomeFollower: vi.fn(),
-      onTokenFromLeader: vi.fn(),
-      onGenerateRequest: vi.fn(),
-    });
-    await leader.start();
-    await new Promise((r) => setTimeout(r, 10));
-
-    const follower = new InferenceCoordinator({
-      onBecomeLeader: vi.fn(),
-      onBecomeFollower: vi.fn(),
-      onTokenFromLeader: (token) => {
-        received.push(token);
-      },
-      onGenerateRequest: vi.fn(),
-    });
-    await follower.start();
-    await new Promise((r) => setTimeout(r, 10));
-
-    leader.broadcastToken("A", "msg-1", 0);
-    leader.broadcastToken("B", "msg-1", 1);
-    leader.broadcastToken("C", "msg-1", 2);
-    await new Promise((r) => setTimeout(r, 10));
-
-    expect(received).toEqual(["A", "B", "C"]);
-
-    leader.cleanup();
-    follower.cleanup();
-  });
-
-  it("follower can send generate request to leader via BroadcastChannel", async () => {
-    const { InferenceCoordinator } = await loadCoordinator();
-
-    const generateRequests: { prompt: string; messageId: string }[] = [];
-
-    const leader = new InferenceCoordinator({
-      onBecomeLeader: vi.fn(),
-      onBecomeFollower: vi.fn(),
-      onTokenFromLeader: vi.fn(),
-      onGenerateRequest: (prompt, messageId) => {
-        generateRequests.push({ prompt, messageId });
-      },
-    });
-    await leader.start();
-    await new Promise((r) => setTimeout(r, 10));
-
-    const follower = new InferenceCoordinator({
-      onBecomeLeader: vi.fn(),
-      onBecomeFollower: vi.fn(),
-      onTokenFromLeader: vi.fn(),
-      onGenerateRequest: vi.fn(),
-    });
-    await follower.start();
-    await new Promise((r) => setTimeout(r, 10));
-
-    follower.requestGenerate("Hello!", "msg-2");
-    await new Promise((r) => setTimeout(r, 10));
-
-    expect(generateRequests).toHaveLength(1);
-    expect(generateRequests[0]).toEqual({ prompt: "Hello!", messageId: "msg-2" });
-
-    leader.cleanup();
-    follower.cleanup();
-  });
-
   it("new leader announces via BroadcastChannel when acquiring lock after leader death", async () => {
     const { InferenceCoordinator } = await loadCoordinator();
 
@@ -363,8 +246,6 @@ describe("InferenceCoordinator", () => {
     const leader = new InferenceCoordinator({
       onBecomeLeader: vi.fn(),
       onBecomeFollower: vi.fn(),
-      onTokenFromLeader: vi.fn(),
-      onGenerateRequest: vi.fn(),
     });
     await leader.start();
     await new Promise((r) => setTimeout(r, 10));
@@ -375,8 +256,6 @@ describe("InferenceCoordinator", () => {
     const follower = new InferenceCoordinator({
       onBecomeLeader: followerOnBecomeLeader,
       onBecomeFollower: vi.fn(),
-      onTokenFromLeader: vi.fn(),
-      onGenerateRequest: vi.fn(),
     });
     await follower.start();
     await new Promise((r) => setTimeout(r, 10));
@@ -402,8 +281,6 @@ describe("InferenceCoordinator", () => {
     const leader = new InferenceCoordinator({
       onBecomeLeader: vi.fn(),
       onBecomeFollower: vi.fn(),
-      onTokenFromLeader: vi.fn(),
-      onGenerateRequest: vi.fn(),
     });
     await leader.start();
     await new Promise((r) => setTimeout(r, 10));
@@ -412,8 +289,6 @@ describe("InferenceCoordinator", () => {
     const follower = new InferenceCoordinator({
       onBecomeLeader: vi.fn(),
       onBecomeFollower: vi.fn(),
-      onTokenFromLeader: vi.fn(),
-      onGenerateRequest: vi.fn(),
     });
     await follower.start();
     await new Promise((r) => setTimeout(r, 10));
@@ -423,8 +298,6 @@ describe("InferenceCoordinator", () => {
     const observer = new InferenceCoordinator({
       onBecomeLeader: vi.fn(),
       onBecomeFollower: vi.fn(),
-      onTokenFromLeader: vi.fn(),
-      onGenerateRequest: vi.fn(),
       onNewLeader: () => {
         newLeaderReceived = true;
       },
@@ -450,8 +323,6 @@ describe("InferenceCoordinator", () => {
     const coordinator = new InferenceCoordinator({
       onBecomeLeader: vi.fn(),
       onBecomeFollower: vi.fn(),
-      onTokenFromLeader: vi.fn(),
-      onGenerateRequest: vi.fn(),
     });
     await coordinator.start();
     await new Promise((r) => setTimeout(r, 10));
@@ -460,9 +331,7 @@ describe("InferenceCoordinator", () => {
 
     coordinator.cleanup();
 
-    // After cleanup, should be in a cleaned-up state
-    // broadcastToken should not throw
-    coordinator.broadcastToken("test", "msg", 0);
+    expect(coordinator.isCleanedUp).toBe(true);
     expect(coordinator.role).toBe("leader"); // role doesn't reset, just channel closes
   });
 });

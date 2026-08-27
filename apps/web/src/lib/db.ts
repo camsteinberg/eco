@@ -173,9 +173,11 @@ export function openEcoDB(options?: OpenEcoDBOptions): Promise<IDBPDatabase<EcoD
       }
     },
     blocked() {
-      // A pending deleteDatabase or older connection is blocking this open request.
-      // Close stale connections if possible; the 3s hydration timeout in
-      // initConversationStore will ensure the UI never stays stuck.
+      // An older connection (another tab on a previous build, or a pending
+      // deleteDatabase) is blocking this open request. Nothing to do from
+      // here — that tab closes itself in its own `blocking()` handler. If it
+      // never does, the 3s hydration timeout in initConversationStore keeps
+      // the UI from staying stuck.
     },
     blocking(_currentVersion, _blockedVersion, event) {
       // Another connection (a tab on a newer build, or a logout's

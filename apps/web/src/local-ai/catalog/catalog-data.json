@@ -1,9 +1,9 @@
 {
   "_documentation": {
     "source": "docs/design/2026-05-16/vision-and-architecture.md §2.4",
-    "scope": "The 7-model v1.0 user-facing catalog. Additional/experimental models are gated out of the shipped user bundle.",
+    "scope": "The shipping user-facing catalog (every entry in `models`). Additional/experimental models are gated out of the shipped user bundle.",
     "field_definitions": "apps/web/src/local-ai/types.ts (ModelConfig type)",
-    "last_updated": "2026-07-22",
+    "last_updated": "2026-08-26",
     "phase": "bonsai-retirement",
     "artifact_note": "Each model's `artifact` is the canonical download contract. `hfId` + `revision` + `files` feed the server-side proxy allowlist via apps/web/src/lib/local-model-registry.ts (getProxyAllowedLocalModelRegistryArtifacts), and every file MUST have a matching entry in artifact-metadata.json (the proxy's size/SHA-256 verification source — catalog.test.ts pins this invariant). Bootstrap reads this to build the DownloadPlan; mismatches surface as 403 from the proxy."
   },

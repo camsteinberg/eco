@@ -6,22 +6,25 @@
 /**
  * Battery awareness hook for on-device inference.
  *
- * Monitors battery level and charging state via the Battery Status API.
- * Applies three restriction tiers to protect user devices:
+ * Reads battery level and charging state via the Battery Status API and
+ * derives a restriction tier:
  *
- * - **None** (>20% or charging): Full inference capability
- * - **Reduced** (<20%, not charging): max_new_tokens halved
- * - **Disabled** (<10%, not charging): Local inference paused entirely
+ * - **none** (>20% or charging)
+ * - **reduced** (<20%, not charging)
+ * - **disabled** (<10%, not charging)
  *
- * When the Battery API is unavailable (Safari, Firefox), fails open
- * with no restrictions and no battery-related UI. The OS handles
- * power management in those cases.
+ * What the app actually DOES with it today: `useLocalModelReadiness` shows a
+ * low-battery notice when the tier is `reduced`. Generation is not paused and
+ * token budgets are not changed by battery state — `getMaxTokensForBattery`
+ * exists for that but has no production caller.
  *
- * Privacy: Battery data is NEVER sent to any server. Used only for
- * local UI decisions (per RESEARCH.md Pitfall 4).
+ * When the Battery API is unavailable (Safari, Firefox), fails open with no
+ * restrictions and no battery-related UI. The OS handles power management.
+ *
+ * Privacy: Battery data is NEVER sent to any server. Used only for local UI.
  *
  * Mobile detection: On mobile viewports (max-width: 768px), defaults
- * preferredModel to 'quick' tier to reduce power consumption.
+ * preferredModel to 'quick' tier.
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
