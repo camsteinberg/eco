@@ -284,8 +284,8 @@ export async function defaultRunAttempt(
   const tracker = new ProgressTracker();
   // RT-4: a download stall (a TTFB hang before the first byte, or a mid-stream
   // wedge) aborts the in-flight fetch so the cascade can retry/demote instead of
-  // hanging setup forever. We gate on the download phase — `startSmoke()` cancels
-  // the download timer, but gating keeps a later smoke stall from tripping this.
+  // hanging setup forever. `startSmoke()` cancels the download timer; the smoke
+  // runner enforces its own deadline from there.
   // The abort surfaces as a DownloadAbortedError, which the catch below
   // classifies as phase 'download' (a transient blip → retry-once, then demote).
   const controller = new AbortController();
@@ -330,7 +330,9 @@ export async function defaultRunAttempt(
     tracker.startSmoke();
     let result;
     try {
-      result = await runSmoke(slot, model);
+      result = await runSmoke(slot, model, {
+        onLoadComplete: () => tracker.reportSmokeStage('running'),
+      });
     } catch (err) {
       const reason = err instanceof Error ? err.message : 'Smoke check failed.';
       logSetupAttemptFailure({ modelId: model.id, runtime: model.runtime, phase: 'load-or-smoke', reason, error: err });
