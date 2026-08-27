@@ -230,6 +230,16 @@ export async function getActiveBranch(
     current = current.parentId ? byId.get(current.parentId) : undefined;
   }
 
+  // A missing parent mid-chain (one save dropped under storage pressure while
+  // its neighbours landed) would otherwise truncate the pane to whatever sits
+  // below the gap and hide the rest of the thread, which is still on disk.
+  // Fall back to the whole conversation in time order: branches flatten, but
+  // nothing the person wrote disappears.
+  const last = path[path.length - 1];
+  if (last?.parentId && !byId.has(last.parentId)) {
+    return [...allMessages].sort((a, b) => a.createdAt - b.createdAt);
+  }
+
   // Reverse to get root-first order
   path.reverse();
   return path;

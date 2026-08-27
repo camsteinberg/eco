@@ -69,9 +69,35 @@ type ConversationActions = {
 /** Lazily-opened DB handle; null until initConversationStore() runs. */
 let dbPromise: Promise<IDBPDatabase<EcoDB>> | null = null
 
+/**
+ * An IndexedDB open that is blocked by another connection (a tab on an older
+ * build that never closes, a frozen tab) never settles — and every write that
+ * chains on it would sit in memory forever and vanish with the tab. Bound it:
+ * after this long, the open is treated as failed so the person is told.
+ */
+export const DB_OPEN_TIMEOUT_MS = 6000
+
+const DB_OPEN_BLOCKED_MESSAGE =
+  'Another Eco tab is holding storage open, so this tab cannot save conversations. Close other Eco tabs and reload — nothing already saved is lost.'
+
+export class DbOpenTimeoutError extends Error {
+  constructor() {
+    super(DB_OPEN_BLOCKED_MESSAGE)
+    this.name = 'DbOpenTimeoutError'
+  }
+}
+
+function withOpenTimeout(open: Promise<IDBPDatabase<EcoDB>>): Promise<IDBPDatabase<EcoDB>> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new DbOpenTimeoutError()), DB_OPEN_TIMEOUT_MS)
+  })
+  return Promise.race([open, timeout]).finally(() => clearTimeout(timer))
+}
+
 function getDb(): Promise<IDBPDatabase<EcoDB>> {
   if (!dbPromise) {
-    dbPromise = openEcoDB({
+    dbPromise = withOpenTimeout(openEcoDB({
       onBlocking: () => {
         // Our connection just closed itself so a newer tab could upgrade the
         // schema. Drop the dead handle: the next write reopens (and, if this
@@ -79,7 +105,7 @@ function getDb(): Promise<IDBPDatabase<EcoDB>> {
         // VersionError copy below).
         dbPromise = null
       },
-    }).catch((error) => {
+    })).catch((error) => {
       dbPromise = null
       throw error
     })
@@ -140,7 +166,9 @@ function logConversationPersistenceError(action: string, error: unknown): void {
   useConversationStore.setState({
     persistenceError: isVersionError(error)
       ? OUTDATED_BUILD_MESSAGE
-      : `Eco updated this conversation in memory, but browser storage could not ${action}. Try again or export a copy before closing this tab.`,
+      : error instanceof DbOpenTimeoutError
+        ? DB_OPEN_BLOCKED_MESSAGE
+        : `Eco updated this conversation in memory, but browser storage could not ${action}. Try again or export a copy before closing this tab.`,
   })
 }
 
