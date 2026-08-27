@@ -77,7 +77,7 @@ export default function PrivacyPage({
             Privacy Policy
           </h1>
           <p className="text-base text-[var(--eco-text-secondary)]">
-            Last updated: June 3, 2026
+            Last updated: August 27, 2026
           </p>
         </div>
 
@@ -113,7 +113,8 @@ export default function PrivacyPage({
                 &mdash; request counts, response timing, and error rates &mdash;
                 for reliability and security. Your chat activity (how often you
                 chat, timing, and the model you use) is measured on your device
-                and never sent to Eco
+                and never sent to Eco unless you choose to submit
+                feedback (see Section 6)
               </li>
               <li>
                 <strong className="text-[var(--eco-text)]">Device information:</strong>{" "}
@@ -144,7 +145,8 @@ export default function PrivacyPage({
               <li>Browsing history or activity outside the Eco service</li>
               <li>Third-party tracking data, advertising identifiers, or analytics cookies</li>
               <li>Biometric data or precise location data</li>
-              <li>Social media profiles or contacts</li>
+              <li>Your contacts or social graph (signing in with a provider
+                gives us only the basics listed in Section 6)</li>
             </ul>
             <p className="mt-3">
               <strong className="text-[var(--eco-text)]">
@@ -269,9 +271,8 @@ export default function PrivacyPage({
             </h2>
             <p>
               Eco uses session cookies for authentication (powered by Better
-              Auth), a launch-gate cookie when pre-launch access is enabled,
-              and a small cookie notice preference stored in your
-              browser. These are{" "}
+              Auth) and a launch-gate cookie when pre-launch access is
+              enabled. These are{" "}
               <strong className="text-[var(--eco-text)]">
                 strictly necessary
               </strong>{" "}
@@ -281,9 +282,11 @@ export default function PrivacyPage({
             </p>
             <p className="mt-3">
               Eco also uses local or session storage for browser-only state such
-              as theme preference, one-time prompt handoff, guest chat context,
-              onboarding/workspace settings, service-worker recovery metadata,
-              and on-device model cache state. Local model files and cache
+              as theme preference, cookie-notice preference, one-time prompt
+              handoff, guest chat context, composer draft, a local diagnostic
+              failure ledger (dates, model identifiers, error codes, and
+              backend), onboarding/workspace settings, service-worker recovery
+              metadata, and on-device model cache state. Local model files and cache
               records stay in your browser storage so guests can prepare local
               AI without an account. Clearing browser storage may reset those
               local preferences or require model preparation again.
@@ -325,9 +328,27 @@ export default function PrivacyPage({
                 web app itself.
               </li>
               <li>
+                <strong className="text-[var(--eco-text)]">Resend</strong>{" "}
+                &mdash; Sends transactional email on our behalf (password
+                resets, verification links, magic links). Resend receives
+                your email address and the message content; it does not
+                receive your conversations or chat data.
+              </li>
+              <li>
+                <strong className="text-[var(--eco-text)]">
+                  OAuth providers (Google, GitHub, Apple)
+                </strong>{" "}
+                &mdash; If you choose to sign in with one of these providers,
+                Eco receives your email address, display name, profile image,
+                and authentication tokens from that provider. We do not request
+                or receive your contacts, social graph, or other account data.
+              </li>
+              <li>
                 <strong className="text-[var(--eco-text)]">Vercel</strong>{" "}
-                &mdash; Hosts the Eco website. May process IP addresses and
-                request metadata for edge routing and DDoS protection.
+                &mdash; Hosts the Eco website and currently proxies model file
+                downloads from Hugging Face. Vercel sees your IP address,
+                request metadata, and which model file is requested. It does
+                not see your conversations.
               </li>
               <li>
                 <strong className="text-[var(--eco-text)]">Fly.io</strong>{" "}
@@ -337,9 +358,15 @@ export default function PrivacyPage({
               <li>
                 <strong className="text-[var(--eco-text)]">Neon</strong>{" "}
                 &mdash; Managed PostgreSQL database. Stores account
-                information and feedback you choose to send
-                us (anonymous: the message you type and, only if you tick the
-                box, a short device summary shown to you before sending).
+                information (including a password hash when you use email
+                sign-in, or OAuth tokens when you use a provider),
+                session records (IP address and user agent, retained for
+                30 days), and feedback you choose to send us. Feedback
+                includes the message you type and, independently, two
+                opt-in attachments you control: a short device summary
+                (browser, memory, GPU, model identifier) and a
+                recent-failures summary from your local diagnostic ledger
+                (dates, model identifiers, error codes, backend).
                 Located in US East.
               </li>
               <li>
@@ -351,20 +378,28 @@ export default function PrivacyPage({
                 encrypted in transit.
               </li>
               <li>
+                <strong className="text-[var(--eco-text)]">
+                  Hugging Face
+                </strong>{" "}
+                &mdash; Origin host for model files. Vercel proxies model
+                downloads from Hugging Face. Hugging Face sees the server
+                request but not your IP address (Vercel&apos;s IP is used).
+              </li>
+              <li>
                 <strong className="text-[var(--eco-text)]">Cloudflare</strong>{" "}
-                &mdash; Delivers Eco&apos;s model files to your browser (via R2
-                storage and CDN). Cloudflare sees the request metadata &mdash;
-                your IP address and which model file is requested &mdash; never
-                your prompts, conversations, or responses. Some model files may
-                also come from their original open-source hosts, such as Hugging
-                Face.
+                &mdash; When a direct CDN path is configured (Cloudflare R2),
+                model files are served through Cloudflare instead of Vercel.
+                Cloudflare sees your IP address and which model file is
+                requested &mdash; never your conversations.
               </li>
             </ul>
             <p className="mt-3">
-              We do not sell, rent, or share your personal data with any other
-              third parties. We do not share data with advertisers. We may
-              disclose data if required by law, regulation, or valid legal
-              process.
+              If we ever offer a paid plan, Stripe would process your payment
+              and receive your account email; no payment data is stored on
+              Eco&apos;s servers. Beyond the processors listed above, we do not
+              sell, rent, or share your personal data with third parties. We
+              do not share data with advertisers. We may disclose data if
+              required by law, regulation, or valid legal process.
             </p>
           </section>
 
