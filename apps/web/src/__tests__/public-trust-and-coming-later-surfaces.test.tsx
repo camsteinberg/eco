@@ -342,10 +342,10 @@ describe("public trust and coming-later surfaces", () => {
     const webManifest = manifest();
 
     expect(rootMetadata.title).toMatch(/AI that respects you and the planet/i);
-    expect(rootDescription).toMatch(/browser-local AI/i);
-    expect(rootDescription).toMatch(/chat-first web launch/i);
-    expect(webManifest.description).toMatch(/browser-local AI/i);
-    expect(webManifest.description).toMatch(/Eco Network/i);
+    expect(rootDescription).toMatch(/runs on your device, in your browser/i);
+    expect(rootDescription).not.toMatch(/Eco Network/i);
+    expect(webManifest.description).toMatch(/runs on your device, in your browser/i);
+    expect(webManifest.description).not.toMatch(/Eco Network/i);
 
     const searchableShellCopy = [
       rootMetadata.title,
