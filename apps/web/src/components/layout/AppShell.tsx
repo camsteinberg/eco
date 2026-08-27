@@ -327,7 +327,7 @@ export function AppShell({ children }: AppShellProps) {
           composer clear the safe area in landscape (0 on non-notched / desktop). */}
       <div className="flex flex-1 flex-col overflow-hidden pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
         <Header
-          title={title}
+          title={pathname.startsWith('/settings') ? 'Settings' : title}
           onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
           showShareButton={!!activeId && (pathname === '/chat' || pathname.startsWith('/chat/'))}
           onShare={() => setShareOpen(true)}
