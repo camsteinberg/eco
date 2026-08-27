@@ -264,7 +264,12 @@ export async function loadModel(
       });
     } catch (err) {
       const code = errorCode(err);
-      if (COOLDOWN_TRIGGER_CODES.has(code)) {
+      // A load-time OOM is "the weights don't fit right now", not a crash: the
+      // adapter is unloaded below, so retrying is safe and fails fast, and the
+      // chat offers a lighter model. Cooling it down would only loop the person
+      // through five-minute "breather" cards. Other trigger codes (device-lost,
+      // init-failed) still cool down.
+      if (code !== 'oom' && COOLDOWN_TRIGGER_CODES.has(code)) {
         recordCooldown(model.id, code);
       }
       // RT-1: a failed or aborted load never reaches `state.activeAdapter =

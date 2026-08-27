@@ -284,6 +284,21 @@ describe('createLocalAiLegacyInference', () => {
     });
   });
 
+  it('surfaces an OOM thrown by loadModel as LOAD_OOM, distinct from a mid-reply OOM', async () => {
+    mockLoad.mockRejectedValueOnce(new AdapterError('Out of memory', 'oom', true));
+
+    const shim = createLocalAiLegacyInference();
+    const reader = shim.generate(
+      [{ role: 'user', content: 'x' }],
+      FAKE_MODEL.id,
+    ).getReader();
+
+    await expect(reader.read()).rejects.toMatchObject({
+      name: 'LocalInferenceStreamError',
+      code: 'LOAD_OOM',
+    });
+  });
+
   it('surfaces cooldown-active from loadModel as LOCAL_MODEL_COOLDOWN', async () => {
     mockLoad.mockRejectedValueOnce(
       new AdapterError(
