@@ -55,14 +55,14 @@ describe('getDisplayInfo', () => {
     expect(info.provenance).toBe('Alibaba · 0.6 GB');
   });
 
-  it('maps LFM2.5 1.2B to Eco Fast (Liquid) — the everyday default (model-ladder read 2026-08-09)', () => {
+  it('maps LFM2.5 1.2B to Eco Fast (Liquid) — the everyday pick (model-ladder read 2026-08-09; never "default", 2026-08-27)', () => {
     const info = getDisplayInfo('candidate/lfm2.5-1.2b-instruct-onnx', {
       friendlyName: 'LFM2.5 1.2B',
       vendor: 'Liquid AI',
       sizeGB: 0.76,
     });
     expect(info.friendlyName).toBe('Eco Fast (Liquid)');
-    expect(info.qualityPhrase).toBe('The everyday default · quick, clear answers');
+    expect(info.qualityPhrase).toBe('The everyday pick · quick, clear answers');
     expect(info.provenance).toBe('Liquid AI · 0.8 GB');
   });
 

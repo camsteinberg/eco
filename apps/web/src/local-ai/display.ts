@@ -29,14 +29,14 @@ export type DisplayInfo = {
 const DISPLAY_MAP: Record<string, Omit<DisplayInfo, 'provenance'> & { provider: string }> = {
   'candidate/lfm2.5-1.2b-instruct-onnx': {
     friendlyName: 'Eco Fast (Liquid)',
-    qualityPhrase: 'The everyday default · quick, clear answers',
+    qualityPhrase: 'The everyday pick · quick, clear answers',
     provider: 'Liquid AI',
   },
   // The plain-int4 build of the same 1.2B, for older graphics hardware — same
   // model, so same "Eco Fast" branding (f16-less users get the same experience).
   'candidate/lfm2.5-1.2b-instruct-q4-onnx': {
     friendlyName: 'Eco Fast (Liquid)',
-    qualityPhrase: 'The everyday default · quick, clear answers',
+    qualityPhrase: 'The everyday pick · quick, clear answers',
     provider: 'Liquid AI',
   },
   'candidate/lfm2.5-350m-onnx': {
