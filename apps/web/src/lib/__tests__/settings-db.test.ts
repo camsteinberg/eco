@@ -10,6 +10,7 @@ import {
   decryptSetting,
   getOrCreateKey,
 } from "../settings-db";
+import type { SettingsDB } from "../settings-db";
 
 beforeEach(async () => {
   // Clean up IndexedDB between tests
@@ -146,5 +147,22 @@ describe("openSettingsDB", () => {
     } finally {
       db.close();
     }
+  });
+});
+
+describe("openSettingsDB upgrade path", () => {
+  it("a future version bump keeps existing records instead of aborting on ConstraintError", async () => {
+    const { openDB } = await import("idb");
+    const v1 = await openSettingsDB();
+    await v1.put("settings", { key: "customInstructions", ciphertext: "keep", nonce: "me" });
+    v1.close();
+
+    // Run the app's own upgrade body at the next version, exactly as a bump would.
+    const { SETTINGS_DB_NAME, SETTINGS_DB_VERSION, upgradeSettingsDB } = await import("../settings-db");
+    const v2 = await openDB<SettingsDB>(SETTINGS_DB_NAME, SETTINGS_DB_VERSION + 1, {
+      upgrade: upgradeSettingsDB,
+    });
+    expect(await v2.get("settings", "customInstructions")).toEqual({ key: "customInstructions", ciphertext: "keep", nonce: "me" });
+    v2.close();
   });
 });

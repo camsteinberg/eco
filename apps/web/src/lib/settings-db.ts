@@ -71,12 +71,27 @@ export function decryptSetting(ciphertext: string, nonce: string): string {
  * Open the "eco-settings" IndexedDB database with settings and memories stores.
  * Separate from the "eco-chat" database to avoid migration conflicts.
  */
+export const SETTINGS_DB_NAME = "eco-settings";
+export const SETTINGS_DB_VERSION = 1;
+
+/**
+ * Upgrade body, exported so a test can run it at a future version. Guarded so
+ * a version bump doesn't re-create existing stores — that throws
+ * ConstraintError, aborts the upgrade, and every later open rejects, leaving
+ * settings on defaults with no way back.
+ */
+export function upgradeSettingsDB(db: IDBPDatabase<SettingsDB>): void {
+  if (!db.objectStoreNames.contains("settings")) {
+    db.createObjectStore("settings", { keyPath: "key" });
+  }
+  if (!db.objectStoreNames.contains("memories")) {
+    const memStore = db.createObjectStore("memories", { keyPath: "id" });
+    memStore.createIndex("by-created", "createdAt");
+  }
+}
+
 export function openSettingsDB(): Promise<IDBPDatabase<SettingsDB>> {
-  return openDB<SettingsDB>("eco-settings", 1, {
-    upgrade(db) {
-      db.createObjectStore("settings", { keyPath: "key" });
-      const memStore = db.createObjectStore("memories", { keyPath: "id" });
-      memStore.createIndex("by-created", "createdAt");
-    },
+  return openDB<SettingsDB>(SETTINGS_DB_NAME, SETTINGS_DB_VERSION, {
+    upgrade: upgradeSettingsDB,
   });
 }

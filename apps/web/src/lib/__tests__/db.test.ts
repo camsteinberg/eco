@@ -169,6 +169,23 @@ describe("getActiveBranch", () => {
     expect(branch.map((m) => m.id)).toEqual(["m1", "m2", "m3"]);
   });
 
+  it("keeps the whole thread when a parent mid-chain is missing", async () => {
+    // One save (u2) dropped under storage pressure while its neighbours landed
+    // and the leaf pointer advanced. Everything else is still on disk and must
+    // still show — not just the orphaned tail.
+    const msgs: DbMessage[] = [
+      { id: "root", conversationId: "c1", parentId: null, role: "user", content: "A", createdAt: 1 },
+      { id: "a1", conversationId: "c1", parentId: "root", role: "assistant", content: "B", createdAt: 2 },
+      { id: "a2", conversationId: "c1", parentId: "u2-missing", role: "assistant", content: "D", createdAt: 4 },
+    ];
+    for (const m of msgs) {
+      await db.put("messages", m);
+    }
+
+    const branch = await getActiveBranch(db, "c1", "a2");
+    expect(branch.map((m) => m.id)).toEqual(["root", "a1", "a2"]);
+  });
+
   it("fallback stays on the newest branch when siblings exist", async () => {
     const msgs: DbMessage[] = [
       { id: "m1", conversationId: "c1", parentId: null, role: "user", content: "Root", createdAt: 1 },
