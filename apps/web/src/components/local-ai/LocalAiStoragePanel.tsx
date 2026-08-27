@@ -111,6 +111,18 @@ export function LocalAiStoragePanel({
         <SoilBar breakdown={breakdown!} reduceMotion={reduceMotion} />
       )}
 
+      {breakdown && breakdown.persisted === false && breakdown.ecoTotalBytes > 0 && (
+        <p
+          className="mt-3 text-xs"
+          style={{ color: 'var(--eco-text-secondary)' }}
+          data-testid="storage-persistence-note"
+        >
+          This browser hasn&apos;t promised to keep these files. If disk space
+          runs low it may clear them, and Eco would download them again.
+          Installing Eco as an app usually makes the browser keep them.
+        </p>
+      )}
+
       {groups.length > 0 && (
         <>
           <div className="my-5" aria-hidden>

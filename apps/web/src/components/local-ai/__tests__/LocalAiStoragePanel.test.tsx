@@ -14,6 +14,7 @@ const POPULATED: StorageBreakdown = {
   browserQuota: 18 * ONE_GB,
   ecoTotalBytes: 2 * ONE_GB,
   measured: true,
+  persisted: true,
   models: [
     { id: 'candidate/lfm2.5-1.2b-instruct-onnx', friendlyName: 'LFM2.5 1.2B', vendor: 'Liquid AI', sizeBytes: 0.76 * ONE_GB },
     { id: 'local/qwen3-0.6b', friendlyName: 'Qwen3 0.6B', vendor: 'Hugging Face', sizeBytes: 0.6 * ONE_GB },
@@ -36,6 +37,7 @@ const EMPTY: StorageBreakdown = {
   browserQuota: 18 * ONE_GB,
   ecoTotalBytes: 0,
   measured: true,
+  persisted: true,
   models: [],
 };
 
@@ -256,6 +258,7 @@ describe('LocalAiStoragePanel — loading + missing-data', () => {
       browserQuota: null,
       ecoTotalBytes: 500_000_000,
       measured: true,
+      persisted: true,
       models: [
         { id: 'local/x', friendlyName: 'Test', vendor: 'Anyone', sizeBytes: 500_000_000 },
       ],
@@ -291,6 +294,7 @@ describe('LocalAiStoragePanel — unmeasurable storage', () => {
       ecoTotalBytes: 0,
       models: [],
       measured: false,
+      persisted: null,
     };
     render(
       <LocalAiStoragePanel
@@ -302,5 +306,60 @@ describe('LocalAiStoragePanel — unmeasurable storage', () => {
     );
     expect(screen.queryByText(/Nothing cached on this device yet/i)).not.toBeInTheDocument();
     expect(screen.getByText(/couldn.t check storage/i)).toBeInTheDocument();
+  });
+});
+
+// Chrome keeps origin storage "best-effort" unless it grants persistence, and
+// evicts it under disk pressure (every model cache on this origin was wiped at
+// ~872 MB free, 2026-06-11). Eco asks for persistence at download time, but a
+// denial was silent: the user had no way to know their gigabytes could vanish.
+describe('LocalAiStoragePanel — persistence not granted', () => {
+  const denied: StorageBreakdown = { ...POPULATED, persisted: false };
+
+  it('tells the user the browser may clear downloaded models when persistence was denied', () => {
+    render(
+      <LocalAiStoragePanel
+        status="ready"
+        breakdown={denied}
+        slotModelIds={BOUND_PAIR}
+        onClearModel={async () => undefined}
+      />,
+    );
+    expect(screen.getByTestId('storage-persistence-note')).toHaveTextContent(
+      /may clear them/i,
+    );
+  });
+
+  it('says nothing when persistence is granted or unknown', () => {
+    const { rerender } = render(
+      <LocalAiStoragePanel
+        status="ready"
+        breakdown={POPULATED}
+        slotModelIds={BOUND_PAIR}
+        onClearModel={async () => undefined}
+      />,
+    );
+    expect(screen.queryByTestId('storage-persistence-note')).toBeNull();
+    rerender(
+      <LocalAiStoragePanel
+        status="ready"
+        breakdown={{ ...POPULATED, persisted: null }}
+        slotModelIds={BOUND_PAIR}
+        onClearModel={async () => undefined}
+      />,
+    );
+    expect(screen.queryByTestId('storage-persistence-note')).toBeNull();
+  });
+
+  it('says nothing when nothing is cached — there is nothing to lose yet', () => {
+    render(
+      <LocalAiStoragePanel
+        status="ready"
+        breakdown={{ ...EMPTY, persisted: false }}
+        slotModelIds={NOTHING_BOUND}
+        onClearModel={async () => undefined}
+      />,
+    );
+    expect(screen.queryByTestId('storage-persistence-note')).toBeNull();
   });
 });
