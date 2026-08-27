@@ -33,6 +33,45 @@ describe('WelcomeSetup', () => {
     expect(screen.getByText(/almost ready/i)).toBeInTheDocument();
   });
 
+  it('makes no time promise before the download speed is known (eta 0 = unknown)', () => {
+    render(<WelcomeSetup phase="downloading" percent={1} etaSeconds={0} reassuranceIndex={0} />);
+    expect(screen.getByText(/getting your private ai ready/i)).toBeInTheDocument();
+    expect(screen.queryByText(/few minutes/i)).not.toBeInTheDocument();
+  });
+
+  it('says "a few minutes" only when the measured ETA supports it', () => {
+    render(<WelcomeSetup phase="downloading" percent={10} etaSeconds={4 * 60} reassuranceIndex={0} />);
+    expect(screen.getByText(/takes a few minutes/i)).toBeInTheDocument();
+  });
+
+  it('tells a slow connection the truth and that leaving is safe (measured: 3% after 100 s at 1.5 Mbps)', () => {
+    render(<WelcomeSetup phase="downloading" percent={3} etaSeconds={70 * 60} reassuranceIndex={0} />);
+    expect(screen.queryByText(/few minutes/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/an hour or more/i)).toBeInTheDocument();
+    expect(screen.getByText(/picks up where it left off/i)).toBeInTheDocument();
+  });
+
+  it('never gets more optimistic mid-download once a slow connection was seen', () => {
+    const { rerender } = render(
+      <WelcomeSetup phase="downloading" percent={3} etaSeconds={70 * 60} reassuranceIndex={0} />,
+    );
+    rerender(<WelcomeSetup phase="downloading" percent={4} etaSeconds={3 * 60} reassuranceIndex={0} />);
+    // A brief fast burst must not flip the line back to "a few minutes".
+    expect(screen.queryByText(/few minutes/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/an hour or more/i)).toBeInTheDocument();
+  });
+
+  it('names a dropped connection instead of holding a frozen bar', () => {
+    const spy = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    try {
+      render(<WelcomeSetup phase="downloading" percent={20} etaSeconds={60} reassuranceIndex={0} />);
+      expect(screen.getByText(/waiting for your connection/i)).toBeInTheDocument();
+      expect(screen.queryByText(/few minutes/i)).not.toBeInTheDocument();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('shows honest first-wake copy in the smoke phase (cold load can take a minute)', () => {
     render(<WelcomeSetup phase="smoke" percent={95} etaSeconds={5} reassuranceIndex={0} />);
     expect(screen.getByText(/waking up your ai/i)).toBeInTheDocument();
