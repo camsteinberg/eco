@@ -82,7 +82,9 @@ function isNetworkOrHosting(reason: string, reasonCode?: AttemptFailureReasonCod
  * single compatible model (iOS; f16-less low-memory Android), so the ladder
  * there is one model long — "a few options" would be a claim about effort we
  * did not make. An unknown count keeps the plural line, which is what the
- * multi-model desktop ladder does.
+ * multi-model desktop ladder does. And when every attempt failed on the host
+ * or the connection, neither device line is honest — the download never got
+ * far enough to say anything about this device.
  */
 function headlineFor(
   reason: string,
@@ -95,6 +97,12 @@ function headlineFor(
   }
   if (!exhausted) {
     return "We're having trouble setting up your AI right now.";
+  }
+  // Every attempt died on the host or the connection: nothing was learned about
+  // this device, so the headline must not say "on this device" (the subtitle
+  // already names the host and says to check the connection).
+  if (isNetworkOrHosting(reason, reasonCode)) {
+    return "Eco couldn't download your AI just now.";
   }
   return triedModelCount === 1
     ? "We couldn't get Eco's model running on this device just yet."
