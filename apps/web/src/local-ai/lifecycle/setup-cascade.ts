@@ -31,6 +31,9 @@ export const SETUP_EXHAUSTED_REASON =
 /** Caps total attempts (including download retries) to bound bandwidth/time. */
 export const SETUP_LADDER_MAX_STEPS = 4;
 
+/** Caps how many offline→online waits one cascade will honour (a flapping link). */
+export const SETUP_NETWORK_WAITS_MAX = 5;
+
 /**
  * A structured cause the error surface can act on, when the failure origin knew
  * one. This is the ONLY channel that survives exhaustion: once the ladder is
@@ -96,6 +99,18 @@ export type RunSetupCascadeOptions = {
   recordSuccess: (model: ModelConfig) => void;
   /** Fired before each attempt so the hook can setSlot + drive demotion copy. */
   onSelect?: (model: ModelConfig, info: { attemptIndex: number; kind: SelectKind }) => void;
+  /**
+   * Called after a network-shaped download failure. Resolves `true` once the
+   * device, having been offline, is back online — the ladder then retries the
+   * SAME model without spending its one transient retry or a ladder step.
+   * Resolves `false` immediately when the device was online (a real host
+   * failure) or when the wait gives up. Omitted = never wait.
+   *
+   * Without this a dropped Wi-Fi connection ran the whole ladder in seconds
+   * (fetch fails → retry fails → demote → …) and rebound the chosen slot to a
+   * smaller model — measured on a real first run at 88% downloaded.
+   */
+  waitForNetwork?: () => Promise<boolean>;
   maxSteps?: number;
 };
 
@@ -106,6 +121,7 @@ export async function runSetupCascade(opts: RunSetupCascadeOptions): Promise<Set
   let model = opts.recommend(opts.slot, opts.profile);
   let kind: SelectKind = 'initial';
   let downloadRetriedFor: string | null = null;
+  let networkWaits = 0;
   // The most recent failure — lets exhaustion surface an honest storage
   // message when the last thing that blocked us was a lack of space (retrying
   // or demoting to a smaller model may still have fit; only when nothing did
@@ -147,6 +163,21 @@ export async function runSetupCascade(opts: RunSetupCascadeOptions): Promise<Set
       && (smallestStorageFailure === null || result.requiredBytes < smallestStorageFailure.requiredBytes)
     ) {
       smallestStorageFailure = { reason: result.reason, requiredBytes: result.requiredBytes };
+    }
+
+    // The device was offline: wait for it to come back, then retry the same
+    // model as if nothing happened — no ladder step, no retry consumed. Only a
+    // genuine offline→online transition counts, and only a few times.
+    if (
+      result.phase === 'download'
+      && result.reasonCode === 'network-or-host'
+      && opts.waitForNetwork
+      && networkWaits < SETUP_NETWORK_WAITS_MAX
+      && (await opts.waitForNetwork())
+    ) {
+      networkWaits++;
+      kind = 'retry';
+      continue;
     }
 
     // Transient download failure → retry the same model once before demoting.

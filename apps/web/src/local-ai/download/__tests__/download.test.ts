@@ -1171,6 +1171,26 @@ describe('downloadModel — resolver DI', () => {
       );
     });
 
+    it('does NOT record a row when the device is offline (environmental, not a model verdict)', async () => {
+      const a = { url: 'https://test/a.bin', body: byteArr(1) };
+      setDownloadPlanResolver(async () => makePlan([a]));
+      Object.defineProperty(navigator, 'onLine', { configurable: true, get: () => false });
+      try {
+        await expect(
+          downloadModel(model, {
+            storage,
+            retryBaseDelayMs: NO_RETRY_BACKOFF,
+            fetcher: createFetcher({ [a.url]: { body: a.body, status: 503 } }),
+          }),
+        ).rejects.toBeInstanceOf(DownloadFailedError);
+        // Two offline rows would auto-demote this model on this device for a
+        // month; a dropped connection is not evidence about the model.
+        expect(recordEvidenceMock).not.toHaveBeenCalled();
+      } finally {
+        delete (navigator as { onLine?: boolean }).onLine;
+      }
+    });
+
     it('does NOT record a row when the download is aborted (resumable, not a failure)', async () => {
       const a = { url: 'https://test/a.bin', body: byteArr(1, 2, 3) };
       setDownloadPlanResolver(async () => makePlan([a]));
