@@ -3,7 +3,9 @@
 
 'use client';
 
+import { useEffect, useRef } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
+import { useNetworkStatus } from '../../hooks/useNetworkStatus';
 import { BotanicalAnimation } from './BotanicalAnimation';
 import { ProgressBar } from '../ui/ProgressBar';
 import { VALUE_PILLARS } from '../../lib/value-pillars';
@@ -35,9 +37,13 @@ export type WelcomeSetupProps = {
   phase: 'downloading' | 'smoke' | 'done';
   /** 0..100 aggregate download progress. Drives the bar and the illustration. */
   percent: number;
-  /** Retained for compatibility with the setup gate; the progress bar now
-   * carries the "how much longer" signal, so the copy no longer shows a
-   * per-second countdown (it read as an inaccurate ticking timer). */
+  /**
+   * Measured seconds remaining (0 = not known yet). Never shown as a number —
+   * a ticking countdown read as inaccurate — but it decides which coarse
+   * expectation the opening line may honestly set: "a few minutes" only when
+   * the measurement supports it. Measured on a 1.5 Mbps link: 3% after 100 s,
+   * ~70 min to finish, while the old line promised "a few minutes".
+   */
   etaSeconds?: number;
   /** Index into REASSURANCE_COPY (taken mod length). */
   reassuranceIndex: number;
@@ -84,6 +90,7 @@ const REASSURANCE_COPY: string[] = isBillingUiEnabled()
 export function WelcomeSetup({
   phase,
   percent,
+  etaSeconds,
   reassuranceIndex,
   priorAttemptFailed = false,
   findingFit = false,
@@ -91,17 +98,36 @@ export function WelcomeSetup({
   resuming = false,
 }: WelcomeSetupProps) {
   const reducedMotion = useReducedMotion();
+  const online = useNetworkStatus();
   const reassurance = REASSURANCE_COPY[reassuranceIndex % REASSURANCE_COPY.length]!;
+  // The wait expectation only ever gets more cautious within one download: a
+  // brief fast burst must not flip "an hour or more" back to "a few minutes"
+  // (the ETA is a 10 s sliding window, so it can swing). Reset for a new phase.
+  const worstWait = useRef<WaitBucket>('unknown');
+  const measured = waitBucketFor(etaSeconds);
+  const wait: WaitBucket =
+    phase === 'downloading' && WAIT_RANK[measured] > WAIT_RANK[worstWait.current]
+      ? measured
+      : phase === 'downloading' ? worstWait.current : 'unknown';
+  useEffect(() => {
+    worstWait.current = wait;
+  }, [wait]);
   // While the ladder demotes, hold the honest "finding the best fit" line so a
   // reset progress bar reads as deliberate. A resumed pick names the wait as
   // finishing an existing download, not a first-run setup. The smoke phase keeps
   // its own copy either way — it's the real cold load of the chosen model.
+  // A dropped connection outranks every other line: the bar freezes, and a
+  // frozen bar under a cheerful caption reads as a hang. The ladder now waits
+  // for the network and resumes the same download (setup-cascade
+  // `waitForNetwork`), so "picks up where it left off" is a promise it keeps.
   const statusCopy =
-    findingFit && phase !== 'smoke'
-      ? 'Finding the best fit for your device…'
-      : resuming && phase === 'downloading'
-        ? 'Finishing your model download…'
-        : statusCopyFor(phase, percent, lightweightDevice);
+    !online && phase === 'downloading'
+      ? 'Waiting for your connection… Eco picks up where it left off.'
+      : findingFit && phase !== 'smoke'
+        ? 'Finding the best fit for your device…'
+        : resuming && phase === 'downloading'
+          ? 'Finishing your model download…'
+          : statusCopyFor(phase, percent, lightweightDevice, wait);
 
   return (
     <main
@@ -222,10 +248,40 @@ export function WelcomeSetup({
 
 
 
+/**
+ * How long the download will honestly take, in coarse steps. 'unknown' until
+ * the tracker has two samples (etaSeconds 0); the thresholds are deliberately
+ * wide so the line does not chase the sliding-window estimate.
+ */
+type WaitBucket = 'unknown' | 'minutes' | 'while' | 'hour';
+const WAIT_RANK: Record<WaitBucket, number> = { unknown: 0, minutes: 1, while: 2, hour: 3 };
+
+export function waitBucketFor(etaSeconds: number | undefined): WaitBucket {
+  if (!etaSeconds || !Number.isFinite(etaSeconds) || etaSeconds <= 0) return 'unknown';
+  if (etaSeconds <= 6 * 60) return 'minutes';
+  if (etaSeconds <= 30 * 60) return 'while';
+  return 'hour';
+}
+
+/** The opening line's time expectation, or '' while nothing honest can be said. */
+function waitCopyFor(wait: WaitBucket): string {
+  switch (wait) {
+    case 'minutes':
+      return ' The first download takes a few minutes.';
+    case 'while':
+      return ' On this connection it will take a while. You can leave this tab open and come back.';
+    case 'hour':
+      return ' This connection is slow, so it may take an hour or more. Eco picks up where it left off if you come back later.';
+    default:
+      return '';
+  }
+}
+
 function statusCopyFor(
   phase: WelcomeSetupProps['phase'],
   percent: number,
   lightweightDevice: boolean,
+  wait: WaitBucket,
 ): string {
   // The smoke phase includes the first-ever model load — cold caches, shader
   // compilation — which legitimately runs 30-60s. Frame it as the last,
@@ -250,7 +306,7 @@ function statusCopyFor(
   // The opening beat sets one calm, static verbal expectation (not a ticking
   // countdown). On a WASM/CPU-only device we name the lighter model up front so
   // it doesn't read like a downgrade later.
-  return lightweightDevice
+  return (lightweightDevice
     ? 'Setting up a lighter AI that runs smoothly on this device.'
-    : 'Getting your private AI ready. The first download takes a few minutes.';
+    : 'Getting your private AI ready.') + waitCopyFor(wait);
 }
