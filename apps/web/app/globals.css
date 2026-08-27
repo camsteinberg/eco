@@ -828,6 +828,13 @@ button:disabled,
   html.eco-chat-cookie-notice [data-eco-welcome-card] {
     padding-bottom: calc(6.5rem + env(safe-area-inset-bottom));
   }
+  /* While the first-run welcome dialog is up, the phone notice yields entirely:
+     the dialog is modal, and its "Start with …" button is the one thing a new
+     person must be able to tap without discovering a scroll first. The notice
+     returns on the download screen (WelcomeCard sets/clears the class). */
+  html.eco-welcome-card-open [data-eco-cookie-notice] {
+    display: none;
+  }
 }
 @media (min-width: 1024px) {
   html.eco-chat-cookie-notice [data-eco-composer-bar] {

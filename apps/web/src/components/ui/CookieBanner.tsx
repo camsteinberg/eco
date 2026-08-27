@@ -60,6 +60,7 @@ export function CookieBanner() {
 
   return (
     <div
+      data-eco-cookie-notice
       role="status"
       aria-live="polite"
       className={className}
