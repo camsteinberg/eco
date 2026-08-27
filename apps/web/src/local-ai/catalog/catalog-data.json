@@ -54,7 +54,7 @@
         "tasks": ["chat", "writing", "reasoning"],
         "contextTokens": 4096
       },
-      "bestFor": "The fastest, lightest local model — quick instruction-tuned replies for chat, writing, reasoning, and light code, and the automatic default on low-memory devices and other browsers.",
+      "bestFor": "The fastest, lightest local model — quick instruction-tuned replies for chat, writing, reasoning, and light code, and the everyday pick on low-memory devices and other browsers.",
       "knownLimitation": "Validated on high-memory Chromium WebGPU; broader device classes (Safari/Firefox/mobile/low-memory) not yet proven. Shallower answers than the everyday pick, and open-world factual answers can be wrong without grounding.",
       "evidenceTier": "proven",
       "systemRoleSupport": "native",
