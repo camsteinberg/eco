@@ -4,16 +4,17 @@
 import type { EcoTool, EcoToolResult } from "./registry";
 
 /**
- * The unit-conversion tool converts between units in four families: temperature,
- * length, mass, and volume. Pure TS conversion tables (no deps).
+ * The unit-conversion tool converts between units in five families: temperature,
+ * length, mass, volume, and time. Pure TS conversion tables (no deps).
  *
- * `match` is conservative — it only fires on explicit "X <unit> in/to <unit>"
- * phrasing where both units belong to the same recognized family. Idiomatic uses
- * of unit words ("miles to go", "a foot in the door") never produce two
- * recognized units in the conversion frame, so they abstain.
+ * `match` is conservative — it only fires on explicit "X <unit> in/to <unit>" or
+ * "how many <unit> in a <unit>" phrasing where both units belong to the same
+ * recognized family. Idiomatic uses of unit words ("miles to go", "a foot in the
+ * door", "how many days in a leap year") never produce two recognized units in
+ * the conversion frame, so they abstain.
  */
 
-type UnitFamily = "temperature" | "length" | "mass" | "volume";
+type UnitFamily = "temperature" | "length" | "mass" | "volume" | "time";
 
 export type UnitArgs = {
   family: UnitFamily;
@@ -27,7 +28,7 @@ export type UnitArgs = {
 
 /**
  * Each non-temperature unit maps to a factor that converts it TO the family's base
- * unit (length → metres, mass → grams, volume → litres). Display label is the
+ * unit (length → metres, mass → grams, volume → litres, time → seconds). Display label is the
  * pretty form used in output.
  */
 type LinearUnit = { family: Exclude<UnitFamily, "temperature">; toBase: number; label: string };
@@ -55,6 +56,12 @@ const LINEAR_UNITS: Record<string, LinearUnit> = {
   pt: { family: "volume", toBase: 0.473176473, label: "pt" },
   qt: { family: "volume", toBase: 0.946352946, label: "qt" },
   gal: { family: "volume", toBase: 3.785411784, label: "gal" },
+  // time (base: second)
+  s: { family: "time", toBase: 1, label: "s" },
+  min: { family: "time", toBase: 60, label: "min" },
+  h: { family: "time", toBase: 3600, label: "h" },
+  day: { family: "time", toBase: 86_400, label: "day" },
+  week: { family: "time", toBase: 604_800, label: "week" },
 };
 
 const TEMPERATURE_UNITS = new Set(["c", "f", "k"]);
@@ -92,6 +99,13 @@ const UNIT_ALIASES: Record<string, string> = {
   pt: "pt", pint: "pt", pints: "pt",
   qt: "qt", quart: "qt", quarts: "qt",
   gal: "gal", gallon: "gal", gallons: "gal",
+  // time — no month/year: their length is not fixed, so "how many days in a
+  // year" is left to prose (and the datetime tool) rather than answered wrongly.
+  s: "s", sec: "s", secs: "s", second: "s", seconds: "s",
+  min: "min", mins: "min", minute: "min", minutes: "min",
+  h: "h", hr: "h", hrs: "h", hour: "h", hours: "h",
+  day: "day", days: "day",
+  week: "week", weeks: "week", wk: "week", wks: "week",
 };
 
 function isUnitArgs(value: unknown): value is UnitArgs {
@@ -103,7 +117,8 @@ function isUnitArgs(value: unknown): value is UnitArgs {
     v.family === "temperature" ||
     v.family === "length" ||
     v.family === "mass" ||
-    v.family === "volume";
+    v.family === "volume" ||
+    v.family === "time";
   return (
     familyOk &&
     typeof v.from === "string" &&
@@ -174,6 +189,22 @@ function matchUnit(userText: string): UnitArgs | null {
   if (b !== null) {
     // toUnit is first capture, fromUnit + value follow.
     const built = build(b[2], b[3], b[1]);
+    if (built) {
+      return built;
+    }
+  }
+
+  // Pattern C: "how many <unitB> (are )?in (a|an|one) <unitA>" — the everyday
+  // "how many cups are in a gallon" form, where the quantity is an implicit 1.
+  // Anchored on a recognized unit after the article, so "in a marathon" or
+  // "in a leap year" abstain.
+  const frameC = new RegExp(
+    `how many\\s+(°?\\s*(?:${UNIT_SURFACE_PATTERN}))\\s+(?:are\\s+)?(?:in|per)\\s+(?:a|an|one)\\s+(°?\\s*(?:${UNIT_SURFACE_PATTERN}))\\b`,
+    "i"
+  );
+  const c = frameC.exec(normalized);
+  if (c !== null) {
+    const built = build("1", c[2], c[1]);
     if (built) {
       return built;
     }
@@ -298,21 +329,30 @@ const UNIT_FULL_NAME: Record<string, string> = {
   mg: "milligrams", g: "grams", kg: "kilograms", oz: "ounces", lb: "pounds",
   // volume
   ml: "milliliters", l: "liters", cup: "cups", pt: "pints", qt: "quarts", gal: "gallons",
+  // time
+  s: "seconds", min: "minutes", h: "hours", day: "days", week: "weeks",
 };
 
-function unitName(unitId: string): string {
-  return UNIT_FULL_NAME[unitId] ?? unitId;
+/** Irregular singulars; every other plural above just drops its trailing "s". */
+const UNIT_SINGULAR_NAME: Record<string, string> = { in: "inch", ft: "foot", c: "Celsius", f: "Fahrenheit", k: "Kelvin" };
+
+function unitName(unitId: string, count = 2): string {
+  const plural = UNIT_FULL_NAME[unitId] ?? unitId;
+  if (count !== 1) {
+    return plural;
+  }
+  return UNIT_SINGULAR_NAME[unitId] ?? plural.replace(/s$/, "");
 }
 
-/** Friendly headline: "5 miles → kilometers". */
+/** Friendly headline: "5 miles → kilometers", "1 gallon → cups". */
 function summarizeUnit(args: UnitArgs): string {
-  return `${formatNumber(args.value)} ${unitName(args.from)} → ${unitName(args.to)}`;
+  return `${formatNumber(args.value)} ${unitName(args.from, args.value)} → ${unitName(args.to)}`;
 }
 
 export const unitTool: EcoTool<UnitArgs> = {
   name: "unit-conversion",
   description:
-    "Convert between units of temperature, length, mass, or volume (e.g. 5 miles in km).",
+    "Convert between units of temperature, length, mass, volume, or time (e.g. 5 miles in km, how many cups in a gallon).",
   validate: isUnitArgs,
   match: matchUnit,
   execute: executeUnit,
