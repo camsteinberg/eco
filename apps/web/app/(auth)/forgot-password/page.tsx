@@ -75,7 +75,7 @@ function ForgotPasswordForm() {
   }
 
   return (
-    <div data-eco-full-bleed className="grain relative flex min-h-dvh items-center justify-center overflow-hidden bg-[var(--eco-surface)] px-4">
+    <main data-eco-full-bleed className="grain relative flex min-h-dvh items-center justify-center overflow-hidden bg-[var(--eco-surface)] px-4">
       {/* Mountain silhouettes — connects to landing valley */}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-80 sm:h-96" aria-hidden="true">
         <svg viewBox="0 0 1440 320" fill="none" preserveAspectRatio="none" className="absolute inset-0 h-full w-full">
@@ -200,7 +200,7 @@ function ForgotPasswordForm() {
           )}
         </div>
       </div>
-    </div>
+    </main>
   );
 }
 
@@ -208,9 +208,9 @@ export default function ForgotPasswordPage() {
   return (
     <Suspense
       fallback={
-        <div data-eco-full-bleed className="grain relative flex min-h-dvh items-center justify-center overflow-hidden bg-[var(--eco-surface)] px-4">
+        <main data-eco-full-bleed className="grain relative flex min-h-dvh items-center justify-center overflow-hidden bg-[var(--eco-surface)] px-4">
           <div className="text-sm text-[var(--eco-text-secondary)]">Loading…</div>
-        </div>
+        </main>
       }
     >
       <ForgotPasswordForm />
