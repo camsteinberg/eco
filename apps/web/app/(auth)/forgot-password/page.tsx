@@ -65,10 +65,10 @@ function ForgotPasswordForm() {
           redirectTo: toAbsoluteWebUrl(resetRedirectTo),
         }),
       });
-      if (!res.ok) throw new Error("Failed to send reset email");
+      if (!res.ok) throw new Error("We couldn't send the reset email. Check your connection and try again.");
       setSent(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to send reset email");
+      setError(err instanceof Error ? err.message : "We couldn't send the reset email. Check your connection and try again.");
     } finally {
       setLoading(false);
     }
