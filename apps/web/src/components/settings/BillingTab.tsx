@@ -241,7 +241,7 @@ export function BillingTab() {
               price="$0"
               period="forever"
               features={[
-                'Everything Eco does runs on your device — the complete product, no limits, no locked features.',
+                'Chat runs on your device — the complete product, no limits, no locked features.',
               ]}
               current={!isPaid}
             />
