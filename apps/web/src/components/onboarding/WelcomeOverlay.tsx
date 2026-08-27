@@ -66,7 +66,7 @@ export function WelcomeOverlay({ onStart, onSkip }: WelcomeOverlayProps) {
             className="text-sm"
             style={{ color: "var(--eco-text-secondary)" }}
           >
-            Private AI, powered by everyone.
+            Private AI, on your device.
           </p>
         </div>
 
