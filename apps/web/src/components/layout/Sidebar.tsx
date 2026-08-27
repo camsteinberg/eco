@@ -10,6 +10,7 @@ import { ConversationList } from '../sidebar/ConversationList'
 import { ThemeToggle } from '../nav/ThemeToggle'
 import {
   clearClientState,
+  clearSessionClientState,
   signOutCurrentUser,
   settleWithinBudget,
   CLIENT_CLEANUP_BUDGET_MS,
@@ -284,6 +285,9 @@ export function Sidebar({
   const searchParams = useSearchParams()
   const [isSigningOut, setIsSigningOut] = useState(false)
   const [signOutError, setSignOutError] = useState<string | null>(null)
+  const [signOutPromptOpen, setSignOutPromptOpen] = useState(false)
+  const [removeDeviceData, setRemoveDeviceData] = useState(false)
+  const removeDeviceDataId = useId()
   const [recentChatsOpen, setRecentChatsOpen] = useState(true)
   const recentChatsDisclosureId = useId()
   const isGuest = viewerMode === 'guest'
@@ -315,6 +319,19 @@ export function Sidebar({
     return isExactTab ? 'page' : 'location'
   }
 
+  const openSignOutPrompt = useCallback(() => {
+    if (isSigningOut) {
+      return
+    }
+    setSignOutError(null)
+    setRemoveDeviceData(false)
+    setSignOutPromptOpen(true)
+    // The prompt needs room to read; a collapsed rail can't show it.
+    if (collapsed) {
+      onToggleCollapse?.()
+    }
+  }, [collapsed, isSigningOut, onToggleCollapse])
+
   const handleSignOut = useCallback(async () => {
     if (isSigningOut) {
       return
@@ -331,13 +348,18 @@ export function Sidebar({
       return
     }
 
-    // The server session is revoked. Local cleanup is best-effort and must never
-    // trap the user on the "Signing you out…" overlay — bound it so a stalled
-    // browser-storage / service-worker teardown can't block, then navigate
-    // regardless. (See settleWithinBudget for why resolving early is safe.)
-    await settleWithinBudget(clearClientState(), CLIENT_CLEANUP_BUDGET_MS)
+    // The server session is revoked. Chats and settings live on this device,
+    // not the account, so they stay unless the person asked to remove them.
+    // Local cleanup is best-effort and must never trap the user on the
+    // "Signing you out…" overlay — bound it so a stalled browser-storage /
+    // service-worker teardown can't block, then navigate regardless.
+    if (removeDeviceData) {
+      await settleWithinBudget(clearClientState(), CLIENT_CLEANUP_BUDGET_MS)
+    } else {
+      clearSessionClientState()
+    }
     window.location.replace(buildSignedOutHref())
-  }, [isSigningOut])
+  }, [isSigningOut, removeDeviceData])
 
   const isChatRoute = pathname === '/chat' || pathname.startsWith('/chat/')
   const chatItem: NavItem = {
@@ -584,7 +606,7 @@ export function Sidebar({
           <div className="flex flex-col items-center gap-2">
             <button
               type="button"
-              onClick={handleSignOut}
+              onClick={openSignOutPrompt}
               disabled={isSigningOut}
               aria-busy={isSigningOut}
               aria-label={isSigningOut ? 'Signing out' : 'Sign out'}
@@ -604,23 +626,64 @@ export function Sidebar({
           </div>
         ) : (
           <>
-            <button
-              type="button"
-              onClick={handleSignOut}
-              disabled={isSigningOut}
-              aria-busy={isSigningOut}
-              className={[
-                "w-full cursor-pointer rounded-xl px-3 py-2.5 text-left text-sm transition-colors",
-                isSigningOut
-                  ? "bg-[var(--eco-primary-soft)] text-[var(--eco-primary)] disabled:cursor-wait"
-                  : "text-[var(--eco-text-secondary)] hover:bg-[var(--eco-primary-soft)] hover:text-[var(--eco-text)]",
-              ].join(" ")}
-            >
-              <span className="flex items-center gap-2.5">
-                <SignOutIcon className="h-4 w-4 shrink-0" />
-                {isSigningOut ? 'Signing out…' : 'Sign out'}
-              </span>
-            </button>
+            {signOutPromptOpen ? (
+              <div
+                role="group"
+                aria-labelledby={`${removeDeviceDataId}-title`}
+                className="rounded-xl border border-[var(--eco-border)]/60 bg-[var(--eco-surface)] p-3"
+              >
+                <p id={`${removeDeviceDataId}-title`} className="text-sm font-medium text-[var(--eco-text)]">
+                  Sign out of your account?
+                </p>
+                <p className="mt-1 text-xs text-[var(--eco-text-secondary)]">
+                  Your chats and settings stay on this device.
+                </p>
+                <label htmlFor={removeDeviceDataId} className="mt-3 flex cursor-pointer items-start gap-2.5">
+                  <input
+                    id={removeDeviceDataId}
+                    type="checkbox"
+                    checked={removeDeviceData}
+                    disabled={isSigningOut}
+                    onChange={(e) => setRemoveDeviceData(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--eco-primary)]"
+                  />
+                  <span className="text-sm text-[var(--eco-text-secondary)]">
+                    Also remove my chats and settings from this device
+                  </span>
+                </label>
+                <div className="mt-3 flex flex-col gap-2">
+                  <button
+                    type="button"
+                    onClick={handleSignOut}
+                    disabled={isSigningOut}
+                    aria-busy={isSigningOut}
+                    className="inline-flex min-h-9 w-full cursor-pointer items-center justify-center rounded-lg bg-[var(--eco-primary)] px-3 text-sm font-medium text-[var(--eco-on-primary)] transition-colors hover:opacity-90 disabled:cursor-wait disabled:opacity-70"
+                  >
+                    {isSigningOut ? 'Signing out…' : removeDeviceData ? 'Sign out and remove' : 'Sign out'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSignOutPromptOpen(false)}
+                    disabled={isSigningOut}
+                    className="inline-flex min-h-9 w-full cursor-pointer items-center justify-center rounded-lg border border-[var(--eco-border)]/60 px-3 text-sm text-[var(--eco-text-secondary)] transition-colors hover:text-[var(--eco-text)] disabled:opacity-70"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={openSignOutPrompt}
+                disabled={isSigningOut}
+                className="w-full cursor-pointer rounded-xl px-3 py-2.5 text-left text-sm text-[var(--eco-text-secondary)] transition-colors hover:bg-[var(--eco-primary-soft)] hover:text-[var(--eco-text)]"
+              >
+                <span className="flex items-center gap-2.5">
+                  <SignOutIcon className="h-4 w-4 shrink-0" />
+                  Sign out
+                </span>
+              </button>
+            )}
             {signOutError ? (
               <ErrorLine size="xs" className="mt-2 px-3">
                 {signOutError}

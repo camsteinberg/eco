@@ -147,8 +147,38 @@ export async function signOutCurrentUser(
 }
 
 /**
- * Clear all user-specific client state (stores, IndexedDB, localStorage, caches).
- * Called on sign-out, account deletion, and 401 detection.
+ * Sign-out cleanup that keeps this device's chats and settings. Conversations
+ * are device-scoped, not account-scoped, so signing out must not destroy them
+ * unless the person asks (see `clearClientState`). Drops only what belongs to
+ * the server session and the in-flight UI: session-bound chat state, the
+ * invite cookie, a pending prompt, and `eco-` sessionStorage keys.
+ */
+export function clearSessionClientState(): void {
+  clearInviteCodeCookie()
+  clearPendingChatPrompt()
+  useChatStore.getState().clearSessionState()
+  removeEcoSessionStorageKeys()
+}
+
+function removeEcoSessionStorageKeys(): void {
+  if (typeof window === 'undefined') return
+  const sessionKeysToRemove: string[] = []
+  for (let i = 0; i < sessionStorage.length; i++) {
+    const key = sessionStorage.key(i)
+    if (!key) continue
+    if (key.startsWith('eco-') || key.startsWith('eco:')) {
+      sessionKeysToRemove.push(key)
+    }
+  }
+  for (const key of sessionKeysToRemove) {
+    sessionStorage.removeItem(key)
+  }
+}
+
+/**
+ * Clear ALL user-specific client state (stores, IndexedDB, localStorage, caches).
+ * Called on account deletion, and on sign-out only when the person ticks
+ * "also remove my chats and settings from this device".
  * Preserves device preferences (theme, sidebar collapsed, font size).
  */
 export async function clearClientState(): Promise<void> {
@@ -164,17 +194,7 @@ export async function clearClientState(): Promise<void> {
   await closeConversationPersistenceDb()
 
   if (typeof window !== 'undefined') {
-    const sessionKeysToRemove: string[] = []
-    for (let i = 0; i < sessionStorage.length; i++) {
-      const key = sessionStorage.key(i)
-      if (!key) continue
-      if (key.startsWith('eco-') || key.startsWith('eco:')) {
-        sessionKeysToRemove.push(key)
-      }
-    }
-    for (const key of sessionKeysToRemove) {
-      sessionStorage.removeItem(key)
-    }
+    removeEcoSessionStorageKeys()
 
     suppressNextConversationPersistenceHydration()
     suppressNextServiceWorkerRegistration()

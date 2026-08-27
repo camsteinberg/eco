@@ -11,6 +11,9 @@ let mockSearchParams = new URLSearchParams()
 const { clearClientStateMock } = vi.hoisted(() => ({
   clearClientStateMock: vi.fn().mockResolvedValue(undefined),
 }))
+const { clearSessionClientStateMock } = vi.hoisted(() => ({
+  clearSessionClientStateMock: vi.fn(),
+}))
 const { signOutCurrentUserMock } = vi.hoisted(() => ({
   signOutCurrentUserMock: vi.fn().mockResolvedValue(undefined),
 }))
@@ -35,6 +38,7 @@ vi.mock('next/navigation', () => ({
 
 vi.mock('../../lib/auth', () => ({
   clearClientState: clearClientStateMock,
+  clearSessionClientState: clearSessionClientStateMock,
   signOutCurrentUser: signOutCurrentUserMock,
   settleWithinBudget: settleWithinBudgetMock,
   CLIENT_CLEANUP_BUDGET_MS: MOCK_CLEANUP_BUDGET_MS,
@@ -68,6 +72,7 @@ describe('Sidebar', () => {
     signOutCurrentUserMock.mockResolvedValue(undefined)
     clearClientStateMock.mockReset()
     clearClientStateMock.mockResolvedValue(undefined)
+    clearSessionClientStateMock.mockReset()
     settleWithinBudgetMock.mockReset()
     settleWithinBudgetMock.mockResolvedValue(undefined)
     Object.defineProperty(window, 'location', {
@@ -154,14 +159,50 @@ describe('Sidebar', () => {
     expect(screen.getByText('Sign in')).toBeInTheDocument()
   })
 
-  it('signs out on the server before clearing local account state and redirecting', async () => {
+  it('asks before signing out, and says chats stay on this device', async () => {
     const user = userEvent.setup()
 
     render(<Sidebar onNewChat={vi.fn()} />)
     await user.click(screen.getByText('Sign out'))
 
+    expect(signOutCurrentUserMock).not.toHaveBeenCalled()
+    expect(screen.getByText('Sign out of your account?')).toBeInTheDocument()
+    expect(screen.getByText(/chats and settings stay on this device/i)).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: /remove my chats and settings/i })).not.toBeChecked()
+
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByText('Sign out of your account?')).not.toBeInTheDocument()
+    expect(signOutCurrentUserMock).not.toHaveBeenCalled()
+  })
+
+  it('signs out on the server, keeps local chats by default, and redirects', async () => {
+    const user = userEvent.setup()
+
+    render(<Sidebar onNewChat={vi.fn()} />)
+    await user.click(screen.getByText('Sign out'))
+    await user.click(screen.getByRole('button', { name: 'Sign out' }))
+
+    expect(signOutCurrentUserMock).toHaveBeenCalledTimes(1)
+    // Conversations are device-scoped: signing out must not delete them.
+    expect(clearClientStateMock).not.toHaveBeenCalled()
+    expect(clearSessionClientStateMock).toHaveBeenCalledTimes(1)
+    expect(signOutCurrentUserMock.mock.invocationCallOrder[0]!).toBeLessThan(
+      clearSessionClientStateMock.mock.invocationCallOrder[0]!,
+    )
+    expect(window.location.replace).toHaveBeenCalledWith('/sign-in?signedOut=1&callbackUrl=%2Fchat')
+  })
+
+  it('removes chats and settings from the device only when asked to', async () => {
+    const user = userEvent.setup()
+
+    render(<Sidebar onNewChat={vi.fn()} />)
+    await user.click(screen.getByText('Sign out'))
+    await user.click(screen.getByRole('checkbox', { name: /remove my chats and settings/i }))
+    await user.click(screen.getByRole('button', { name: 'Sign out and remove' }))
+
     expect(signOutCurrentUserMock).toHaveBeenCalledTimes(1)
     expect(clearClientStateMock).toHaveBeenCalledTimes(1)
+    expect(clearSessionClientStateMock).not.toHaveBeenCalled()
     // Local cleanup is run through the bounded helper, not awaited directly.
     expect(settleWithinBudgetMock).toHaveBeenCalledTimes(1)
     expect(settleWithinBudgetMock.mock.calls[0]![1]).toBe(MOCK_CLEANUP_BUDGET_MS)
@@ -180,6 +221,8 @@ describe('Sidebar', () => {
 
     render(<Sidebar onNewChat={vi.fn()} />)
     await user.click(screen.getByText('Sign out'))
+    await user.click(screen.getByRole('checkbox', { name: /remove my chats and settings/i }))
+    await user.click(screen.getByRole('button', { name: 'Sign out and remove' }))
 
     // The bound returns despite the stalled cleanup, so the user is never trapped.
     expect(settleWithinBudgetMock).toHaveBeenCalledTimes(1)
@@ -195,6 +238,7 @@ describe('Sidebar', () => {
 
     render(<Sidebar onNewChat={vi.fn()} />)
     await user.click(screen.getByText('Sign out'))
+    await user.click(screen.getByRole('button', { name: 'Sign out' }))
 
     expect(screen.getByRole('status')).toHaveTextContent(/signing you out/i)
     expect(screen.getByRole('button', { name: /signing out/i })).toBeDisabled()
@@ -208,9 +252,11 @@ describe('Sidebar', () => {
 
     render(<Sidebar onNewChat={vi.fn()} />)
     await user.click(screen.getByText('Sign out'))
+    await user.click(screen.getByRole('button', { name: 'Sign out' }))
 
     expect(signOutCurrentUserMock).toHaveBeenCalledTimes(1)
     expect(clearClientStateMock).not.toHaveBeenCalled()
+    expect(clearSessionClientStateMock).not.toHaveBeenCalled()
     expect(settleWithinBudgetMock).not.toHaveBeenCalled()
     expect(window.location.replace).not.toHaveBeenCalled()
     expect(await screen.findByRole('alert')).toHaveTextContent(/could not sign you out/i)
