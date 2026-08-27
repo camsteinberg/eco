@@ -36,6 +36,13 @@
       "when": 1787388795043,
       "tag": "0004_add_feedback",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1787802000000,
+      "tag": "0005_add_feedback_failure_summary",
+      "breakpoints": true
     }
   ]
 }

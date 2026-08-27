@@ -109,14 +109,15 @@ describe('feedback table', () => {
     expect(cols.createdAt).toBeDefined()
   })
 
-  it('message is not null; deviceSummary is nullable (anonymous, opt-in)', () => {
+  it('message is not null; deviceSummary and failureSummary are nullable (anonymous, opt-in)', () => {
     const cols = getTableColumns(feedback)
     expect(cols.message.notNull).toBe(true)
     expect(cols.deviceSummary.notNull).toBe(false)
+    expect(cols.failureSummary.notNull).toBe(false)
   })
 
   it('stores no user id, IP, or user-agent column — feedback is anonymous by design', () => {
     const cols = getTableColumns(feedback)
-    expect(Object.keys(cols).sort()).toEqual(['createdAt', 'deviceSummary', 'id', 'message'])
+    expect(Object.keys(cols).sort()).toEqual(['createdAt', 'deviceSummary', 'failureSummary', 'id', 'message'])
   })
 })

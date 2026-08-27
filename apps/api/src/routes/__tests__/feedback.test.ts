@@ -50,7 +50,7 @@ describe('POST /v1/feedback', () => {
     const body = await res.json()
     expect(body.ok).toBe(true)
     expect(insertedRows).toEqual([
-      { message: 'The download stalled on my laptop.', deviceSummary: null },
+      { message: 'The download stalled on my laptop.', deviceSummary: null, failureSummary: null },
     ])
   })
 
@@ -65,6 +65,7 @@ describe('POST /v1/feedback', () => {
       {
         message: 'Model picker is confusing.',
         deviceSummary: 'Firefox 146 · WebGPU · Eco Compact',
+        failureSummary: null,
       },
     ])
   })
@@ -73,14 +74,14 @@ describe('POST /v1/feedback', () => {
     const res = await submit(app, { message: '  hello  ', deviceSummary: '   ' })
 
     expect(res.status).toBe(200)
-    expect(insertedRows).toEqual([{ message: 'hello', deviceSummary: null }])
+    expect(insertedRows).toEqual([{ message: 'hello', deviceSummary: null, failureSummary: null }])
   })
 
   it('treats an explicit null deviceSummary as absent', async () => {
-    const res = await submit(app, { message: 'works', deviceSummary: null })
+    const res = await submit(app, { message: 'works', deviceSummary: null, failureSummary: null })
 
     expect(res.status).toBe(200)
-    expect(insertedRows).toEqual([{ message: 'works', deviceSummary: null }])
+    expect(insertedRows).toEqual([{ message: 'works', deviceSummary: null, failureSummary: null }])
   })
 
   it('stores nothing beyond message and deviceSummary even when extra fields are sent', async () => {
@@ -91,7 +92,28 @@ describe('POST /v1/feedback', () => {
     })
 
     expect(res.status).toBe(200)
-    expect(insertedRows).toEqual([{ message: 'hi', deviceSummary: null }])
+    expect(insertedRows).toEqual([{ message: 'hi', deviceSummary: null, failureSummary: null }])
+  })
+
+  it('stores the opt-in failure summary when provided', async () => {
+    const res = await submit(app, {
+      message: 'the deeper model will not load',
+      failureSummary: '2026-08-26 load-fail candidate/lfm2-2.6b-onnx webgpu',
+    })
+    expect(res.status).toBe(200)
+    expect(insertedRows).toEqual([
+      {
+        message: 'the deeper model will not load',
+        deviceSummary: null,
+        failureSummary: '2026-08-26 load-fail candidate/lfm2-2.6b-onnx webgpu',
+      },
+    ])
+  })
+
+  it('rejects a non-string failure summary and caps its length', async () => {
+    expect((await submit(app, { message: 'x', failureSummary: 42 })).status).toBe(400)
+    expect((await submit(app, { message: 'x', failureSummary: 'a'.repeat(2001) })).status).toBe(400)
+    expect((await submit(app, { message: 'x', failureSummary: 'a'.repeat(2000) })).status).toBe(200)
   })
 
   it('rejects a missing message', async () => {

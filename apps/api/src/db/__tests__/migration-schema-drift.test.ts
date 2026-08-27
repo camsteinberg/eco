@@ -32,7 +32,8 @@ function loadMigrationStatements(): string[] {
 }
 
 // Effective SQL type of a column after applying every migration in order:
-// the CREATE TABLE declaration, then any `ALTER COLUMN ... SET DATA TYPE`.
+// the CREATE TABLE declaration, any `ADD COLUMN`, then any
+// `ALTER COLUMN ... SET DATA TYPE`.
 function effectiveColumnType(table: string, column: string): string | null {
   let type: string | null = null
   for (const statement of loadMigrationStatements()) {
@@ -40,6 +41,10 @@ function effectiveColumnType(table: string, column: string): string | null {
       const decl = new RegExp(`"${column}"\\s+(\\w+)`).exec(statement)
       if (decl) type = decl[1].toLowerCase()
     }
+    const added = new RegExp(
+      `ALTER TABLE "${table}" ADD COLUMN "${column}"\\s+(\\w+)`,
+    ).exec(statement)
+    if (added) type = added[1].toLowerCase()
     const altered = new RegExp(
       `ALTER TABLE "${table}" ALTER COLUMN "${column}" SET DATA TYPE (\\w+)`,
     ).exec(statement)
@@ -76,7 +81,7 @@ describe('migration / code schema drift for Better Auth id columns', () => {
   }
 })
 
-// The feedback migration (0004) was authored by hand (drizzle-kit generate
+// The feedback migrations (0004, 0005) were authored by hand (drizzle-kit generate
 // cannot load the schema in this environment), so hold it to the same
 // DDL-matches-code standard: every code-schema column must appear in the
 // migration DDL with the same base SQL type.
