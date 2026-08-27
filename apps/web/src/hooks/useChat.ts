@@ -1198,9 +1198,9 @@ export function useChat() {
       : DEFAULT_TOOLS.filter((tool) => tool.presentation !== "citation");
     // When the user has EXPLICITLY turned web lookups off, hand the removed citation
     // tools back as `declineTools` so a turn that WOULD have hit a browser-direct
-    // lookup gets an honest "I can't look that up" note instead of the model
-    // fabricating a falsely-sourced answer (F-1). Detection-only — they never execute
-    // or touch the network. Gated on EXPLICIT opt-out, NOT the unhydrated race: on
+    // lookup is answered from the model's memory with the host-drawn "not checked"
+    // marker, instead of a falsely-sourced answer. Detection-only — they never
+    // execute or touch the network. Gated on EXPLICIT opt-out, NOT the unhydrated race: on
     // `!hasLoaded` we still fail closed on the network, but we must not tell the user
     // "lookups are off" when we simply haven't loaded their choice yet (they may have
     // them on). Lookups on / unhydrated ⇒ undefined (no decline note).
@@ -1231,7 +1231,8 @@ export function useChat() {
       {
         tools: effectiveTools,
         // Present only when lookups are off — the disabled citation tools, so an
-        // off-turn that would have looked something up declines honestly (F-1).
+        // off-turn that would have looked something up is answered from memory,
+        // labelled.
         ...(declineTools ? { declineTools } : {}),
         // Omit matchContext entirely when context-free, so a turn with no recent
         // grounded antecedent stays context-free (preserves the existing idiom).
@@ -1248,35 +1249,14 @@ export function useChat() {
       return;
     }
 
-    // ── Deterministic honest decline (F-1) ────────────────────────────────
-    // When web lookups are explicitly off and the turn would have needed one, the
-    // tool step returns a host-rendered decline message instead of a model note.
-    // We render it verbatim AS the answer and SKIP generation entirely — the small
-    // model can't be trusted to obey a "decline" instruction (prod-verified: it
-    // fabricates a falsely-sourced answer), so taking the model out of the loop is
-    // the only way to guarantee no fabrication. No citation/verification applies.
-    if (toolStep.declineMessage) {
-      updateMessage(assistantId, {
-        content: toolStep.declineMessage,
-        status: "complete",
-        inferenceMethod: "local",
-        confidence: null,
-      });
-      finalizeAssistantMarkdown(assistantId, updateMessage);
-      playMessageReceived(useSettingsStore.getState().soundsEnabled);
-      clearActiveGeneration(generation);
-      return;
-    }
-
     // ── Host-authoritative identity/privacy answer (Finding G) ─────────────
     // The turn asked who/what Eco is, where the user's data goes, or "are you
     // <product>?". A sub-2B model fabricates FALSE cloud-privacy claims here (the
     // 350m starter: "your data goes to Amazon S3" in ~1/3 samples) and invents base
     // identities, inverting a privacy-first product's core promise. So the host
-    // states the on-device truth verbatim AND SKIPS generation entirely — the third
+    // states the on-device truth verbatim AND SKIPS generation entirely — the second
     // instance of the host-authoritative pattern (calculator/datetime/unit canonical
-    // answers; the F-1 lookups-off decline above). Rendered as a normal Markdown
-    // assistant message via the same finalize path as the decline (NOT
+    // answers). Rendered as a normal Markdown assistant message via finalize (NOT
     // `canonicalToolAnswer`, which is for verbatim computed values): persisted,
     // copyable, and surviving scroll-back. Structurally NOT gated by web lookups —
     // the grounding gate only filters `presentation:"citation"` tools, and the
@@ -1299,7 +1279,7 @@ export function useChat() {
     // ── Canonical exact-answer tool result ────────────────────────────────
     // A canonical tool (calculator/datetime/unit) computed the authoritative answer.
     // Set its `display` verbatim AS the message content and SKIP generation entirely,
-    // exactly like the F-1 decline above — a sub-1B model reliably corrupts an exact
+    // exactly like the identity host answer above — a sub-1B model reliably corrupts an exact
     // value in prose ("2 + 2 = 5"). Persisting it as content (marked canonical) is
     // what makes the correct value survive a follow-up + scroll-back and feeds
     // copy/export; the `canonicalToolAnswer` flag tells MessageBubble to render it as

@@ -67,9 +67,12 @@ export type EcoCitation = {
  *
  * `"unverified"` = the answer was given/attempted but no source confirmed it (hedge /
  * hard-decline). `"unreachable"` = the sources couldn't be reached (transient/network;
- * soft-degrade).
+ * soft-degrade). `"lookups-off"` = the user turned web lookups off, so the model
+ * answered from its own knowledge and nothing was checked.
  */
-export type GroundingVerification = { status: "unverified" | "unreachable" };
+export type GroundingVerification = {
+  status: "unverified" | "unreachable" | "lookups-off";
+};
 
 /**
  * Optional conversation-derived hints passed to a tool's `match`. Lets a tool

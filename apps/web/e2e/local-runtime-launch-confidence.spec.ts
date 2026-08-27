@@ -61,7 +61,9 @@ async function seedCompletedLocalOnboarding(page: Page): Promise<void> {
 async function waitForPersistedSetting(page: Page, key: string): Promise<void> {
   await page.waitForFunction(async (settingKey) => {
     const database = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open("eco-settings", 1);
+      // No version: open whatever version the app created (a fixed "1" broke
+      // with VersionError once the settings DB moved to v2 in #281).
+      const request = indexedDB.open("eco-settings");
       request.onerror = () => reject(request.error ?? new Error("Failed to open settings database"));
       request.onsuccess = () => resolve(request.result);
     });
@@ -154,7 +156,7 @@ test("local fixture generation never sends prompt text to network routes", async
   expect(promptEgressRequests).toEqual([]);
 });
 
-test("web lookups off: fact query declines deterministically with no egress", async ({ page }) => {
+test("web lookups off: fact query is answered from memory, labelled, with no egress", async ({ page }) => {
   // A sentinel rides along with a realistic tool-triggering prompt so a regression
   // that egressed the prompt via ANY route (not just the known lookup hosts) is
   // caught, while the host trap still proves the specific lookup hosts stay dark.
@@ -187,12 +189,12 @@ test("web lookups off: fact query declines deterministically with no egress", as
   await page.getByLabel("Message input").fill(factPrompt);
   await page.getByRole("button", { name: "Send message" }).click();
 
-  // With lookups off, a factual query is declined DETERMINISTICALLY by the host —
-  // the model is never invoked, so it cannot fabricate a falsely-sourced answer
-  // (F-1). The decline message renders instead of the fixture model output.
-  await expect(page.getByText(/web lookups are turned off/i)).toBeVisible();
-  // The fixture model never ran (no "Fixture complete" — generation was skipped).
-  await expect(page.getByText(/Fixture complete/i)).toHaveCount(0);
+  // With lookups off, a factual query is still ANSWERED — by the model, from its
+  // own knowledge — and the host draws the "from memory, not checked" marker.
+  await expect(page.getByText(/Fixture complete/i)).toBeVisible({ timeout: 30_000 });
+  const note = page.getByTestId("uncertainty-note");
+  await expect(note).toBeVisible();
+  await expect(note).toHaveAttribute("data-status", "lookups-off");
   // The core guarantee: the query never egressed anything.
   expect(browserDirectRequests).toEqual([]);
   expect(promptEgressRequests).toEqual([]);

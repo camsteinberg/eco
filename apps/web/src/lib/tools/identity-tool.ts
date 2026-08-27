@@ -12,7 +12,7 @@
  * detects identity / privacy / "are you <product>?" turns and states the on-device
  * truth VERBATIM — the model never generates. This is the third instance of the
  * established host-authoritative pattern (calculator/datetime/unit canonical
- * answers; the F-1 lookups-off decline; see the engineering-review Corollary).
+ * answers; see the engineering-review Corollary).
  *
  * Detection is deliberately narrow and WHOLE-TURN anchored (never a keyword scan):
  * the entire normalized turn must match one anchored alternation, so "where does

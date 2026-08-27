@@ -31,7 +31,8 @@ import type { GroundingVerification } from "../../lib/tools";
  * Copy is written for the USER, not the architecture: it speaks to reliability in
  * plain language and never names an internal source ("Wikipedia"/"hedge"/"grounding").
  * `"unreachable"` reads as transient/retryable — distinct from `"unverified"` (no
- * source confirmed the claim).
+ * source confirmed the claim). `"lookups-off"` says plainly why nothing was checked
+ * (the user's own setting) so they know where the switch is.
  */
 export function UncertaintyNote({
   status,
@@ -43,7 +44,9 @@ export function UncertaintyNote({
   const text =
     status === "unreachable"
       ? "Eco couldn’t reach its sources to check this just now — try again in a moment."
-      : "Eco couldn’t confirm this against a source.";
+      : status === "lookups-off"
+        ? "Answered from memory — web lookups are off, so this was not checked against a source."
+        : "Eco couldn’t confirm this against a source.";
 
   // Screen-reader prefix matches the state: "unverified" is the epistemic case (no
   // source confirmed the claim); "unreachable" is transient (sources couldn't be
@@ -52,7 +55,9 @@ export function UncertaintyNote({
   const accessibleName =
     status === "unreachable"
       ? "Couldn’t verify: Eco couldn’t reach its sources to check this just now"
-      : "Unverified: Eco couldn’t confirm this against a source";
+      : status === "lookups-off"
+        ? "From memory: web lookups are off, so this wasn’t checked against a source"
+        : "Unverified: Eco couldn’t confirm this against a source";
 
   return (
     <motion.aside

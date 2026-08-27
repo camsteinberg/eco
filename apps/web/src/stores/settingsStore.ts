@@ -66,7 +66,7 @@ export function canUseExternalLookups(settings: ExternalLookupSettings): boolean
  * The user has EXPLICITLY opted out of web lookups: settings have hydrated AND the
  * switch is off. Distinct from {@link canUseExternalLookups} being false, which is
  * also true on the transient unhydrated race (`!hasLoaded`). The chat pipeline uses
- * this to decide whether to inject an honest "web lookups are off" decline (F-1):
+ * this to decide whether to add the "answering from memory, lookups are off" note:
  * only when we KNOW the user turned them off — never on the unhydrated race, where
  * claiming "lookups are off" could be false (they may have them on).
  */

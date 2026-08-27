@@ -20,7 +20,6 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { WikipediaResult, WikidataStatement } from "../../../lib/grounding";
 import {
   runToolStep,
-  WEB_LOOKUPS_OFF_DECLINE_MESSAGE,
   type ToolStepStore,
 } from "../tool-step";
 import {
@@ -132,7 +131,6 @@ describe("runToolStep", () => {
     // decline message.
     expect(out.citation).toBeUndefined();
     expect(out.verification).toBeUndefined();
-    expect(out.declineMessage).toBeUndefined();
   });
 
   it("returns canonicalAnswer (skip generation) for a unit-conversion match too — all tool-block tools", async () => {
@@ -294,7 +292,6 @@ describe("runToolStep — identity (presentation:'host-answer')", () => {
     expect(getCleared()).toBe(1);
     // Mutually exclusive with every other outcome field.
     expect(out.canonicalAnswer).toBeUndefined();
-    expect(out.declineMessage).toBeUndefined();
     expect(out.citation).toBeUndefined();
     expect(out.verification).toBeUndefined();
   });
@@ -471,26 +468,27 @@ describe("runToolStep — options.tools gate", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// F-1 (2026-06-24 launch rehearsal) — options.declineTools honest-decline path
+// options.declineTools — web lookups OFF: answer from memory, labelled (2026-08-27)
 //
 // When web lookups are OFF the caller removes the citation tools from `tools`
 // (so they never execute or hit the network) AND passes them as `declineTools`.
-// A turn that WOULD have matched a disabled lookup tool then gets an honest
-// "I can't look that up" note injected — instead of falling through to normal
-// chat where the small model fabricates a falsely-sourced answer. Detection-only:
-// no execute, no network, no ToolCallBlock, no citation/verification.
+// A turn that WOULD have matched a disabled lookup tool gets the from-memory note
+// and a `lookups-off` verification, so the model answers and the HOST marks the
+// reply as not checked against a source. Detection-only: no execute, no network,
+// no ToolCallBlock, no citation.
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe("runToolStep — options.declineTools (web lookups off honest decline)", () => {
+describe("runToolStep — options.declineTools (web lookups off: answer from memory, labelled)", () => {
   /** The "grounding OFF" enabled list, and the disabled citation tools. */
   const enabledTools = DEFAULT_TOOLS.filter((tool) => tool.presentation !== "citation");
   const citationTools = DEFAULT_TOOLS.filter((tool) => tool.presentation === "citation");
 
-  it("returns a host-rendered declineMessage (NOT a model note) when a disabled lookup tool WOULD have matched — no execute, no network", async () => {
+  it("lets the model answer from memory with a host 'lookups-off' marker when a disabled lookup tool WOULD have matched — no execute, no network", async () => {
     // "tell me about Paris" matches grounding (a citation tool). With grounding
-    // removed from `tools` but passed in `declineTools`, the step returns the
-    // authoritative decline message for the host to show verbatim — it does NOT
-    // hand the model a "please decline" note (the model ignores that and fabricates).
+    // removed from `tools` but passed in `declineTools`, the step hands the model a
+    // from-memory note (never a "decline" instruction — a small model ignores those
+    // and fabricates a source) and a `lookups-off` verification so the HOST draws
+    // the "not checked against a source" marker deterministically.
     groundingMock.wikiResult = {
       found: true,
       title: "Paris",
@@ -503,17 +501,20 @@ describe("runToolStep — options.declineTools (web lookups off honest decline)"
       declineTools: citationTools,
     });
 
-    // The host-rendered decline is returned; systemNote stays null (no model turn).
-    expect(out.declineMessage).toBe(WEB_LOOKUPS_OFF_DECLINE_MESSAGE);
-    expect(out.declineMessage?.toLowerCase()).toContain("web lookups");
-    expect(out.declineMessage).toContain("Settings");
-    expect(out.systemNote).toBeNull();
+    // The model answers this turn, told to use its own knowledge and qualify it.
+    expect(out.systemNote).toContain("own knowledge");
+    expect(out.systemNote).toContain("web lookups are turned off");
+    // Never a decline instruction, and no example phrasing or URL to echo.
+    expect(out.systemNote?.toLowerCase()).not.toContain("refuse");
+    expect(out.systemNote).not.toMatch(/https?:/);
+    // The host marker is what the user sees; it does not depend on the prose.
+    expect(out.verification).toEqual({ status: "lookups-off" });
     // Detection-only: the disabled tool never executed, so no network lookup ran.
     expect(groundingMock.lookupCalls).toHaveLength(0);
-    // No ToolCallBlock, no citation, no verification marker.
+    // No ToolCallBlock, no citation, no canonical answer.
     expect(calls).toHaveLength(0);
     expect(out.citation).toBeUndefined();
-    expect(out.verification).toBeUndefined();
+    expect(out.canonicalAnswer).toBeUndefined();
     // Decline is computed from a pure `match` — the "Looking it up…" phase never flips.
     expect(phases).toEqual([]);
   });
@@ -526,7 +527,7 @@ describe("runToolStep — options.declineTools (web lookups off honest decline)"
     });
 
     expect(out.systemNote).toBeNull();
-    expect(out.declineMessage).toBeUndefined();
+    expect(out.verification).toBeUndefined();
     expect(out.citation).toBeUndefined();
     expect(calls).toHaveLength(0);
     expect(groundingMock.lookupCalls).toHaveLength(0);
@@ -546,10 +547,10 @@ describe("runToolStep — options.declineTools (web lookups off honest decline)"
     // Canonical tool-block result → skip generation; NOT a decline.
     expect(out.canonicalAnswer).toBe("17 * 23 = 391");
     expect(out.systemNote).toBeNull();
-    expect(out.declineMessage).toBeUndefined();
+    expect(out.verification).toBeUndefined();
   });
 
-  it("does not decline when declineTools is omitted (lookups on — existing behavior)", async () => {
+  it("adds no note or marker when declineTools is omitted (lookups on — existing behavior)", async () => {
     // With grounding REMOVED and no declineTools, the factual turn abstains to
     // normal chat exactly as before this fix (the #5 S5 contract is unchanged).
     groundingMock.wikiResult = {
@@ -564,7 +565,7 @@ describe("runToolStep — options.declineTools (web lookups off honest decline)"
     });
 
     expect(out.systemNote).toBeNull();
-    expect(out.declineMessage).toBeUndefined();
+    expect(out.verification).toBeUndefined();
     expect(groundingMock.lookupCalls).toHaveLength(0);
   });
 });
