@@ -56,6 +56,12 @@ export type AttemptResult =
       phase: 'download' | 'load-or-smoke';
       reason: string;
       reasonCode?: AttemptFailureReasonCode;
+      /**
+       * Bytes the failed download needed, on an 'insufficient-storage' failure.
+       * Lets exhaustion quote the smallest requirement the ladder tried rather
+       * than whichever model happened to fail last.
+       */
+      requiredBytes?: number;
     };
 
 export type SelectKind = 'initial' | 'retry' | 'demote';
@@ -105,6 +111,12 @@ export async function runSetupCascade(opts: RunSetupCascadeOptions): Promise<Set
   // or demoting to a smaller model may still have fit; only when nothing did
   // do we show it), instead of the generic "couldn't get one running".
   let lastFailure: { reason: string; reasonCode?: AttemptFailureReasonCode } | null = null;
+  // The storage failure with the smallest requirement. The ladder is not
+  // monotonic in size (a demotion can land on a bigger model than the one
+  // before it), so "the last storage failure" can quote a figure far above what
+  // would actually have fit — a real run told a person with 0.3 GB free that
+  // Eco needed 1.4 GB after a 0.3 GB model had already failed on space.
+  let smallestStorageFailure: { reason: string; requiredBytes: number } | null = null;
 
   const exhausted = (): SetupCascadeResult => ({
     kind: 'exhausted',
@@ -113,7 +125,7 @@ export async function runSetupCascade(opts: RunSetupCascadeOptions): Promise<Set
     // internal string and gets replaced by written copy — the `reasonCode`
     // below is how the real cause still reaches the error surface.
     reason: lastFailure?.reasonCode === 'insufficient-storage'
-      ? lastFailure.reason
+      ? (smallestStorageFailure?.reason ?? lastFailure.reason)
       : SETUP_EXHAUSTED_REASON,
     reasonCode: lastFailure?.reasonCode,
     triedModelIds: tried,
@@ -129,6 +141,13 @@ export async function runSetupCascade(opts: RunSetupCascadeOptions): Promise<Set
     }
 
     lastFailure = { reason: result.reason, reasonCode: result.reasonCode };
+    if (
+      result.reasonCode === 'insufficient-storage'
+      && result.requiredBytes !== undefined
+      && (smallestStorageFailure === null || result.requiredBytes < smallestStorageFailure.requiredBytes)
+    ) {
+      smallestStorageFailure = { reason: result.reason, requiredBytes: result.requiredBytes };
+    }
 
     // Transient download failure → retry the same model once before demoting.
     // A storage shortage is deterministic (retrying can't free space), so skip

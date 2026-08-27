@@ -123,6 +123,29 @@ describe('runSetupCascade', () => {
     }
   });
 
+  it('quotes the SMALLEST storage requirement it tried, not the last one', async () => {
+    // Seen on a real first run: the ladder tried 0.8 GB → 0.3 GB → 1.4 GB and
+    // told a person with 0.3 GB free that Eco "needs about 1.4 GB".
+    const need = (gb: string) =>
+      `Eco needs about ${gb} GB of free space for this model, but only about 0.3 GB is available on this device.`;
+    const bytes: Record<string, number> = { a: 800_000_000, b: 300_000_000, c: 1_400_000_000 };
+    const h = harness({
+      runAttempt: async (m) => ({
+        ok: false,
+        phase: 'download',
+        reason: need((bytes[m.id]! / 1e9).toFixed(1)),
+        reasonCode: 'insufficient-storage',
+        requiredBytes: bytes[m.id],
+      }),
+    });
+    const res = await runSetupCascade(h.opts);
+    expect(res.kind).toBe('exhausted');
+    if (res.kind === 'exhausted') {
+      expect(res.reason).toBe(need('0.3'));
+      expect(res.reasonCode).toBe('insufficient-storage');
+    }
+  });
+
   it('carries a network/host code out of exhaustion, since the reason text is replaced', async () => {
     const h = harness({
       runAttempt: async () => ({
