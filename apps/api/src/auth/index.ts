@@ -53,7 +53,7 @@ async function resolveAppleClientSecret(): Promise<string> {
 export async function createAuth(db: Db) {
   const appleClientSecret = await resolveAppleClientSecret()
 
-  return betterAuth({
+  const auth = betterAuth({
     baseURL: getAuthBaseURL(),
     database: drizzleAdapter(db, {
       provider: 'pg',
@@ -230,6 +230,15 @@ export async function createAuth(db: Db) {
       },
     },
   })
+
+  // Boot gate: better-auth initialises lazily and throws from its context
+  // promise when production has no BETTER_AUTH_SECRET (verified 2026-08-27:
+  // an un-awaited init dies as an unhandled rejection). Await it here so a
+  // missing or default secret fails the boot deliberately — logged, before the
+  // server listens — instead of by accident.
+  await auth.$context
+
+  return auth
 }
 
 export type Auth = Awaited<ReturnType<typeof createAuth>>
