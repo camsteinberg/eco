@@ -32,6 +32,11 @@ describe("ForgotPasswordPage", () => {
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
+  it("marks the surface full-bleed so the cookie notice does not reserve a strip below the hills", () => {
+    const { container } = render(<ForgotPasswordPage />);
+    expect(container.querySelector("[data-eco-full-bleed]")).not.toBeNull();
+  });
+
   it("shows recoverable error feedback without losing the typed email", async () => {
     vi.mocked(global.fetch).mockResolvedValue({ ok: false } as Response);
 
