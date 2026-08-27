@@ -98,6 +98,13 @@ export type ConversationManager = {
  * the scroll-to-message behavior. Lifted out of ChatWorkspace because all of
  * these share the same snapshot / sync refs.
  */
+
+/** The sidebar's one-line preview: the latest message as bare text. */
+function previewOf(content: string): string {
+  const plain = (stripMarkdown(content) || content).trim();
+  return plain.slice(0, 60).trimEnd();
+}
+
 export function useConversationManager(
   params: ConversationManagerParams,
 ): ConversationManager {
@@ -368,10 +375,15 @@ export function useConversationManager(
       for (const m of currentMessages) {
         convStore.saveMessage(toDbMessage(m, convId));
       }
-      // Update activeLeafId to the last message
+      // Update activeLeafId to the last message, and let the sidebar preview
+      // follow the latest turn: without this it stays the first message's
+      // opening words forever, which is the title repeated.
       const lastMsg = currentMessages[currentMessages.length - 1];
       if (lastMsg) {
-        convStore.updateConversation(convId, { activeLeafId: lastMsg.id });
+        convStore.updateConversation(convId, {
+          activeLeafId: lastMsg.id,
+          preview: previewOf(lastMsg.content),
+        });
       }
       rememberConversationSnapshot(convId, currentMessages);
       // Reload all messages so sibling info is up-to-date after edit/regenerate
@@ -418,8 +430,7 @@ export function useConversationManager(
         const plainContent = stripMarkdown(trimmedContent) || trimmedContent;
         const title =
           plainContent.length > 50 ? plainContent.slice(0, 50) + "..." : plainContent;
-        const preview =
-          plainContent.length > 60 ? plainContent.slice(0, 60) : plainContent;
+        const preview = previewOf(trimmedContent);
         const now = Date.now();
         const id = crypto.randomUUID();
         convStore.addConversation({
