@@ -190,3 +190,36 @@ describe('describeLocalHeavyWorkBusy', () => {
     })).toMatch(/preparing a local model/i);
   });
 });
+
+describe('a lease does not outlive its page', () => {
+  it('pagehide releases the held lease so the next page load is not told "already active"', () => {
+    const generation = acquireLocalHeavyWork('generation');
+    expect(generation.ok).toBe(true);
+    expect(localStorage.getItem(RUNTIME_KEY)).not.toBeNull();
+
+    // A reload/navigation: the heartbeat dies with the page, but the row would
+    // otherwise sit in localStorage for the rest of its TTL.
+    window.dispatchEvent(new Event('pagehide'));
+
+    expect(localStorage.getItem(RUNTIME_KEY)).toBeNull();
+    expect(getActiveLocalHeavyWorkLease()).toBeNull();
+    expect(acquireLocalHeavyWork('generation').ok).toBe(true);
+  });
+
+  it('pagehide leaves a lease held by another owner alone', () => {
+    const first = acquireLocalHeavyWork('generation');
+    expect(first.ok).toBe(true);
+    // While this context still believes it holds the lease, another tab's
+    // row has replaced it (ours expired and was swept). Not ours to clear.
+    localStorage.setItem(RUNTIME_KEY, JSON.stringify({
+      ownerId: 'generation:other-tab',
+      kind: 'generation',
+      startedAt: Date.now(),
+      expiresAt: Date.now() + 60_000,
+    }));
+
+    window.dispatchEvent(new Event('pagehide'));
+
+    expect(getActiveLocalHeavyWorkLease()?.ownerId).toBe('generation:other-tab');
+  });
+});

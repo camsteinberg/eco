@@ -219,6 +219,21 @@ export function acquireLocalHeavyWork(
   }
   ownedLeaseIds.add(lease.ownerId);
 
+  // A reload or navigation kills the heartbeat but leaves the row in
+  // localStorage with up to `ttlMs` of life left. The next page load does not
+  // own that row, so its first generation would bounce off "already active"
+  // for a reply nothing is producing (the offline continue-a-reply retry hit
+  // exactly this). Release synchronously on pagehide, which fires on reload,
+  // navigation, and tab close; a hard crash still relies on the TTL.
+  const onPageHide = (): void => {
+    if (readLease(domainForKind(kind))?.ownerId === lease.ownerId) {
+      clearLease(lease.ownerId, domainForKind(kind));
+    }
+  };
+  if (typeof window !== "undefined") {
+    window.addEventListener("pagehide", onPageHide);
+  }
+
   const heartbeat = setInterval(() => {
     const current = readLease(domainForKind(kind));
     if (current?.ownerId !== lease.ownerId) {
@@ -236,6 +251,9 @@ export function acquireLocalHeavyWork(
     lease,
     release: () => {
       clearInterval(heartbeat);
+      if (typeof window !== "undefined") {
+        window.removeEventListener("pagehide", onPageHide);
+      }
       ownedLeaseIds.delete(lease.ownerId);
       clearLease(lease.ownerId, domainForKind(kind));
     },
