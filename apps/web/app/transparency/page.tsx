@@ -260,6 +260,16 @@ export default function TransparencyPage({
                 &mdash; request timestamps, IP addresses, and HTTP metadata used
                 for security, rate limiting, and abuse prevention
               </li>
+              <li>
+                <strong className="text-[var(--eco-text)]">
+                  Feedback you choose to send
+                </strong>{" "}
+                &mdash; the message you type, plus two independent opt-in
+                attachments: a short device summary (browser, memory, GPU) and a
+                recent-failures summary from the local diagnostic ledger (dates,
+                model identifiers, error codes, backend). Both include the model
+                identifier. Nothing is sent unless you submit it.
+              </li>
             </ul>
           </section>
 
@@ -291,10 +301,13 @@ export default function TransparencyPage({
               </li>
               <li>
                 <strong className="text-[var(--eco-text)]">
-                  What models you use or how often
+                  Your chats or how often you chat
                 </strong>{" "}
-                &mdash; local inference is invisible to us. We can&apos;t see
-                what runs on your hardware.
+                &mdash; the AI runs in your browser, so we never see your
+                prompts, responses, or chat frequency. Because model files are
+                delivered through Eco&apos;s hosting today, the hosting provider
+                can see which model file an IP address downloads &mdash; but
+                nothing about what you do with it afterward.
               </li>
             </ul>
           </section>
@@ -371,9 +384,11 @@ export default function TransparencyPage({
                 <strong className="text-[var(--eco-text)]">
                   Model delivery
                 </strong>{" "}
-                &mdash; model files are served from Cloudflare (R2 storage and
-                CDN). Cloudflare sees which model files your browser downloads
-                and your IP address &mdash; never your conversations.
+                &mdash; model files are delivered through Eco&apos;s web host
+                (Vercel), which proxies them from Hugging Face. Vercel sees your
+                IP address and which model file is requested. When a direct CDN
+                path is configured (Cloudflare R2), Cloudflare sees the same
+                metadata instead. Neither provider ever sees your conversations.
               </li>
             </ul>
           </section>

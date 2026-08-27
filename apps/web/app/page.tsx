@@ -1,16 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Bos Computing LLC
 
-import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 type SearchParamValue = string | string[] | undefined;
-
-export const metadata: Metadata = {
-  title: "Eco — Private AI that starts in your browser",
-  description:
-    "Start a private, local-first chat in your browser. Begin as a guest, keep your first prompt on this device, and move into an account only when you want continuity.",
-};
 
 function buildChatRedirectHref(
   searchParams: Record<string, SearchParamValue>,
