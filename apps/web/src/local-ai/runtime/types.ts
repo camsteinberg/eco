@@ -97,6 +97,10 @@ export type AdapterErrorCode =
   | 'oom'
   | 'device-lost'
   | 'init-failed'
+  /** The weight files are no longer on this device and could not be fetched
+   *  (evicted by the browser, then loaded offline or with the host unreachable).
+   *  Not a crash: never cools the model down; the fix is a re-download once online. */
+  | 'model-files-missing'
   | 'generation-failed'
   | 'timeout'
   | 'aborted'

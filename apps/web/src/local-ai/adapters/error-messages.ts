@@ -66,6 +66,20 @@ export const LOCAL_MODEL_OTHER_TAB_MESSAGE =
   "Eco's on-device AI is running in another browser tab. Switch to that tab to keep chatting, or close it and try again here.";
 
 /**
+ * Copy for the MODEL_FILES_MISSING fault: the browser evicted this model's
+ * weight files (storage pressure, Safari's storage cap, a cache clear) and Eco
+ * could not fetch them again. Two wordings — the offline one says plainly why a
+ * retry can't work yet. Both are matched by exact string in ErrorMessage: the
+ * copy says "download", which the setup regex would otherwise relabel "Eco
+ * needs one quick setup" and hide Try again.
+ */
+export const LOCAL_MODEL_FILES_MISSING_OFFLINE_MESSAGE =
+  "This model's files are no longer on this device, and Eco can't download them again while you're offline. Reconnect, then try again — Eco will fetch a fresh copy.";
+
+export const LOCAL_MODEL_FILES_MISSING_MESSAGE =
+  "This model's files are no longer on this device, and downloading a fresh copy didn't work. Check your connection, then try again.";
+
+/**
  * The runtime's cooldown error embeds the real remaining time as "(Ns left)"
  * (runtime/lifecycle.ts builds it). Recover that number from our own controlled
  * message so the warm copy keeps the honest countdown instead of inventing one

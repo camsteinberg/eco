@@ -299,6 +299,21 @@ describe('createLocalAiLegacyInference', () => {
     });
   });
 
+  it('surfaces model-files-missing from loadModel as MODEL_FILES_MISSING (its own honest card, never WORKER_CRASHED)', async () => {
+    mockLoad.mockRejectedValueOnce(new AdapterError('Failed to fetch', 'model-files-missing', true));
+
+    const shim = createLocalAiLegacyInference();
+    const reader = shim.generate(
+      [{ role: 'user', content: 'x' }],
+      FAKE_MODEL.id,
+    ).getReader();
+
+    await expect(reader.read()).rejects.toMatchObject({
+      name: 'LocalInferenceStreamError',
+      code: 'MODEL_FILES_MISSING',
+    });
+  });
+
   it('surfaces cooldown-active from loadModel as LOCAL_MODEL_COOLDOWN', async () => {
     mockLoad.mockRejectedValueOnce(
       new AdapterError(

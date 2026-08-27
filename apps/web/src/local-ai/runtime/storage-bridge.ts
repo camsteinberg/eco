@@ -37,6 +37,9 @@ export type TransformersCacheLike = {
 export type StorageBridgeOptions = {
   storage: Storage;
   modelId: string;
+  /** The pinned revision the download pipeline stored files under. When set,
+   *  a lookup for `…/resolve/main/<file>` is answered from the pinned entry. */
+  revision?: string;
 };
 
 /**
@@ -47,14 +50,23 @@ export type StorageBridgeOptions = {
  *   env.customCache = bridge;
  */
 export function createStorageBridge(options: StorageBridgeOptions): TransformersCacheLike {
-  const { storage, modelId } = options;
+  const { storage, modelId, revision } = options;
 
   return {
     async match(request) {
       if (!request) return undefined;
       const url = toUrl(request);
       if (!url) return undefined;
-      const entry = await storage.get({ modelId, url });
+      let entry = await storage.get({ modelId, url });
+      // TJS 4.2.0's `get_tokenizer_files` asks for tokenizer_config.json with
+      // NO revision (`get_file_metadata(modelId, file, {})`), so the lookup
+      // URL says `resolve/main/` while every file is stored under the pinned
+      // revision. Left unanswered, that miss becomes a network probe — which
+      // offline fails, and the tokenizer load crashes on a fully-downloaded
+      // model. Answer it from the pinned entry: same file, same bytes.
+      if (!entry && revision && revision !== 'main' && url.includes('/resolve/main/')) {
+        entry = await storage.get({ modelId, url: url.replace('/resolve/main/', `/resolve/${encodeURIComponent(revision)}/`) });
+      }
       if (!entry) return undefined;
       // The cached Response omits `Content-Length` (the storage layer tags its
       // own `x-eco-cache-size-bytes` instead — Invariant 6). But TJS /

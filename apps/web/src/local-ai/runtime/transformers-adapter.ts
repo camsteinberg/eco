@@ -107,7 +107,7 @@ export type WorkerOutbound =
   | { type: 'done'; generationId: string; promptTokens?: number; completionTokens?: number; tokenizerName?: string; kvReuse?: KvReuseTelemetry; cjkSuppression?: CjkSuppressionTelemetry }
   | { type: 'error'; generationId?: string; code: ErrorCode; message: string; details?: Record<string, unknown> };
 
-type ErrorCode = 'webgpu-unavailable' | 'oom' | 'device-lost' | 'init-failed' | 'generation-failed' | 'timeout' | 'template-missing';
+type ErrorCode = 'webgpu-unavailable' | 'oom' | 'device-lost' | 'init-failed' | 'model-files-missing' | 'generation-failed' | 'timeout' | 'template-missing';
 
 // ─── Worker DI seam ─────────────────────────────────────────────────────────
 

@@ -361,6 +361,8 @@ import { MODEL_PREPARING_BUSY_MESSAGE } from "../../lib/local-heavy-work-owner";
 import {
   LOCAL_GENERATION_FALLBACK_MESSAGE,
   LOCAL_GENERATION_REPEATED_MESSAGE,
+  LOCAL_MODEL_FILES_MISSING_MESSAGE,
+  LOCAL_MODEL_FILES_MISSING_OFFLINE_MESSAGE,
 } from "../../local-ai/adapters/error-messages";
 import { _resetFailureStreakForTesting } from "../useChat/failure-streak";
 
@@ -1161,6 +1163,49 @@ describe("useChat — runtime error handling", () => {
     expect(assistant.errorMessage).toBe(LOCAL_GENERATION_REPEATED_MESSAGE);
     expect(assistant.errorMessage).not.toMatch(/shorten/i);
     expect(useChatStore.getState().error).toBe(LOCAL_GENERATION_REPEATED_MESSAGE);
+  });
+
+  it("says the model's files are gone and can't be fetched offline (never 'needed a moment' or a cooldown) when weights were evicted while offline", async () => {
+    const onLineSpy = vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+    setScripts([
+      {
+        kind: "error",
+        tokens: [],
+        error: new LocalInferenceStreamError("MODEL_FILES_MISSING", "Failed to fetch", true),
+      },
+    ]);
+    try {
+      const { result } = renderHook(() => useChat());
+      await act(async () => {
+        await result.current.sendMessage("hi");
+      });
+
+      const assistant = lastAssistant()!;
+      expect(assistant.status).toBe("error");
+      expect(assistant.errorMessage).toBe(LOCAL_MODEL_FILES_MISSING_OFFLINE_MESSAGE);
+      expect(assistant.errorMessage).not.toMatch(/needed a moment|breather|cooling/i);
+      expect(useChatStore.getState().error).toBe(LOCAL_MODEL_FILES_MISSING_OFFLINE_MESSAGE);
+    } finally {
+      onLineSpy.mockRestore();
+    }
+  });
+
+  it("says the model's files are gone and the re-download failed when weights were evicted while online", async () => {
+    setScripts([
+      {
+        kind: "error",
+        tokens: [],
+        error: new LocalInferenceStreamError("MODEL_FILES_MISSING", "Failed to fetch", true),
+      },
+    ]);
+    const { result } = renderHook(() => useChat());
+    await act(async () => {
+      await result.current.sendMessage("hi");
+    });
+
+    const assistant = lastAssistant()!;
+    expect(assistant.status).toBe("error");
+    expect(assistant.errorMessage).toBe(LOCAL_MODEL_FILES_MISSING_MESSAGE);
   });
 
   it("maps a TEMPLATE_MISSING stream error to the dedicated user message", async () => {
