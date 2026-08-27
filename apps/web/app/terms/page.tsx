@@ -77,7 +77,7 @@ export default function TermsPage({
               Terms of Service
             </h1>
             <p className="text-base text-[var(--eco-text-secondary)]">
-              Last updated: June 3, 2026
+              Last updated: August 27, 2026
             </p>
           </div>
 
