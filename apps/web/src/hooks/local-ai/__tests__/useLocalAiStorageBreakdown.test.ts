@@ -48,6 +48,31 @@ afterEach(() => {
 });
 
 describe('useLocalAiStorageBreakdown', () => {
+  // The panel warns when the browser never granted persistence; the hook
+  // reads that with the prompt-free `persisted()` query, never `persist()`.
+  it('reports whether the origin storage is persistent, null when unknowable', async () => {
+    const storage = new FakeStorage();
+    const denied = renderHook(() =>
+      useLocalAiStorageBreakdown({
+        storage,
+        estimateBrowserStorage: async () => null,
+        isStoragePersisted: async () => false,
+      }),
+    );
+    await waitFor(() => expect(denied.result.current.status).toBe('ready'));
+    expect(denied.result.current.data!.persisted).toBe(false);
+
+    const unknown = renderHook(() =>
+      useLocalAiStorageBreakdown({
+        storage,
+        estimateBrowserStorage: async () => null,
+        isStoragePersisted: async () => { throw new Error('no storage api'); },
+      }),
+    );
+    await waitFor(() => expect(unknown.result.current.status).toBe('ready'));
+    expect(unknown.result.current.data!.persisted).toBeNull();
+  });
+
   it('sums bytes across files per model and computes ecoTotalBytes', async () => {
     const storage = new FakeStorage();
     const [first, second] = getCatalog();

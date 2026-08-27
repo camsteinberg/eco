@@ -48,6 +48,12 @@ export type StorageBreakdown = {
    * "nothing cached" (gigabytes may well be on disk).
    */
   measured: boolean;
+  /**
+   * Whether the browser has granted this origin persistent storage. `false`
+   * means model weights stay best-effort and can be evicted under disk
+   * pressure; `null` when the Storage API can't say.
+   */
+  persisted: boolean | null;
 };
 
 export type UseLocalAiStorageBreakdownOptions = {
@@ -55,6 +61,8 @@ export type UseLocalAiStorageBreakdownOptions = {
   storage?: Storage;
   /** Inject the estimate function for tests. */
   estimateBrowserStorage?: () => Promise<StorageEstimate | null>;
+  /** Inject the `navigator.storage.persisted()` query for tests. */
+  isStoragePersisted?: () => Promise<boolean>;
   /**
    * Inject the WebLLM-lane measurer for tests. Defaults to the cache bridge's
    * `measureWebllmModelCacheBytes` (lazy-imported so the settings bundle only
@@ -74,7 +82,7 @@ export type UseLocalAiStorageBreakdownResult = {
 export function useLocalAiStorageBreakdown(
   options: UseLocalAiStorageBreakdownOptions = {},
 ): UseLocalAiStorageBreakdownResult {
-  const { storage, estimateBrowserStorage, measureWebllmModel, refreshKey } = options;
+  const { storage, estimateBrowserStorage, isStoragePersisted, measureWebllmModel, refreshKey } = options;
   const [data, setData] = useState<StorageBreakdown | null>(null);
   const [status, setStatus] = useState<'loading' | 'ready'>('loading');
   const [internalKey, setInternalKey] = useState(0);
@@ -88,7 +96,7 @@ export function useLocalAiStorageBreakdown(
     setStatus('loading');
 
     (async () => {
-      const breakdown = await computeBreakdown({ storage, estimateBrowserStorage, measureWebllmModel });
+      const breakdown = await computeBreakdown({ storage, estimateBrowserStorage, isStoragePersisted, measureWebllmModel });
       if (cancelled) return;
       setData(breakdown);
       setStatus('ready');
@@ -97,7 +105,7 @@ export function useLocalAiStorageBreakdown(
     return () => {
       cancelled = true;
     };
-  }, [storage, estimateBrowserStorage, measureWebllmModel, refreshKey, internalKey]);
+  }, [storage, estimateBrowserStorage, isStoragePersisted, measureWebllmModel, refreshKey, internalKey]);
 
   return { status, data, refresh };
 }
@@ -105,9 +113,11 @@ export function useLocalAiStorageBreakdown(
 async function computeBreakdown(opts: {
   storage?: Storage;
   estimateBrowserStorage?: () => Promise<StorageEstimate | null>;
+  isStoragePersisted?: () => Promise<boolean>;
   measureWebllmModel?: (model: ModelConfig) => Promise<number | null>;
 }): Promise<StorageBreakdown> {
   const browser = await readBrowserEstimate(opts.estimateBrowserStorage);
+  const persisted = await readPersisted(opts.isStoragePersisted);
   const backend = opts.storage ?? safeCacheApiStorage();
   const measureWebllm = opts.measureWebllmModel ?? defaultMeasureWebllmModel;
 
@@ -152,6 +162,7 @@ async function computeBreakdown(opts: {
     ecoTotalBytes: ecoTotal,
     models,
     measured: backend != null,
+    persisted,
   };
 }
 
@@ -177,6 +188,22 @@ async function defaultMeasureWebllmModel(model: ModelConfig): Promise<number | n
   try {
     const bridge = await import('../../local-ai/runtime/webllm-cache-bridge');
     return await bridge.measureWebllmModelCacheBytes(model);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Read-only: `persisted()` never prompts. The request itself happens at
+ * download time (see download/persistent-storage.ts); this only reports it.
+ */
+async function readPersisted(inject?: () => Promise<boolean>): Promise<boolean | null> {
+  try {
+    if (inject) return await inject();
+    if (typeof navigator === 'undefined') return null;
+    const sm = navigator.storage as StorageManager | undefined;
+    if (typeof sm?.persisted !== 'function') return null;
+    return await sm.persisted();
   } catch {
     return null;
   }
