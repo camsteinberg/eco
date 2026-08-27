@@ -30,7 +30,7 @@ const mono = JetBrains_Mono({
 export const metadata: Metadata = {
   title: "Eco — AI that respects you and the planet",
   description:
-    "Browser-local AI for Eco's chat-first web launch, with trust, privacy, and impact pages close by while Eco Network capabilities prepare carefully.",
+    "Private AI chat that runs on your device, in your browser. Your conversations never go to a server; an account is optional.",
   icons: {
     icon: [
       { url: "/icon.svg", type: "image/svg+xml" },

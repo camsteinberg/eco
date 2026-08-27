@@ -6,10 +6,10 @@ import type { MetadataRoute } from 'next';
 export default function manifest(): MetadataRoute.Manifest {
   return {
     id: '/?source=pwa',
-    name: 'Eco -- Browser-local AI',
+    name: 'Eco -- Private AI on your device',
     short_name: 'Eco',
     description:
-      'Browser-local AI for Eco web v1.0, with Eco Network capabilities clearly framed as preparing for later.',
+      'Private AI chat that runs on your device, in your browser. Your conversations never go to a server.',
     start_url: '/?source=pwa',
     display: 'standalone',
     display_override: ['standalone', 'minimal-ui', 'browser'],

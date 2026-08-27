@@ -8,7 +8,7 @@ describe('PWA manifest', () => {
   const m = manifest();
 
   it('has correct app name and short_name', () => {
-    expect(m.name).toBe('Eco -- Browser-local AI');
+    expect(m.name).toBe('Eco -- Private AI on your device');
     expect(m.short_name).toBe('Eco');
   });
 
@@ -59,8 +59,8 @@ describe('PWA manifest', () => {
   });
 
   it('has description and categories', () => {
-    expect(m.description).toMatch(/Browser-local AI/);
-    expect(m.description).toMatch(/Eco Network capabilities clearly framed as preparing/);
+    expect(m.description).toMatch(/runs on your device, in your browser/);
+    expect(m.description).not.toMatch(/Eco Network/);
     expect(m.categories).toContain('productivity');
   });
 });
