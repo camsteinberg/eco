@@ -2,8 +2,9 @@
 // Copyright (C) 2026 Bos Computing LLC
 
 /**
- * The shrunk-context note is one shot PER CONVERSATION: raised once, closable
- * once, and reset wherever the conversation itself changes.
+ * The out-of-context note: raised while the chat overflows, withdrawn if it
+ * fits again, closable once per conversation, and reset wherever the
+ * conversation itself changes.
  */
 
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
@@ -31,6 +32,17 @@ describe("chatStore — contextWindowNotice", () => {
 
     useChatStore.getState().showContextWindowNotice();
     expect(useChatStore.getState().contextWindowNotice).toBe("visible");
+  });
+
+  it("withdraws while visible, but a dismissal is not withdrawn", () => {
+    useChatStore.getState().showContextWindowNotice();
+    useChatStore.getState().hideContextWindowNotice();
+    expect(useChatStore.getState().contextWindowNotice).toBe("none");
+
+    useChatStore.getState().showContextWindowNotice();
+    useChatStore.getState().dismissContextWindowNotice();
+    useChatStore.getState().hideContextWindowNotice();
+    expect(useChatStore.getState().contextWindowNotice).toBe("dismissed");
   });
 
   it("does not come back after a dismissal", () => {

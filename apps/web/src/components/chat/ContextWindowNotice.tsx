@@ -7,24 +7,29 @@ import { motion, AnimatePresence, useReducedMotion } from "motion/react";
 import { useChatStore } from "../../stores/chatStore";
 
 /**
- * The quiet note for a model that holds less of the conversation.
+ * The note that says Eco can no longer see the start of this chat.
  *
- * Models differ in how much of a chat they can hold at once, and the deeper
- * model on most devices holds about half what the everyday one does. Switching
- * to it mid-conversation silently pushes more of the history out of context —
- * the divider in the transcript moves down, and nothing says why.
+ * Once a conversation outgrows the model's context window, the earliest turns
+ * are no longer sent to the model. The divider in the transcript marks that
+ * boundary, but it sits off-screen above, and the model itself never says it
+ * cannot see the earlier turns — measured on the 1.2B, it summarizes "what we
+ * decided" confidently and wrongly. So this note sits by the composer, says
+ * how many messages are out of view, and says what to do: start a new chat or
+ * paste the details that matter. Nothing is lost — the messages are still on
+ * screen and still in the conversation — so it is a note, not an alert.
  *
- * So this says why, once per conversation, and then gets out of the way. It is
- * deliberately NOT a modal and NOT a demand to start a new chat: nothing is
- * lost, the earlier messages are still on screen and still in the conversation,
- * they are simply outside what this model reads. It also does not restate what
- * the divider already says; it points at it.
- *
- * The lifecycle lives in `chatStore` (`contextWindowNotice`), so switching
- * conversations resets it and a dismissal sticks. `useChat` owns the predicate
- * that raises it.
+ * The lifecycle lives in `chatStore` (`contextWindowNotice`): `useChat` raises
+ * it while the divider exists, withdraws it if the chat fits again, and a
+ * dismissal sticks for the conversation.
  */
-export function ContextWindowNotice({ className = "" }: { className?: string }) {
+export function ContextWindowNotice({
+  className = "",
+  droppedCount = 0,
+}: {
+  className?: string;
+  /** Messages above the divider — the ones the model no longer reads. */
+  droppedCount?: number;
+}) {
   const notice = useChatStore((s) => s.contextWindowNotice);
   const dismiss = useChatStore((s) => s.dismissContextWindowNotice);
   const shouldReduce = useReducedMotion();
@@ -44,7 +49,7 @@ export function ContextWindowNotice({ className = "" }: { className?: string }) 
           key="context-window-notice"
           data-testid="context-window-notice"
           role="note"
-          aria-label="About this model's context"
+          aria-label="Earlier messages are out of context"
           initial={initial}
           animate={enter}
           exit={exit}
@@ -65,8 +70,7 @@ export function ContextWindowNotice({ className = "" }: { className?: string }) 
                 fontFamily: "var(--eco-font-body)",
               }}
             >
-              This model holds less of the conversation, so more of the earlier
-              messages are set aside above the line.
+              {contextWindowNoticeCopy(droppedCount)}
             </p>
 
             <button
@@ -92,4 +96,15 @@ export function ContextWindowNotice({ className = "" }: { className?: string }) 
       )}
     </AnimatePresence>
   );
+}
+
+/** @internal Exported for unit testing. */
+export function contextWindowNoticeCopy(droppedCount: number): string {
+  const which =
+    droppedCount === 1
+      ? "the first message"
+      : droppedCount > 1
+        ? `the first ${droppedCount} messages`
+        : "the earliest messages";
+  return `Eco can no longer see ${which} in this chat. Start a new chat, or paste the details that matter into your next message.`;
 }
