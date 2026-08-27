@@ -330,6 +330,21 @@ describe('fault unload', () => {
     expect(getActiveAdapter()).toBeNull();
   });
 
+  it('unloads the adapter when generate emits a timeout (stalled) error so the next send is not rejected', async () => {
+    const adapter = new FakeAdapter();
+    adapter.failOnGenerateEvent = { code: 'timeout', reason: 'Generation stalled: no token for 30s.' };
+    setAdapterFactory(() => adapter);
+    await loadModel(MODEL_A);
+
+    for await (const event of generate([])) {
+      void event;
+    }
+    await flushUnload();
+
+    expect(adapter.unloadCalls).toBe(1);
+    expect(getActiveAdapter()).toBeNull();
+  });
+
   it('unloads the dead adapter when generate throws an OOM', async () => {
     const adapter = new FakeAdapter();
     adapter.throwOnGenerate = new AdapterError('out of memory', 'oom', true);

@@ -763,6 +763,17 @@ export function useChat() {
         return;
       }
 
+      // A fault that lands after words already arrived keeps those words and
+      // marks the reply interrupted (the same contract as a crash) — the
+      // person can read what they got and Try again, instead of a bare error
+      // card that hides the partial answer.
+      if ((err.code === "OOM" || err.code === "TIMEOUT") && hasPartialContent) {
+        const recovery = getLocalRuntimeCrashRecovery(true);
+        setError(recovery.globalError);
+        updateMessage(assistantId, recovery.assistantUpdate);
+        return;
+      }
+
       if (err.code === "OOM") {
         // A mid-reply OOM is almost always the prompt's size, not the model's:
         // the runtime resets the model and the next send reloads it cleanly

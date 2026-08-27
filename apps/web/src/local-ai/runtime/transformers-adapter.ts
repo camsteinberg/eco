@@ -471,6 +471,10 @@ export class TransformersAdapter implements RuntimeAdapter {
         watchdog = null;
         const secs = Math.round(ms / 1000);
         emit?.({ phase: 'generation-fail', at: now(), error: { message: `no token for ${secs}s`, name: 'timeout' } });
+        // Tell the worker to stop too. A backgrounded tab trips this timer on
+        // resume while the worker is still mid-generation; left running it
+        // holds the single-flight guard and rejects the user's retry as well.
+        this.worker?.postMessage({ type: 'abort', generationId });
         controller.push({ kind: 'error', reason: `Generation stalled: no token for ${secs}s.`, code: 'timeout' });
         controller.close();
       }, ms);
