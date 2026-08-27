@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Bos Computing LLC
 
 import { create } from "zustand";
-import { openSettingsDB, encryptSetting, decryptSetting } from "../lib/settings-db";
+import { openSettingsDB, encryptSetting, decryptSetting, ensureSettingsKey } from "../lib/settings-db";
 import { logger } from "../lib/logger";
 
 type SettingsDatabase = Awaited<ReturnType<typeof openSettingsDB>>;
@@ -115,10 +115,11 @@ async function readSettingValue<T>(
   try {
     return parse(decryptSetting(record.ciphertext, record.nonce));
   } catch (err) {
-    logger.warn(`Failed to decrypt ${label}. Resetting.`, err);
-    if (corruptRepairPlaintext === undefined) {
-      await db.delete("settings", key);
-    } else {
+    // Keep the record: with the key backed up in IndexedDB a decrypt failure
+    // is rare and the bytes may still be recoverable. Only the fail-closed
+    // repair path (web lookups) overwrites it, on purpose.
+    logger.warn(`Failed to decrypt ${label}. Using the default for this session.`, err);
+    if (corruptRepairPlaintext !== undefined) {
       const encrypted = encryptSetting(corruptRepairPlaintext);
       await db.put("settings", { key, ciphertext: encrypted.ciphertext, nonce: encrypted.nonce });
     }
@@ -196,6 +197,7 @@ export const useSettingsStore = create<SettingsState & SettingsActions>()(
     async loadFromDB() {
       let db: SettingsDatabase | undefined;
       try {
+        await ensureSettingsKey();
         db = await openSettingsDB();
 
         const customInstructions = await readSettingValue(

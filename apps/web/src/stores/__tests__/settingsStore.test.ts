@@ -25,6 +25,7 @@ vi.mock("../../lib/settings-db", () => ({
   openSettingsDB,
   encryptSetting,
   decryptSetting,
+  ensureSettingsKey: vi.fn(async () => new Uint8Array(32)),
 }));
 
 import {
@@ -153,7 +154,7 @@ describe("useSettingsStore.loadFromDB", () => {
     expect(db.close).toHaveBeenCalledTimes(1);
   });
 
-  it("removes corrupted settings during hydration", async () => {
+  it("keeps a setting it cannot decrypt on disk and falls back to the default", async () => {
     const db = makeFakeDb();
     db.get.mockImplementation(async (_store: string, key: string) => {
       if (key === "custom-instructions") {
@@ -166,7 +167,7 @@ describe("useSettingsStore.loadFromDB", () => {
     await useSettingsStore.getState().loadFromDB();
 
     expect(useSettingsStore.getState().customInstructions).toBe("");
-    expect(db.delete).toHaveBeenCalledWith("settings", "custom-instructions");
+    expect(db.delete).not.toHaveBeenCalled();
     expect(db.close).toHaveBeenCalledTimes(1);
   });
 
