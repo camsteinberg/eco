@@ -660,7 +660,7 @@ export function buildTurnQualityInstruction(
   intent: ChatIntent,
   isLocal: boolean,
   modelId?: string,
-  _options: LocalGenerationProfileOptions = {},
+  options: TurnHintOptions = {},
 ): string {
   if (isLocal && isGemma4LiteRtModel(modelId)) {
     const gemmaLiteRt: Partial<Record<ChatIntent, string>> = {
@@ -680,7 +680,11 @@ export function buildTurnQualityInstruction(
     // NOTE (chat #7): no brevity clause here — a 1.2B can't scope conditionals
     // ("single-fact questions stay brief" compressed ALL explain turns in live
     // probes). The system prompt's depth-matching clause arbitrates brevity.
-    explain: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications.",
+    // Deep into a chat the hint is swapped for LONG_CHAT_COMPACT_EXPLAIN_HINT
+    // (unconditional, so the same model can follow it) — see `applyTurnHints`.
+    explain: options.compact
+      ? LONG_CHAT_COMPACT_EXPLAIN_HINT
+      : "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications.",
     deep: "Use clear sections; include concrete recommendations and tradeoffs.",
     code: "Lead with the working code or fix; keep the explanation short.",
     // ⚠ TWO ADDITIONS WERE TRIED HERE AND BOTH MEASURED WORSE. Left as-is on
@@ -855,6 +859,29 @@ export function composeQualitySystemPrompt(
 
 export type ChatTurnMessage = { role: "user" | "assistant" | "system"; content: string };
 
+export type TurnHintOptions = LocalGenerationProfileOptions & {
+  /** Use the long-chat compact hint where one exists (explain only). */
+  compact?: boolean;
+};
+
+/**
+ * Rendered-list index from which `explain` turns get the compact hint (the
+ * third user turn onward). Measured on the 1.2B (10-turn trip-planning chat,
+ * 4096 ctx, 2026-08-27): every explain reply ran ~2 000 chars, the history
+ * budget held about five of them, and the turn-10 "summarize what we decided"
+ * was confidently wrong because turns 1–5 had been evicted. Shorter replies in
+ * the body of a chat keep more of it in view.
+ *
+ * Keyed on the turn's position in the RENDERED list, not the full branch: a
+ * turn's index only changes when the window start moves, and a moved start
+ * already breaks strict-prefix KV reuse, so this costs nothing extra there
+ * and keeps every re-render byte-identical between evictions (KV contract).
+ */
+export const LONG_CHAT_COMPACT_FROM_INDEX = 4;
+
+export const LONG_CHAT_COMPACT_EXPLAIN_HINT =
+  "Answer the question directly in one short paragraph or a compact list, then stop. No preamble and no closing recap.";
+
 /**
  * Append the per-intent hint to one user turn (no-op for empty hints).
  *
@@ -875,9 +902,10 @@ export function buildHintedUserTurn(
   intent: ChatIntent,
   isLocal: boolean,
   modelId?: string,
+  options: TurnHintOptions = {},
 ): string {
   if (hasExplicitFormatInstruction(content) || isSocialTurn(content)) return content;
-  const hint = buildTurnQualityInstruction(intent, isLocal, modelId);
+  const hint = buildTurnQualityInstruction(intent, isLocal, modelId, options);
   return hint.length > 0 ? `${content}\n\n${hint}` : content;
 }
 
@@ -909,7 +937,9 @@ export function applyTurnHints(
   return messages.map((message, index) => {
     if (message.role !== "user") return message;
     const intent = inferTurnIntent(message.content, index > 0);
-    const hinted = buildHintedUserTurn(message.content, intent, isLocal, modelId);
+    const hinted = buildHintedUserTurn(message.content, intent, isLocal, modelId, {
+      compact: index >= LONG_CHAT_COMPACT_FROM_INDEX,
+    });
     return hinted === message.content ? message : { ...message, content: hinted };
   });
 }

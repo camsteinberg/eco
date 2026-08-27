@@ -543,12 +543,6 @@ export function useChat() {
   const effectiveModelContextLength = getContextTokens(resolvedSelectedModel, undefined, {
     allowValidationModel: allowValidationModelMetadata,
   });
-  // The context length the last render resolved to, and whether the change
-  // that produced the current one was Eco normalizing its own selection rather
-  // than a real model change. Both feed the shrunk-window note at the bottom
-  // of this hook.
-  const priorContextLengthRef = useRef<number | null>(null);
-  const silentModelSwitchRef = useRef(false);
 
   useEffect(() => {
     const hasDraft = composerDraft.trim().length > 0;
@@ -877,9 +871,6 @@ export function useChat() {
     // purpose: an error card would ask the user to fix a state they never chose.
     const selectedModelChoice = normalizeUnboundModelSelection(rawSelectedModelChoice);
     if (selectedModelChoice !== rawSelectedModelChoice) {
-      // Eco repairing its own state, not a model the person chose — the
-      // shrunk-window note must not speak for it.
-      silentModelSwitchRef.current = true;
       useChatStore.getState().setSelectedModel(selectedModelChoice, { explicit: false });
     }
 
@@ -2334,9 +2325,7 @@ export function useChat() {
     }
     removeMessage(lastUser.id);
 
-    // Request-local retarget, not a chosen model — same reasoning as the
-    // normalization write in `resolveDispatch`.
-    silentModelSwitchRef.current = true;
+    // Request-local retarget, not a chosen model.
     useChatStore.getState().setSelectedModel(targetModel, {
       persist: false,
       explicit: false,
@@ -2367,28 +2356,22 @@ export function useChat() {
     return findContextDividerIndex(messages, selection);
   }, [messages, effectiveModelContextLength, composedSystemPrompt]);
 
-  // The quiet "this model holds less of the conversation" note.
+  // The "Eco can no longer see the first N messages" note.
   //
-  // Raised only when BOTH are true: the newly selected model's context window
-  // is genuinely SMALLER than the one before it (switching to the deeper 2.6B
-  // halves it, 8192 → 4096), and this conversation actually overflows the new
-  // window, which is exactly when the divider moves. A shrink the chat fits
-  // inside changes nothing the person can see, so it says nothing.
-  //
-  // The two normalization writes (`resolveDispatch`'s unbound-id rewrite and
-  // the continue-locally retarget) also change `selectedModel`, but they are
-  // Eco repairing its own state — not a choice the person made — so they arm
-  // `silentModelSwitchRef` and the next run of this effect skips.
+  // Raised whenever the divider exists — the moment a send would rely on turns
+  // the model can no longer read. Measured on the 1.2B (10-turn chat, 4096 ctx,
+  // 2026-08-27): the model never says it lost the earlier turns and answers a
+  // "summarize what we decided" confidently wrong, while the divider sits
+  // off-screen above. So the note sits by the composer and says what to do.
+  // Withdrawn if the whole chat fits again (a larger model); a dismissal sticks
+  // for the conversation (`chatStore`).
   useEffect(() => {
-    const previousContextLength = priorContextLengthRef.current;
-    priorContextLengthRef.current = effectiveModelContextLength;
-    const wasSilent = silentModelSwitchRef.current;
-    silentModelSwitchRef.current = false;
-    if (previousContextLength === null || wasSilent) return;
-    if (effectiveModelContextLength >= previousContextLength) return;
-    if (contextDividerIndex < 0) return;
-    useChatStore.getState().showContextWindowNotice();
-  }, [selectedModel, effectiveModelContextLength, contextDividerIndex]);
+    if (contextDividerIndex >= 0) {
+      useChatStore.getState().showContextWindowNotice();
+    } else {
+      useChatStore.getState().hideContextWindowNotice();
+    }
+  }, [contextDividerIndex]);
 
   return { messages, isStreaming, streamPhase, error, sendMessage, editMessage, regenerateMessage, clearMessages, retryMessage, continueLatestTurnLocally, stopGeneration, contextDividerIndex, activeToolCalls };
 }

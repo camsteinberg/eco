@@ -1760,7 +1760,7 @@ describe("useChat — a model bound to eco-smart dispatches (no eco-fast collaps
 // nothing says why. The note says why, ONCE, and only when it is actually
 // true — the window shrank AND this conversation overflows the new one.
 
-describe("useChat — the shrunk context window note", () => {
+describe("useChat — the out-of-context note", () => {
   /** A conversation big enough to overflow 2048 tokens but fit inside 8192. */
   function seedLongConversation(): void {
     const paragraph = "word ".repeat(500); // ~2500 chars ≈ 625 tokens
@@ -1787,14 +1787,14 @@ describe("useChat — the shrunk context window note", () => {
     };
   }
 
-  it("raises the note when the newly selected model holds less and the chat overflows it", async () => {
+  it("raises the note as soon as the chat overflows the model's window", async () => {
     seedLongConversation();
     bindSmallerModelToSmartSlot();
     useChatStore.setState({ selectedModel: "eco-fast" });
 
     const { result } = renderHook(() => useChat());
     // The whole conversation fits the 8192-token model: nothing is out of
-    // context yet, so there is nothing to explain.
+    // context yet, so there is nothing to say.
     expect(result.current.contextDividerIndex).toBe(-1);
     expect(useChatStore.getState().contextWindowNotice).toBe("none");
 
@@ -1802,16 +1802,16 @@ describe("useChat — the shrunk context window note", () => {
       useChatStore.setState({ selectedModel: "eco-smart" });
     });
 
-    // The 2048-token model cannot hold it, so the divider appears, and the
-    // note explains the move.
+    // The 2048-token model cannot hold it, so the divider appears and the
+    // note says so by the composer.
     expect(result.current.contextDividerIndex).toBeGreaterThan(0);
     expect(useChatStore.getState().contextWindowNotice).toBe("visible");
   });
 
-  it("stays quiet when the chat still fits the smaller window", async () => {
+  it("stays quiet while the chat fits the window", async () => {
     bindSmallerModelToSmartSlot();
     useChatStore.setState({
-      selectedModel: "eco-fast",
+      selectedModel: "eco-smart",
       messages: [
         { id: "u1", role: "user", content: "hi", createdAt: 1, parentId: null },
         { id: "a1", role: "assistant", content: "hello", createdAt: 2, parentId: "u1" },
@@ -1819,50 +1819,41 @@ describe("useChat — the shrunk context window note", () => {
     });
 
     const { result } = renderHook(() => useChat());
+
+    expect(result.current.contextDividerIndex).toBe(-1);
+    expect(useChatStore.getState().contextWindowNotice).toBe("none");
+  });
+
+  it("withdraws when a larger window holds the whole chat again", async () => {
+    seedLongConversation();
+    bindSmallerModelToSmartSlot();
+    useChatStore.setState({ selectedModel: "eco-smart" });
+
+    const { result } = renderHook(() => useChat());
+    expect(useChatStore.getState().contextWindowNotice).toBe("visible");
+
     await act(async () => {
-      useChatStore.setState({ selectedModel: "eco-smart" });
+      useChatStore.setState({ selectedModel: "eco-fast" });
     });
 
     expect(result.current.contextDividerIndex).toBe(-1);
     expect(useChatStore.getState().contextWindowNotice).toBe("none");
   });
 
-  it("stays quiet when the window GROWS", async () => {
+  it("a dismissal holds for the conversation even as more falls out of context", async () => {
     seedLongConversation();
     bindSmallerModelToSmartSlot();
     useChatStore.setState({ selectedModel: "eco-smart" });
 
     renderHook(() => useChat());
+    expect(useChatStore.getState().contextWindowNotice).toBe("visible");
+    useChatStore.getState().dismissContextWindowNotice();
+
+    const paragraph = "word ".repeat(500);
     await act(async () => {
-      useChatStore.setState({ selectedModel: "eco-fast" });
+      useChatStore.getState().addMessage({ role: "user", content: paragraph, parentId: "a2" });
     });
 
-    expect(useChatStore.getState().contextWindowNotice).toBe("none");
-  });
-
-  it("does not speak for Eco normalizing its own selection", async () => {
-    // An unbound concrete id is rewritten to 'auto' inside dispatch. Here that
-    // rewrite lands on a SMALLER window (auto resolves to the ready eco-smart
-    // model), which is exactly the shape that would false-trigger the note:
-    // the person changed nothing.
-    seedLongConversation();
-    bindSmallerModelToSmartSlot();
-    setFastSlot({
-      slot: "eco-fast" as Slot,
-      modelId: null,
-      model: null,
-      status: "empty",
-    });
-    useChatStore.setState({ selectedModel: "candidate/qwen3.5-2b-onnx" });
-    setScripts([{ kind: "tokens", tokens: ["ok"] }]);
-    setLastUsage({ promptTokens: 4, completionTokens: 1, maxTokens: 1024 });
-
-    const { result } = renderHook(() => useChat());
-    await act(async () => {
-      await result.current.sendMessage("hello");
-    });
-
-    expect(useChatStore.getState().selectedModel).toBe("auto");
-    expect(useChatStore.getState().contextWindowNotice).toBe("none");
+    expect(useChatStore.getState().contextWindowNotice).toBe("dismissed");
   });
 });

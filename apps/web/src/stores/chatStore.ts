@@ -207,8 +207,10 @@ interface ChatActions {
   updateToolCall: (id: string, updates: Partial<ToolCallDisplay>) => void;
   clearToolState: () => void;
   setLocalToolNoticeShown: () => void;
-  /** Raise the shrunk-context note, unless this conversation already had it. */
+  /** Raise the out-of-context note, unless this conversation already dismissed it. */
   showContextWindowNotice: () => void;
+  /** The whole chat fits again (a larger model was chosen): a visible note withdraws. */
+  hideContextWindowNotice: () => void;
   /** The person closed the note; it does not come back for this conversation. */
   dismissContextWindowNotice: () => void;
   setRouteRecommendationSnapshot: (snapshot: ChatRouteRecommendationSnapshot | null) => void;
@@ -591,11 +593,18 @@ export const useChatStore = create<ChatState & ChatActions>()((set) => ({
   },
 
   showContextWindowNotice() {
-    // Once per conversation: a note the person already dismissed must not
-    // reappear because they switched models again.
+    // A note the person already dismissed must not reappear in this
+    // conversation, however much more of it falls out of context.
     set((state) =>
       state.contextWindowNotice === "none"
         ? { contextWindowNotice: "visible" as ContextWindowNoticeState }
+        : state,
+    );
+  },
+  hideContextWindowNotice() {
+    set((state) =>
+      state.contextWindowNotice === "visible"
+        ? { contextWindowNotice: "none" as ContextWindowNoticeState }
         : state,
     );
   },

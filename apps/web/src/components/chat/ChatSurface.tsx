@@ -442,10 +442,10 @@ export function ChatSurface(props: ChatSurfaceProps) {
             <ErrorNotice className="mx-4 mb-2" lead={error} />
           )}
 
-          {/* Sits just above the composer, where the model was switched, and
-              points back up at the divider that moved. Owns its own store
-              state (raised by useChat, one shot per conversation). */}
-          <ContextWindowNotice className="mx-4 mb-2" />
+          {/* Sits just above the composer, where the next message is written,
+              and says how much of the chat the model no longer reads. Owns its
+              own store state (raised by useChat while the divider exists). */}
+          <ContextWindowNotice className="mx-4 mb-2" droppedCount={contextDividerIndex} />
 
           {/* Impact footer. The help button rides inside it whenever it has
               height: the footer already reserves a 68px lane at its right edge

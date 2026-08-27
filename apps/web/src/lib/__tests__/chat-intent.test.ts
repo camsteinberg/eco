@@ -4,6 +4,7 @@
 import { describe, expect, it } from "vitest";
 import {
   applyTurnHints,
+  LONG_CHAT_COMPACT_FROM_INDEX,
   buildHintedUserTurn,
   buildTurnQualityInstruction,
   getGenerationProfile,
@@ -357,6 +358,49 @@ describe("user-turn hint placement", () => {
     const once = applyTurnHints(messages, true, MODEL);
     const twice = applyTurnHints(once, true, MODEL);
     expect(twice[0]!.content).not.toBe(once[0]!.content);
+  });
+});
+
+// ─── Long chats: compact hint from the third user turn (2026-08-27) ─────────
+// Measured on the 1.2B (10-turn Lisbon chat, 4096 ctx): every explain turn ran
+// ~2 000 chars, the history budget held ~5 turns, and the turn-10 summary was
+// confidently wrong because turns 1–5 had been evicted. Shorter replies in the
+// body of a chat double the turns that fit. The switch is keyed on the turn's
+// POSITION in the rendered list, which is exactly what the KV contract allows.
+
+describe("long-chat compact hint", () => {
+  const MODEL = "candidate/lfm2.5-1.2b-instruct-onnx";
+  const explainAsk = "what should we know about the trams in lisbon, are they worth it?";
+
+  it("switches explain turns to the compact hint from LONG_CHAT_COMPACT_FROM_INDEX", () => {
+    const filler = { role: "assistant" as const, content: "ok" };
+    const messages = [
+      { role: "user" as const, content: explainAsk },
+      filler,
+      { role: "user" as const, content: explainAsk },
+      filler,
+      { role: "user" as const, content: explainAsk },
+    ];
+    const hinted = applyTurnHints(messages, true, MODEL);
+    const full = buildTurnQualityInstruction("explain", true, MODEL);
+    const compact = buildTurnQualityInstruction("explain", true, MODEL, { compact: true });
+    expect(compact).not.toBe(full);
+    expect(LONG_CHAT_COMPACT_FROM_INDEX).toBe(4);
+    expect(hinted[0]!.content).toBe(`${explainAsk}\n\n${full}`);
+    expect(hinted[2]!.content).toBe(`${explainAsk}\n\n${full}`);
+    expect(hinted[4]!.content).toBe(`${explainAsk}\n\n${compact}`);
+  });
+
+  it("leaves deep, code and writing turns at their full hint deep into a chat", () => {
+    for (const intent of ["deep", "code", "writing"] as const) {
+      expect(buildTurnQualityInstruction(intent, true, MODEL, { compact: true }))
+        .toBe(buildTurnQualityInstruction(intent, true, MODEL));
+    }
+  });
+
+  it("still yields to an explicit length instruction", () => {
+    const ask = "in one sentence, are the trams worth it?";
+    expect(buildHintedUserTurn(ask, "explain", true, MODEL, { compact: true })).toBe(ask);
   });
 });
 
