@@ -74,6 +74,10 @@ const FAULT_UNLOAD_CODES: ReadonlySet<AdapterErrorCode> = new Set([
   'oom',
   'device-lost',
   'generation-failed',
+  // A watchdog timeout means the worker stopped answering; an abort was sent,
+  // but a wedged worker may never process it. Unloading guarantees the next
+  // send gets a fresh worker instead of a single-flight rejection.
+  'timeout',
 ]);
 
 export type CooldownRecord = {

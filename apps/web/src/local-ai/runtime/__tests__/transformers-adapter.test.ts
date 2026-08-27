@@ -950,6 +950,39 @@ describe('TransformersAdapter — watchdogs (RT-3)', () => {
     await a.unload().catch(() => undefined);
   });
 
+  it('tells the worker to abort when the inter-token watchdog fires (a stalled generation must not keep the worker busy)', async () => {
+    vi.useFakeTimers();
+    const a = new TransformersAdapter({
+      storage,
+      workerFactory: () => worker,
+      generateId: () => 'test-gen-id',
+      firstTokenTimeoutMs: 5_000,
+      interTokenTimeoutMs: 1_000,
+    });
+    const loadPromise = a.load(MODEL);
+    await Promise.resolve();
+    worker.emit({ type: 'ready', backend: 'webgpu' });
+    await loadPromise;
+
+    const collector = (async () => {
+      for await (const event of a.generate([{ role: 'user', content: 'hi' }])) {
+        void event;
+      }
+    })();
+    await Promise.resolve();
+    await Promise.resolve();
+    worker.emit({ type: 'token', generationId: 'test-gen-id', text: 'partial', seq: 1 });
+    await vi.advanceTimersByTimeAsync(1_001);
+    await collector;
+
+    // A backgrounded phone tab trips this watchdog on resume while the worker
+    // is still mid-generation. Without an abort the worker keeps its
+    // single-flight guard held and the user's retry is rejected too.
+    const abortMsg = worker.inbox.find((m) => m.type === 'abort');
+    expect(abortMsg).toEqual({ type: 'abort', generationId: 'test-gen-id' });
+    await a.unload().catch(() => undefined);
+  });
+
   it('ends generation with a timeout error when the first token never arrives (generous prefill window)', async () => {
     vi.useFakeTimers();
     const a = new TransformersAdapter({

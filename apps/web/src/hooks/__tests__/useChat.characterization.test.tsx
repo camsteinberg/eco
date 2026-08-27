@@ -167,10 +167,15 @@ function buildScriptedStream(script: StreamScript): ReadableStream<string> {
     });
   }
   if (script.kind === "error") {
+    // Deliver the tokens BEFORE erroring: `controller.error()` discards any
+    // chunks still queued, so erroring in start() would never let the consumer
+    // see the partial words the real runtime delivers before a fault.
+    const pending = [...script.tokens];
     return new ReadableStream<string>({
-      start(controller) {
-        for (const t of script.tokens) controller.enqueue(t);
-        controller.error(script.error);
+      pull(controller) {
+        const next = pending.shift();
+        if (next !== undefined) controller.enqueue(next);
+        else controller.error(script.error);
       },
     });
   }
@@ -1112,6 +1117,30 @@ describe("useChat — runtime error handling", () => {
     expect(assistant.inferenceMethod).toBe("local");
     expect(useChatStore.getState().error).toBe(LOCAL_GENERATION_FALLBACK_MESSAGE);
   });
+
+  it.each(["OOM", "TIMEOUT"] as const)(
+    "keeps the words that already arrived when the stream fails with %s (interrupted, not error)",
+    async (code) => {
+      setScripts([
+        {
+          kind: "error",
+          tokens: ["partial answer so far"],
+          error: new LocalInferenceStreamError(code, "runtime detail", true),
+        },
+      ]);
+
+      const { result } = renderHook(() => useChat());
+      await act(async () => {
+        await result.current.sendMessage("hi");
+      });
+
+      const assistant = lastAssistant()!;
+      expect(assistant.content).toBe("partial answer so far");
+      expect(assistant.status).toBe("complete");
+      expect(assistant.streamInterrupted).toBe(true);
+      expect(assistant.interruptedReason).toBe("fault");
+    },
+  );
 
   it("maps a TEMPLATE_MISSING stream error to the dedicated user message", async () => {
     setScripts([
