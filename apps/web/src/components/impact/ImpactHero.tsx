@@ -42,14 +42,15 @@ export function ImpactHero() {
           </svg>
 
           {/* Static, methodology-backed estimate — the per-query data-center
-              cooling-water footprint that an on-device reply avoids. This is a
-              published research midpoint, never a live or per-user number. */}
+              water footprint that an on-device reply avoids. Top of the
+              published 10–50 mL range (Li et al.), never a live or per-user
+              number; the methodology below says why the high end. */}
           <div className="mt-4 flex min-w-0 flex-wrap items-baseline justify-center gap-2 sm:gap-3">
             <span
               className="font-serif text-6xl font-light tracking-tighter sm:text-7xl lg:text-8xl"
               style={{ color: 'var(--eco-primary)' }}
             >
-              ~250
+              ~50
             </span>
             <span
               className="font-serif text-2xl font-medium tracking-tight sm:text-3xl"
@@ -61,9 +62,9 @@ export function ImpactHero() {
         </div>
 
         <p className="mx-auto mt-6 max-w-lg text-lg leading-relaxed text-[var(--eco-text-secondary)] sm:text-xl">
-          of cooling water a single AI query is estimated to draw in a data
-          center&thinsp;&mdash;&thinsp;water your reply doesn&rsquo;t spend when
-          the model runs on your own device.
+          of water a single AI query can draw in a data center, at the high end
+          of published estimates&thinsp;&mdash;&thinsp;water your reply
+          doesn&rsquo;t spend when the model runs on your own device.
         </p>
 
         <p className="mx-auto mt-4 max-w-md text-sm text-[var(--eco-text-secondary)] opacity-70">

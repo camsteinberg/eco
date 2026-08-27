@@ -18,7 +18,7 @@ describe("ImpactHero", () => {
     render(<ImpactHero />);
 
     // The hero number is a static, methodology-backed estimate.
-    expect(screen.getByText("~250")).toBeInTheDocument();
+    expect(screen.getByText("~50")).toBeInTheDocument();
     expect(screen.getByText("mL")).toBeInTheDocument();
     // No live/per-user data is fetched on the impact page.
     expect(fetchSpy).not.toHaveBeenCalled();

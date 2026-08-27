@@ -93,7 +93,7 @@ export default function ImpactPage({
         direction="left"
         figure={
           <ComparisonFigure
-            left={{ value: '~250', unit: 'mL', label: 'per query \u2014 data-center API call' }}
+            left={{ value: '~50', unit: 'mL', label: 'per query \u2014 data-center API call, high end' }}
             right={{ value: '~0', unit: 'mL', label: 'data-center cooling \u2014 on your device' }}
           />
         }
@@ -109,11 +109,16 @@ export default function ImpactPage({
           <sup className="text-xs opacity-50">[3]</sup>.
         </p>
         <p>
-          Researchers at UC Riverside found that a single conversation with
-          GPT-4 uses roughly 500&thinsp;mL of cooling
-          water&thinsp;&mdash;&thinsp;about a full water bottle&thinsp;&mdash;&thinsp;which
-          works out to an estimated 250&thinsp;mL per query&thinsp;
-          <sup className="text-xs opacity-50">[1]</sup>.
+          Researchers at UC Riverside estimated that GPT-3 &ldquo;drinks&rdquo;
+          a 500&thinsp;mL bottle of water for roughly 10&ndash;50 medium-length
+          responses, depending on when and where it runs&thinsp;
+          <sup className="text-xs opacity-50">[1]</sup>. That is 10&ndash;50&thinsp;mL
+          per reply, counting both the data center&apos;s own cooling and the
+          water spent generating its electricity. We use the high end, because
+          the worst-placed data centers are the ones worth avoiding. The best
+          are far leaner: Google measured a median Gemini prompt at about
+          0.26&thinsp;mL of on-site water in 2025&thinsp;
+          <sup className="text-xs opacity-50">[6]</sup>.
         </p>
         <p>
           When the model runs on your own device, that query never reaches a
@@ -162,11 +167,16 @@ export default function ImpactPage({
           networking, the idle capacity kept warm for the next request.
         </p>
         <p>
-          We don&apos;t claim a precise per-query energy
-          number&thinsp;&mdash;&thinsp;consumer hardware varies far too much for
-          an honest figure. What we can say is that running AI on a device
-          that&apos;s already powered on adds no new power-hungry infrastructure
-          to the grid.
+          The figure we credit per reply&thinsp;&mdash;&thinsp;about
+          2.9&thinsp;Wh&thinsp;&mdash;&thinsp;is the high end of published
+          estimates for a 2023-era ChatGPT request&thinsp;
+          <sup className="text-xs opacity-50">[7]</sup>. Newer, optimized
+          deployments report roughly a tenth of that&thinsp;
+          <sup className="text-xs opacity-50">[6][8]</sup>. Your own device
+          draws some power to answer too; we don&apos;t measure it, and we
+          don&apos;t subtract a guess. What we can say is that running AI on a
+          device that&apos;s already powered on adds no new power-hungry
+          infrastructure to the grid.
         </p>
       </ImpactPillar>
 
