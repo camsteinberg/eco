@@ -33,10 +33,13 @@ primary_region = "iad"
   app = "sh -c 'node apps/api/dist/db/migrate.js && node apps/api/dist/index.js'"
 
 [checks]
+  # Readiness, not liveness: a machine that cannot reach Postgres or Redis must
+  # not pass the deploy health check, or Fly shifts traffic to an API that fails
+  # every auth call. /health/ready returns 503 until both dependencies answer.
   [checks.health]
     type = "http"
     port = 3001
-    path = "/health"
+    path = "/health/ready"
     interval = "15s"
     timeout = "5s"
     grace_period = "10s"

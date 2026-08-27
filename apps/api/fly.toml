@@ -34,10 +34,11 @@ primary_region = "iad"
   app = "sh -c 'node apps/api/dist/db/migrate.js && node apps/api/dist/index.js'"
 
 [checks]
+  # Readiness (DB + Redis), not shallow liveness — see fly.production.toml.
   [checks.health]
     type = "http"
     port = 3001
-    path = "/health"
+    path = "/health/ready"
     interval = "30s"
     timeout = "5s"
     grace_period = "10s"
