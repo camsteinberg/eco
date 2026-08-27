@@ -16,16 +16,18 @@ import {
 import type { CumulativeImpact } from "../impact-calc";
 
 describe("constants", () => {
-  it("WATER_PER_QUERY_LITERS is 0.25", () => {
-    expect(WATER_PER_QUERY_LITERS).toBe(0.25);
+  it("WATER_PER_QUERY_LITERS is 0.05 (top of Li et al. 10–50 mL range)", () => {
+    expect(WATER_PER_QUERY_LITERS).toBe(0.05);
   });
 
-  it("ENERGY_SAVING_KWH_PER_QUERY is 0.002", () => {
-    expect(ENERGY_SAVING_KWH_PER_QUERY).toBe(0.002);
+  it("ENERGY_SAVING_KWH_PER_QUERY is 0.0029 (de Vries 2023, at most 2.9 Wh)", () => {
+    expect(ENERGY_SAVING_KWH_PER_QUERY).toBe(0.0029);
   });
 
-  it("CO2_SAVED_GRAMS_PER_QUERY is 1.26", () => {
-    expect(CO2_SAVED_GRAMS_PER_QUERY).toBe(1.26);
+  it("CO2_SAVED_GRAMS_PER_QUERY follows from energy × US grid intensity", () => {
+    expect(CO2_SAVED_GRAMS_PER_QUERY).toBe(1.08);
+    // 2.9 Wh × 0.373 kg/kWh (823 lb/MWh, eGRID 2022) — the constant must not drift from its own math.
+    expect(CO2_SAVED_GRAMS_PER_QUERY).toBeCloseTo(ENERGY_SAVING_KWH_PER_QUERY * 373.3, 1);
   });
 });
 
@@ -41,27 +43,23 @@ describe("calculateImpact", () => {
 
   it("returns correct values for 4 queries", () => {
     const result = calculateImpact(4);
-    expect(result).toEqual({
-      waterSavedLiters: 1.0,
-      energySavedWh: 8.0,
-      co2SavedGrams: 5.04,
-    });
+    expect(result.waterSavedLiters).toBeCloseTo(0.2, 10);
+    expect(result.energySavedWh).toBeCloseTo(11.6, 10);
+    expect(result.co2SavedGrams).toBeCloseTo(4.32, 10);
   });
 
   it("returns correct scaled values for 100 queries", () => {
     const result = calculateImpact(100);
-    expect(result).toEqual({
-      waterSavedLiters: 25.0,
-      energySavedWh: 200.0,
-      co2SavedGrams: 126.0,
-    });
+    expect(result.waterSavedLiters).toBeCloseTo(5.0, 10);
+    expect(result.energySavedWh).toBeCloseTo(290.0, 10);
+    expect(result.co2SavedGrams).toBeCloseTo(108.0, 10);
   });
 
   it("handles 1 query correctly", () => {
     const result = calculateImpact(1);
-    expect(result.waterSavedLiters).toBe(0.25);
-    expect(result.energySavedWh).toBe(2.0);
-    expect(result.co2SavedGrams).toBe(1.26);
+    expect(result.waterSavedLiters).toBe(0.05);
+    expect(result.energySavedWh).toBeCloseTo(2.9, 10);
+    expect(result.co2SavedGrams).toBe(1.08);
   });
 });
 

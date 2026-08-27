@@ -33,6 +33,26 @@ const citations: Citation[] = [
     text: 'Goldman Sachs Research. "AI is poised to drive 160% increase in data center power demand." 2024.',
     url: 'https://www.goldmansachs.com/insights/articles/AI-poised-to-drive-160-increase-in-power-demand',
   },
+  {
+    id: 6,
+    text: 'Elsworth, C. et al. "Measuring the environmental impact of delivering AI at Google Scale." Google, 2025. Median Gemini Apps text prompt: 0.24 Wh, 0.03 gCO2e, 0.26 mL of on-site water.',
+    url: 'https://arxiv.org/abs/2508.15734',
+  },
+  {
+    id: 7,
+    text: 'de Vries, A. "The growing energy footprint of artificial intelligence." Joule, 2023. At most 2.9 Wh per ChatGPT request.',
+    url: 'https://www.cell.com/joule/fulltext/S2542-4351(23)00365-3',
+  },
+  {
+    id: 8,
+    text: 'Epoch AI. "How much energy does ChatGPT use?" 2025. Roughly 0.3 Wh per GPT-4o query.',
+    url: 'https://epoch.ai/gradient-updates/how-much-energy-does-chatgpt-use',
+  },
+  {
+    id: 9,
+    text: 'US EPA. eGRID 2022 summary data. US average output emission rate: 823.1 lb CO2 per MWh (about 0.37 kg per kWh).',
+    url: 'https://www.epa.gov/egrid/summary-data',
+  },
 ]
 
 export function Footnotes() {

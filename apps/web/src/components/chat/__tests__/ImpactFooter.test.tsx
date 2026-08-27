@@ -19,24 +19,24 @@ describe("ImpactFooter", () => {
 
   it("renders water metric for queryCount > 0", () => {
     render(<ImpactFooter queryCount={1} onShare={() => {}} />);
-    expect(screen.getByText(/0\.25 L/)).toBeInTheDocument();
+    expect(screen.getByText(/0\.05 L/)).toBeInTheDocument();
   });
 
   it("renders energy metric for queryCount > 0", () => {
     render(<ImpactFooter queryCount={1} onShare={() => {}} />);
-    expect(screen.getByText(/2\.0 Wh/)).toBeInTheDocument();
+    expect(screen.getByText(/2\.9 Wh/)).toBeInTheDocument();
   });
 
   it("renders CO2 metric for queryCount > 0", () => {
     render(<ImpactFooter queryCount={1} onShare={() => {}} />);
-    expect(screen.getByText(/1\.26 g/)).toBeInTheDocument();
+    expect(screen.getByText(/1\.08 g/)).toBeInTheDocument();
   });
 
   it("scales metrics for multiple queries", () => {
     render(<ImpactFooter queryCount={10} onShare={() => {}} />);
-    expect(screen.getByText(/2\.50 L/)).toBeInTheDocument();
-    expect(screen.getByText(/20\.0 Wh/)).toBeInTheDocument();
-    expect(screen.getByText(/12\.60 g/)).toBeInTheDocument();
+    expect(screen.getByText(/0\.50 L/)).toBeInTheDocument();
+    expect(screen.getByText(/29\.0 Wh/)).toBeInTheDocument();
+    expect(screen.getByText(/10\.80 g/)).toBeInTheDocument();
   });
 
   it("renders a Share chat button", () => {
@@ -62,7 +62,9 @@ describe("ImpactFooter", () => {
     render(<ImpactFooter queryCount={1} onShare={() => {}} />);
     const link = screen.getByRole("link", { name: /environmental impact of this chat/i });
     expect(link.getAttribute("href")).toBe("/impact");
-    expect(link).toHaveTextContent(/0\.25 L/);
+    expect(link).toHaveTextContent(/0\.05 L/);
+    // The strip must say these are estimates — /impact hedges, the footer must too.
+    expect(link).toHaveTextContent(/est\./);
   });
 
   it("has accessible labels", () => {

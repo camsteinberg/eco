@@ -56,8 +56,9 @@ export function ImpactFooter({ queryCount, onShare }: ImpactFooterProps) {
       <a
         href="/impact"
         className="flex min-h-[44px] flex-wrap items-center gap-x-3 text-xs text-[var(--eco-text-secondary)] sm:min-h-0 sm:gap-x-4"
-        aria-label="Environmental impact of this chat — how it is calculated"
+        aria-label="Environmental impact of this chat — estimated; how it is calculated"
       >
+        <span className="opacity-70">est.</span>
         {/* Water saved */}
         <span className="flex items-center gap-1">
           <svg

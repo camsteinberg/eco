@@ -9,17 +9,17 @@ const methodologyItems = [
   {
     term: 'Water saved per query',
     definition:
-      'Each AI query to a traditional data center is estimated to use about 250\u2009mL of cooling water\u200A\u2014\u200Athe midpoint of the 200\u2013300\u2009mL range identified by researchers at the University of California, Riverside for GPT-4 class models. When the model runs on your own device, that query never reaches a data center and so avoids this evaporative-cooling footprint. Your device still consumes electricity and may warm up under ordinary hardware cooling.',
+      'Researchers at UC Riverside estimated that GPT-3 consumes a 500\u2009mL bottle of water for roughly 10\u201350 medium-length responses, depending on when and where it runs\u200A\u2014\u200A10\u201350\u2009mL per reply, counting on-site cooling and the water used to generate the electricity. We credit the high end, 50\u2009mL, because the worst-placed data centers are the ones worth avoiding; the leanest report far less. When the model runs on your own device, the reply never reaches a data center at all. Your device still uses electricity and may warm up under ordinary hardware cooling.',
   },
   {
     term: 'Energy saved per query',
     definition:
-      'Running the model on your device avoids the data-center GPU inference a cloud query would use. Following Luccioni et al. (2023)\u200A\u2014\u200Aabout 0.005\u2009kWh per data-center query versus roughly 0.003\u2009kWh for local inference\u200A\u2014\u200Awe credit a conservative 0.002\u2009kWh saved per query. Like the water figure, it is a published-research estimate, not a measurement of your hardware.',
+      'Running the model on your device avoids the data-center serving a cloud query would use. We credit 2.9\u2009Wh per reply\u200A\u2014\u200Ade Vries (2023) put a 2023-era ChatGPT request at most 2.9\u2009Wh, the high end of published estimates. Newer, optimized deployments report about a tenth of that (Epoch AI, 2025: ~0.3\u2009Wh; Google, 2025: 0.24\u2009Wh median). We do not subtract your own device\u2019s draw, because we don\u2019t measure it; a small model on a laptop typically runs for a few seconds at well under the machine\u2019s peak power.',
   },
   {
     term: 'CO2 avoided per query',
     definition:
-      'From the energy above and the US average grid carbon intensity (EPA eGRID 2024, about 0.42\u2009kg CO2 per kWh) with a typical data-center PUE of about 1.2, we estimate roughly 1.26\u2009g of CO2 avoided per query. It is an estimate, not a measurement\u200A\u2014\u200Aand we make no carbon-offset claim.',
+      'The energy above times the US average grid carbon intensity (EPA eGRID 2022, 823\u2009lb CO2 per MWh, about 0.37\u2009kg per kWh) gives roughly 1.08\u2009g of CO2 per reply. No extra data-center overhead is added: the 2.9\u2009Wh is already a whole-service figure. It is an estimate, not a measurement\u200A\u2014\u200Aand we make no carbon-offset claim.',
   },
   {
     term: 'What these figures are',
@@ -29,7 +29,7 @@ const methodologyItems = [
   {
     term: 'What we don\u2019t claim',
     definition:
-      'We don\u2019t claim carbon offsets, and none of these numbers are measured from your own hardware\u200A\u2014\u200Aconsumer configurations vary too much for that. Every figure is a clearly labeled, deliberately conservative estimate.',
+      'We don\u2019t claim carbon offsets, and none of these numbers are measured from your own hardware\u200A\u2014\u200Aconsumer configurations vary too much for that. Every figure is a clearly labeled estimate of what a data-center query costs at the high end of the published range; the best-run data centers cost far less, and the totals you see are an upper bound, not a promise.',
   },
 ]
 
@@ -79,15 +79,14 @@ export function Methodology() {
             className="block whitespace-normal break-words font-mono text-sm tracking-wide sm:text-base"
             style={{ color: 'var(--eco-text)' }}
           >
-            est_water_per_query &asymp; 0.25&thinsp;L of data-center cooling avoided
+            est_water_per_query &asymp; 50&thinsp;mL (high end of 10&ndash;50&thinsp;mL, Li et al.)
           </code>
         </div>
 
         {/* Closing statement */}
         <div className="mt-12 space-y-4 text-base leading-relaxed text-[var(--eco-text-secondary)]">
           <p>
-            Our methodology is deliberately conservative. We&apos;d rather
-            understate our impact than overclaim it. All source
+            Our figures describe the worst common case, and say so. All source
             code&thinsp;&mdash;&thinsp;including the calculation you see on this
             page&thinsp;&mdash;&thinsp;is open source under AGPL-3.0.
           </p>

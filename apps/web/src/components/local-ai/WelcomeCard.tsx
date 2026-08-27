@@ -281,10 +281,10 @@ function LeafMark() {
 }
 
 /**
- * The waterless story, drawn: a cloud data center that spends ~250 mL of cooling
- * water per query vs. the same query answered on your device (0 mL). Echoes the
+ * The waterless story, drawn: a cloud data center that can spend ~50 mL of water
+ * per query vs. the same query answered on your device (0 mL). Echoes the
  * /impact comparison but as one warm, glanceable diagram for non-technical users.
- * Figures match impact-calc.ts / the /impact page (UC Riverside, ~0.25 L/query).
+ * Figures match impact-calc.ts / the /impact page (Li et al., high end of 10–50 mL).
  */
 function WaterComparison({ impactHref }: { impactHref: string }) {
   return (
@@ -310,7 +310,7 @@ function WaterComparison({ impactHref }: { impactHref: string }) {
           </svg>
           <figcaption>
             <p className="text-xs font-medium" style={{ color: 'var(--eco-text-secondary)' }}>Cloud AI</p>
-            <p className="text-sm font-semibold tabular-nums" style={{ color: 'var(--eco-sky)' }}>~250 mL</p>
+            <p className="text-sm font-semibold tabular-nums" style={{ color: 'var(--eco-sky)' }}>~50 mL</p>
           </figcaption>
         </figure>
 
