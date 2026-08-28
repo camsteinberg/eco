@@ -81,6 +81,11 @@ export type GenerateOptions = {
   topK?: number;
   repetitionPenalty?: number;
   noRepeatNgramSize?: number;
+  /** The trailing assistant message is a partial reply to FINISH, not a
+   *  finished turn. The Transformers worker renders the history and appends
+   *  the partial verbatim (see runtime/continue-final-message.ts); other
+   *  adapters ignore it and may restart the reply. */
+  continueFinalMessage?: boolean;
   /** AbortSignal cancels generation between tokens. */
   signal?: AbortSignal;
   /** Optional lifecycle event callback for diagnostic capture. */
