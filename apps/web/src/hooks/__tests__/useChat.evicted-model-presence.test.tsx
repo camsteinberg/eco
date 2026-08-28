@@ -84,6 +84,7 @@ vi.mock("../../local-ai/lifecycle/slots", () => ({
   },
   hasReadySlot: () =>
     shared.fastSlotState?.status === "ready" || shared.smartSlotState?.status === "ready",
+  getDemotedFrom: () => undefined,
   setSlotStorage: () => {},
   setSlot: () => {},
   setSlotStatus: () => {},

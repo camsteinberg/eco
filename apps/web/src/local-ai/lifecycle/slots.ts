@@ -40,6 +40,7 @@ import {
 
 const KEY_PREFIX = 'eco-local-ai-slot-';
 const STATUS_KEY_PREFIX = 'eco-local-ai-slot-status-';
+const DEMOTED_FROM_KEY_PREFIX = 'eco-local-ai-slot-demoted-from-';
 
 const LEGACY_KEY_PREFIXES: ReadonlyArray<string> = [
   'eco-model-slot-',
@@ -238,6 +239,55 @@ export function hasReadySlot(): boolean {
   });
 }
 
+// ─── Demotion tracking ────────────────────────────────────────────────────
+
+export type DemotedFrom = {
+  modelId: string;
+  at: number;
+};
+
+function demotedFromKey(slot: Slot): string {
+  return DEMOTED_FROM_KEY_PREFIX + slot;
+}
+
+export function getDemotedFrom(slot: Slot): DemotedFrom | undefined {
+  const storage = resolveStorage();
+  if (!storage) return undefined;
+  const raw = readNonEmpty(storage, demotedFromKey(slot));
+  if (!raw) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (
+      typeof parsed === 'object'
+      && parsed !== null
+      && typeof (parsed as DemotedFrom).modelId === 'string'
+      && typeof (parsed as DemotedFrom).at === 'number'
+    ) {
+      return parsed as DemotedFrom;
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function setDemotedFrom(slot: Slot, value: DemotedFrom): void {
+  const storage = resolveStorage();
+  if (!storage) return;
+  const existing = getDemotedFrom(slot);
+  if (existing) return;
+  storage.setItem(demotedFromKey(slot), JSON.stringify(value));
+}
+
+export function clearDemotedFrom(slot: Slot, modelId: string): void {
+  const storage = resolveStorage();
+  if (!storage) return;
+  const existing = getDemotedFrom(slot);
+  if (existing && existing.modelId === modelId) {
+    storage.removeItem(demotedFromKey(slot));
+  }
+}
+
 // ─── Internals ─────────────────────────────────────────────────────────────
 
 function slotKey(slot: Slot): string {
@@ -298,6 +348,7 @@ export function _resetSlotsForTesting(): void {
     try {
       storage.removeItem(slotKey(slot));
       storage.removeItem(statusKey(slot));
+      storage.removeItem(demotedFromKey(slot));
       for (const prefix of LEGACY_KEY_PREFIXES) {
         storage.removeItem(prefix + slot);
       }

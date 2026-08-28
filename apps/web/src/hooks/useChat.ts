@@ -59,9 +59,11 @@ import { isValidationHarnessEnabled } from "../lib/validation-harness";
 import {
   getSlot as getLocalAiSlot,
   getSlotForModel as getLocalAiSlotForModel,
+  getDemotedFrom,
   subscribe as subscribeLocalAiSlots,
 } from "../local-ai/lifecycle/slots";
 import { isUpgradeInFlightForSlot } from "../local-ai/lifecycle/upgrade";
+import { getDisplayInfo } from "../local-ai/display";
 import { MODEL_PREPARING_BUSY_MESSAGE, getActiveLocalHeavyWorkLease } from "../lib/local-heavy-work-owner";
 import { getActiveModel } from "../local-ai/runtime/lifecycle";
 import { createLocalAiLegacyInference } from "../local-ai/adapters/useChatLegacyShim";
@@ -1155,6 +1157,32 @@ export function useChat() {
     if (!dispatch.ok) return;
     const { model } = dispatch;
 
+    // ── Demotion notice (once per demotion per conversation) ──────────────
+    const modelSlot = getLocalAiSlotForModel(model);
+    if (modelSlot) {
+      const demotedFrom = getDemotedFrom(modelSlot);
+      if (demotedFrom) {
+        const messages = useChatStore.getState().messages;
+        const alreadyNotified = messages.some(
+          (m) => m.demotionNotice && m.demotionNotice.demotedAt === demotedFrom.at,
+        );
+        if (!alreadyNotified) {
+          const fromConfig = getLocalAiCatalogModel(demotedFrom.modelId);
+          const toConfig = getLocalAiCatalogModel(model);
+          const stripVendor = (name: string) => name.replace(/\s*\([^)]*\)$/, '');
+          const fromLabel = fromConfig
+            ? stripVendor(getDisplayInfo(fromConfig.id, fromConfig).friendlyName)
+            : demotedFrom.modelId;
+          const toLabel = toConfig
+            ? stripVendor(getDisplayInfo(toConfig.id, toConfig).friendlyName)
+            : model;
+          updateMessage(assistantId, {
+            demotionNotice: { fromLabel, toLabel, demotedAt: demotedFrom.at },
+          });
+        }
+      }
+    }
+
     // ── Build prompt + generation options ──────────────────────────────────
     const plan = buildPrompt(model, apiMessages, branchRecaps, overrides);
     const { turnIntent, localGenerationOptions } = plan;
@@ -1679,6 +1707,7 @@ export function useChat() {
         status: "complete",
         inferenceMethod: "local",
         confidence: null,
+        resolvedModel: model,
         possiblyTruncated,
         ...(lastUsage?.completionTokens != null && { localCompletionTokens: lastUsage.completionTokens }),
         ...(lastUsage?.maxTokens != null && { localMaxTokens: lastUsage.maxTokens }),

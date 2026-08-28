@@ -79,6 +79,10 @@ export interface ChatMessage {
   confidence?: number | null;
   /** True when this message was preceded by a network drop and continued locally. */
   offlineDivider?: boolean;
+  /** Present when this reply is the first in a conversation after a silent model
+   * demotion (the setup cascade fell back to a lighter model). Carries the
+   * display labels so the in-chat notice renders exactly once per demotion. */
+  demotionNotice?: { fromLabel: string; toLabel: string; demotedAt: number };
   /** Structured citations extracted from research mode responses. */
   citations?: Citation[];
   /** Grounding uncertainty marker, set by a grounding tool's no-source outcomes. */
@@ -196,7 +200,7 @@ interface ChatActions {
   ) => void;
   restorePersistedPreferences: () => void;
   restorePersistedComposerDraft: () => void;
-  updateMessage: (id: string, updates: Partial<Pick<ChatMessage, "content" | "status" | "errorMessage" | "streamInterrupted" | "interruptedReason" | "possiblyTruncated" | "localCompletionTokens" | "localMaxTokens" | "resolvedModel" | "inferenceMethod" | "confidence" | "offlineDivider" | "localReadiness" | "currentGenerationId" | "lastSeq" | "canonicalToolAnswer">>) => void;
+  updateMessage: (id: string, updates: Partial<Pick<ChatMessage, "content" | "status" | "errorMessage" | "streamInterrupted" | "interruptedReason" | "possiblyTruncated" | "localCompletionTokens" | "localMaxTokens" | "resolvedModel" | "inferenceMethod" | "confidence" | "offlineDivider" | "demotionNotice" | "localReadiness" | "currentGenerationId" | "lastSeq" | "canonicalToolAnswer">>) => void;
   removeMessage: (id: string) => void;
   addFileAttachment: (file: File) => string;
   updateFileAttachment: (id: string, updates: Partial<FileAttachment>) => void;

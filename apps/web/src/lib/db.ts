@@ -45,6 +45,7 @@ export type DbMessage = {
   inferenceMethod?: "remote" | "local";
   confidence?: number | null;
   offlineDivider?: boolean;
+  demotionNotice?: { fromLabel: string; toLabel: string; demotedAt: number };
   reactions?: MessageReaction[];
   /**
    * Grounding source attributions. Persisted so a reloaded answer keeps its
@@ -115,6 +116,7 @@ export function toDbMessage(m: ChatMessage, conversationId: string): DbMessage {
     ...(m.inferenceMethod !== undefined && { inferenceMethod: m.inferenceMethod }),
     ...(m.confidence !== undefined && { confidence: m.confidence }),
     ...(m.offlineDivider !== undefined && { offlineDivider: m.offlineDivider }),
+    ...(m.demotionNotice !== undefined && { demotionNotice: m.demotionNotice }),
     ...(m.citations !== undefined && { citations: m.citations }),
     ...(m.verification !== undefined && { verification: m.verification }),
     ...(m.canonicalToolAnswer !== undefined && { canonicalToolAnswer: m.canonicalToolAnswer }),
