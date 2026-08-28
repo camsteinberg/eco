@@ -48,6 +48,17 @@ const ERROR_MESSAGES = [
 ];
 
 const LOCAL_SETUP_MESSAGE_TITLE = "Eco needs one quick setup";
+/**
+ * Setup-card body while the device is offline. The setup driver already waits
+ * for the network (the cascade's waitForNetwork seam), but the card used to
+ * keep claiming "Eco is getting your model ready" over a progress state that
+ * could not move — an indefinite hang with no hint that reconnecting is the
+ * fix (verified live 2026-08-27, evicted model + offline). The auto-send
+ * promise stays: once the connection returns, setup resumes and the held
+ * message sends itself.
+ */
+export const LOCAL_SETUP_OFFLINE_BODY =
+  "You're offline, so Eco can't download your model right now. Setup picks up on its own when you're back online — and your message will still send itself.";
 const LOCAL_GENERATION_FAILURE_TITLE = "That reply hit a snag";
 const LOCAL_COOLDOWN_MESSAGE_TITLE = "Let this device cool down";
 // A model still warming up is not a setup task the user forgot — it's already
@@ -189,6 +200,23 @@ export function ErrorMessage({
   const selectedModel = useChatStore((s) => s.selectedModel);
   const [lighterNudge, setLighterNudge] = useState<LighterModelNudge | null>(null);
 
+  // Live connection state for the setup card: while offline, setup cannot
+  // download anything, so the card must say it is waiting for the connection
+  // instead of claiming work is under way.
+  const [isOnline, setIsOnline] = useState(
+    () => typeof navigator === "undefined" || navigator.onLine,
+  );
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
+
   const isBrowserUnsupportedError = Boolean(
     message && message.includes(BROWSER_UNSUPPORTED_MARKER),
   );
@@ -325,7 +353,9 @@ export function ErrorMessage({
             ? "Finishing up — your message will send itself in a moment."
             : localPrepareState?.status === "error" && localPrepareState.error
               ? localPrepareState.error
-              : message,
+              : !isOnline
+                ? LOCAL_SETUP_OFFLINE_BODY
+                : message,
       }
     : ERROR_MESSAGES[hashString(message ?? "default") % ERROR_MESSAGES.length]!;
   /**

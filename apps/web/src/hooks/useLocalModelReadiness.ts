@@ -31,6 +31,7 @@ import {
   getActiveLocalHeavyWorkLease,
 } from "../lib/local-heavy-work-owner";
 import { executeSetup } from "../local-ai/lifecycle/setup-runner";
+import { SETUP_MODEL_HOST_UNREACHABLE_REASON } from "../local-ai/lifecycle/setup-cascade";
 import {
   clearValidationConversationHistoryFixture,
   installValidationConversationHistoryFixture,
@@ -115,14 +116,13 @@ export function useLocalModelReadiness(): LocalModelReadiness {
   const handlePrepareLocalModel = useCallback(
     (modelId: string) => {
       setPrepareError(null);
-      const slot = getSlotForModel(modelId);
-      if (!slot) {
-        setPrepareError({
-          modelId,
-          message: "This model is not assigned to an Eco slot. Set it up in Settings.",
-        });
-        return;
-      }
+      // An unowned id is not a dead end. The readiness card can carry a slot id
+      // (a demoted slot with no bound model) or a model whose binding another
+      // path cleared — verified live 2026-08-27, where this branch showed "not
+      // assigned to an Eco slot" jargon and a button that could never succeed.
+      // Resolve a slot the way dispatch does and run the real setup pipeline;
+      // executeSetup picks the slot's recommendation when nothing is bound.
+      const slot = getSlotForModel(modelId) ?? resolveSelectedSlot(modelId);
       if (getSlot(slot).status === "ready") {
         // Already ready — nothing to prepare
         return;
@@ -160,8 +160,17 @@ export function useLocalModelReadiness(): LocalModelReadiness {
               // The slot flip to 'ready' notifies the slot subscription above,
               // which re-derives every consumer — nothing else to do here.
               setReady: () => {},
-              setError: (reason) => {
-                setPrepareError({ modelId, message: reason });
+              setError: (reason, errOpts) => {
+                // A network-shaped exhaustion must not surface device-blaming
+                // copy: the download never got far enough to say anything
+                // about this device (same rule SetupErrorState applies).
+                setPrepareError({
+                  modelId,
+                  message:
+                    errOpts?.reasonCode === "network-or-host"
+                      ? SETUP_MODEL_HOST_UNREACHABLE_REASON
+                      : reason,
+                });
               },
               markPriorAttemptFailed: () => {},
               markFindingFit: () => {},

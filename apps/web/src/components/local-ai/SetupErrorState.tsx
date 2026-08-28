@@ -8,7 +8,10 @@ import { Button } from '@eco/ui';
 import { WiltedPlant } from '@eco/ui';
 import { exportDiagnostics } from '../../local-ai/diagnostics/capture';
 import { looksLikeStorageShortage } from '../../local-ai/adapters/storage-shortage';
-import type { AttemptFailureReasonCode } from '../../local-ai/lifecycle/setup-cascade';
+import {
+  SETUP_MODEL_HOST_UNREACHABLE_REASON,
+  type AttemptFailureReasonCode,
+} from '../../local-ai/lifecycle/setup-cascade';
 
 /**
  * Setup error state — shown after the download pipeline exhausts its
@@ -130,7 +133,7 @@ function subtitleFor(
   }
   if (exhausted) {
     return isNetworkOrHosting(reason, reasonCode)
-      ? "We couldn't reach the model host just now — check your connection and try again in a bit."
+      ? SETUP_MODEL_HOST_UNREACHABLE_REASON
       : 'This can happen on some devices. You can copy what happened and send it to us, or try again later.';
   }
   return isNetworkOrHosting(reason, reasonCode)
