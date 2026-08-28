@@ -410,6 +410,7 @@ export function MessageList({
                 inferenceMethod={msg.inferenceMethod}
                 confidence={msg.confidence}
                 offlineDivider={msg.offlineDivider}
+                demotionNotice={msg.demotionNotice}
                 citations={msg.citations}
                 verification={msg.verification}
                 canonicalToolAnswer={msg.canonicalToolAnswer}

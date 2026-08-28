@@ -194,7 +194,7 @@ export function WelcomeSetup({
           </div>
         </div>
 
-        {priorAttemptFailed && (
+        {(priorAttemptFailed || resuming) && (
           <p
             role="status"
             className="text-xs"

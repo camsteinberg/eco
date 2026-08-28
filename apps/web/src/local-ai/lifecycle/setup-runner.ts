@@ -29,7 +29,15 @@ import {
   type LocalHeavyWorkKind,
 } from '../../lib/local-heavy-work-owner';
 import { runSmoke } from './smoke';
-import { setSlot, setSlotStatus, getSlot, type SlotState, type SlotStatus } from './slots';
+import {
+  setSlot,
+  setSlotStatus,
+  getSlot,
+  setDemotedFrom,
+  clearDemotedFrom,
+  type SlotState,
+  type SlotStatus,
+} from './slots';
 import { isBelowFloor } from '../device/below-floor';
 import { recommend } from '../index';
 import { nextInCascade } from '../selection/cascade';
@@ -440,6 +448,7 @@ export async function executeSetup(
 
   const current = seams.getSlot(slot);
   if (current.modelId && current.status === 'ready' && current.model) {
+    clearDemotedFrom(slot, current.modelId);
     actions.setReady(current.model);
     return;
   }
@@ -514,7 +523,10 @@ export async function executeSetup(
         boundSlot = target;
         hasBound = true;
         seams.setSlot(target, model);
-        if (info.kind === 'demote') actions.markFindingFit();
+        if (info.kind === 'demote') {
+          setDemotedFrom(target, { modelId: firstPick.id, at: Date.now() });
+          actions.markFindingFit();
+        }
       },
     });
   } catch (err) {
@@ -536,6 +548,7 @@ export async function executeSetup(
   // slot for a first-run pick, the setup slot for everything else.
   if (result.kind === 'ready') {
     seams.setSlotStatus(boundSlot, 'ready');
+    clearDemotedFrom(boundSlot, result.model.id);
     actions.setReady(result.model);
   } else {
     seams.setSlotStatus(boundSlot, 'error');

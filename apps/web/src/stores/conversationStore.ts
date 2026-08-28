@@ -396,6 +396,7 @@ export const useConversationStore = create<ConversationState & ConversationActio
           inferenceMethod: m.inferenceMethod,
           confidence: m.confidence,
           offlineDivider: m.offlineDivider,
+          demotionNotice: m.demotionNotice,
           citations: m.citations,
           verification: m.verification,
           canonicalToolAnswer: m.canonicalToolAnswer,

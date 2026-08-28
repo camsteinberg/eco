@@ -95,6 +95,7 @@ vi.mock("../../local-ai/lifecycle/slots", () => ({
   setSlot: () => {},
   setSlotStatus: () => {},
   subscribe: () => () => {},
+  getDemotedFrom: () => undefined,
 }));
 
 vi.mock("../../local-ai/runtime/usage-store", () => ({

@@ -25,6 +25,7 @@ import { UncertaintyNote } from "./UncertaintyNote";
 import { ThinkingBlock } from "./ThinkingBlock";
 
 import { OfflineDivider } from "./OfflineDivider";
+import { DemotionDivider } from "./DemotionDivider";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { EcoLogo } from "../EcoLogo";
 import { timeAgo } from "../../lib/time";
@@ -99,6 +100,8 @@ type MessageBubbleProps = {
   confidence?: number | null;
   /** True when this message had a network drop and continued locally. */
   offlineDivider?: boolean;
+  /** Demotion notice labels, present on the first reply after a silent model swap. */
+  demotionNotice?: { fromLabel: string; toLabel: string; demotedAt: number };
   /** Called when user clicks re-ask CTA to send the same prompt via network. */
   onReask?: () => void;
   /** The user prompt that led to this assistant reply, when available. */
@@ -156,6 +159,7 @@ export function MessageBubble({
   onCancelEdit,
   toolCalls,
   offlineDivider,
+  demotionNotice,
   citations,
   verification,
   canonicalToolAnswer,
@@ -334,6 +338,12 @@ export function MessageBubble({
                   </div>
                 )}
                 {/* Offline divider when network dropped mid-stream */}
+                {demotionNotice && (
+                  <DemotionDivider
+                    fromLabel={demotionNotice.fromLabel}
+                    toLabel={demotionNotice.toLabel}
+                  />
+                )}
                 {offlineDivider && <OfflineDivider />}
                 {isStreaming && !hasVisibleAssistantContent && (
                   <StreamingPrelude phase={streamPhase} />

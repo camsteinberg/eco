@@ -3,18 +3,12 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
-  getSlot,
-  setSlot,
-  setSlotStatus,
   setSlotStorage,
   getDemotedFrom,
   setDemotedFrom,
   clearDemotedFrom,
   type KeyValueStorage,
 } from '../slots';
-import type { ModelConfig } from '../../types';
-
-const model = (id: string) => ({ id, friendlyName: `Model ${id}` } as ModelConfig);
 
 function makeStorage(): KeyValueStorage {
   const store = new Map<string, string>();

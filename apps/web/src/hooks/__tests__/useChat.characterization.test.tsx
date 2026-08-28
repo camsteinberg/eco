@@ -253,6 +253,7 @@ vi.mock("../../local-ai/lifecycle/slots", () => ({
   setSlot: () => {},
   setSlotStatus: () => {},
   subscribe: () => () => {},
+  getDemotedFrom: () => undefined,
 }));
 
 // ─── Usage-store seam ──────────────────────────────────────────────────────
