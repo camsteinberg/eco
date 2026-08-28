@@ -22,12 +22,12 @@ export function DemotionDivider({ fromLabel, toLabel }: DemotionDividerProps) {
         style={{ backgroundColor: "var(--eco-border, #e5e0d8)" }}
       />
 
-      <div className="flex shrink-0 items-center gap-1.5">
+      <div className="flex min-w-0 items-start gap-1.5 text-center">
         <svg
           xmlns="http://www.w3.org/2000/svg"
           viewBox="0 0 20 20"
           fill="currentColor"
-          className="h-3.5 w-3.5"
+          className="mt-px h-3.5 w-3.5 shrink-0"
           style={{ color: "var(--eco-accent, #2d5a3d)", opacity: 0.6 }}
           aria-hidden="true"
         >
@@ -38,7 +38,7 @@ export function DemotionDivider({ fromLabel, toLabel }: DemotionDividerProps) {
           />
         </svg>
         <span
-          className="text-[11px] font-medium tracking-wide"
+          className="text-[11px] font-medium leading-snug tracking-wide"
           style={{ color: "var(--eco-text-secondary, #6b5e4f)" }}
         >
           {message}

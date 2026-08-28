@@ -1169,11 +1169,12 @@ export function useChat() {
         if (!alreadyNotified) {
           const fromConfig = getLocalAiCatalogModel(demotedFrom.modelId);
           const toConfig = getLocalAiCatalogModel(model);
+          const stripVendor = (name: string) => name.replace(/\s*\([^)]*\)$/, '');
           const fromLabel = fromConfig
-            ? getDisplayInfo(fromConfig.id, fromConfig).friendlyName
+            ? stripVendor(getDisplayInfo(fromConfig.id, fromConfig).friendlyName)
             : demotedFrom.modelId;
           const toLabel = toConfig
-            ? getDisplayInfo(toConfig.id, toConfig).friendlyName
+            ? stripVendor(getDisplayInfo(toConfig.id, toConfig).friendlyName)
             : model;
           updateMessage(assistantId, {
             demotionNotice: { fromLabel, toLabel, demotedAt: demotedFrom.at },
