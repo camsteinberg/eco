@@ -14,6 +14,7 @@ import {
   DEFAULT_TOOL_REGISTRY,
   calculatorTool,
   datetimeTool,
+  moneyTool,
   unitTool,
   wikipediaGroundingTool,
 } from "../index";
@@ -49,6 +50,44 @@ describe("detectTool — routes to the correct tool", () => {
     const hit = detectTool("5 miles in km");
     expect(hit).not.toBeNull();
     expect(hit!.tool.name).toBe("unit-conversion");
+  });
+});
+
+describe("detectTool — money math routes to the money tool (s20)", () => {
+  // The s19 sampling instrument's money turns. Both on-device models read the
+  // 24% APR as a monthly rate; these must reach the deterministic tool instead
+  // of the fuzzy grounding sweep or the calculator.
+  it("routes 'what does 24% APR mean' to money", () => {
+    const hit = detectTool("My credit card says 24% APR. What does that actually mean for me?");
+    expect(hit).not.toBeNull();
+    expect(hit!.tool.name).toBe("money");
+  });
+
+  it("routes the payoff follow-up to money when the APR is in context", () => {
+    const hit = detectTool(
+      "If I owe $600 on it and pay $100 a month, roughly how long until it's paid off? Does the interest change that much?",
+      { recentAprPercent: 24 },
+    );
+    expect(hit).not.toBeNull();
+    expect(hit!.tool.name).toBe("money");
+  });
+
+  it("routes the compound-interest ask to money", () => {
+    const hit = detectTool("Explain compound interest with one small example.");
+    expect(hit).not.toBeNull();
+    expect(hit!.tool.name).toBe("money");
+  });
+
+  it("does not steal a plain percentage calculation from the calculator", () => {
+    const hit = detectTool("what is 15% of 240");
+    expect(hit!.tool.name).toBe("calculator");
+  });
+
+  it("does not steal clock arithmetic from datetime", () => {
+    const hit = detectTool(
+      "My train leaves at 2:15pm and the ride takes 1 hour 50 minutes. What time do I arrive?",
+    );
+    expect(hit!.tool.name).toBe("datetime");
   });
 });
 
@@ -118,12 +157,14 @@ describe("DEFAULT_TOOLS / DEFAULT_TOOL_REGISTRY shape", () => {
       "calculator",
       "datetime",
       "unit-conversion",
+      "money",
       "wikipedia-grounding",
     ]);
   });
   it("keys the registry by tool name", () => {
     expect(DEFAULT_TOOL_REGISTRY.calculator).toBe(calculatorTool);
     expect(DEFAULT_TOOL_REGISTRY.datetime).toBe(datetimeTool);
+    expect(DEFAULT_TOOL_REGISTRY.money).toBe(moneyTool);
     expect(DEFAULT_TOOL_REGISTRY["unit-conversion"]).toBe(unitTool);
     expect(DEFAULT_TOOL_REGISTRY["wikipedia-grounding"]).toBe(wikipediaGroundingTool);
   });

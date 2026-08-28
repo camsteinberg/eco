@@ -97,6 +97,7 @@ import { runGeneration } from "./useChat/run-generation";
 import { acquireGenerationLease } from "./useChat/generation-lease";
 import { runToolStep } from "./useChat/tool-step";
 import { deriveGroundedMatchContext } from "./useChat/grounding-context";
+import { deriveMoneyMatchContext } from "./useChat/money-context";
 import { DEFAULT_TOOLS } from "../lib/tools";
 import { normalizeStreamMarkdown } from "../lib/stream-markdown-normalizer";
 
@@ -1243,10 +1244,13 @@ export function useChat() {
     // citation on a discarded later turn can't leak. The just-created streaming
     // reply (assistantId) is excluded explicitly — it carries no citation yet, but
     // excluding it is the honest invariant rather than a reliance on its empty state.
-    const matchContext = deriveGroundedMatchContext(
-      useChatStore.getState().messages,
-      { excludeId: assistantId },
-    );
+    // The money hint (s20) is derived from the same message list on its own rules
+    // (user turns only, wider lookback) and merged into the single match context.
+    const storeMessages = useChatStore.getState().messages;
+    const matchContext = {
+      ...deriveGroundedMatchContext(storeMessages, { excludeId: assistantId }),
+      ...deriveMoneyMatchContext(storeMessages, { excludeId: assistantId }),
+    };
     const toolStep = await runToolStep(
       latestUserText,
       {
