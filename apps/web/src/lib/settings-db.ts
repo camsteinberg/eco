@@ -116,7 +116,17 @@ export function encryptSetting(plaintext: string): { ciphertext: string; nonce: 
  */
 export function decryptSetting(ciphertext: string, nonce: string): string {
   const key = getOrCreateKey();
-  const opened = nacl.secretbox.open(decodeBase64(ciphertext), decodeBase64(nonce), key);
+  const decodedNonce = decodeBase64(nonce);
+  // A truncated stored record or key must surface as the same "Decryption
+  // failed" callers already treat as a corrupt record — not as a tweetnacl
+  // internal ("bad nonce size" / "bad key size") nothing catches by name.
+  if (
+    key.length !== nacl.secretbox.keyLength ||
+    decodedNonce.length !== nacl.secretbox.nonceLength
+  ) {
+    throw new Error("Decryption failed");
+  }
+  const opened = nacl.secretbox.open(decodeBase64(ciphertext), decodedNonce, key);
   if (!opened) throw new Error("Decryption failed");
   return encodeUTF8(opened);
 }

@@ -14,6 +14,17 @@ function createMockDb(options: {
 } = {}) {
   const { selectResults = [[]], updateError = null } = options
   let selectCallIndex = 0
+  const limitSpy = vi.fn()
+
+  // Drizzle's `.where(...)` returns a builder that is itself thenable AND
+  // chainable with `.limit(n)` — mirror that so the code under test can do
+  // either.
+  function whereResult(rows: MockRow[]) {
+    const resolved = Promise.resolve(rows)
+    return Object.assign(resolved, {
+      limit: limitSpy.mockImplementation(() => Promise.resolve(rows)),
+    })
+  }
 
   const mockUpdate = vi.fn().mockReturnValue({
     set: vi.fn().mockReturnValue({
@@ -36,14 +47,14 @@ function createMockDb(options: {
         where: vi.fn().mockImplementation(() => {
           const result = selectResults[selectCallIndex] ?? []
           selectCallIndex++
-          return Promise.resolve(result)
+          return whereResult(result)
         }),
       }),
     })),
     update: mockUpdate,
   }
 
-  return { mockDb, mockUpdate }
+  return { mockDb, mockUpdate, limitSpy }
 }
 
 // ── Session Cookie Verifier ──────────────────────────────────────────────────
@@ -152,6 +163,25 @@ describe('createSessionCookieVerifier', () => {
       name: 'Fresh App Name',
       subscriptionTier: 'supporter',
     })
+  })
+
+  it('caps the app-user tier lookup at one row (limit 1)', async () => {
+    const { mockDb, limitSpy } = createMockDb({
+      selectResults: [
+        [{
+          userId: 'ba-user-005',
+          email: 'judy@eco.network',
+          name: 'Judy',
+        }],
+        [{ id: 'legacy-user-005', subscriptionTier: 'supporter' }],
+      ],
+    })
+
+    const verify = createSessionCookieVerifier(mockDb as never)
+    const result = await verify(sessionToken)
+
+    expect(result?.subscriptionTier).toBe('supporter')
+    expect(limitSpy).toHaveBeenCalledWith(1)
   })
 
   it('defaults to free tier when app users lookup throws', async () => {
