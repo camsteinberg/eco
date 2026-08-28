@@ -20,19 +20,19 @@ beforeEach(() => {
 });
 
 describe('deriveFirstRunChoices', () => {
-  it('offers the everyday + deeper models but preselects the everyday one for instant-start (capable desktop)', () => {
+  it('offers the everyday + deeper models and preselects the deeper one for quality (capable desktop)', () => {
     mockRecommend.mockImplementation((slot: Slot) =>
       slot === 'eco-smart' ? model('deeper', 1.65) : model('fast', 0.76),
     );
 
     const offer = deriveFirstRunChoices('eco-fast', PROFILE);
 
-    // Both are offered — the deeper model stays a visible opt-in tile...
+    // Both are offered — the everyday pick stays listed first...
     expect(offer.choices.map((c) => c.model.id)).toEqual(['fast', 'deeper']);
-    // ...but the PRESELECTED / "Recommended" default is the everyday fast model,
-    // so a fresh capable device instant-starts on the small download instead of
-    // auto-preselecting the ~1.65GB deeper model (FR-1).
-    expect(offer.recommendedId).toBe('fast');
+    // ...and the PRESELECTED / "Recommended" default is the deeper model:
+    // quality sampling (s19/s20, 2026-08-28) showed it produces materially
+    // better answers, outweighing the longer first download.
+    expect(offer.recommendedId).toBe('deeper');
   });
 
   it('carries the slot each model was recommended for, so a pick binds where it belongs', () => {

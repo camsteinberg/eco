@@ -134,9 +134,9 @@ export function ModelSelector() {
   // and the tile is immediately re-tappable.
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
 
-  // The device's honest offer: one or two models, best-first, with the fast pick
-  // recommended. Same domain call the welcome card makes, so the composer and
-  // first-run never disagree about what this device should run.
+  // The device's honest offer: one or two models, best-first. On a capable device
+  // the deeper pick is recommended (quality data, 2026-08-28). Same domain call
+  // the welcome card makes, so the composer and first-run never disagree.
   const offer = useMemo(() => {
     const empty = {
       models: [] as ModelConfig[],

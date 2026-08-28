@@ -4,8 +4,9 @@
 'use client';
 
 import { useCallback, useMemo, useState } from 'react';
-import { canServe, listCatalog, recommend } from '../../local-ai/index';
+import { canServe, listCatalog } from '../../local-ai/index';
 import { dedupeByDisplayName } from '../../local-ai/display';
+import { deriveFirstRunChoices } from '../../local-ai/selection/first-run-choices';
 import { useDeviceProfile } from './useDeviceProfile';
 import type { SwitchModelResult } from '../../local-ai/lifecycle/switch-model';
 import type { ModelConfig, Slot } from '../../local-ai/types';
@@ -95,16 +96,20 @@ export function useSwitchAI(options: UseSwitchAIOptions): UseSwitchAIReturn {
   const profile = useDeviceProfile();
   const cannotServe = useMemo(() => !canServe(profile), [profile]);
 
+  // The recommended model follows the same single definition the welcome card
+  // and composer use: `deriveFirstRunChoices`. On a capable device with a
+  // two-model offer, the deeper pick is recommended (quality data, 2026-08-28);
+  // on a constrained device it is the only available model.
   const recommendation = useMemo<ModelConfig | null>(() => {
     if (cannotServe) return null;
     try {
-      return recommend(options.slot, profile, undefined, {
-        currentlyBoundModelId: options.currentModel?.id,
-      });
+      const offer = deriveFirstRunChoices(options.slot, profile);
+      const rec = offer.choices.find((c) => c.model.id === offer.recommendedId);
+      return rec?.model ?? offer.choices[0]?.model ?? null;
     } catch {
       return null;
     }
-  }, [cannotServe, profile, options.slot, options.currentModel?.id]);
+  }, [cannotServe, profile, options.slot]);
 
   const choices = useMemo<SwitchAIChoice[]>(() => {
     if (cannotServe) return [];
@@ -114,12 +119,13 @@ export function useSwitchAI(options: UseSwitchAIOptions): UseSwitchAIReturn {
     const models = available.map((entry) => entry.model);
     const deduped = dedupeByDisplayName(models, [options.currentModel?.id]);
     const confidenceMap = new Map(available.map((e) => [e.model.id, e.confidence]));
-    return deduped.map((model, index) => ({
+    const recommendedId = recommendation?.id ?? null;
+    return deduped.map((model) => ({
       model,
       confidence: confidenceMap.get(model.id) ?? 'calculated' as const,
-      isTop: index === 0,
+      isTop: model.id === recommendedId,
     }));
-  }, [cannotServe, profile, options.currentModel?.id]);
+  }, [cannotServe, profile, options.currentModel?.id, recommendation?.id]);
 
   // Precheck the model that "Currently running" displays, so an untouched
   // Save is a no-op rather than silently switching to the fast-first
