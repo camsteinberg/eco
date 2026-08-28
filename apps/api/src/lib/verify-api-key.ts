@@ -55,6 +55,7 @@ export function createSessionCookieVerifier(db: Db) {
         .select({ id: users.id, name: users.name, subscriptionTier: users.subscriptionTier })
         .from(users)
         .where(eq(users.email, row.email))
+        .limit(1)
 
       if (appUserRows[0]?.id) {
         appUserId = appUserRows[0].id

@@ -104,6 +104,23 @@ describe("encryptSetting / decryptSetting", () => {
     expect(decrypted).toBe("");
   });
 
+  it("a truncated stored nonce throws the normal 'Decryption failed', not a tweetnacl internal", async () => {
+    const { encodeBase64, decodeBase64 } = await import("tweetnacl-util");
+    const encrypted = encryptSetting("hello");
+    // Simulate a corrupt/truncated record read back from IndexedDB.
+    const truncatedNonce = encodeBase64(Uint8Array.from(decodeBase64(encrypted.nonce).slice(0, 10)));
+    expect(() => decryptSetting(encrypted.ciphertext, truncatedNonce)).toThrow("Decryption failed");
+  });
+
+  it("a corrupt (wrong-length) stored key throws 'Decryption failed', not a nacl key-size error", async () => {
+    const { encodeBase64 } = await import("tweetnacl-util");
+    const encrypted = encryptSetting("hello");
+    // Simulate localStorage holding a truncated key (partial clear / bad write).
+    localStorage.setItem("eco-settings-key", encodeBase64(Uint8Array.from(new Uint8Array(10))));
+    resetSettingsKeyCacheForTests();
+    expect(() => decryptSetting(encrypted.ciphertext, encrypted.nonce)).toThrow("Decryption failed");
+  });
+
   it("handles unicode characters", () => {
     const text = "Hello, world! Preferences: TypeScript over JavaScript";
     const encrypted = encryptSetting(text);
