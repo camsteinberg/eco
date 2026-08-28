@@ -32,8 +32,14 @@ import { useScrollToMessage } from "./useScrollToMessage";
 const SYNC_FIELD_SEPARATOR = String.fromCharCode(1);
 const SYNC_RECORD_SEPARATOR = String.fromCharCode(2);
 
-/** How often, at most, a still-streaming reply is written to disk. */
-export const STREAMING_CHECKPOINT_MS = 1000;
+/**
+ * How often, at most, a still-streaming reply is written to disk. This is the
+ * most a reload can lose: an IndexedDB write issued during `pagehide` never
+ * lands (verified in a real Chromium 2026-08-27 — not even a synchronous put
+ * on an open connection), so the only defence against reload is writing often.
+ * At 1000 ms a reload lost a screenful (150 chars on screen, "Eco," on disk).
+ */
+export const STREAMING_CHECKPOINT_MS = 250;
 
 function getMessageSyncSignature(messages: ChatMessage[]): string {
   return messages
@@ -57,9 +63,9 @@ function getMessageSyncSignature(messages: ChatMessage[]): string {
  * The one control that is still a TURN rather than a regenerate.
  *
  * Continuation needs the partial reply sitting in the history for the model to
- * carry on from, and true assistant-prefix continuation does not exist in this
- * codebase — the shim accepts a `continueFinalMessage` flag for caller-shape
- * parity and does not consume it. So this stays a canned turn on purpose.
+ * carry on from. Assistant-prefix continuation (`continueFinalMessage`) exists
+ * for the resume-after-reload path in useChat, but this user-facing control
+ * stays a canned turn: the reply it follows is a FINISHED one.
  */
 const CONTINUE_TURN = "Continue your previous answer.";
 
@@ -355,8 +361,11 @@ export function useConversationManager(
 
   // Checkpoint the reply that is still streaming so a crash, reload, or killed
   // tab mid-answer keeps the words that already arrived. Throttled: one write
-  // per STREAMING_CHECKPOINT_MS at most, not one per token. The final sync
-  // below still writes the finished record when streaming stops.
+  // per STREAMING_CHECKPOINT_MS at most, not one per token — and flushed at
+  // once when the page is hidden (a phone backgrounding the tab, which may
+  // then kill it). Reload is covered by the short throttle alone: a write
+  // issued during pagehide does not land (see STREAMING_CHECKPOINT_MS). The
+  // final sync below still writes the finished record when streaming stops.
   const streamingCheckpointRef = useRef<{
     timer: ReturnType<typeof setTimeout> | null;
     lastWriteAt: number;
@@ -390,6 +399,15 @@ export function useConversationManager(
     };
     const wait = Math.max(0, STREAMING_CHECKPOINT_MS - (Date.now() - checkpoint.lastWriteAt));
     checkpoint.timer = setTimeout(write, wait);
+    const flushWhenHidden = () => {
+      if (document.visibilityState !== "hidden") return;
+      if (checkpoint.timer) clearTimeout(checkpoint.timer);
+      write();
+    };
+    document.addEventListener("visibilitychange", flushWhenHidden);
+    return () => {
+      document.removeEventListener("visibilitychange", flushWhenHidden);
+    };
   }, [isStreaming, messages]);
 
   // Sync chat messages back to IndexedDB whenever streaming stops.
