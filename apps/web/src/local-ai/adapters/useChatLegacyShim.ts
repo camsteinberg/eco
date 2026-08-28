@@ -79,8 +79,9 @@ import { logger } from '../../lib/logger';
  * Mirrors the subset of GenerateOptions in `lib/local-inference-runtime.ts`
  * that the v1 path can honor. The snake_case sampling knobs are mapped to
  * their camelCase `GenerateOptions` equivalents and forwarded to the runtime
- * (see `generate`). `continueFinalMessage` / `supervisorNested` are accepted
- * for caller-shape parity but are not consumed by this shim.
+ * (see `generate`). `continueFinalMessage` is forwarded so a resumed reply is
+ * finished rather than restarted; `supervisorNested` is accepted for
+ * caller-shape parity but not consumed.
  */
 export type LegacyGenerateOptions = {
   max_new_tokens?: number;
@@ -164,6 +165,7 @@ export function createLocalAiLegacyInference(): LocalAiLegacyInference {
     const topK = options?.top_k;
     const repetitionPenalty = options?.repetition_penalty;
     const noRepeatNgramSize = options?.no_repeat_ngram_size;
+    const continueFinalMessage = options?.continueFinalMessage;
     const onLoadProgress = options?.onLoadProgress;
     const onLifecycleEvent = options?.onLifecycleEvent;
     const abortController = new AbortController();
@@ -229,6 +231,7 @@ export function createLocalAiLegacyInference(): LocalAiLegacyInference {
               ...(topK != null ? { topK } : {}),
               ...(repetitionPenalty != null ? { repetitionPenalty } : {}),
               ...(noRepeatNgramSize != null ? { noRepeatNgramSize } : {}),
+              ...(continueFinalMessage ? { continueFinalMessage: true } : {}),
               // Forwarded to the generation phase too (same callback as load), so
               // the caller sees `first-token` / `generation-complete` / `-fail`
               // for breadcrumb capture. Omitted when the caller didn't supply it.

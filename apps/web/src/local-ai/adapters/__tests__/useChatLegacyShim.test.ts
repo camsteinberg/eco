@@ -461,6 +461,25 @@ describe('createLocalAiLegacyInference', () => {
     );
   });
 
+  it('forwards continueFinalMessage so a resumed reply is finished, not restarted', async () => {
+    mockGenerate.mockReturnValueOnce(asyncIterable([{ kind: 'done' }]));
+
+    const shim = createLocalAiLegacyInference();
+    await readAll(
+      shim.generate(
+        [
+          { role: 'user', content: 'x' },
+          { role: 'assistant', content: 'partial ' },
+        ],
+        FAKE_MODEL.id,
+        { max_new_tokens: 64, continueFinalMessage: true },
+      ),
+    );
+
+    const passedOptions = mockGenerate.mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(passedOptions.continueFinalMessage).toBe(true);
+  });
+
   it('omits sampling fields the caller did not supply (null-omission)', async () => {
     mockGenerate.mockReturnValueOnce(asyncIterable([{ kind: 'done' }]));
 

@@ -57,6 +57,7 @@ import type {
 } from '../local-ai/runtime/transformers-adapter';
 import { toTransformersGenerateArgs } from '../local-ai/runtime/transformers-generate-args';
 import { buildKvReuseReport } from '../local-ai/runtime/kv-cache';
+import { appendContinuation, splitContinuation } from '../local-ai/runtime/continue-final-message';
 import { patchChatTemplateForKvReuse } from '../local-ai/runtime/template-patches';
 import {
   decideCjkSuppression,
@@ -626,6 +627,14 @@ async function handleGenerate(msg: Extract<WorkerInbound, { type: 'generate' }>)
   }
 
   abortFlag = { aborted: false, generationId: msg.generationId };
+  // A resumed reply: the trailing assistant message is a partial to FINISH.
+  // It is rendered as prompt text after the history (never as a closed turn),
+  // and it is post-filter visible text, so the filter must not be seeded to
+  // treat it as reasoning.
+  const continuation = splitContinuation(
+    msg.messages.map((m) => ({ role: m.role, content: m.content })),
+    msg.options?.continueFinalMessage,
+  );
   const filters: FilterChain = createFilterChain(
     [
       '<|endoftext|>',
@@ -639,7 +648,7 @@ async function handleGenerate(msg: Extract<WorkerInbound, { type: 'generate' }>)
     // LFM2.5 and kin begin generating inside a `<think>` block prefilled by
     // the template; seed the filter so the leading reasoning is stripped
     // rather than leaked ahead of the lone `</think>`.
-    { startInsideThink: loaded.startsInThinkBlock },
+    { startInsideThink: continuation.partial === null && loaded.startsInThinkBlock },
   );
 
   let promptTokens = 0;
@@ -673,10 +682,7 @@ async function handleGenerate(msg: Extract<WorkerInbound, { type: 'generate' }>)
 
     // ── Normalize system role per model's template strategy ───────────
     const strategy: SystemRoleSupport = msg.systemRoleStrategy ?? 'native';
-    const normalizedMessages = normalizeMessagesForTemplate(
-      msg.messages.map((m) => ({ role: m.role, content: m.content })),
-      strategy,
-    );
+    const normalizedMessages = normalizeMessagesForTemplate(continuation.history, strategy);
 
     let inputText: string;
     try {
@@ -690,6 +696,9 @@ async function handleGenerate(msg: Extract<WorkerInbound, { type: 'generate' }>)
         // template smoke at handleInit catches any template that errors on it).
         { tokenize: false, add_generation_prompt: true, enable_thinking: false },
       );
+      if (continuation.partial !== null) {
+        inputText = appendContinuation(inputText, continuation.partial);
+      }
     } catch (templateErr) {
       const templateMessage = templateErr instanceof Error ? templateErr.message : String(templateErr);
       post({
