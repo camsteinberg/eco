@@ -100,6 +100,10 @@ vi.mock("../../local-ai/lifecycle/recovery", () => ({
 }));
 
 import { useLocalModelReadiness } from "../useLocalModelReadiness";
+import {
+  SETUP_EXHAUSTED_REASON,
+  SETUP_MODEL_HOST_UNREACHABLE_REASON,
+} from "../../local-ai/lifecycle/setup-cascade";
 
 // ── Fixtures ───────────────────────────────────────────────────────────────
 
@@ -254,7 +258,12 @@ describe("useLocalModelReadiness — prepare drives the real setup pipeline", ()
     expect(mockExecuteSetup).not.toHaveBeenCalled();
   });
 
-  it("reports an honest error when no slot owns the model", async () => {
+  it("recovers an unowned model by preparing the selection-resolved slot", async () => {
+    // Verified live 2026-08-27: after an eviction storm cleared the slot
+    // binding, this path dead-ended on "This model is not assigned to an Eco
+    // slot" — internal jargon, and a button that could never succeed. The
+    // honest behavior is the same recovery dispatch uses: resolve a slot and
+    // run the real setup pipeline on it.
     mockGetSlotForModel.mockReturnValue(null);
     const { result } = renderHook(() => useLocalModelReadiness());
     await settle();
@@ -262,8 +271,58 @@ describe("useLocalModelReadiness — prepare drives the real setup pipeline", ()
     act(() => {
       result.current.handlePrepareLocalModel("candidate/unknown");
     });
+    await settle();
 
-    expect(result.current.getLocalPrepareState("candidate/unknown").status).toBe("error");
-    expect(mockExecuteSetup).not.toHaveBeenCalled();
+    expect(mockExecuteSetup).toHaveBeenCalledTimes(1);
+    const [, options] = mockExecuteSetup.mock.calls[0] as [SetupRunnerActions, { slot: string }];
+    // No slot is ready in this fixture, so the resolver lands on eco-fast.
+    expect(options.slot).toBe("eco-fast");
+    expect(result.current.getLocalPrepareState("candidate/unknown").status).not.toBe("error");
+  });
+
+  it("prepares the slot itself when the card carries a slot id (empty-slot card)", async () => {
+    // The live dead end's exact shape: the readiness card falls back to the
+    // slot id when the demoted slot has no bound model, and a slot id is not
+    // a model id — getSlotForModel returns null for it.
+    mockGetSlotForModel.mockReturnValue(null);
+    const { result } = renderHook(() => useLocalModelReadiness());
+    await settle();
+
+    act(() => {
+      result.current.handlePrepareLocalModel("eco-fast");
+    });
+    await settle();
+
+    expect(mockExecuteSetup).toHaveBeenCalledTimes(1);
+    const [, options] = mockExecuteSetup.mock.calls[0] as [SetupRunnerActions, { slot: string }];
+    expect(options.slot).toBe("eco-fast");
+  });
+
+  it("shows the host-unreachable copy when setup exhausts on a network failure", async () => {
+    // Verified live 2026-08-27: with the model host unreachable, the chat card
+    // showed "We tried a few options and couldn't get one running on this
+    // device just yet" — blaming the device for a hosting failure. The cascade
+    // already reports reasonCode 'network-or-host'; the wiring here must not
+    // drop it.
+    mockExecuteSetup.mockImplementation(async (actions: SetupRunnerActions) => {
+      actions.setError(SETUP_EXHAUSTED_REASON, {
+        exhausted: true,
+        triedModelCount: 2,
+        reasonCode: "network-or-host",
+      });
+    });
+
+    const { result } = renderHook(() => useLocalModelReadiness());
+    await settle();
+
+    act(() => {
+      result.current.handlePrepareLocalModel(SMART_MODEL.id);
+    });
+    await settle();
+
+    expect(result.current.getLocalPrepareState(SMART_MODEL.id)).toEqual({
+      status: "error",
+      error: SETUP_MODEL_HOST_UNREACHABLE_REASON,
+    });
   });
 });

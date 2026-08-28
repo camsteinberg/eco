@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Bos Computing LLC
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, act, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom";
@@ -592,6 +592,83 @@ describe("ErrorMessage", () => {
 // No-excuse-UI: this is a local-first app — when a generation fails on the
 // user's own device, nobody at Eco is "on it". The card must never promise
 // invisible help (verified live 2026-08-05: "We are on it; try again shortly").
+// Verified live 2026-08-27: with the model's files evicted and the device
+// offline, the setup card said "Eco is getting your model ready … your message
+// will send itself" over a "Preparing Eco" state that could not progress — an
+// indefinite hang with no hint that reconnecting is the fix. The setup driver
+// already waits for the network; the card has to say so.
+describe("offline-aware setup card", () => {
+  const readiness = {
+    kind: "prepare-local-model" as const,
+    modelId: "local/qwen3-0.6b",
+    modelName: "Qwen3 0.6B",
+    slotId: "eco-fast" as const,
+    slotLabel: "Eco",
+    status: "not-downloaded" as const,
+  };
+  const setOnLine = (value: boolean) => {
+    Object.defineProperty(window.navigator, "onLine", { value, configurable: true });
+  };
+
+  afterEach(() => {
+    setOnLine(true);
+  });
+
+  it("says setup is waiting for the connection while offline, not that it is under way", () => {
+    setOnLine(false);
+    render(
+      <ErrorMessage
+        localReadiness={readiness}
+        localPrepareState={{ status: "downloading" }}
+        onPrepareLocalModel={() => {}}
+        message="Eco is getting your model ready on this device. Your message will send itself once it's set up."
+      />,
+    );
+
+    expect(screen.getByText(/offline/i)).toBeInTheDocument();
+    expect(screen.getByText(/back online/i)).toBeInTheDocument();
+    expect(
+      screen.queryByText(/is getting your model ready on this device/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it("returns to the live setup copy when the connection comes back", () => {
+    setOnLine(false);
+    render(
+      <ErrorMessage
+        localReadiness={readiness}
+        localPrepareState={{ status: "downloading" }}
+        onPrepareLocalModel={() => {}}
+        message="Eco is getting your model ready on this device. Your message will send itself once it's set up."
+      />,
+    );
+
+    act(() => {
+      setOnLine(true);
+      window.dispatchEvent(new Event("online"));
+    });
+
+    expect(screen.getByText(/is getting your model ready on this device/i)).toBeInTheDocument();
+  });
+
+  it("keeps a setup error visible even while offline", () => {
+    setOnLine(false);
+    render(
+      <ErrorMessage
+        localReadiness={readiness}
+        localPrepareState={{
+          status: "error",
+          error: "We couldn't reach the model host just now — check your connection and try again in a bit.",
+        }}
+        onPrepareLocalModel={() => {}}
+        message="Eco is getting your model ready on this device. Your message will send itself once it's set up."
+      />,
+    );
+
+    expect(screen.getByText(/couldn't reach the model host/i)).toBeInTheDocument();
+  });
+});
+
 describe("generic fallback copy", () => {
   it("never promises that somebody is working on a local failure", () => {
     // The generic pool is hash-picked from the message string — render enough

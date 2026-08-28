@@ -28,6 +28,16 @@ import type { DeviceProfile, Intent, ModelConfig, Slot } from '../types';
 export const SETUP_EXHAUSTED_REASON =
   "We tried a few options and couldn't get one running on this device just yet.";
 
+/**
+ * The honest copy for an exhaustion whose cause was the host or the connection
+ * (`reasonCode: 'network-or-host'`) — the download never got far enough to say
+ * anything about this device, so device-blaming copy would be false. Shared by
+ * both error surfaces (the welcome overlay's SetupErrorState subtitle and the
+ * chat readiness card) so the two can never drift apart.
+ */
+export const SETUP_MODEL_HOST_UNREACHABLE_REASON =
+  "We couldn't reach the model host just now — check your connection and try again in a bit.";
+
 /** Caps total attempts (including download retries) to bound bandwidth/time. */
 export const SETUP_LADDER_MAX_STEPS = 4;
 
