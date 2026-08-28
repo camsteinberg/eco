@@ -12,6 +12,7 @@ import {
   SETUP_MODEL_HOST_UNREACHABLE_REASON,
   type AttemptFailureReasonCode,
 } from '../../local-ai/lifecycle/setup-cascade';
+import { LOCAL_MODEL_OTHER_TAB_MESSAGE } from '../../local-ai/adapters/error-messages';
 
 /**
  * Setup error state — shown after the download pipeline exhausts its
@@ -95,6 +96,9 @@ function headlineFor(
   triedModelCount: number,
   reasonCode?: AttemptFailureReasonCode,
 ): string {
+  if (reasonCode === 'busy-other-tab') {
+    return 'Eco is open in another tab';
+  }
   if (isStorageShortage(reason, reasonCode)) {
     return 'Eco needs a little more free space to set up on this device.';
   }
@@ -128,6 +132,9 @@ function subtitleFor(
   exhausted: boolean,
   reasonCode?: AttemptFailureReasonCode,
 ): string {
+  if (reasonCode === 'busy-other-tab') {
+    return LOCAL_MODEL_OTHER_TAB_MESSAGE;
+  }
   if (isStorageShortage(reason, reasonCode)) {
     return `${reason} Free up some space and try again.`;
   }

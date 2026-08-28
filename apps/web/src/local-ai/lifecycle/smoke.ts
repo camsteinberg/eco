@@ -28,7 +28,8 @@
  */
 
 import type { ModelConfig, Slot } from '../types';
-import type { ChatMessage, TokenEvent } from '../runtime/types';
+import type { ChatMessage, TokenEvent, AdapterErrorCode } from '../runtime/types';
+import { AdapterError } from '../runtime/types';
 import type { DiagnosticPhase, LocalAiDiagnostic } from '../diagnostics/capture';
 import { recordDiagnostic } from '../diagnostics/capture';
 import type { WebGPUAdapterProbe } from '../device/profile';
@@ -195,7 +196,7 @@ export type SmokeOptions = {
 
 export type SmokeResult =
   | { passed: true; firstTokenMs: number; durationMs: number; tokensReceived: number }
-  | { passed: false; reason: string; durationMs: number };
+  | { passed: false; reason: string; durationMs: number; code?: AdapterErrorCode };
 
 /**
  * Run a smoke generation for `model` and report whether it produced a
@@ -313,6 +314,7 @@ export async function runSmoke(
   let workerCompletionTokens = 0;
   let errorReason: string | null = null;
   let caughtError: unknown = null;
+  let caughtAdapterCode: AdapterErrorCode | undefined;
 
   // Diagnostic event collector
   const diagEvents: { at: number; phase: DiagnosticPhase; note?: string }[] = [];
@@ -447,6 +449,9 @@ export async function runSmoke(
     // If load-finish was emitted, the error came from the generation
     // iteration (for-await), not from the seam constructor.
     pushDiagEvent(loadFinished ? 'generation-fail' : 'load-fail', errorReason);
+    if (err instanceof AdapterError) {
+      caughtAdapterCode = err.code;
+    }
   } finally {
     clearTimeout(timer);
     if (externalSignal) externalSignal.removeEventListener('abort', cancelOnExternal);
@@ -490,6 +495,7 @@ export async function runSmoke(
       passed: false,
       reason: errorReason ?? 'Smoke produced no tokens',
       durationMs,
+      ...(caughtAdapterCode !== undefined ? { code: caughtAdapterCode } : {}),
     };
   }
 

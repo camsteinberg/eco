@@ -243,6 +243,25 @@ describe('SetupErrorState', () => {
     expect(screen.queryByRole('button', { name: /free up space/i })).not.toBeInTheDocument();
   });
 
+  it('renders the other-tab headline and subtitle for busy-other-tab, with retry available (T5)', () => {
+    render(
+      <SetupErrorState
+        reason="GPU held by another tab"
+        reasonCode="busy-other-tab"
+        exhausted
+        triedModelCount={1}
+        onTryAgain={() => {}}
+        onTellUsMore={() => {}}
+      />,
+    );
+    expect(screen.getByText(/eco is open in another tab/i)).toBeInTheDocument();
+    expect(screen.getByText(/running in another browser tab/i)).toBeInTheDocument();
+    // Retry is available (the user can close the other tab and retry).
+    expect(screen.getByRole('button', { name: /try setting up eco again/i })).toBeInTheDocument();
+    // Must NOT show the device-blaming default.
+    expect(screen.queryByText(/couldn't get one running on this device/i)).not.toBeInTheDocument();
+  });
+
   it('copies the diagnostic to the clipboard without any network call', async () => {
     const writeText = vi.fn(async () => {});
     vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });

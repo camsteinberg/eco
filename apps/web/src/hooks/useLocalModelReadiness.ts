@@ -32,6 +32,7 @@ import {
 } from "../lib/local-heavy-work-owner";
 import { executeSetup } from "../local-ai/lifecycle/setup-runner";
 import { SETUP_MODEL_HOST_UNREACHABLE_REASON } from "../local-ai/lifecycle/setup-cascade";
+import { LOCAL_MODEL_OTHER_TAB_MESSAGE } from "../local-ai/adapters/error-messages";
 import {
   clearValidationConversationHistoryFixture,
   installValidationConversationHistoryFixture,
@@ -164,12 +165,17 @@ export function useLocalModelReadiness(): LocalModelReadiness {
                 // A network-shaped exhaustion must not surface device-blaming
                 // copy: the download never got far enough to say anything
                 // about this device (same rule SetupErrorState applies).
+                // A busy-other-tab failure is environment-level — no retry or
+                // demotion can help, so surface the honest other-tab message.
+                const message =
+                  errOpts?.reasonCode === "busy-other-tab"
+                    ? LOCAL_MODEL_OTHER_TAB_MESSAGE
+                    : errOpts?.reasonCode === "network-or-host"
+                      ? SETUP_MODEL_HOST_UNREACHABLE_REASON
+                      : reason;
                 setPrepareError({
                   modelId,
-                  message:
-                    errOpts?.reasonCode === "network-or-host"
-                      ? SETUP_MODEL_HOST_UNREACHABLE_REASON
-                      : reason,
+                  message,
                 });
               },
               markPriorAttemptFailed: () => {},

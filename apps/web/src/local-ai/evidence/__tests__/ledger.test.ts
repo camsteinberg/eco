@@ -51,6 +51,14 @@ const PROFILE_8GB: DeviceProfile = {
 
 const STORAGE_KEY = 'eco-local-ai-ledger-v1';
 
+/**
+ * A stable "now" far enough after the failure-evidence epoch that rows recorded
+ * by `recordEvidence` (which stamps `Date.now()`) are never accidentally
+ * pre-epoch. Used as the explicit `now` parameter wherever a test calls a
+ * failure-counting reader on rows it just wrote.
+ */
+const SAFE_NOW = Date.parse(FAILURE_EVIDENCE_VALID_FROM) + 7 * 24 * 60 * 60 * 1000;
+
 /** The pre-slice-3 (v1) profileKey shape: no `|f16:` component. */
 function legacyProfileKey(profile: DeviceProfile): string {
   return profileKey(profile).split('|f16:')[0]!;
@@ -58,9 +66,15 @@ function legacyProfileKey(profile: DeviceProfile): string {
 
 beforeEach(() => {
   localStorage.clear();
+  // Pin system time safely after the failure-evidence epoch so rows written by
+  // recordEvidence() are never pre-epoch. Without this, tests run on a real
+  // clock between 00:00 and the epoch hour can produce rows the epoch cutoff
+  // filters out, causing false failures.
+  vi.useFakeTimers({ now: SAFE_NOW });
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   localStorage.clear();
 });
 
@@ -387,6 +401,27 @@ describe('failure-evidence epoch (FAILURE_EVIDENCE_VALID_FROM)', () => {
   it('never gates SUCCESS rows — a pre-epoch smoke-pass still counts', () => {
     seed({ modelId: 'm', outcome: 'smoke-pass', recordedAt: PRE_EPOCH });
     expect(hasRecentSuccess('m', PROFILE_24GB, 30, NOW)).toBe(true);
+  });
+
+  it('ignores a failure recorded before 2026-08-28T12:00:00Z in both counters (T7)', () => {
+    // The tab-contention cascade bug wrote false smoke-fail rows on healthy
+    // devices; the epoch bump invalidates them as device verdicts.
+    const beforeBump = '2026-08-28T11:59:59Z';
+    const atBump = '2026-08-28T12:00:00Z';
+    seed(
+      { modelId: 'm', outcome: 'smoke-fail', recordedAt: beforeBump },
+      { modelId: 'm', outcome: 'download-fail', errorCode: 'failed', recordedAt: beforeBump },
+    );
+    expect(countRecentFailures('m', PROFILE_24GB, 30, NOW)).toBe(0);
+    expect(countRecentDownloadFailures('m', PROFILE_24GB, 7, NOW)).toBe(0);
+
+    // A row at exactly the epoch counts.
+    seed(
+      { modelId: 'm', outcome: 'smoke-fail', recordedAt: atBump },
+      { modelId: 'm', outcome: 'download-fail', errorCode: 'failed', recordedAt: atBump },
+    );
+    expect(countRecentFailures('m', PROFILE_24GB, 30, NOW)).toBe(1);
+    expect(countRecentDownloadFailures('m', PROFILE_24GB, 7, NOW)).toBe(1);
   });
 
   it('un-poisons: a pre-epoch failure with no recent success is not counted', () => {

@@ -60,7 +60,7 @@ export const SETUP_NETWORK_WAITS_MAX = 5;
  * gets NO code, because it cannot be told apart from any other unexpected throw.
  * Guessing there would be the same dishonesty in the other direction.
  */
-export type AttemptFailureReasonCode = 'insufficient-storage' | 'network-or-host';
+export type AttemptFailureReasonCode = 'insufficient-storage' | 'network-or-host' | 'busy-other-tab';
 
 export type AttemptResult =
   | { ok: true }
@@ -173,6 +173,18 @@ export async function runSetupCascade(opts: RunSetupCascadeOptions): Promise<Set
       && (smallestStorageFailure === null || result.requiredBytes < smallestStorageFailure.requiredBytes)
     ) {
       smallestStorageFailure = { reason: result.reason, requiredBytes: result.requiredBytes };
+    }
+
+    // Environment-level failure: the runtime is held by another tab. Retrying
+    // or demoting cannot help — every model will hit the same gate — so stop
+    // immediately WITHOUT recording the failure (no ledger row, no demotion).
+    if (result.reasonCode === 'busy-other-tab') {
+      return {
+        kind: 'exhausted',
+        reason: result.reason,
+        reasonCode: 'busy-other-tab',
+        triedModelIds: tried,
+      };
     }
 
     // The device was offline: wait for it to come back, then retry the same

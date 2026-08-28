@@ -67,8 +67,16 @@ const DEFAULT_DOWNLOAD_FAIL_DAYS = 7;
  * failures). NEVER bump it for a routine deploy: genuine device failures
  * (out-of-memory, thermal) are not fixed by any deploy, so advancing the cutoff
  * would merely re-nag devices whose failures were real.
+ *
+ * History:
+ *   2026-07-25 — initial epoch after Phase B.2 revision-mismatch fix.
+ *   2026-08-28 — tab-contention cascade bug wrote false smoke-fail rows on
+ *                otherwise-healthy devices (gpu-busy-other-tab demoted through
+ *                the whole ladder); interrupted-download funnel episodes wrote
+ *                false download-fail rows. Prior failure rows are no longer
+ *                valid device verdicts.
  */
-export const FAILURE_EVIDENCE_VALID_FROM = '2026-07-25T12:00:00Z';
+export const FAILURE_EVIDENCE_VALID_FROM = '2026-08-28T12:00:00Z';
 
 /**
  * `FAILURE_EVIDENCE_VALID_FROM` parsed once into epoch-millis, for composing
