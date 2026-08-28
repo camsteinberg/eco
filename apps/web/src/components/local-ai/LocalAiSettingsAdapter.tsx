@@ -129,6 +129,15 @@ export function LocalAiSettingsAdapter() {
 
   const onSwitchRequested = useCallback(
     async (modelId: string): Promise<SwitchAIResult> => {
+      // Fast path: the model is already bound and ready in a slot — just
+      // switch the selection. Mirrors the composer's handleSelect rule:
+      // a ready slot needs no download/prepare/smoke cycle.
+      const readySlot = getSlotForModel(modelId);
+      if (readySlot && getSlot(readySlot).status === 'ready') {
+        useChatStore.getState().setSelectedModel(readySlot, { explicit: true });
+        return { success: true };
+      }
+
       const ac = new AbortController();
       abortRef.current = ac;
       setLoadProgress(0);
@@ -182,6 +191,7 @@ export function LocalAiSettingsAdapter() {
   const switchState = useSwitchAI({
     slot,
     currentModel,
+    runningModelId: running.model?.id ?? null,
     onSwitchRequested,
   });
 
@@ -228,6 +238,7 @@ export function LocalAiSettingsAdapter() {
         open={dialogOpen}
         onClose={() => setDialogOpen(false)}
         currentModel={currentModel}
+        runningModel={running.model}
         currentModelReady={switchReferenceStatus === 'ready'}
         state={switchState}
         loadProgress={loadProgress}

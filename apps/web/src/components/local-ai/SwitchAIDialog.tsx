@@ -48,8 +48,13 @@ type FailureView = {
 export type SwitchAIDialogProps = {
   open: boolean;
   onClose(): void;
-  /** Current model in the slot. */
+  /** The switch flow's reference model — what a switch replaces / rolls back
+   *  to. Used for the switch machinery, NOT for the "Currently running" label. */
   currentModel: ModelConfig | null;
+  /** The model the chat's current selection resolves to — what "Currently
+   *  running" DISPLAYS. When absent, falls back to `currentModel` so existing
+   *  callers keep working. */
+  runningModel?: ModelConfig | null;
   /** Whether the current model's slot is 'ready'. When false, the current-row
    *  caption reads "Setting up…" instead of "Currently running" — an
    *  interrupted download must not read as a running model. Undefined keeps the
@@ -78,7 +83,7 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export function SwitchAIDialog({ open, onClose, currentModel, currentModelReady, state, loadProgress = 0, loadPhase, onAbort }: SwitchAIDialogProps) {
+export function SwitchAIDialog({ open, onClose, currentModel, runningModel, currentModelReady, state, loadProgress = 0, loadPhase, onAbort }: SwitchAIDialogProps) {
   const [failure, setFailure] = useState<FailureView | null>(null);
   const [autoRetrying, setAutoRetrying] = useState(false);
   const reduceMotion = useReducedMotion();
@@ -175,6 +180,7 @@ export function SwitchAIDialog({ open, onClose, currentModel, currentModelReady,
           <AiList
             state={state}
             currentModelId={currentModel?.id ?? null}
+            runningModelId={runningModel?.id ?? null}
             currentModelReady={currentModelReady}
           />
         ) : (
@@ -231,19 +237,27 @@ export function SwitchAIDialog({ open, onClose, currentModel, currentModelReady,
 function AiList({
   state,
   currentModelId,
+  runningModelId,
   currentModelReady,
 }: {
   state: UseSwitchAIReturn;
   currentModelId: string | null;
+  /** The model the chat selection resolves to — what "Currently running" shows.
+   *  Falls back to currentModelId when not provided. */
+  runningModelId: string | null;
   currentModelReady?: boolean;
 }) {
+  // "Currently running" uses the resolved selection (runningModelId), so
+  // Settings and the composer tell the same story. The switch-reference
+  // model (currentModelId) is for the switch machinery only.
+  const displayCurrentId = runningModelId ?? currentModelId;
   const reduceMotion = useReducedMotion();
   return (
     <ul role="radiogroup" aria-label="Available AIs" className="flex flex-col gap-2">
       {state.choices.map((choice) => {
         const display = getDisplayInfo(choice.model.id, choice.model);
         const selected = state.selectedId === choice.model.id;
-        const isCurrent = currentModelId === choice.model.id;
+        const isCurrent = displayCurrentId === choice.model.id;
         return (
           <li key={choice.model.id}>
             <motion.button

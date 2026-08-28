@@ -71,9 +71,11 @@ vi.mock('../../../hooks/local-ai/useLocalAiStorageBreakdown', () => ({
 }));
 
 let capturedSwitchSlot: Slot | null = null;
+let capturedRunningModelId: string | null | undefined = undefined;
 vi.mock('../../../hooks/local-ai/useSwitchAI', () => ({
-  useSwitchAI: (options: { slot: Slot }) => {
+  useSwitchAI: (options: { slot: Slot; runningModelId?: string | null }) => {
     capturedSwitchSlot = options.slot;
+    capturedRunningModelId = options.runningModelId;
     return {
       recommendation: null,
       choices: [],
@@ -97,10 +99,13 @@ vi.mock('../../../local-ai/lifecycle/switch-model', () => ({
   prepareModelForSlot: (...args: unknown[]) => prepareModelForSlotMock(...args),
 }));
 
+let mockSelectedModel = 'auto';
+const mockSetSelectedModel = vi.fn();
 vi.mock('../../../stores/chatStore', () => ({
   useChatStore: Object.assign(
-    (selector: (s: { selectedModel: string }) => unknown) => selector({ selectedModel: 'auto' }),
-    { getState: () => ({ selectedModel: 'auto', setSelectedModel: vi.fn() }) },
+    (selector: (s: { selectedModel: string; setSelectedModel: typeof mockSetSelectedModel }) => unknown) =>
+      selector({ selectedModel: mockSelectedModel, setSelectedModel: mockSetSelectedModel }),
+    { getState: () => ({ selectedModel: mockSelectedModel, setSelectedModel: mockSetSelectedModel }) },
   ),
 }));
 
@@ -122,10 +127,18 @@ vi.mock('../SettingsEcoTab', () => ({
   ),
 }));
 
-type SwitchDialogProps = { currentModelReady: boolean };
+type SwitchDialogProps = {
+  currentModel: ModelConfig | null;
+  runningModel?: ModelConfig | null;
+  currentModelReady: boolean;
+};
 vi.mock('../SwitchAIDialog', () => ({
   SwitchAIDialog: (props: SwitchDialogProps) => (
-    <span data-testid="switch-ready">{String(props.currentModelReady)}</span>
+    <>
+      <span data-testid="switch-ready">{String(props.currentModelReady)}</span>
+      <span data-testid="switch-current">{props.currentModel?.id ?? 'none'}</span>
+      <span data-testid="switch-running">{props.runningModel?.id ?? 'none'}</span>
+    </>
   ),
 }));
 
@@ -134,6 +147,8 @@ import { LocalAiSettingsAdapter } from '../LocalAiSettingsAdapter';
 beforeEach(() => {
   vi.clearAllMocks();
   capturedSwitchSlot = null;
+  capturedRunningModelId = undefined;
+  mockSelectedModel = 'auto';
   slots = {
     'eco-fast': { model: null, status: 'empty' },
     'eco-smart': { model: null, status: 'empty' },
@@ -182,5 +197,66 @@ describe('LocalAiSettingsAdapter — the slot under edit', () => {
 
     expect(capturedSwitchSlot).toBe('eco-fast');
     expect(screen.getByTestId('switch-ready')).toHaveTextContent('false');
+  });
+});
+
+describe('LocalAiSettingsAdapter — header and dialog agree on running model', () => {
+  it('with selection on eco-smart and both slots bound, header and dialog show the smart model', () => {
+    // Bug 2 scenario: eco-fast bound to FAST_MODEL, eco-smart to SMART_MODEL,
+    // selection on eco-smart. The adapter's currentModel (fast-first) picks
+    // FAST_MODEL, but the runningModel must be SMART_MODEL (the selection).
+    slots['eco-fast'] = { model: FAST_MODEL, status: 'ready' };
+    slots['eco-smart'] = { model: SMART_MODEL, status: 'ready' };
+    mockSelectedModel = 'eco-smart';
+
+    render(<LocalAiSettingsAdapter />);
+
+    // The dialog's runningModel matches the resolved selection, not the
+    // fast-first reference model.
+    expect(screen.getByTestId('switch-running')).toHaveTextContent('model/smart');
+    // The switch reference (currentModel) is still the fast-first model —
+    // that is correct for the rollback/switch machinery.
+    expect(screen.getByTestId('switch-current')).toHaveTextContent('model/fast');
+  });
+
+  it('with selection on auto and only eco-smart bound, header and dialog show the smart model', () => {
+    slots['eco-smart'] = { model: SMART_MODEL, status: 'ready' };
+    mockSelectedModel = 'auto';
+
+    render(<LocalAiSettingsAdapter />);
+
+    // resolveRunningModel with 'auto' falls back to the first non-null slot,
+    // which is eco-smart since eco-fast is empty.
+    expect(screen.getByTestId('switch-running')).toHaveTextContent('model/smart');
+  });
+
+  it('passes the running model id to useSwitchAI so the prechecked radio matches', () => {
+    slots['eco-fast'] = { model: FAST_MODEL, status: 'ready' };
+    slots['eco-smart'] = { model: SMART_MODEL, status: 'ready' };
+    mockSelectedModel = 'eco-smart';
+
+    render(<LocalAiSettingsAdapter />);
+
+    // useSwitchAI receives runningModelId so it can initialize selectedId
+    // to the running model, not the fast-first reference.
+    expect(capturedRunningModelId).toBe('model/smart');
+  });
+
+  it('an untouched Save does not change selection when running model is prechecked', () => {
+    // With the fast-path fix + runningModelId, committing the already-running
+    // model calls onSwitchRequested(smart model id) which detects it is
+    // already bound+ready and writes the same slot — effectively a no-op.
+    slots['eco-fast'] = { model: FAST_MODEL, status: 'ready' };
+    slots['eco-smart'] = { model: SMART_MODEL, status: 'ready' };
+    mockSelectedModel = 'eco-smart';
+
+    render(<LocalAiSettingsAdapter />);
+
+    // The prechecked id should be the smart model (the running one), not the
+    // fast-first reference. If it were wrong, an untouched Save would silently
+    // switch to eco-fast.
+    expect(capturedRunningModelId).toBe('model/smart');
+    // And the dialog receives the fast-first reference for rollback only.
+    expect(screen.getByTestId('switch-current')).toHaveTextContent('model/fast');
   });
 });

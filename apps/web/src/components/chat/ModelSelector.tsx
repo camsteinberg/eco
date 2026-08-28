@@ -13,7 +13,7 @@ import { getModel } from "../../local-ai/catalog/catalog";
 import { getDisplayInfo } from "../../local-ai/display";
 import { canServe } from "../../local-ai/index";
 import { useDeviceProfile } from "../../hooks/local-ai/useDeviceProfile";
-import { getSlot, getSlotForModel } from "../../local-ai/lifecycle/slots";
+import { getAllSlots, getSlot, getSlotForModel } from "../../local-ai/lifecycle/slots";
 import { isModelDownloaded } from "../../local-ai/download/download";
 import { deriveFirstRunChoices } from "../../local-ai/selection/first-run-choices";
 import { toWelcomeChoice } from "../local-ai/welcome-choices";
@@ -254,17 +254,31 @@ export function ModelSelector() {
     return selectedModel;
   }, [hasMounted, selectedModel, offer.recommendedId]);
 
-  // The offer, plus the serving model when it is not part of it (a model bound
-  // before the device profile changed, or an upgrade that outgrew the pair).
-  // Never hide what is actually running.
+  // The offer, plus any slot-bound models not already listed (a model can be
+  // bound and ready but absent from the offer when the device profile changed
+  // after the download, or when the user switched via Settings), plus the
+  // serving model when it is part of neither (the final catch-all).
   const models = useMemo(() => {
+    // `open` forces a re-read of slot bindings (localStorage, not React state)
+    // every time the panel opens — same pattern the tiles memo uses.
+    void open;
     const list = [...offer.models];
+    // Slot bindings: eco-fast then eco-smart, so the everyday pick leads.
+    const slots = getAllSlots();
+    for (const slotName of ["eco-fast", "eco-smart"] as const) {
+      const bound = slots[slotName].model;
+      if (bound && !list.some((m) => m.id === bound.id)) {
+        list.push(bound);
+      }
+    }
+    // Serving-model append: a selection resolved to a model neither offered
+    // nor bound still gets a tile — never hide what is actually running.
     if (resolvedSelectedId && !list.some((model) => model.id === resolvedSelectedId)) {
       const running = getModel(resolvedSelectedId);
       if (running) list.push(running);
     }
     return list;
-  }, [offer.models, resolvedSelectedId]);
+  }, [offer.models, resolvedSelectedId, open]);
 
   // Whether each offered model's bytes are actually present. Async (Cache API /
   // OPFS), so it is probed when the panel opens and reported as "not downloaded"
