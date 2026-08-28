@@ -100,15 +100,41 @@ export function WelcomeSetup({
   const reducedMotion = useReducedMotion();
   const online = useNetworkStatus();
   const reassurance = REASSURANCE_COPY[reassuranceIndex % REASSURANCE_COPY.length]!;
-  // The wait expectation only ever gets more cautious within one download: a
-  // brief fast burst must not flip "an hour or more" back to "a few minutes"
-  // (the ETA is a 10 s sliding window, so it can swing). Reset for a new phase.
+  // Cautious fast, optimistic only after sustained evidence: a worse measured
+  // bucket applies immediately (a brief fast burst must not clear "an hour"),
+  // but recovery to a better bucket requires the measurement to stay strictly
+  // better for WAIT_RECOVERY_MS (60 s) continuously. 'unknown' (no ETA yet)
+  // never counts as evidence of improvement. Reset for a new phase.
   const worstWait = useRef<WaitBucket>('unknown');
+  const betterSince = useRef<number | null>(null);
   const measured = waitBucketFor(etaSeconds);
-  const wait: WaitBucket =
-    phase === 'downloading' && WAIT_RANK[measured] > WAIT_RANK[worstWait.current]
+
+  let wait: WaitBucket;
+  if (phase !== 'downloading') {
+    wait = 'unknown';
+    betterSince.current = null;
+  } else if (WAIT_RANK[measured] > WAIT_RANK[worstWait.current]) {
+    // Worse — ratchet up immediately.
+    wait = measured;
+    betterSince.current = null;
+  } else if (
+    WAIT_RANK[measured] >= 1 &&
+    WAIT_RANK[measured] < WAIT_RANK[worstWait.current]
+  ) {
+    // Strictly better with a real measurement — start or continue the
+    // recovery clock; only drop after WAIT_RECOVERY_MS of sustained evidence.
+    const now = Date.now();
+    if (betterSince.current === null) betterSince.current = now;
+    wait = now - betterSince.current >= WAIT_RECOVERY_MS
       ? measured
-      : phase === 'downloading' ? worstWait.current : 'unknown';
+      : worstWait.current;
+    if (wait === measured) betterSince.current = null;
+  } else {
+    // Same bucket or measured is 'unknown' — hold, reset the clock.
+    wait = worstWait.current;
+    betterSince.current = null;
+  }
+
   useEffect(() => {
     worstWait.current = wait;
   }, [wait]);
@@ -254,7 +280,11 @@ export function WelcomeSetup({
  * wide so the line does not chase the sliding-window estimate.
  */
 type WaitBucket = 'unknown' | 'minutes' | 'while' | 'hour';
-const WAIT_RANK: Record<WaitBucket, number> = { unknown: 0, minutes: 1, while: 2, hour: 3 };
+export const WAIT_RANK: Record<WaitBucket, number> = { unknown: 0, minutes: 1, while: 2, hour: 3 };
+
+/** Recovery requires 60 s of sustained evidence before the displayed bucket
+ *  drops to a better measured one. Exported for test fake-timer control. */
+export const WAIT_RECOVERY_MS = 60_000;
 
 export function waitBucketFor(etaSeconds: number | undefined): WaitBucket {
   if (!etaSeconds || !Number.isFinite(etaSeconds) || etaSeconds <= 0) return 'unknown';
