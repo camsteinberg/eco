@@ -15,12 +15,17 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { admit } from '../admission';
-import { CURRENT_LEDGER_VERSION } from '../ledger';
+import { CURRENT_LEDGER_VERSION, FAILURE_EVIDENCE_VALID_FROM } from '../ledger';
 import { getModel } from '../../catalog/catalog';
 import type { DeviceProfile } from '../../types';
 
+/** A stable clock safely after the failure-evidence epoch so rows seeded with
+ *  `new Date().toISOString()` are never pre-epoch. */
+const SAFE_NOW = Date.parse(FAILURE_EVIDENCE_VALID_FROM) + 7 * 24 * 60 * 60 * 1000;
+
 beforeEach(() => {
   localStorage.clear();
+  vi.useFakeTimers({ now: SAFE_NOW });
 });
 
 afterEach(() => {

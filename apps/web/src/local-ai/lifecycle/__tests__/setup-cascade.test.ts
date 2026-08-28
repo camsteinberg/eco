@@ -255,6 +255,46 @@ describe('runSetupCascade', () => {
     }
   });
 
+  // ── busy-other-tab: environment-level stop ─────────────────────────────
+
+  it('stops the ladder immediately on busy-other-tab without recording or demoting (T1)', async () => {
+    const h = harness({
+      runAttempt: async () => ({
+        ok: false, phase: 'load-or-smoke', reason: 'GPU held by another tab', reasonCode: 'busy-other-tab',
+      }),
+    });
+    const res = await runSetupCascade(h.opts);
+    expect(res.kind).toBe('exhausted');
+    if (res.kind === 'exhausted') {
+      expect(res.reasonCode).toBe('busy-other-tab');
+    }
+    // No ledger row — the failure is environmental, not model×device.
+    expect(h.recordFailure).not.toHaveBeenCalled();
+    // No demotion — every model would hit the same gate.
+    expect(h.nextInCascade).not.toHaveBeenCalled();
+    // Only the initial selection, no demote selection.
+    expect(h.onSelect).toHaveBeenCalledTimes(1);
+    expect(h.onSelect).toHaveBeenCalledWith(h.A, { attemptIndex: 0, kind: 'initial' });
+  });
+
+  it('stops on busy-other-tab after a genuine demote, recording only the earlier failure (T2)', async () => {
+    const h = harness({
+      runAttempt: async (m) => m.id === 'a'
+        ? { ok: false, phase: 'load-or-smoke', reason: 'OOM' }
+        : { ok: false, phase: 'load-or-smoke', reason: 'GPU held by another tab', reasonCode: 'busy-other-tab' },
+    });
+    const res = await runSetupCascade(h.opts);
+    expect(res.kind).toBe('exhausted');
+    if (res.kind === 'exhausted') {
+      expect(res.reasonCode).toBe('busy-other-tab');
+    }
+    // The genuine failure (A) was recorded; the environment failure (B) was not.
+    expect(h.recordFailure).toHaveBeenCalledTimes(1);
+    expect(h.recordFailure).toHaveBeenCalledWith(h.A);
+    // One demotion happened (A→B), then the ladder stopped.
+    expect(h.nextInCascade).toHaveBeenCalledTimes(1);
+  });
+
   it('still shows the generic reason when the last blocker was not storage', async () => {
     const h = harness({
       runAttempt: async (m) => m.id === 'c'

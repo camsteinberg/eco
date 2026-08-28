@@ -29,6 +29,7 @@ import {
   type LocalHeavyWorkKind,
 } from '../../lib/local-heavy-work-owner';
 import { runSmoke } from './smoke';
+import { AdapterError } from '../runtime/types';
 import {
   setSlot,
   setSlotStatus,
@@ -378,7 +379,12 @@ export async function defaultRunAttempt(
       const reason = err instanceof Error ? err.message : 'Smoke check failed.';
       logSetupAttemptFailure({ modelId: model.id, runtime: model.runtime, phase: 'load-or-smoke', reason, error: err });
       tracker.error(reason);
-      return { ok: false, phase: 'load-or-smoke', reason };
+      const reasonCode = err instanceof AdapterError && err.code === 'gpu-busy-other-tab'
+        ? 'busy-other-tab' as const
+        : undefined;
+      return reasonCode
+        ? { ok: false, phase: 'load-or-smoke' as const, reason, reasonCode }
+        : { ok: false, phase: 'load-or-smoke' as const, reason };
     }
     if (result.passed) {
       tracker.complete();
@@ -386,7 +392,12 @@ export async function defaultRunAttempt(
     }
     logSetupAttemptFailure({ modelId: model.id, runtime: model.runtime, phase: 'load-or-smoke', reason: result.reason });
     tracker.error(result.reason);
-    return { ok: false, phase: 'load-or-smoke', reason: result.reason };
+    const reasonCode = result.code === 'gpu-busy-other-tab'
+      ? 'busy-other-tab' as const
+      : undefined;
+    return reasonCode
+      ? { ok: false, phase: 'load-or-smoke' as const, reason: result.reason, reasonCode }
+      : { ok: false, phase: 'load-or-smoke' as const, reason: result.reason };
   } finally {
     // Cancel any still-pending stall timer's effect and drop the listeners.
     controller.abort();

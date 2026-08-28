@@ -13,16 +13,22 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getModel } from '../../catalog/catalog';
-import { CURRENT_LEDGER_VERSION } from '../../evidence/ledger';
+import { CURRENT_LEDGER_VERSION, FAILURE_EVIDENCE_VALID_FROM } from '../../evidence/ledger';
 import { _resetCascadeTelemetryForTesting, cascadePath, nextInCascade } from '../cascade';
 import { listCandidates } from '../recommend';
 import type { DeviceProfile } from '../../types';
 
+/** A stable clock safely after the failure-evidence epoch so rows seeded with
+ *  `new Date().toISOString()` are never pre-epoch. */
+const SAFE_NOW = Date.parse(FAILURE_EVIDENCE_VALID_FROM) + 7 * 24 * 60 * 60 * 1000;
+
 beforeEach(() => {
   _resetCascadeTelemetryForTesting();
+  vi.useFakeTimers({ now: SAFE_NOW });
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 

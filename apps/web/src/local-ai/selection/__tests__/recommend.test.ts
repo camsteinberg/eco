@@ -15,14 +15,26 @@
  *     disjoint and total equals catalog size minus unsupported models.
  */
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getCatalog, getModel } from '../../catalog/catalog';
 import { isAssignable } from '../../device/compatibility';
-import { CURRENT_LEDGER_VERSION, profileKey } from '../../evidence/ledger';
+import { CURRENT_LEDGER_VERSION, FAILURE_EVIDENCE_VALID_FROM, profileKey } from '../../evidence/ledger';
 import { canServe, listCandidates, listCatalog, NoAssignableModelError, PREFERRED_WASM_FLOOR_MODEL_ID, recommend, starterModelForSlot } from '../recommend';
 import { isBelowFloor } from '../../device/below-floor';
 import { deriveFirstRunChoices } from '../first-run-choices';
 import type { DeviceProfile } from '../../types';
+
+/** A stable clock safely after the failure-evidence epoch so rows seeded with
+ *  `new Date().toISOString()` are never pre-epoch. */
+const SAFE_NOW = Date.parse(FAILURE_EVIDENCE_VALID_FROM) + 7 * 24 * 60 * 60 * 1000;
+
+beforeEach(() => {
+  vi.useFakeTimers({ now: SAFE_NOW });
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 const PROFILE_24GB: DeviceProfile = {
   browserClass: 'chromium',

@@ -3,7 +3,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ModelConfig } from '../../types';
-import type { TokenEvent } from '../../runtime/types';
+import { AdapterError, type TokenEvent } from '../../runtime/types';
 import {
   _resetSmokeForTesting,
   computeSmokeLoadBudgetMs,
@@ -947,5 +947,43 @@ describe('runSmoke — cache file name capture', () => {
     // Should be capped at 20 file names even though 25 exist
     expect(entry.cache!.files).toHaveLength(20);
     expect(entry.cache!.fileCount).toBe(25);
+  });
+});
+
+// ── AdapterError code capture (T8) ──────────────────────────────────────────
+// The REAL runSmoke catch must capture AdapterError.code onto the SmokeResult
+// so the setup runner can plumb it through to the cascade. T3a/T3b mock
+// runSmoke, so they prove the runner reads the code but not that runSmoke
+// SETS it. These tests close that gap.
+
+describe('runSmoke — AdapterError code on SmokeResult (T8)', () => {
+  it('carries the AdapterError code when the generation seam throws one before any token', async () => {
+    // eslint-disable-next-line require-yield -- deliberately throws before any yield
+    const seam: SmokeGenerationFn = async function* (): AsyncIterable<TokenEvent> {
+      throw new AdapterError(
+        "Eco's on-device AI is active in another tab",
+        'gpu-busy-other-tab',
+        true,
+      );
+    };
+    const r = await runSmoke('eco-fast', MODEL, { generationFn: seam, skipDiagnostics: true });
+    expect(r.passed).toBe(false);
+    if (!r.passed) {
+      expect(r.code).toBe('gpu-busy-other-tab');
+      expect(r.reason).toBe("Eco's on-device AI is active in another tab");
+    }
+  });
+
+  it('leaves code undefined when a plain Error is thrown (regression guard)', async () => {
+    // eslint-disable-next-line require-yield -- deliberately throws before any yield
+    const seam: SmokeGenerationFn = async function* (): AsyncIterable<TokenEvent> {
+      throw new Error('WebGPU device lost');
+    };
+    const r = await runSmoke('eco-fast', MODEL, { generationFn: seam, skipDiagnostics: true });
+    expect(r.passed).toBe(false);
+    if (!r.passed) {
+      expect(r.code).toBeUndefined();
+      expect(r.reason).toBe('WebGPU device lost');
+    }
   });
 });

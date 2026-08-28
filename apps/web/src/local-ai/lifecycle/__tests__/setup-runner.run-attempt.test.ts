@@ -30,6 +30,7 @@ import { ProgressTracker } from '../../download/progress';
 import type { ProgressEvent, ProgressPhase } from '../../download/progress';
 import type { ModelConfig, Slot } from '../../types';
 import type { SmokeResult } from '../smoke';
+import { AdapterError } from '../../runtime/types';
 
 // Real error hierarchy (signatures mirror the module, and DownloadIntegrityError
 // really does extend DownloadFailedError) so setup-runner's `instanceof` checks
@@ -248,6 +249,63 @@ describe('DEFAULT_SEAMS.runAttempt — download vs load/smoke phase classificati
 
     expect(result).toEqual({ ok: false, phase: 'load-or-smoke', reason: 'no tokens before timeout' });
     expect(phaseEvent(eventsOf(onProgress), 'error')?.reason).toBe('no tokens before timeout');
+  });
+
+  // ── busy-other-tab: typed code plumbing ───────────────────────────────
+
+  it('carries busy-other-tab reasonCode when smoke returns passed:false with gpu-busy-other-tab code (T3a)', async () => {
+    downloadOk();
+    vi.mocked(runSmoke).mockResolvedValue({
+      passed: false,
+      reason: 'GPU held by another tab',
+      durationMs: 5,
+      code: 'gpu-busy-other-tab',
+    });
+
+    const result = await DEFAULT_SEAMS.runAttempt(SLOT, MODEL, vi.fn());
+
+    expect(result).toEqual({
+      ok: false,
+      phase: 'load-or-smoke',
+      reason: 'GPU held by another tab',
+      reasonCode: 'busy-other-tab',
+    });
+  });
+
+  it('carries busy-other-tab reasonCode when smoke throws AdapterError with gpu-busy-other-tab (T3b)', async () => {
+    downloadOk();
+    vi.mocked(runSmoke).mockRejectedValue(
+      new AdapterError('GPU held by another tab', 'gpu-busy-other-tab', true),
+    );
+
+    const result = await DEFAULT_SEAMS.runAttempt(SLOT, MODEL, vi.fn());
+
+    expect(result).toEqual({
+      ok: false,
+      phase: 'load-or-smoke',
+      reason: 'GPU held by another tab',
+      reasonCode: 'busy-other-tab',
+    });
+  });
+
+  it('does NOT set reasonCode for a different AdapterError code like oom (T4)', async () => {
+    downloadOk();
+    vi.mocked(runSmoke).mockResolvedValue({
+      passed: false,
+      reason: 'Out of memory',
+      durationMs: 5,
+      code: 'oom',
+    });
+
+    const result = await DEFAULT_SEAMS.runAttempt(SLOT, MODEL, vi.fn());
+
+    expect(result).toEqual({
+      ok: false,
+      phase: 'load-or-smoke',
+      reason: 'Out of memory',
+    });
+    // No reasonCode — other codes keep demoting via the cascade.
+    expect((result as { reasonCode?: string }).reasonCode).toBeUndefined();
   });
 
   it('returns { ok: true } and completes when download and smoke both pass', async () => {
