@@ -24,6 +24,7 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
   calculator: "Calculator",
   datetime: "Date & time",
   "unit-conversion": "Unit conversion",
+  money: "Money math",
   web_search: "Web Search",
   code_execution: "Code Execution",
 };

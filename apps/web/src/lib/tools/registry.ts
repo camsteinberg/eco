@@ -92,6 +92,15 @@ export type ToolMatchContext = {
    * turn. Staleness is bounded by the host (see `deriveGroundedMatchContext`).
    */
   lastGroundedTitle?: string;
+  /**
+   * The most recent APR the USER stated in the conversation (e.g. "24% APR" two
+   * turns ago), so a follow-up payoff question can be computed instead of guessed.
+   * User turns only: an APR an assistant mentioned may have been fabricated, and
+   * feeding a fabricated rate into a deterministic tool would launder the invention
+   * into an authoritative-looking number. Staleness is bounded by the host (see
+   * `deriveMoneyMatchContext`).
+   */
+  recentAprPercent?: number;
 };
 
 /** The result of running a tool's `execute`. */

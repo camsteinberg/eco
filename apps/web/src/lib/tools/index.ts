@@ -11,6 +11,7 @@
 import { calculatorTool } from "./calculator-tool";
 import { datetimeTool } from "./datetime-tool";
 import { identityTool } from "./identity-tool";
+import { moneyTool } from "./money-tool";
 import {
   detectTool as detectToolFromRegistry,
   type AnyEcoTool,
@@ -34,6 +35,7 @@ export type {
 export type { CalculatorArgs } from "./calculator-tool";
 export type { DatetimeArgs } from "./datetime-tool";
 export type { IdentityArgs } from "./identity-tool";
+export type { MoneyArgs } from "./money-tool";
 export type { UnitArgs } from "./unit-tool";
 export type { GroundingArgs } from "./wikipedia-grounding-tool";
 export { calculatorTool } from "./calculator-tool";
@@ -44,6 +46,7 @@ export {
   DATA_LOCATION_HOST_ANSWER,
   areYouXHostAnswer,
 } from "./identity-tool";
+export { moneyTool } from "./money-tool";
 export { unitTool } from "./unit-tool";
 export { wikipediaGroundingTool } from "./wikipedia-grounding-tool";
 
@@ -56,7 +59,11 @@ export { wikipediaGroundingTool } from "./wikipedia-grounding-tool";
  * whole-turn anchored and abstains on anything that is not squarely an identity /
  * privacy question, so putting it first cannot pre-empt a genuine arithmetic /
  * factual turn. Then the deterministic tools (calculator → datetime → unit-
- * conversion) win their frames. Finally `wikipediaGroundingTool` sweeps LAST
+ * conversion → money) win their frames. `moneyTool` sits at the end of that group:
+ * it must pre-empt the fuzzy grounding sweep on turns like "24% APR — what does
+ * that mean for me?", but it must never take a plain percentage calculation from
+ * the calculator or a clock question from datetime, so it runs after both.
+ * Finally `wikipediaGroundingTool` sweeps LAST
  * (its matcher is the broadest/fuzziest, so it must not pre-empt a more specific
  * frame a preceding tool answers).
  *
@@ -76,6 +83,7 @@ export const DEFAULT_TOOLS: readonly AnyEcoTool[] = [
   calculatorTool,
   datetimeTool,
   unitTool,
+  moneyTool,
   wikipediaGroundingTool,
 ];
 
