@@ -48,8 +48,12 @@ export type SwitchAIChoice = {
 
 export type UseSwitchAIOptions = {
   slot: Slot;
-  /** Current model in this slot (the "Currently running" copy). */
+  /** Current model in this slot — the switch flow's rollback reference. */
   currentModel: ModelConfig | null;
+  /** The model the chat's current selection resolves to. Used to initialize
+   *  the radio selection so the prechecked row matches what "Currently
+   *  running" says. Falls back to currentModel when absent. */
+  runningModelId?: string | null;
   /**
    * Caller-provided commit action. Resolves with a result that the dialog
    * uses to either close (success) or surface an inline error with an
@@ -117,8 +121,12 @@ export function useSwitchAI(options: UseSwitchAIOptions): UseSwitchAIReturn {
     }));
   }, [cannotServe, profile, options.currentModel?.id]);
 
+  // Precheck the model that "Currently running" displays, so an untouched
+  // Save is a no-op rather than silently switching to the fast-first
+  // reference model.
+  const displayCurrentId = options.runningModelId ?? options.currentModel?.id ?? null;
   const [selectedId, setSelectedId] = useState<string | null>(
-    options.currentModel?.id ?? recommendation?.id ?? null,
+    displayCurrentId ?? recommendation?.id ?? null,
   );
   const [saving, setSaving] = useState(false);
 
@@ -140,7 +148,7 @@ export function useSwitchAI(options: UseSwitchAIOptions): UseSwitchAIReturn {
     // The dialog is a single calm list: the user's pick (selectedId) is the
     // source of truth, falling back to the recommendation or current model
     // when nothing is selected yet.
-    const target = selectedId ?? recommendation?.id ?? options.currentModel?.id ?? null;
+    const target = selectedId ?? recommendation?.id ?? displayCurrentId ?? null;
     if (!target) {
       return {
         success: false,
@@ -150,7 +158,7 @@ export function useSwitchAI(options: UseSwitchAIOptions): UseSwitchAIReturn {
       };
     }
     return commitWith(target);
-  }, [recommendation, selectedId, options.currentModel, commitWith]);
+  }, [recommendation, selectedId, displayCurrentId, commitWith]);
 
   return {
     recommendation,

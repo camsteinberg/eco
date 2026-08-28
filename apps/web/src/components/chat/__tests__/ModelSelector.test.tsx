@@ -71,26 +71,37 @@ let mockSlots: Record<Slot, { modelId: string | null; status: SlotState["status"
 };
 
 // Partial mock: the upgrade/switch machinery in the same import graph needs the
-// module's real write surface, only the two reads are steered here.
-vi.mock("../../../local-ai/lifecycle/slots", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../../local-ai/lifecycle/slots")>()),
-  getSlot: (slot: Slot): SlotState => {
+// module's real write surface, only the reads are steered here.
+vi.mock("../../../local-ai/lifecycle/slots", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../../../local-ai/lifecycle/slots")>();
+  // Resolve a model id to a full catalog ModelConfig when possible; fall
+  // back to a stub for fixture-only ids that don't live in the catalog.
+  const { getModel: getCatalogModel } = await import("../../../local-ai/catalog/catalog");
+  const resolveModel = (modelId: string): SlotState["model"] =>
+    getCatalogModel(modelId) ?? ({ id: modelId, friendlyName: modelId, vendor: "test", sizeGB: 0 } as unknown as SlotState["model"]);
+  const makeSlotState = (slot: Slot): SlotState => {
     const entry = mockSlots[slot];
     return {
       slot,
       modelId: entry.modelId,
-      model: entry.modelId
-        ? ({ id: entry.modelId, friendlyName: entry.modelId } as unknown as SlotState["model"])
-        : null,
+      model: entry.modelId ? resolveModel(entry.modelId) : null,
       status: entry.status,
     };
-  },
-  getSlotForModel: (modelId: string): Slot | null => {
-    if (mockSlots["eco-fast"].modelId === modelId) return "eco-fast";
-    if (mockSlots["eco-smart"].modelId === modelId) return "eco-smart";
-    return null;
-  },
-}));
+  };
+  return {
+    ...original,
+    getSlot: makeSlotState,
+    getSlotForModel: (modelId: string): Slot | null => {
+      if (mockSlots["eco-fast"].modelId === modelId) return "eco-fast";
+      if (mockSlots["eco-smart"].modelId === modelId) return "eco-smart";
+      return null;
+    },
+    getAllSlots: (): Record<Slot, SlotState> => ({
+      "eco-fast": makeSlotState("eco-fast"),
+      "eco-smart": makeSlotState("eco-smart"),
+    }),
+  };
+});
 
 // The pull machine, at its module boundary: the tile reads the shared UI state
 // and calls two plain functions. Mocking it keeps this file about the surface.
@@ -604,6 +615,81 @@ describe("ModelSelector — never hide what is running", () => {
     expect(within(running).getByText("Downloaded")).toBeInTheDocument();
     // Appended last — the device's own offer still leads.
     expect(tiles()[2]).toBe(running);
+  });
+});
+
+describe("ModelSelector — slot-bound models outside the offer get tiles", () => {
+  it("shows a bound+ready model outside the offer as a selectable tile", async () => {
+    // Real scenario: eco-fast bound to the cached, ready 1.2B; the offer names
+    // a different model (simulated by an offer that excludes the bound model).
+    // The bound model must appear as a tile.
+    bindSlot("eco-fast", OUTSIDE_PAIR_ID, "ready");
+    mockSelectedModel = "eco-smart";
+    bindSlot("eco-smart", DEEP_ID, "ready");
+
+    await openSelector();
+
+    // The offer has FAST_ID and DEEP_ID; the bound eco-fast (OUTSIDE_PAIR_ID)
+    // is not in the offer, so it is appended from slot bindings.
+    expect(tiles()).toHaveLength(3);
+    const bound = tileNamed("Eco Compact");
+    expect(bound).toBeInTheDocument();
+    expect(within(bound).getByText("Downloaded")).toBeInTheDocument();
+  });
+
+  it("clicking a bound+ready tile writes its slot name with no download confirm", async () => {
+    bindSlot("eco-fast", OUTSIDE_PAIR_ID, "ready");
+    mockSelectedModel = "eco-smart";
+    bindSlot("eco-smart", DEEP_ID, "ready");
+
+    const user = await openSelector();
+    await tapTile(user, "Eco Compact");
+
+    expect(mockSetSelectedModel).toHaveBeenCalledWith("eco-fast", { explicit: true });
+    // No download confirm — model is already bound and ready.
+    expect(mockRequestPull).not.toHaveBeenCalled();
+  });
+
+  it("does not duplicate a tile when a bound model is also in the offer", async () => {
+    // eco-fast is bound to FAST_ID, which is also in the offer — one tile, not two.
+    bindSlot("eco-fast", FAST_ID, "ready");
+    mockSelectedModel = "eco-fast";
+
+    await openSelector();
+
+    expect(tiles()).toHaveLength(2);
+    const fastTiles = within(getListbox()).getAllByText("Eco Fast");
+    expect(fastTiles).toHaveLength(1);
+  });
+
+  it("preserves the Recommended tag when a bound model is added", async () => {
+    bindSlot("eco-fast", OUTSIDE_PAIR_ID, "ready");
+    mockSelectedModel = "eco-smart";
+    bindSlot("eco-smart", DEEP_ID, "ready");
+
+    await openSelector();
+
+    // The Recommended tag still follows the offer's recommendedId (FAST_ID),
+    // not the bound model.
+    const tag = within(getListbox()).getByText("Recommended");
+    expect(tileNamed("Eco Fast")).toContainElement(tag);
+    // The bound model does NOT get a Recommended tag.
+    const compact = tileNamed("Eco Compact");
+    expect(within(compact).queryByText("Recommended")).not.toBeInTheDocument();
+  });
+
+  it("an offer model not downloaded still shows the inline download confirm", async () => {
+    // Even with slot bindings, undownloaded offer models still go through
+    // the download confirm flow.
+    bindSlot("eco-fast", FAST_ID, "ready");
+    mockSelectedModel = "eco-fast";
+
+    const user = await openSelector();
+    await tapTile(user, "Eco Deeper");
+
+    expect(mockSetSelectedModel).not.toHaveBeenCalled();
+    expect(within(tileNamed("Eco Deeper")).getByRole("button", { name: "Download" }))
+      .toBeInTheDocument();
   });
 });
 
