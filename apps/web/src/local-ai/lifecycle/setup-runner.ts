@@ -477,8 +477,25 @@ export async function executeSetup(
   // the cascade as normal. A bound id the catalog no longer carries resolves to
   // current.model === null (getSlot nulls unknown ids), so we fall through to a
   // fresh pick — the correct behavior when the pick can't be honored.
-  const resumeModel =
+  //
+  // CROSS-SLOT resume: an interrupted first-run download of the deeper pick
+  // (since #297, the preselected Recommended one) leaves eco-smart bound +
+  // 'preparing' while eco-fast stays 'empty' — the invoked slot never sees it.
+  // Before requesting a fresh choice, check the other slot: if eco-smart is
+  // bound + 'preparing' with a catalog-resolvable model, resume that download
+  // instead of re-showing the welcome card. Scope guard: this only fires when
+  // the invoked slot is 'empty' — an interrupted UPGRADE (eco-fast ready/bound)
+  // must keep flowing to the upgrade machine, unchanged.
+  let resumeModel =
     current.status === 'preparing' && current.model ? current.model : null;
+  let firstPickSlot: Slot = slot;
+  if (!resumeModel && current.status === 'empty') {
+    const smart = seams.getSlot('eco-smart');
+    if (smart.status === 'preparing' && smart.model) {
+      resumeModel = smart.model;
+      firstPickSlot = 'eco-smart';
+    }
+  }
   if (resumeModel) actions.markResuming();
 
   // The slot the run's current pick is bound to — where the terminal status
@@ -511,7 +528,9 @@ export async function executeSetup(
       ?? await chooseFirstPick(slot, profile, seams, resolveStarterFirst(options));
     // Where the FIRST pick binds. A user's choice binds the slot it was offered
     // for; a resumed or auto-recommended pick binds the slot being set up.
-    const firstPickSlot: Slot = resumeModel ? slot : chosenFirstPick?.slot ?? slot;
+    // A cross-slot resume already set firstPickSlot above; a same-slot resume
+    // or auto-recommend binds the setup slot; a user choice binds its offered slot.
+    if (!resumeModel) firstPickSlot = chosenFirstPick?.slot ?? slot;
     result = await runSetupCascade({
       slot,
       profile,

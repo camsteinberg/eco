@@ -194,3 +194,100 @@ describe('executeSetup — first-run model choice', () => {
     expect(a.setReady).toHaveBeenCalledWith(model('starter'));
   });
 });
+
+// Cross-slot resume: the existing test's single-state `getSlot` fake returns the
+// same SlotState for every slot, so it structurally cannot see the asymmetry
+// between eco-fast ('empty') and eco-smart ('preparing') that the interrupted
+// first-run deeper pick creates. These tests use a per-slot fake.
+describe('executeSetup — cross-slot resume of interrupted deeper pick', () => {
+  /** Per-slot getSlot fake: returns different state per slot name. */
+  function perSlotSeams(
+    slotStates: Record<string, SlotState>,
+    over: Record<string, unknown> = {},
+  ) {
+    return seams({
+      getSlot: vi.fn((s: string) => slotStates[s] ?? emptySlot),
+      ...over,
+    });
+  }
+
+  // T1: eco-fast 'empty', eco-smart bound+'preparing' with a catalog model →
+  //     NO choice requested, markResuming called, cascade picks the eco-smart
+  //     model, terminal status write lands on eco-smart.
+  it('resumes an interrupted deeper pick from eco-smart instead of re-showing the choice', async () => {
+    const a = fakeActions();
+    const smartPreparing = {
+      modelId: 'deeper', status: 'preparing', model: model('deeper'),
+    } as unknown as SlotState;
+    const s = perSlotSeams({
+      'eco-fast': emptySlot,
+      'eco-smart': smartPreparing,
+    });
+    const requestChoice = vi.fn(pick('deeper'));
+
+    await executeSetup(a, { slot: 'eco-fast', seams: s, requestChoice });
+
+    // No choice card shown — the interrupted download is resumed silently.
+    expect(requestChoice).not.toHaveBeenCalled();
+    expect(s.deriveFirstRunChoices).not.toHaveBeenCalled();
+    expect(a.markResuming).toHaveBeenCalled();
+
+    // The cascade's first pick is the eco-smart model.
+    expect(s.runAttempt).toHaveBeenCalledWith(
+      'eco-fast',
+      model('deeper'),
+      expect.any(Function),
+    );
+
+    // Terminal status write lands on eco-smart, not eco-fast.
+    expect(s.setSlotStatus).toHaveBeenCalledWith('eco-smart', 'ready');
+    expect(s.setSlotStatus).not.toHaveBeenCalledWith('eco-fast', 'ready');
+    expect(a.setReady).toHaveBeenCalledWith(model('deeper'));
+  });
+
+  // T2: eco-fast 'ready' + eco-smart 'preparing' → cross-slot resume does NOT
+  //     fire (ready fast path returns; upgrade machine owns it).
+  it('does NOT cross-slot resume when eco-fast is ready (upgrade path owns it)', async () => {
+    const a = fakeActions();
+    const readyFast = {
+      modelId: 'fast', status: 'ready', model: model('fast'),
+    } as unknown as SlotState;
+    const smartPreparing = {
+      modelId: 'deeper', status: 'preparing', model: model('deeper'),
+    } as unknown as SlotState;
+    const s = perSlotSeams({
+      'eco-fast': readyFast,
+      'eco-smart': smartPreparing,
+    });
+    const requestChoice = vi.fn(pick('deeper'));
+
+    await executeSetup(a, { slot: 'eco-fast', seams: s, requestChoice });
+
+    // Ready fast path returns immediately — no resume, no choice card.
+    expect(requestChoice).not.toHaveBeenCalled();
+    expect(a.markResuming).not.toHaveBeenCalled();
+    expect(a.setReady).toHaveBeenCalledWith(model('fast'));
+  });
+
+  // T3: eco-fast 'empty' + eco-smart 'preparing' with an unknown model id
+  //     (catalog no longer carries it) → falls through to the fresh choice.
+  it('falls through to fresh choice when the eco-smart model id is no longer in the catalog', async () => {
+    const a = fakeActions();
+    // getSlot nulls the model when the catalog no longer carries the id.
+    const smartStale = {
+      modelId: null, status: 'empty', model: null,
+    } as unknown as SlotState;
+    const s = perSlotSeams({
+      'eco-fast': emptySlot,
+      'eco-smart': smartStale,
+    });
+    const requestChoice = vi.fn(pick('deeper'));
+
+    await executeSetup(a, { slot: 'eco-fast', seams: s, requestChoice });
+
+    // No resume — the stale pick can't be honored.
+    expect(a.markResuming).not.toHaveBeenCalled();
+    // The choice card IS shown (fresh first-run flow).
+    expect(requestChoice).toHaveBeenCalledTimes(1);
+  });
+});
