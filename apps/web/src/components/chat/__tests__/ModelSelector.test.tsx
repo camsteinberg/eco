@@ -153,7 +153,7 @@ function offerPair(): void {
       { model: catalogModel(FAST_ID), slot: "eco-fast" },
       { model: catalogModel(DEEP_ID), slot: "eco-smart" },
     ],
-    recommendedId: FAST_ID,
+    recommendedId: DEEP_ID,
   });
 }
 
@@ -430,7 +430,7 @@ describe("ModelSelector — a model that isn't here downloads in place", () => {
         { model: catalogModel(DEEP_ID), slot: "eco-smart" },
         { model: catalogModel(FAST_ID), slot: "eco-fast" },
       ],
-      recommendedId: FAST_ID,
+      recommendedId: DEEP_ID,
     });
 
     const user = await openSelector();
@@ -669,10 +669,10 @@ describe("ModelSelector — slot-bound models outside the offer get tiles", () =
 
     await openSelector();
 
-    // The Recommended tag still follows the offer's recommendedId (FAST_ID),
+    // The Recommended tag still follows the offer's recommendedId (DEEP_ID),
     // not the bound model.
     const tag = within(getListbox()).getByText("Recommended");
-    expect(tileNamed("Eco Fast")).toContainElement(tag);
+    expect(tileNamed("Eco Deeper")).toContainElement(tag);
     // The bound model does NOT get a Recommended tag.
     const compact = tileNamed("Eco Compact");
     expect(within(compact).queryByText("Recommended")).not.toBeInTheDocument();
@@ -697,8 +697,10 @@ describe("ModelSelector — the Recommended tag", () => {
   it("tags the recommended model when there is a real choice", async () => {
     await openSelector();
 
+    // On a capable device the deeper pick is recommended (quality data,
+    // 2026-08-28); the tag follows deriveFirstRunChoices' recommendedId.
     const tag = within(getListbox()).getByText("Recommended");
-    expect(tileNamed("Eco Fast")).toContainElement(tag);
+    expect(tileNamed("Eco Deeper")).toContainElement(tag);
   });
 
   it("shows no Recommended tag on a single-model device", async () => {
