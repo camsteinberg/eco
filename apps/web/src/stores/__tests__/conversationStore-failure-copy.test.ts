@@ -147,6 +147,19 @@ describe("conversation persistence failure copy", () => {
     expect(message).not.toMatch(/model/i);
   });
 
+  it("T3b: a READ that fails on quota is never reported as a failed save", async () => {
+    const { useConversationStore } = await loadStore();
+    armedFailure = { method: "get", error: new DOMException("quota", "QuotaExceededError") };
+
+    await useConversationStore.getState().loadConversationMessages(CONVERSATION_ID);
+
+    const message = notice(useConversationStore);
+    // Running out of room is a write-side failure; saying "could not save" about a
+    // read tells the person the wrong thing about their own data.
+    expect(message).not.toMatch(/could not save/i);
+    expect(message).toMatch(/could not load this conversation/i);
+  });
+
   it("T4: an outdated build still wins its own message, ahead of the quota branch", async () => {
     const plain = await saveWithFailingWrite(() => new DOMException("upgrade", "VersionError"));
     expect(notice(plain)).toMatch(/updated in another tab/i);

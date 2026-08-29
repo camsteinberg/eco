@@ -180,7 +180,9 @@ function persistenceErrorMessage(failure: PersistenceFailure, error: unknown): s
   // specific thing to DO (reload, close the other tab) that freeing space won't fix.
   if (isVersionError(error)) return OUTDATED_BUILD_MESSAGE
   if (error instanceof DbOpenTimeoutError) return DB_OPEN_BLOCKED_MESSAGE
-  if (isQuotaExceeded(error)) return OUT_OF_SPACE_MESSAGE
+  // Only a WRITE can run out of room, and the message says "could not save" — so a
+  // read that somehow surfaces a quota error must not be reported as a failed save.
+  if (failure.kind === 'write' && isQuotaExceeded(error)) return OUT_OF_SPACE_MESSAGE
   if (failure.kind === 'read') {
     return `Eco could not ${failure.phrase} from browser storage. Nothing already saved is lost — try again, or reload this tab.`
   }
