@@ -18,6 +18,8 @@ import {
 } from './sw-register'
 import { getOnboardingStore } from '../stores/onboardingStore'
 import { safeStorage, STORAGE_KEYS } from './local-storage'
+import { isModelCacheName } from '../local-ai/download/storage'
+import { WEBLLM_CACHE_SCOPES } from '../local-ai/runtime/webllm-config'
 
 export const authClient = createAuthClient({
   baseURL: '',
@@ -53,6 +55,31 @@ function isEcoCacheName(name: string): boolean {
     /^eco-v\d+$/.test(name)
     || /^eco-cache(?:-|$)/.test(name)
     || /^eco-app-cache(?:-|$)/.test(name)
+  )
+}
+
+/**
+ * Delete every Cache API namespace holding downloaded model weights: Eco's own
+ * `eco-local-ai-<id>` buckets (weights AND interrupted `.ecopart.` chunk-parts
+ * live in the same namespace) plus WebLLM's three private scopes.
+ *
+ * Deliberately NOT folded into `isEcoCacheName` — that predicate names the app
+ * shell's caches and other callers rely on it staying narrow. Best-effort: every
+ * call is caught individually so one rejected delete cannot trap the deletion
+ * flow. Weights are gigabytes and the slow part of the sweep, so callers run
+ * this BEFORE the app caches — if the cleanup budget expires mid-flight the
+ * browser still finishes the deletes we already started.
+ */
+async function deleteModelWeightCaches(): Promise<void> {
+  const names = await caches.keys().catch(() => [] as string[])
+  const targets = new Set<string>(WEBLLM_CACHE_SCOPES)
+  for (const name of names) {
+    if (isModelCacheName(name)) {
+      targets.add(name)
+    }
+  }
+  await Promise.all(
+    [...targets].map((name) => caches.delete(name).catch(() => false)),
   )
 }
 
@@ -175,13 +202,32 @@ function removeEcoSessionStorageKeys(): void {
   }
 }
 
+export type ClearClientStateOptions = {
+  /**
+   * Also delete downloaded model weights (Cache API: `eco-local-ai-*` and the
+   * WebLLM scopes). Account deletion passes `true`. Default FALSE: signing out
+   * of one account on your own machine must not throw away a 1-2 GB download
+   * that is device-scoped, not account-scoped.
+   */
+  includeModelFiles?: boolean
+}
+
 /**
  * Clear ALL user-specific client state (stores, IndexedDB, localStorage, caches).
  * Called on account deletion, and on sign-out only when the person ticks
  * "also remove my chats and settings from this device".
  * Preserves device preferences (theme, sidebar collapsed, font size).
+ *
+ * With `includeModelFiles: true` the downloaded weights go too. The slot
+ * bindings (`eco-local-ai-slot-*`) and the evidence ledger are already swept as
+ * `eco-` localStorage keys, so the next boot sees no bound model and takes the
+ * ordinary first-run path; the preserved `eco-selected-model` holds a slot
+ * ALIAS ("auto" / "eco-fast"), never a model id, so it cannot point at bytes
+ * that no longer exist.
  */
-export async function clearClientState(): Promise<void> {
+export async function clearClientState(
+  options?: ClearClientStateOptions,
+): Promise<void> {
   clearInviteCodeCookie()
   clearPendingChatPrompt()
   clearGuestLocalContext()
@@ -259,12 +305,18 @@ export async function clearClientState(): Promise<void> {
       }
     }
 
+    // Weights first: they are the slow, gigabyte-scale part of the sweep, so if
+    // the caller's cleanup budget expires we still want them under way.
+    if (options?.includeModelFiles) {
+      await deleteModelWeightCaches()
+    }
+
     const deleteEcoCaches = async () => {
-      const names = await caches.keys()
+      const names = await caches.keys().catch(() => [] as string[])
       await Promise.all(
         names
           .filter(isEcoCacheName)
-          .map((name) => caches.delete(name)),
+          .map((name) => caches.delete(name).catch(() => false)),
       )
     }
 

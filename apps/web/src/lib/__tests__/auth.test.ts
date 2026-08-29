@@ -265,6 +265,147 @@ describe("clearClientState", () => {
     expect(unregister).toHaveBeenCalledTimes(1);
   });
 
+  it("leaves downloaded model weights alone by default (sign-out path)", async () => {
+    const mockDelete = vi.fn().mockResolvedValue(true);
+    const mockKeys = vi.fn().mockResolvedValue([
+      "eco-v5",
+      "eco-local-ai-candidate_lfm2.5-1.2b-instruct-onnx",
+      "webllm/model",
+      "webllm/config",
+      "webllm/wasm",
+    ]);
+    Object.defineProperty(globalThis, "caches", {
+      value: { keys: mockKeys, delete: mockDelete },
+      writable: true,
+      configurable: true,
+    });
+
+    await clearClientState();
+
+    expect(mockDelete).toHaveBeenCalledWith("eco-v5");
+    expect(mockDelete).not.toHaveBeenCalledWith(
+      "eco-local-ai-candidate_lfm2.5-1.2b-instruct-onnx"
+    );
+    expect(mockDelete).not.toHaveBeenCalledWith("webllm/model");
+    expect(mockDelete).not.toHaveBeenCalledWith("webllm/config");
+    expect(mockDelete).not.toHaveBeenCalledWith("webllm/wasm");
+  });
+
+  it("deletes model weight caches and the WebLLM scopes when includeModelFiles is set", async () => {
+    const mockDelete = vi.fn().mockResolvedValue(true);
+    const mockKeys = vi.fn().mockResolvedValue([
+      "eco-v5",
+      "eco-app-cache-static",
+      "eco-local-ai-candidate_lfm2.5-1.2b-instruct-onnx",
+      "eco-local-ai-candidate_lfm2-2.6b-onnx",
+      "third-party-cache",
+    ]);
+    Object.defineProperty(globalThis, "caches", {
+      value: { keys: mockKeys, delete: mockDelete },
+      writable: true,
+      configurable: true,
+    });
+
+    await clearClientState({ includeModelFiles: true });
+
+    expect(mockDelete).toHaveBeenCalledWith(
+      "eco-local-ai-candidate_lfm2.5-1.2b-instruct-onnx"
+    );
+    expect(mockDelete).toHaveBeenCalledWith(
+      "eco-local-ai-candidate_lfm2-2.6b-onnx"
+    );
+    expect(mockDelete).toHaveBeenCalledWith("webllm/model");
+    expect(mockDelete).toHaveBeenCalledWith("webllm/config");
+    expect(mockDelete).toHaveBeenCalledWith("webllm/wasm");
+    // The app's own caches are still swept.
+    expect(mockDelete).toHaveBeenCalledWith("eco-v5");
+    expect(mockDelete).toHaveBeenCalledWith("eco-app-cache-static");
+    // Unrelated caches are still left alone.
+    expect(mockDelete).not.toHaveBeenCalledWith("third-party-cache");
+  });
+
+  it("deletes the weights before the app caches so a budget expiry still starts the slow part", async () => {
+    const order: string[] = [];
+    const mockDelete = vi.fn(async (name: string) => {
+      order.push(name);
+      return true;
+    });
+    Object.defineProperty(globalThis, "caches", {
+      value: {
+        keys: vi
+          .fn()
+          .mockResolvedValue(["eco-v5", "eco-local-ai-candidate_lfm2-2.6b-onnx"]),
+        delete: mockDelete,
+      },
+      writable: true,
+      configurable: true,
+    });
+
+    await clearClientState({ includeModelFiles: true });
+
+    expect(order.indexOf("eco-local-ai-candidate_lfm2-2.6b-onnx")).toBeLessThan(
+      order.indexOf("eco-v5")
+    );
+  });
+
+  it("does not throw when caches.delete rejects during the weights sweep", async () => {
+    Object.defineProperty(globalThis, "caches", {
+      value: {
+        keys: vi
+          .fn()
+          .mockResolvedValue(["eco-v5", "eco-local-ai-candidate_lfm2-2.6b-onnx"]),
+        delete: vi.fn().mockRejectedValue(new Error("QuotaExceededError")),
+      },
+      writable: true,
+      configurable: true,
+    });
+
+    await expect(
+      clearClientState({ includeModelFiles: true })
+    ).resolves.toBeUndefined();
+  });
+
+  it("leaves the next boot on the ordinary first-run path: no slot binding survives, and the preserved selection is an alias rather than a model id", async () => {
+    localStorage.setItem(
+      "eco-local-ai-slot-fast",
+      "candidate/lfm2.5-1.2b-instruct-onnx"
+    );
+    localStorage.setItem("eco-local-ai-slot-status-fast", "ready");
+    localStorage.setItem("eco-local-ai-slot-smart", "candidate/lfm2-2.6b-onnx");
+    localStorage.setItem("eco-model-slot-fast", "candidate/lfm2-2.6b-onnx");
+    localStorage.setItem("eco-slot-fast", "candidate/lfm2-2.6b-onnx");
+    localStorage.setItem("eco-local-ai-evidence-v1", "{}");
+    // Preserved device preference: a slot ALIAS, never a model id.
+    localStorage.setItem("eco-selected-model", "auto");
+
+    Object.defineProperty(globalThis, "caches", {
+      value: {
+        keys: vi
+          .fn()
+          .mockResolvedValue(["eco-local-ai-candidate_lfm2-2.6b-onnx"]),
+        delete: vi.fn().mockResolvedValue(true),
+      },
+      writable: true,
+      configurable: true,
+    });
+
+    await clearClientState({ includeModelFiles: true });
+
+    for (const key of [
+      "eco-local-ai-slot-fast",
+      "eco-local-ai-slot-status-fast",
+      "eco-local-ai-slot-smart",
+      "eco-model-slot-fast",
+      "eco-slot-fast",
+      "eco-local-ai-evidence-v1",
+    ]) {
+      expect(localStorage.getItem(key)).toBeNull();
+    }
+    // Nothing binds a slot to weights that no longer exist, so boot cannot wedge
+    // on a "ready" model with no bytes.
+    expect(localStorage.getItem("eco-selected-model")).toBe("auto");
+  });
+
   it("TRUST-03: handleDeleteAccount calls DELETE /v1/auth/account before clearClientState", () => {
     // Verify by reading AccountTab source to confirm wiring
     const accountTabPath = path.resolve(
@@ -279,7 +420,7 @@ describe("clearClientState", () => {
 
     // Verify clearClientState is called after the fetch (server call comes first)
     const fetchIndex = source.indexOf("/v1/auth/account");
-    const clearIndex = source.indexOf("clearClientState()");
+    const clearIndex = source.indexOf("clearClientState({");
     expect(fetchIndex).toBeGreaterThan(-1);
     expect(clearIndex).toBeGreaterThan(-1);
     expect(fetchIndex).toBeLessThan(clearIndex);
