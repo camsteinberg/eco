@@ -75,6 +75,7 @@ const LAUNCH_PUBLIC_PATH_PREFIXES = [
   "/terms",
   "/impact",
   "/transparency",
+  "/licenses",
 ] as const;
 
 const GUEST_ALLOWED_SETTINGS_TABS = new Set<GuestAllowedSettingsTabId>([

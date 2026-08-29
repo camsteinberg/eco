@@ -71,6 +71,50 @@ export type ModelArtifact = {
   files: readonly string[];
 };
 
+/**
+ * The license the model WEIGHTS are published under.
+ *
+ * This is separate from Eco's own license: the app code is AGPL-3.0-or-later,
+ * the weights are third-party works with their own terms. Eco redistributes
+ * those weights (through the `/api/local-models` proxy and the R2 mirror), so
+ * we are a redistributor and must pass the license text on with them — Apache
+ * 2.0 §4(a) and the LFM Open License v1.0 §4(a) both require it.
+ *
+ * `upstreamRepo` is deliberately the ORIGINAL author's repo, not the repack we
+ * happen to download from: attribution belongs to whoever trained the model.
+ */
+export type ModelLicense = {
+  /** SPDX id, or null when the license is not an SPDX-listed open-source one. */
+  spdx: string | null;
+  /** Human-readable license name, as the publisher writes it. */
+  name: string;
+  /** Canonical URL for the full license text. */
+  url: string;
+  /** The original model author's Hugging Face repo (`org/name`). */
+  upstreamRepo: string;
+  /**
+   * Whether we have verified the license against the publisher's own
+   * statement. `false` means the publisher declares it but the declaration is
+   * self-inconsistent or unverified — the UI says so rather than implying we
+   * checked.
+   */
+  confirmed: boolean;
+  /** Plain-language limitation on commercial use, when the license has one. */
+  commercialUseNote?: string;
+  /**
+   * File name under `local-ai/catalog/licenses/` holding the verbatim license
+   * text that ships with this build. The mirror script uploads it alongside
+   * the weights so CDN recipients get a copy too.
+   */
+  textFile: string;
+  /**
+   * Path to a license file that already exists inside the download repo at the
+   * pinned revision, or null when that repo ships none. When non-null the file
+   * is part of `artifact.files`, so every download carries the license.
+   */
+  artifactLicenseFile: string | null;
+};
+
 export type ModelConfig = {
   id: string;
   friendlyName: string;
@@ -95,6 +139,12 @@ export type ModelConfig = {
    */
   systemRoleSupport?: SystemRoleSupport;
   artifact?: ModelArtifact;
+  /**
+   * License of the model weights. Required for every shipping catalog entry
+   * (catalog.test.ts pins that); optional on the type so non-catalog fixtures
+   * and eval-lane candidates don't have to carry it.
+   */
+  license?: ModelLicense;
 };
 
 // ─── Below-floor ───────────────────────────────────────────────────────────

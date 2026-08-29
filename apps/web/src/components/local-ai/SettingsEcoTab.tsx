@@ -4,6 +4,7 @@
 'use client';
 
 import { Button } from '@eco/ui';
+import Link from 'next/link';
 import type { ModelConfig, Slot } from '../../local-ai/types';
 import type { SlotStatus } from '../../local-ai/lifecycle/slots';
 import { getDisplayInfo } from '../../local-ai/display';
@@ -62,9 +63,10 @@ export function SettingsEcoTab({
   onClearCache,
   onSwitchOffEco,
 }: SettingsEcoTabProps) {
-  // The mono provenance line ("ONNX Community · 1.1 GB") is a technical
-  // detail — keep it out of the calm default view, surfacing only when the
-  // user has opted into technical details (Settings → Appearance, C-08).
+  // The mono provenance line ("Liquid AI · 0.8 GB") is a technical detail —
+  // keep it out of the calm default view, surfacing only when the user has
+  // opted into technical details (Settings → Appearance, C-08). The name in it
+  // is the model's AUTHOR, not the repack org we happen to download from.
   const showTechnicalDetails = useSettingsStore((s) => s.showTechnicalDetails);
   const groundingEnabled = useSettingsStore((s) => s.groundingEnabled);
   const setGroundingEnabled = useSettingsStore((s) => s.setGroundingEnabled);
@@ -110,6 +112,7 @@ export function SettingsEcoTab({
           showProvenance={showTechnicalDetails}
           status={currentModelStatus}
         />
+        <ModelLicensesLink />
       </SettingsSection>
 
       <CustomInstructionsSection />
@@ -203,6 +206,22 @@ export function SettingsEcoTab({
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * The models are third-party works under their own licenses, and two of the
+ * ones Eco can download are not open-source licensed. A person who wants to
+ * know that should be able to find it from the place the model is named.
+ */
+function ModelLicensesLink() {
+  return (
+    <Link
+      href="/licenses"
+      className="mt-3 inline-block text-sm text-[var(--eco-text-secondary)] underline hover:text-[var(--eco-text)]"
+    >
+      Model licenses ›
+    </Link>
   );
 }
 
