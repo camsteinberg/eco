@@ -312,6 +312,69 @@ describe('local-ai catalog (Phase C)', () => {
     }
   });
 
+  // Eco redistributes the model weights (the /api/local-models proxy streams
+  // them, and scripts/mirror-models-to-r2.mjs mirrors them to our own CDN), so
+  // we are a REDISTRIBUTOR: Apache-2.0 §4(a) and LFM Open License v1.0 §4(a)
+  // both require the licence to travel with the work. That obligation is only
+  // discharged if the catalog actually knows each model's licence — this block
+  // makes a licence-less catalog entry a build failure rather than a quiet gap.
+  const LFM_LICENSED_IDS = [
+    'candidate/lfm2.5-1.2b-instruct-onnx',
+    'candidate/lfm2.5-1.2b-instruct-q4-onnx',
+    'candidate/lfm2.5-350m-onnx',
+    'candidate/lfm2-2.6b-onnx',
+  ] as const;
+
+  it.each(V1_CATALOG_IDS)('declares a complete weights licence for %s', (id) => {
+    const license = getModel(id)!.license;
+    expect(license, `${id}.license`).toBeDefined();
+    expect(license.name, `${id}.license.name`).toMatch(/\S/);
+    expect(license.url, `${id}.license.url`).toMatch(/^https:\/\/\S+$/);
+    // The ORIGINAL author's repo, not the repack we happen to download from.
+    expect(license.upstreamRepo, `${id}.license.upstreamRepo`).toMatch(/^[\w.-]+\/[\w.-]+$/);
+    expect(typeof license.confirmed, `${id}.license.confirmed`).toBe('boolean');
+    expect(license.textFile, `${id}.license.textFile`).toMatch(/^[\w.-]+\.txt$/);
+    // Non-null only where the download repo really carries the file; verified
+    // over HTTP at the pinned revision, never assumed.
+    if (license.artifactLicenseFile !== null) {
+      expect(license.artifactLicenseFile, `${id}.license.artifactLicenseFile`).toMatch(
+        /^[\w./-]+$/,
+      );
+    }
+  });
+
+  // The LFM models are NOT open-source licensed: commercial use is conditioned
+  // on the licensee's annual revenue staying under US$10M. If that note ever
+  // goes missing the /licenses page silently stops warning about it, so pin it.
+  it.each(LFM_LICENSED_IDS)('carries the commercial-use limitation for %s', (id) => {
+    const license = getModel(id)!.license;
+    expect(license.spdx, `${id}.license.spdx`).toBeNull();
+    expect(license.name, `${id}.license.name`).toBe('LFM Open License v1.0');
+    expect(license.commercialUseNote, `${id}.license.commercialUseNote`).toMatch(/\S/);
+    expect(license.commercialUseNote, `${id}.license.commercialUseNote`).toContain('$10 million');
+  });
+
+  it('claims an SPDX id only for the models that really carry one', () => {
+    const lfmIds = new Set<string>(LFM_LICENSED_IDS);
+    for (const model of getCatalog()) {
+      if (lfmIds.has(model.id)) continue;
+      expect(model.license.spdx, `${model.id}.license.spdx`).toBe('Apache-2.0');
+      expect(model.license.commercialUseNote, `${model.id}.license.commercialUseNote`)
+        .toBeUndefined();
+    }
+  });
+
+  // Gemma 4's publisher declares apache-2.0 in the model-card metadata but also
+  // points `license_link` at Google's own Gemma licence page — a contradiction
+  // we have NOT resolved. `confirmed: false` is what makes the UI say "declared
+  // by the publisher, not yet confirmed" instead of implying we checked.
+  it('marks only the unverified licence declarations as unconfirmed', () => {
+    const unconfirmed = getCatalog()
+      .filter((m) => !m.license.confirmed)
+      .map((m) => m.id);
+    expect(unconfirmed).toEqual(['candidate/gemma-4-e2b-litert']);
+  });
+
   it('exposes capabilities via the dedicated capabilities surface', () => {
     const model = getModel('local/qwen3-0.6b')!;
     const caps = getCapabilities(model);

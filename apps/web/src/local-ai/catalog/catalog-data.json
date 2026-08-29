@@ -3,7 +3,8 @@
     "source": "docs/design/2026-05-16/vision-and-architecture.md §2.4",
     "scope": "The shipping user-facing catalog (every entry in `models`). Additional/experimental models are gated out of the shipped user bundle.",
     "field_definitions": "apps/web/src/local-ai/types.ts (ModelConfig type)",
-    "last_updated": "2026-08-26",
+    "last_updated": "2026-08-29",
+    "license_note": "Every entry carries a `license` block describing the licence of the model WEIGHTS (separate from Eco's own AGPL-3.0 code licence). Eco redistributes those weights, so Apache-2.0 §4(a) and LFM Open License v1.0 §4(a) require recipients to get the licence text: `license.textFile` names the verbatim copy under catalog/licenses/ that ships in the bundle, is rendered at /licenses, and is uploaded next to the weights by scripts/mirror-models-to-r2.mjs. `license.artifactLicenseFile` is non-null only where the download repo itself carries a LICENSE at the pinned revision (verified over HTTP); those paths are also in artifact.files so the download itself includes it. `upstreamRepo` is the ORIGINAL author's repo, never the repack we download from. `confirmed: false` means the publisher declares the licence but the declaration is self-inconsistent or unverified.",
     "phase": "bonsai-retirement",
     "artifact_note": "Each model's `artifact` is the canonical download contract. `hfId` + `revision` + `files` feed the server-side proxy allowlist via apps/web/src/lib/local-model-registry.ts (getProxyAllowedLocalModelRegistryArtifacts), and every file MUST have a matching entry in artifact-metadata.json (the proxy's size/SHA-256 verification source — catalog.test.ts pins this invariant). Bootstrap reads this to build the DownloadPlan; mismatches surface as 403 from the proxy."
   },
@@ -24,6 +25,15 @@
       "knownLimitation": "Conservative default for fast private answers; larger or constraint-heavy tasks need a stronger model.",
       "evidenceTier": "proven",
       "systemRoleSupport": "native",
+      "license": {
+        "spdx": "Apache-2.0",
+        "name": "Apache License 2.0",
+        "url": "https://www.apache.org/licenses/LICENSE-2.0",
+        "upstreamRepo": "Qwen/Qwen3-0.6B",
+        "confirmed": true,
+        "textFile": "apache-2.0.txt",
+        "artifactLicenseFile": null
+      },
       "artifact": {
         "hfId": "econetworkai/Qwen3-0.6B-ONNX-external-data",
         "revision": "e059eaaf660ff62dbc8adcd1057488aa3ad0f5f9",
@@ -58,6 +68,16 @@
       "knownLimitation": "Validated on high-memory Chromium WebGPU; broader device classes (Safari/Firefox/mobile/low-memory) not yet proven. Shallower answers than the everyday pick, and open-world factual answers can be wrong without grounding.",
       "evidenceTier": "proven",
       "systemRoleSupport": "native",
+      "license": {
+        "spdx": null,
+        "name": "LFM Open License v1.0",
+        "url": "https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct/blob/main/LICENSE",
+        "upstreamRepo": "LiquidAI/LFM2.5-1.2B-Instruct",
+        "confirmed": true,
+        "commercialUseNote": "Not an open-source licence. Free for personal, research, and non-profit use; commercial use is allowed only while your organisation's annual revenue stays below US$10 million.",
+        "textFile": "lfm-open-license-v1.0.txt",
+        "artifactLicenseFile": "LICENSE"
+      },
       "artifact": {
         "hfId": "LiquidAI/LFM2.5-1.2B-Instruct-ONNX",
         "revision": "10f72e70abf67ac0fd7ebf15bc5854726891d864",
@@ -88,6 +108,16 @@
       "knownLimitation": "A slightly larger download than the standard build of the same model, and open-world factual answers can be wrong without grounding.",
       "evidenceTier": "predicted",
       "systemRoleSupport": "native",
+      "license": {
+        "spdx": null,
+        "name": "LFM Open License v1.0",
+        "url": "https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct/blob/main/LICENSE",
+        "upstreamRepo": "LiquidAI/LFM2.5-1.2B-Instruct",
+        "confirmed": true,
+        "commercialUseNote": "Not an open-source licence. Free for personal, research, and non-profit use; commercial use is allowed only while your organisation's annual revenue stays below US$10 million.",
+        "textFile": "lfm-open-license-v1.0.txt",
+        "artifactLicenseFile": "LICENSE"
+      },
       "artifact": {
         "hfId": "LiquidAI/LFM2.5-1.2B-Instruct-ONNX",
         "revision": "10f72e70abf67ac0fd7ebf15bc5854726891d864",
@@ -118,6 +148,16 @@
       "knownLimitation": "Smaller model with narrower quality envelope; not a universal Smart-slot pick.",
       "evidenceTier": "predicted",
       "systemRoleSupport": "native",
+      "license": {
+        "spdx": null,
+        "name": "LFM Open License v1.0",
+        "url": "https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct/blob/main/LICENSE",
+        "upstreamRepo": "LiquidAI/LFM2.5-350M",
+        "confirmed": true,
+        "commercialUseNote": "Not an open-source licence. Free for personal, research, and non-profit use; commercial use is allowed only while your organisation's annual revenue stays below US$10 million.",
+        "textFile": "lfm-open-license-v1.0.txt",
+        "artifactLicenseFile": null
+      },
       "artifact": {
         "hfId": "onnx-community/LFM2.5-350M-ONNX",
         "revision": "2c07371c2e84776cad597f3d813b7d306d292aea",
@@ -148,6 +188,15 @@
       "knownLimitation": "Validated on high-memory Chromium WebGPU; slower first token than the lighter Eco Fast model, and other browsers and low-memory devices are not yet proven.",
       "evidenceTier": "proven",
       "systemRoleSupport": "native",
+      "license": {
+        "spdx": "Apache-2.0",
+        "name": "Apache License 2.0",
+        "url": "https://www.apache.org/licenses/LICENSE-2.0",
+        "upstreamRepo": "Qwen/Qwen3.5-2B",
+        "confirmed": true,
+        "textFile": "apache-2.0.txt",
+        "artifactLicenseFile": null
+      },
       "artifact": {
         "hfId": "onnx-community/Qwen3.5-2B-ONNX-OPT",
         "revision": "2ea7886f48b926aca97de8b0e041ffca7e3ebaa9",
@@ -180,6 +229,15 @@
       "knownLimitation": "A larger download than the lighter models, so the first setup takes a little longer.",
       "evidenceTier": "predicted",
       "systemRoleSupport": "native",
+      "license": {
+        "spdx": "Apache-2.0",
+        "name": "Apache License 2.0",
+        "url": "https://www.apache.org/licenses/LICENSE-2.0",
+        "upstreamRepo": "google/gemma-4-E2B-it",
+        "confirmed": false,
+        "textFile": "apache-2.0.txt",
+        "artifactLicenseFile": null
+      },
       "artifact": {
         "hfId": "litert-community/gemma-4-E2B-it-litert-lm",
         "revision": "361a4010ad6d88fc5c86e148e333c0342b99763d",
@@ -202,6 +260,15 @@
       "knownLimitation": "Validated on recent iPhone hardware. A small model with a narrower quality envelope: answers are briefer than the everyday pick, and open-world facts can be wrong without grounding.",
       "evidenceTier": "predicted",
       "systemRoleSupport": "native",
+      "license": {
+        "spdx": "Apache-2.0",
+        "name": "Apache License 2.0",
+        "url": "https://www.apache.org/licenses/LICENSE-2.0",
+        "upstreamRepo": "Qwen/Qwen2.5-0.5B-Instruct",
+        "confirmed": true,
+        "textFile": "apache-2.0.txt",
+        "artifactLicenseFile": null
+      },
       "artifact": {
         "hfId": "mlc-ai/Qwen2.5-0.5B-Instruct-q4f16_1-MLC",
         "revision": "32ff081fe7e4dfe4ffb167b94c66fdf11e02b8ad",
@@ -245,6 +312,15 @@
       "knownLimitation": "Runs on the CPU so replies are slow (tens of seconds), and open-world factual answers can be wrong without grounding.",
       "evidenceTier": "predicted",
       "systemRoleSupport": "native",
+      "license": {
+        "spdx": "Apache-2.0",
+        "name": "Apache License 2.0",
+        "url": "https://www.apache.org/licenses/LICENSE-2.0",
+        "upstreamRepo": "ibm-granite/granite-4.0-350m",
+        "confirmed": true,
+        "textFile": "apache-2.0.txt",
+        "artifactLicenseFile": null
+      },
       "artifact": {
         "hfId": "onnx-community/granite-4.0-350m-ONNX-web",
         "revision": "25ed491901f51273649619f51e89f1b77f720bc0",
@@ -284,6 +360,15 @@
       "knownLimitation": "Very small, so world knowledge is thin and open-ended answers can be shallow; CPU-only generation is slow.",
       "evidenceTier": "predicted",
       "systemRoleSupport": "native",
+      "license": {
+        "spdx": "Apache-2.0",
+        "name": "Apache License 2.0",
+        "url": "https://www.apache.org/licenses/LICENSE-2.0",
+        "upstreamRepo": "HuggingFaceTB/SmolLM2-360M-Instruct",
+        "confirmed": true,
+        "textFile": "apache-2.0.txt",
+        "artifactLicenseFile": null
+      },
       "artifact": {
         "hfId": "onnx-community/SmolLM2-360M-Instruct-ONNX",
         "revision": "fe7c7db4c8921c9e3fa1c65cfd296fb3b1b1a8f9",
@@ -315,6 +400,16 @@
       "knownLimitation": "Validated on high-memory Chromium WebGPU; a larger, slower download than the lighter Eco Fast model, and other browsers, low-memory devices, and a second machine are not yet proven.",
       "evidenceTier": "predicted",
       "systemRoleSupport": "native",
+      "license": {
+        "spdx": null,
+        "name": "LFM Open License v1.0",
+        "url": "https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct/blob/main/LICENSE",
+        "upstreamRepo": "LiquidAI/LFM2-2.6B",
+        "confirmed": true,
+        "commercialUseNote": "Not an open-source licence. Free for personal, research, and non-profit use; commercial use is allowed only while your organisation's annual revenue stays below US$10 million.",
+        "textFile": "lfm-open-license-v1.0.txt",
+        "artifactLicenseFile": null
+      },
       "artifact": {
         "hfId": "onnx-community/LFM2-2.6B-ONNX",
         "revision": "9655cd41239618886d6ebf9b4ff20b892b295f78",

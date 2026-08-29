@@ -31,14 +31,23 @@
  * not in the user bundle. See `docs/design/2026-05-16/vision-and-architecture.md` §2.4.
  */
 
-import type { ModelConfig } from '../types';
+import type { ModelConfig, ModelLicense } from '../types';
 import catalogData from './catalog-data.json';
 
-const MODELS: readonly ModelConfig[] = Object.freeze(
-  (catalogData.models as ModelConfig[]).map((model) => Object.freeze(model)),
+/**
+ * A shipping catalog entry. Narrower than `ModelConfig`: `license` is optional
+ * on the shared type (test fixtures and eval-lane candidates don't carry one),
+ * but every entry in catalog-data.json MUST have one — we redistribute the
+ * weights, so the licence travels with them. catalog.test.ts pins the
+ * invariant at runtime; this type gives catalog consumers it at compile time.
+ */
+export type CatalogModel = ModelConfig & { license: ModelLicense };
+
+const MODELS: readonly CatalogModel[] = Object.freeze(
+  (catalogData.models as CatalogModel[]).map((model) => Object.freeze(model)),
 );
 
-const MODELS_BY_ID: ReadonlyMap<string, ModelConfig> = new Map(
+const MODELS_BY_ID: ReadonlyMap<string, CatalogModel> = new Map(
   MODELS.map((model) => [model.id, model]),
 );
 
@@ -46,7 +55,7 @@ const MODELS_BY_ID: ReadonlyMap<string, ModelConfig> = new Map(
  * Return the full shipping catalog. Order matches catalog-data.json,
  * which is the canonical source of truth.
  */
-export function getCatalog(): ModelConfig[] {
+export function getCatalog(): CatalogModel[] {
   return [...MODELS];
 }
 
@@ -58,6 +67,6 @@ export function getCatalog(): ModelConfig[] {
  * candidates are not reachable through this function — they live in
  * `apps/web/src/local-ai/eval/eval-candidates.ts`.
  */
-export function getModel(id: string): ModelConfig | null {
+export function getModel(id: string): CatalogModel | null {
   return MODELS_BY_ID.get(id) ?? null;
 }
