@@ -7,6 +7,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import '@testing-library/jest-dom'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { SettingsTabs } from '../settings/SettingsTabs'
+import { GuestDataExportSection } from '../settings/GuestDataExportSection'
 
 const mockReplace = vi.fn()
 let mockSearchParams = new URLSearchParams()
@@ -46,8 +47,20 @@ vi.mock('../settings/BillingTab', () => ({
   BillingTab: () => <div data-testid="billing-tab">Billing content</div>,
 }))
 
+// The real ModelsTab pulls in the whole local-ai adapter, which this file is
+// not about. It is stubbed down to the one thing that matters here: the Eco tab
+// is where a guest's data export lives, so the stub renders the REAL section.
 vi.mock('../settings/ModelsTab', () => ({
-  ModelsTab: () => <div data-testid="models-tab">Models content</div>,
+  ModelsTab: () => (
+    <div data-testid="models-tab">
+      Models content
+      <GuestDataExportSection />
+    </div>
+  ),
+}))
+
+vi.mock('../settings/DataExportButton', () => ({
+  DataExportButton: () => <button type="button">Export my data</button>,
 }))
 
 vi.mock('../settings/AppearanceTab', () => ({
@@ -288,6 +301,24 @@ describe('SettingsTabs', () => {
     expect(screen.getByRole('tab', { name: 'Eco' })).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByTestId('models-tab')).toBeInTheDocument()
     expect(screen.queryByTestId('locked-settings-preview')).not.toBeInTheDocument()
+  })
+
+  it('lets a guest reach the data export from the Eco tab', () => {
+    mockSession = null
+    mockSearchParams = new URLSearchParams('tab=models')
+
+    render(<SettingsTabs />)
+
+    expect(screen.getByRole('heading', { name: 'Your data' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /export my data/i })).toBeInTheDocument()
+  })
+
+  it('does not show a member a second export button on the Eco tab', () => {
+    mockSearchParams = new URLSearchParams('tab=models')
+
+    render(<SettingsTabs />)
+
+    expect(screen.queryByRole('button', { name: /export my data/i })).not.toBeInTheDocument()
   })
 
   it('lets guests open safe tabs without showing the upgrade preview', async () => {

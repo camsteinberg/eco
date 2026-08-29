@@ -25,10 +25,10 @@ type LockedCopy = {
 const LOCKED_COPY: Record<GuestLockedSettingsTabId, LockedCopy> = {
   account: {
     title: "Your account",
-    body: "Sign in to manage your profile, data exports, and account deletion.",
+    body: "Sign in to manage your profile and account deletion.",
     dialogTitle: "Sign in to use your account",
     dialogDescription:
-      "Profile, exports, and account controls live here once this workspace belongs to you.",
+      "Profile and account controls live here once this workspace belongs to you.",
   },
   billing: {
     title: "Plan & billing",
