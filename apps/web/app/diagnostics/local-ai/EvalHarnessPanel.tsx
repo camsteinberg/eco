@@ -176,6 +176,8 @@ export function EvalHarnessPanel() {
       identityArm?: EvalRunConfig['identityArm'];
       /** Autorun-only: everyday-use A/B cell (stamped on the run's fingerprint). */
       everydayArm?: EvalRunConfig['everydayArm'];
+      /** Autorun-only: model-native tool-dispatch arm (tool schemas in the system prompt). */
+      dispatchArm?: EvalRunConfig['dispatchArm'];
       /** Autorun-only: session-scoped probes appended to the pool (e.g. the tangent set). */
       extraPrompts?: EvalRunConfig['extraPrompts'];
     }) => {
@@ -233,6 +235,7 @@ export function EvalHarnessPanel() {
           ...(override?.messageTopology ? { messageTopology: override.messageTopology } : {}),
           ...(override?.identityArm ? { identityArm: override.identityArm } : {}),
           ...(override?.everydayArm ? { everydayArm: override.everydayArm } : {}),
+          ...(override?.dispatchArm ? { dispatchArm: override.dispatchArm } : {}),
           ...(override?.perGenerationTimeoutMs !== undefined
             ? { perGenerationTimeoutMs: override.perGenerationTimeoutMs }
             : {}),
@@ -354,6 +357,12 @@ export function EvalHarnessPanel() {
     // `eco-eval-arm`. Absent = no arm, i.e. exactly what ships.
     const rawEverydayArm = searchParams.get('eco-eval-everyday-arm');
 
+    // `eco-eval-dispatch=schemas`: append the six tools' JSON schemas to the
+    // system prompt (local-ai/eval/dispatch-arm.ts) so the model can dispatch
+    // itself. Absent/anything else = the shipped prompt, i.e. the control arm.
+    const autoDispatchArm: EvalRunConfig['dispatchArm'] =
+      searchParams.get('eco-eval-dispatch') === 'schemas' ? 'schemas' : undefined;
+
     // `eco-eval-tangent=1`: append the eco-tangent experiment set and, unless an
     // explicit prompt/category subset is given, run ONLY that set (the A/B pass).
     const includeTangent = searchParams.get('eco-eval-tangent') === '1';
@@ -440,6 +449,7 @@ export function EvalHarnessPanel() {
           { CONVERSATION_INTEGRITY_PROBES },
           { CONTEXT_STRESS_PROBES },
           { KNOWN_ANSWER_PROBES },
+          { DISPATCH_PROBES },
         ] = await Promise.all([
           import('../../../src/local-ai/eval/prompts'),
           import('../../../src/local-ai/eval/shape-probes'),
@@ -450,6 +460,7 @@ export function EvalHarnessPanel() {
           import('../../../src/local-ai/eval/conversation-integrity-probe'),
           import('../../../src/local-ai/eval/context-stress-probes'),
           import('../../../src/local-ai/eval/known-answer-probes'),
+          import('../../../src/local-ai/eval/dispatch-probes'),
         ]);
         return [
           ...EVAL_PROMPTS,
@@ -467,6 +478,9 @@ export function EvalHarnessPanel() {
           // The known-answer set (right-answer accuracy) rides the same way so
           // `eco-eval-categories=known-answer` and its `ka-*` ids resolve.
           ...KNOWN_ANSWER_PROBES,
+          // The dispatch set (tool-selection measurement) rides the same way so
+          // `eco-eval-categories=dispatch` and its `dispatch/*` ids resolve.
+          ...DISPATCH_PROBES,
           // Mirror the harness's selectPrompts pool: the diagnostic context-
           // stress headroom probes are reachable only under the research-arms
           // gate, so `eco-eval-prompts=ctx-stress-…` (with eco-eval-arms=1)
@@ -539,12 +553,14 @@ export function EvalHarnessPanel() {
           { CAPABILITY_PROBE_PROBES },
           { CONVERSATION_INTEGRITY_PROBES },
           { KNOWN_ANSWER_PROBES },
+          { DISPATCH_PROBES },
         ] = await Promise.all([
           import('../../../src/local-ai/eval/everyday-probes'),
           import('../../../src/local-ai/eval/everyday-conversation-probes'),
           import('../../../src/local-ai/eval/capability-probe'),
           import('../../../src/local-ai/eval/conversation-integrity-probe'),
           import('../../../src/local-ai/eval/known-answer-probes'),
+          import('../../../src/local-ai/eval/dispatch-probes'),
         ]);
         const wanted = new Set(promptIds);
         derivedExtraProbes = [
@@ -553,6 +569,7 @@ export function EvalHarnessPanel() {
           ...CAPABILITY_PROBE_PROBES,
           ...CONVERSATION_INTEGRITY_PROBES,
           ...KNOWN_ANSWER_PROBES,
+          ...DISPATCH_PROBES,
         ].filter((p) => wanted.has(p.id));
       }
       const extraPrompts = [...tangentProbes, ...derivedExtraProbes];
@@ -569,6 +586,7 @@ export function EvalHarnessPanel() {
         ...(autoTimeoutMs !== undefined ? { perGenerationTimeoutMs: autoTimeoutMs } : {}),
         ...(autoIdentityArm ? { identityArm: autoIdentityArm } : {}),
         ...(everydayArm ? { everydayArm } : {}),
+        ...(autoDispatchArm ? { dispatchArm: autoDispatchArm } : {}),
         ...(extraPrompts.length > 0 ? { extraPrompts } : {}),
       });
     })();
