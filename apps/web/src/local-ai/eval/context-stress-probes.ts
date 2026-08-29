@@ -179,3 +179,65 @@ export const CONTEXT_STRESS_PROBES: readonly EvalPromptSpec[] = [
     windowLabel: '~4k',
   }),
 ];
+
+/**
+ * BOUNDARY PROBES — added 2026-08-29 to test a DERIVED prediction rather than
+ * bisect for another empirical number.
+ *
+ * WHAT THESE MEASURE. A model's usable context window is not a property of the
+ * model file — every LFM2 config declares `max_position_embeddings: 128000`,
+ * which no browser can prefill. It is a property of the DEVICE. These probes
+ * find where a given device stops being able to answer, so a catalog window can
+ * be derived instead of guessed.
+ *
+ * THE KV CACHE IS NOT THE CONSTRAINT. LFM2 is hybrid: only 6 of 16 layers (350M,
+ * 1.2B) and 8 of 30 (2.6B) hold a growing cache. That is 12 KB/token (350M, 1.2B)
+ * and 16 KB/token (2.6B) — roughly 100-134 MB at 8k tokens, against a 4 GiB
+ * buffer limit. Any reasoning about context that appeals to KV memory is wrong.
+ *
+ * WHAT DOES BIND — measured 2026-08-29 on an M1 Pro (16 GB, 4 GiB WebGPU buffer
+ * limit), production build, one session, model cached:
+ *
+ *   | model         | attn heads | ~tokens | outcome                              |
+ *   |---------------|-----------:|--------:|--------------------------------------|
+ *   | LFM2.5-1.2B   |         32 |   6,577 | PASS, 54s, planted facts returned    |
+ *   | LFM2.5-1.2B   |         32 |   7,950 | FAIL, allocation error at first run  |
+ *   | LFM2.5-350M   |         16 |  10,800 | no allocation error — but GIBBERISH  |
+ *
+ * Two conclusions, both load-bearing:
+ *
+ * 1. The failing allocation scales with `heads x n^2`, not with model size. A
+ *    0.28 GB model with ~130 MB of KV cleared 10.8k tokens in the same session
+ *    where a 32-head model died at 7.9k. A closed-form ceiling of
+ *    `sqrt(maxBufferSize / (2 * heads))` predicts 8191 for 32 heads and 11585 for
+ *    16 — the right SHAPE, but it overshoots: the real failure is against
+ *    available GPU memory, not the per-buffer cap. So head count tells you how
+ *    the ceiling MOVES between models; only a run tells you where it sits on a
+ *    given device.
+ *
+ * 2. Surviving is not working. At 10,800 tokens the 350M streams happily and
+ *    returns gibberish — neither planted fact, no coherent sentence. The memory
+ *    ceiling and the USABLE ceiling are different numbers and the usable one is
+ *    far lower. A window chosen from the allocation limit alone would ship a
+ *    model that looks healthy and answers nonsense.
+ *
+ * Prefill cost is also cleanly quadratic (23s at ~4k vs 59s at 6,577 is a ratio
+ * of 2.57 against a predicted 2.58), so a shipped `contextTokens` is in truth a
+ * time-to-first-token budget. State it as one.
+ *
+ * HOW TO USE THIS ON A NEW DEVICE OR MODEL. Run the pair that brackets the
+ * expected ceiling for that model's head count and read three things per result:
+ * did it allocate, how long to first token, and did BOTH planted facts come back
+ * verbatim. The lowest of those three limits is the window. `ctx-boundary-hi`
+ * and `ctx-boundary-wide-hi` have not been run — they exist to bracket from
+ * above on hardware we do not yet have.
+ *
+ * Turn counts are calibrated at roughly 241 tokens per turn and are approximate
+ * by construction; read `perf.promptTokens` for the length actually fed.
+ */
+export const CONTEXT_BOUNDARY_PROBES: readonly EvalPromptSpec[] = [
+  buildHeadroomProbe({ id: 'ctx-boundary-lo', historyTurns: 33, perTurnChars: 820, windowLabel: '~7.9k' }),
+  buildHeadroomProbe({ id: 'ctx-boundary-hi', historyTurns: 35, perTurnChars: 820, windowLabel: '~8.4k' }),
+  buildHeadroomProbe({ id: 'ctx-boundary-wide-lo', historyTurns: 45, perTurnChars: 820, windowLabel: '~10.8k' }),
+  buildHeadroomProbe({ id: 'ctx-boundary-wide-hi', historyTurns: 50, perTurnChars: 820, windowLabel: '~12.0k' }),
+];

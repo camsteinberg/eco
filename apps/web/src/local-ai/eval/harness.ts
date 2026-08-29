@@ -79,7 +79,7 @@ import { saveEvalRun } from './storage';
 import { EVAL_PROMPTS } from './prompts';
 import { FELT_PROBES } from './felt-probes';
 import { SHAPE_PROBES, SHAPE_RESEARCH_ARMS } from './shape-probes';
-import { CONTEXT_STRESS_PROBES } from './context-stress-probes';
+import { CONTEXT_BOUNDARY_PROBES, CONTEXT_STRESS_PROBES } from './context-stress-probes';
 import type {
   EvalEverydayArmId,
   EvalGroundingRecord,
@@ -402,7 +402,9 @@ function selectPrompts(
     ...EVAL_PROMPTS,
     ...SHAPE_PROBES,
     ...FELT_PROBES,
-    ...(includeResearchArms ? [...SHAPE_RESEARCH_ARMS, ...CONTEXT_STRESS_PROBES] : []),
+    ...(includeResearchArms
+      ? [...SHAPE_RESEARCH_ARMS, ...CONTEXT_STRESS_PROBES, ...CONTEXT_BOUNDARY_PROBES]
+      : []),
   ];
   const seen = new Set(pool.map((p) => p.id));
   for (const spec of extraPrompts ?? []) {
