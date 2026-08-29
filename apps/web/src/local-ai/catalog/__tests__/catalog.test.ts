@@ -13,6 +13,9 @@
  * Qwen3.5-2B graduated 2026-06-11 (chat #7 smart-tier bake-off winner).
  */
 
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { getCatalog, getModel } from '../catalog';
 import { getCapabilities } from '../capabilities';
@@ -33,7 +36,9 @@ const V1_CATALOG_IDS = [
   'candidate/lfm2-2.6b-onnx',
 ] as const;
 
-const TECHNICAL_ID_PATTERN = /q4f16|q4f|q4_1|webllm|onnx|fp16|q8|q4\b|q2f16|bnb4|mlc/i;
+const LICENSES_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'licenses');
+
+const TECHNICAL_ID_PATTERN =/q4f16|q4f|q4_1|webllm|onnx|fp16|q8|q4\b|q2f16|bnb4|mlc/i;
 
 describe('local-ai catalog (Phase C)', () => {
   it('ships exactly 10 models', () => {
@@ -373,6 +378,48 @@ describe('local-ai catalog (Phase C)', () => {
       .filter((m) => !m.license.confirmed)
       .map((m) => m.id);
     expect(unconfirmed).toEqual(['candidate/gemma-4-e2b-litert']);
+  });
+
+  // The obligation is discharged by SHIPPING the text, not by knowing the URL.
+  // Every entry must resolve to a real licence file: either one the download
+  // repo itself carries at the pinned revision (verified over HTTP, in
+  // artifact.files, so the download contains it), or the verbatim copy held in
+  // catalog/licenses/ that scripts/mirror-models-to-r2.mjs uploads next to the
+  // weights and /licenses renders. A dangling textFile means we redistribute
+  // weights with no licence anywhere — exactly the gap this test exists to stop.
+  it.each(V1_CATALOG_IDS)('ships the licence text that travels with %s', (id) => {
+    const model = getModel(id)!;
+    const license = model.license;
+
+    const textPath = join(LICENSES_DIR, license.textFile);
+    expect(existsSync(textPath), `${id} license.textFile missing at ${textPath}`).toBe(true);
+    const text = readFileSync(textPath, 'utf8');
+    expect(text.length, `${id} ${license.textFile} is empty`).toBeGreaterThan(1000);
+    // Provenance header: where the verbatim text came from and when.
+    expect(text.split('\n')[0], `${id} ${license.textFile} header`).toMatch(
+      /^Verbatim copy of the licence text fetched from https:\/\/\S+ on \d{4}-\d{2}-\d{2}\.$/,
+    );
+
+    if (license.artifactLicenseFile !== null) {
+      // Claimed present in the download repo → it must really be downloaded,
+      // with reviewed metadata, or the proxy 403s it.
+      expect(model.artifact!.files, `${id}.artifact.files`).toContain(license.artifactLicenseFile);
+      const allMetadata = artifactMetadata as unknown as Record<
+        string,
+        Record<string, { sizeBytes: number; oid: string }> | undefined
+      >;
+      const entry = allMetadata[id]![license.artifactLicenseFile];
+      expect(entry, `${id} artifact-metadata.json missing ${license.artifactLicenseFile}`)
+        .toBeDefined();
+      expect(entry!.sizeBytes).toBeGreaterThan(0);
+    }
+  });
+
+  it('names licence texts that are all actually used (no orphan files)', () => {
+    const referenced = new Set(getCatalog().map((m) => m.license.textFile));
+    const onDisk = readdirSync(LICENSES_DIR).filter((f) => f.endsWith('.txt'));
+    expect(onDisk.length).toBeGreaterThan(0);
+    expect([...onDisk].sort()).toEqual([...referenced].sort());
   });
 
   it('exposes capabilities via the dedicated capabilities surface', () => {

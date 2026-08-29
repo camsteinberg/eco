@@ -41,7 +41,7 @@
  *     domain (e.g. models.econetwork.ai) — see the plan doc's provisioning runbook.
  */
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -50,6 +50,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(HERE, '..');
 const CATALOG_PATH = join(REPO_ROOT, 'apps/web/src/local-ai/catalog/catalog-data.json');
 const METADATA_PATH = join(REPO_ROOT, 'apps/web/src/local-ai/catalog/artifact-metadata.json');
+const LICENSE_TEXT_DIR = join(REPO_ROOT, 'apps/web/src/local-ai/catalog/licenses');
 
 const HF_BASE = 'https://huggingface.co';
 // Immutable: every object key is revision- and content-addressed (the oid IS
@@ -64,7 +65,54 @@ const ONLY = (() => {
   return i >= 0 ? args[i + 1] : null;
 })();
 
-/** @returns {{ modelId:string, hfId:string, revision:string, filePath:string, sizeBytes:number, oid:string, sourceUrl:string, key:string }[]} */
+/**
+ * Every mirrored model must carry its licence, because mirroring IS
+ * redistribution: Apache-2.0 §4(a) and LFM Open License v1.0 §4(a) both require
+ * recipients to get a copy of the licence. Most of the repos we download from
+ * are repacks that ship no licence file of their own, so for those we upload
+ * the verbatim copy held in `apps/web/src/local-ai/catalog/licenses/` to the
+ * same `{hfId}/resolve/{revision}/LICENSE` key the weights live under. Where
+ * the source repo DOES carry a LICENSE at the pinned revision it is already in
+ * `artifact.files` and mirrors from Hugging Face like any other file.
+ *
+ * @returns {{ modelId:string, hfId:string, revision:string, filePath:string, sizeBytes:number, oid:string, sourceUrl:string|null, localPath:string|null, key:string }[]}
+ */
+function buildLicensePlan(models) {
+  const plan = [];
+  for (const model of models) {
+    if (ONLY && model.id !== ONLY) continue;
+    const artifact = model?.artifact;
+    const license = model?.license;
+    if (!artifact?.hfId || !artifact?.revision || !license?.textFile) continue;
+    // Already covered by the weights plan — the source repo ships it itself.
+    if (license.artifactLicenseFile) continue;
+
+    const localPath = join(LICENSE_TEXT_DIR, license.textFile);
+    let sizeBytes;
+    try {
+      sizeBytes = statSync(localPath).size;
+    } catch {
+      console.error(`ERROR: ${model.id} declares license.textFile "${license.textFile}" but ${localPath} is missing.`);
+      process.exit(1);
+    }
+
+    plan.push({
+      modelId: model.id,
+      hfId: artifact.hfId,
+      revision: artifact.revision,
+      filePath: 'LICENSE',
+      sizeBytes,
+      // Repo-held text: content-hash it so --execute can still self-verify.
+      oid: createHash('sha256').update(readFileSync(localPath)).digest('hex'),
+      sourceUrl: null,
+      localPath,
+      key: `${artifact.hfId}/resolve/${artifact.revision}/LICENSE`,
+    });
+  }
+  return plan;
+}
+
+/** @returns {{ modelId:string, hfId:string, revision:string, filePath:string, sizeBytes:number, oid:string, sourceUrl:string|null, localPath:string|null, key:string }[]} */
 function buildMirrorPlan() {
   const catalog = JSON.parse(readFileSync(CATALOG_PATH, 'utf8'));
   const metadata = JSON.parse(readFileSync(METADATA_PATH, 'utf8'));
@@ -90,12 +138,13 @@ function buildMirrorPlan() {
         sizeBytes: meta.sizeBytes,
         oid: meta.oid,
         sourceUrl: `${HF_BASE}/${encodedModel}/resolve/${encodedRev}/${encodedFile}`,
+        localPath: null,
         // Mirror the proxy's exact path layout so the CDN base swaps in cleanly.
         key: `${artifact.hfId}/resolve/${artifact.revision}/${filePath}`,
       });
     }
   }
-  return plan;
+  return [...plan, ...buildLicensePlan(models)];
 }
 
 function fmtGiB(bytes) {
@@ -124,6 +173,21 @@ function printDryRun(plan) {
   }
   console.log(`\n  ${'TOTAL'.padEnd(42)} ${String(totalFiles).padStart(3)} files  ${fmtGiB(totalBytes).padStart(10)}`);
   console.log(`  ${byModel.size} models → keys like: ${plan[0]?.key ?? '(none)'}`);
+
+  // Licence coverage is a redistribution obligation, so make it visible in the
+  // plan rather than something you have to grep the object list for.
+  console.log('\nLICENSE objects (one per model — mirroring is redistribution):');
+  const licenceObjects = plan.filter((f) => f.filePath === 'LICENSE');
+  for (const f of licenceObjects) {
+    const origin = f.localPath ? 'repo-held copy' : 'source repo';
+    console.log(`  ${f.modelId.padEnd(42)} ${String(f.sizeBytes).padStart(7)} B  (${origin})  → ${f.key}`);
+  }
+  const withoutLicence = [...byModel.keys()].filter(
+    (id) => !licenceObjects.some((f) => f.modelId === id),
+  );
+  if (withoutLicence.length > 0) {
+    console.log(`\n  WARNING: no LICENSE object for: ${withoutLicence.join(', ')}`);
+  }
   console.log('\nNote: this is the one-time seed size. R2 egress is free; the cost this replaces');
   console.log('is per-download Vercel egress (this total × every user who picks each model).');
 }
@@ -166,9 +230,14 @@ async function execute(plan) {
         if (Number(head.ContentLength) === f.sizeBytes) { skipped += 1; continue; }
       } catch { /* not present — upload below */ }
 
-      const res = await fetch(f.sourceUrl, { redirect: 'follow' });
-      if (!res.ok || !res.body) throw new Error(`HF ${res.status} for ${f.sourceUrl}`);
-      const buf = Buffer.from(await res.arrayBuffer());
+      let buf;
+      if (f.localPath) {
+        buf = readFileSync(f.localPath);
+      } else {
+        const res = await fetch(f.sourceUrl, { redirect: 'follow' });
+        if (!res.ok || !res.body) throw new Error(`HF ${res.status} for ${f.sourceUrl}`);
+        buf = Buffer.from(await res.arrayBuffer());
+      }
 
       const digest = createHash('sha256').update(buf).digest('hex');
       if (f.oid.length === 64 && digest !== f.oid) {
@@ -182,7 +251,11 @@ async function execute(plan) {
         Bucket: R2_MODELS_BUCKET,
         Key: f.key,
         Body: buf,
-        ContentType: f.filePath.endsWith('.json') ? 'application/json' : 'application/octet-stream',
+        ContentType: f.filePath.endsWith('.json')
+          ? 'application/json'
+          : f.filePath === 'LICENSE'
+            ? 'text/plain; charset=utf-8'
+            : 'application/octet-stream',
         CacheControl: CACHE_CONTROL,
       }));
       uploaded += 1;
