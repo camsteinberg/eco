@@ -26,6 +26,7 @@ import { resolveActiveModelId } from "../lib/active-model";
 import { stripMarkdown } from "../lib/markdown-plain-text";
 import { requestOpenShareConversation } from "../lib/share-conversation-event";
 import { useScrollToMessage } from "./useScrollToMessage";
+import { logger } from "../lib/logger";
 
 // Non-printable separators (U+0001 field, U+0002 record) avoid collisions
 // between message content and the delimiters used to build the sync signature.
@@ -185,7 +186,12 @@ export function useConversationManager(
       const msgs = await db.getAllFromIndex("messages", "by-conversation", conversationId);
       if (isStale()) return;
       setAllMessages(msgs);
-    } catch {
+    } catch (error) {
+      // Deliberately not a user-facing notice: this read only feeds branch
+      // navigation and reactions, so its loss costs a person some arrows, not
+      // their words. But it used to fail in total silence, which made a
+      // storage problem undiagnosable — so it at least says so in the console.
+      logger.warn("Failed to load messages for branch navigation:", error);
       if (isStale()) return;
       setAllMessages([]);
     }
