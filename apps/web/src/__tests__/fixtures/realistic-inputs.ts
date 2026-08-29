@@ -32,6 +32,14 @@
  * the one that matters most: a heuristic that fires on pasted content causes an
  * unrequested outbound request derived from private text.
  *
+ * THE LOCAL TOOLS TOO. `expectLookup` is about the NETWORK, but the local tools
+ * (calculator, datetime, unit, money, identity) carry their own version of the same
+ * risk: a local match returns a `canonicalAnswer` and generation is SKIPPED, so a
+ * spurious match hijacks the whole turn even though nothing left the device. The
+ * `expectLocalTool` field gives that axis a counterweight — samples that MUST
+ * produce a named local tool, so an abstention-only assertion cannot pass by the
+ * local tools simply never firing. See `localToolPositives()`.
+ *
  * ADDING TO IT. Add real input shapes, not adversarial strings. If you find yourself
  * crafting something to defeat a specific regex, that belongs in that heuristic's own
  * test file — this corpus stays a record of how people genuinely write.
@@ -54,11 +62,18 @@ export type RealisticInput = {
   readonly id: string;
   readonly domain: InputDomain;
   readonly expectLookup: LookupExpectation;
+  /**
+   * The `name` of the local tool this sample MUST produce, when the user is
+   * squarely asking for something a local tool exists to answer. Absent on every
+   * other sample, which is the abstention set. Checked against the registry's own
+   * local tool list by the sweep, so a rename or a typo fails loudly.
+   */
+  readonly expectLocalTool?: string;
   /** Verbatim text as a user would send it, newlines and all. */
   readonly text: string;
 };
 
-/** The corpus. 45 samples across 6 input shapes. */
+/** The corpus. 50 samples across 6 input shapes; 5 of them local-tool positives. */
 export const REALISTIC_INPUTS: readonly RealisticInput[] = [
   {
     id: "code-and-logs/js-async-question-no-context",
@@ -208,6 +223,14 @@ export const REALISTIC_INPUTS: readonly RealisticInput[] = [
     text: "help me figure out what to actually do today, I keep bouncing between these and finishing nothing\n\n- call the dentist back (they left a voicemail tuesday)\n- finish the Q3 deck — slides 8-14 still empty\n- renew car registration, expires end of month\n- reply to Jenna about the wedding, she asked like 10 days ago\n- gym\n- pick up the prescription\n- laundry (out of clean shirts as of tomorrow)\n- look into that weird charge on the credit card statement\n- book flights for october before they go up\n\nthe deck is the one I keep avoiding. meeting is thursday",
   },
   {
+    id: "ordinary-chat/apr-what-does-it-actually-mean",
+    domain: "ordinary-chat",
+    expectLookup: "should-not-look-up",
+    expectLocalTool: "money",
+    // I'm asking what a rate on MY card means in money — I want the arithmetic done right, not a web page about APR.
+    text: "My credit card says 24% APR. What does that actually mean for me?",
+  },
+  {
     id: "ordinary-chat/birthday-dinner-planning-with-places",
     domain: "ordinary-chat",
     expectLookup: "should-not-look-up",
@@ -215,11 +238,43 @@ export const REALISTIC_INPUTS: readonly RealisticInput[] = [
     text: "trying to plan my mom's 60th. she lives in Portland, i'm in Chicago, and my brother is in Denver so everyone has to fly somewhere no matter what. she says she doesn't want a party but she absolutely wants a party.\n\nthinking either we all go to her, or we pick somewhere in the middle. what would you do? budget is not unlimited, like maybe $1500 total for my share",
   },
   {
+    id: "ordinary-chat/deadline-date-90-days-out",
+    domain: "ordinary-chat",
+    expectLookup: "should-not-look-up",
+    expectLocalTool: "datetime",
+    // I want the actual calendar date counted off today — nothing on the web knows what day it is for me.
+    text: "what's the date 90 days from today? trying to work out a deadline",
+  },
+  {
     id: "ordinary-chat/gift-advice-short",
     domain: "ordinary-chat",
     expectLookup: "should-not-look-up",
     // It's a general advice question with no named subject to look anything up about.
     text: "what do you get someone who says they don't want anything",
+  },
+  {
+    id: "ordinary-chat/oven-temp-f-to-c",
+    domain: "ordinary-chat",
+    expectLookup: "should-not-look-up",
+    expectLocalTool: "unit-conversion",
+    // My oven is in celsius and the recipe is in fahrenheit; this is a conversion, not a research question.
+    text: "350f in celsius",
+  },
+  {
+    id: "ordinary-chat/percent-of-a-number",
+    domain: "ordinary-chat",
+    expectLookup: "should-not-look-up",
+    expectLocalTool: "calculator",
+    // Plain arithmetic I'd rather not do in my head, and obviously nothing to look up.
+    text: "what's 15% of 240",
+  },
+  {
+    id: "ordinary-chat/privacy-are-my-chats-private",
+    domain: "ordinary-chat",
+    expectLookup: "should-not-look-up",
+    expectLocalTool: "identity",
+    // I'm asking this app about itself — if answering it required a web request the answer would be its own contradiction.
+    text: "are my conversations private",
   },
   {
     id: "ordinary-chat/roommate-conflict-advice",
@@ -380,6 +435,24 @@ export const REALISTIC_INPUTS: readonly RealisticInput[] = [
 /** Samples where a lookup would surprise the user — the primary abstention bar. */
 export function shouldNotLookUp(): readonly RealisticInput[] {
   return REALISTIC_INPUTS.filter((s) => s.expectLookup === "should-not-look-up");
+}
+
+/**
+ * Samples that MUST produce the named local tool. The counterweight to local-tool
+ * abstention: without these, "no local tool fires where none was asked for" would
+ * still pass if the local tools were deleted outright.
+ */
+export function localToolPositives(): readonly RealisticInput[] {
+  return REALISTIC_INPUTS.filter((s) => s.expectLocalTool !== undefined);
+}
+
+/**
+ * Samples where NO tool at all should claim the turn — every sample the user would
+ * not expect a lookup on, minus the local-tool positives, which are exactly the
+ * turns where a local tool claiming the turn is the correct behaviour.
+ */
+export function shouldNotUseAnyTool(): readonly RealisticInput[] {
+  return shouldNotLookUp().filter((s) => s.expectLocalTool === undefined);
 }
 
 /** Samples where a lookup is genuinely wanted — guards against over-correcting. */

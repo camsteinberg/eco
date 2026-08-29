@@ -119,6 +119,15 @@ function daysBetween(from: Date, to: Date): number {
 }
 
 /**
+ * A turn at or under this length is one utterance the user typed, so the whole
+ * thing is the ask. Above it the turn carries shown content — a pasted list, a
+ * draft, a transcript — and a date phrase inside it is far more likely to be
+ * something the user is describing than something they want computed. Same value
+ * and same reasoning as the grounding tool's ask window.
+ */
+const SHORT_TURN_MAX_CHARS = 280;
+
+/**
  * Fixed-date named days resolvable to a `days until` target. Order matters:
  * "…Eve" entries must precede their bare names so "Christmas Eve" doesn't
  * resolve as "Christmas". Fixed calendar dates only — never movable feasts.
@@ -287,7 +296,17 @@ function matchDatetime(userText: string): DatetimeArgs | null {
     /\b(\d{1,5})\s+days?\s+(from\s+(?:today|now)|ago|in the future|out|later|before(?:\s+today)?)\b/.exec(
       lower
     );
-  if (offsetMatch?.[1] !== undefined && offsetMatch[2] !== undefined) {
+  // Scoped the same way the grounding tool bounds extraction: a short turn IS the
+  // ask, so the offset phrase alone is enough. In a longer turn the phrase is
+  // usually something the user is SHOWING, not asking about — a to-do list saying
+  // "she asked like 10 days ago" answered the whole turn with a date (seen in the
+  // realistic-input sweep, 2026-08-29). Above the threshold, require the same date
+  // cue the `in N days` branch below already requires.
+  if (
+    offsetMatch?.[1] !== undefined &&
+    offsetMatch[2] !== undefined &&
+    (lower.length <= SHORT_TURN_MAX_CHARS || /\b(date|day)\b/.test(lower))
+  ) {
     const n = Number(offsetMatch[1]);
     const dir = offsetMatch[2];
     const sign = /ago|before/.test(dir) ? -1 : 1;
