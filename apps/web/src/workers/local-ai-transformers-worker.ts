@@ -851,8 +851,12 @@ async function handleGenerate(msg: Extract<WorkerInbound, { type: 'generate' }>)
     const observer = {
       _call(_input_ids: bigint[][], logits: Tensor): Tensor {
         // logits shape: [batch=1, vocab_size]. Read the single row.
-        const data = logits.data as Float32Array;
-        confidenceAcc.recordStep(data);
+        // Record only float32 logits. Any other dtype would be read as the
+        // wrong numbers and silently corrupt the calibration data; skipping
+        // leaves `confidence` absent on the receipt, which is honest.
+        if (logits.type === 'float32' && logits.data instanceof Float32Array) {
+          confidenceAcc.recordStep(logits.data);
+        }
         return logits; // unchanged — passive observer
       },
     };
