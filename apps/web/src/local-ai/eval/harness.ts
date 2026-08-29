@@ -63,6 +63,7 @@ import { loadModel, generate as generateThroughLifecycle } from '../runtime/life
 import type { ModelConfig } from '../types';
 import type { ChatMessage, GenerateOptions, TokenEvent } from '../runtime/types';
 import { getEvalCandidateModel } from './eval-candidates';
+import { applyDispatchArm } from './dispatch-arm';
 import { applyEcoTangentArm, type EcoTangentArm } from './eco-tangent';
 import {
   applyEverydayArmOptions,
@@ -220,6 +221,15 @@ export type EvalRunConfig = {
    * by default: production runs measure exactly what ships.
    */
   everydayArm?: EvalEverydayArmId;
+  /**
+   * Model-native tool-dispatch arm (local-ai/eval/dispatch-arm.ts). `'schemas'`
+   * appends the six shipping tools' JSON schemas to the system prompt so the
+   * model can dispatch itself; unset leaves the shipped prompt exactly as it is,
+   * which is the control arm. A LOCAL, UNSHIPPED parameterization — production
+   * runs never set it. Composes AFTER `identityArm`, so the schemas ride whatever
+   * base prompt that arm produced.
+   */
+  dispatchArm?: 'schemas';
   /** Hard cap per generation (default 512 — keeps runs fast). */
   maxTokensCap?: number;
   /** Applies to the TOKEN STREAM only, not load (default 60000). */
@@ -886,7 +896,13 @@ export async function runEval(config: EvalRunConfig, deps?: EvalRunnerDeps): Pro
   // generation options, not the system prompt. Composes with the identity arm
   // above rather than replacing it.
   const everydayArm = config.everydayArm ? getEverydayArm(config.everydayArm) : null;
-  const buildSystemPrompt = identityArmed;
+  // Dispatch measurement arm: append the tool schemas to whatever prompt the
+  // identity arm produced. Composed last so the two arms stack rather than
+  // shadow each other; unset = the shipped prompt (the measurement's control).
+  const buildSystemPrompt =
+    config.dispatchArm === 'schemas'
+      ? (modelId: string): string => applyDispatchArm(identityArmed(modelId))
+      : identityArmed;
   const buildOptions = everydayArm
     ? (modelId: string, intent: ChatIntent): GenerateOptions =>
       applyEverydayArmOptions(d.buildOptions(modelId, intent), everydayArm)
@@ -1006,6 +1022,7 @@ export async function runEval(config: EvalRunConfig, deps?: EvalRunnerDeps): Pro
     perGenerationTimeoutMs: timeoutMs,
     includeResearchArms: config.includeResearchArms ?? false,
     ...(config.everydayArm ? { everydayArm: config.everydayArm } : {}),
+    ...(config.dispatchArm ? { dispatchArm: config.dispatchArm } : {}),
     promptCount: prompts.length,
     promptSetHash: hashPromptSet(prompts),
     compositionEra: COMPOSITION_ERA,

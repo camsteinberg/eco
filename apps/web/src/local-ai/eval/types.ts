@@ -71,6 +71,15 @@ export type EvalCategory =
    * a shape composite.
    */
   | 'known-answer'
+  /**
+   * The dispatch probe set (local-ai/eval/dispatch-probes.ts): the blind
+   * realistic-input corpus plus pre-committed recall phrasings, run to measure
+   * whether a model can select the right tool from a schema — the question the
+   * hand-written matchers answer today. Its own category so a run scopes to
+   * exactly that and its results are never averaged into an answer-quality
+   * composite: the graded unit here is the tool call, not the reply.
+   */
+  | 'dispatch'
   | 'captured';
 
 /**
@@ -605,6 +614,13 @@ export type EvalRunConfigFingerprint = {
    * refuses to diff runs that lack it.
    */
   everydayArm?: EvalEverydayArmId;
+  /**
+   * `'schemas'` when this run carried the tool-schema dispatch arm in its system
+   * prompt. Absent on every other run, including the dispatch measurement's own
+   * control arm — so a stored run always says which prompt produced it rather
+   * than relying on the human-typed label.
+   */
+  dispatchArm?: 'schemas';
   /** Number of prompt specs run per model. */
   promptCount: number;
   /** Deterministic non-content hash of selected prompt IDs, categories, topology metadata, and scoring flags. */

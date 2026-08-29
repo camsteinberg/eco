@@ -48,6 +48,7 @@ const EVAL_CATEGORY_RECORD: Record<EvalCategory, true> = {
   'capability-probe': true,
   'conversation-integrity': true,
   'known-answer': true,
+  dispatch: true,
   captured: true,
 };
 const EVAL_CATEGORIES: ReadonlySet<EvalCategory> = new Set(
