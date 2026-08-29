@@ -35,7 +35,11 @@ import {
   AutoModelForCausalLM,
   TextStreamer,
   env,
+  LogitsProcessor,
+  LogitsProcessorList,
+  Tensor,
 } from '@huggingface/transformers';
+import { ConfidenceAccumulator } from '../local-ai/runtime/confidence';
 import { CacheApiStorage, type Storage } from '../local-ai/download/storage';
 import { createStorageBridge } from '../local-ai/runtime/storage-bridge';
 import { createFetchFailureTracker, type FetchLike } from './fetch-failure-tracker';
@@ -822,6 +826,41 @@ async function handleGenerate(msg: Extract<WorkerInbound, { type: 'generate' }>)
       // so the cached scan can never alias whatever TJS does with the arg.
       generateArgs.suppress_tokens = [...cjkScan.ids];
     }
+
+    // ── Confidence recorder (passive logits observer) ────────────────
+    // Appended to the built-in LogitsProcessorList via `logits_processor` —
+    // TJS merges user-supplied processors AFTER its own (including
+    // SuppressTokensLogitsProcessor for CJK suppression), so both run.
+    // See: @huggingface/transformers@4.2.0 src/models/modeling_utils.js:541-542
+    //   `if (logits_processor !== null) { processors.extend(logits_processor); }`
+    // The observer returns logits UNCHANGED — it reads the last row of the
+    // logits tensor (the single-sequence decode step) into a Float32Array
+    // and records top-1 log-prob and entropy via ConfidenceAccumulator.
+    const confidenceAcc = new ConfidenceAccumulator();
+    const samplingArgs = toTransformersGenerateArgs(msg.options, { maxTokens: 512 });
+    const isGreedy = !samplingArgs.do_sample;
+
+    const confidenceProcessor = new LogitsProcessorList();
+    // LogitsProcessorList.push() accepts a LogitsProcessor. We construct an
+    // object with a `_call` method matching the Callable protocol that TJS
+    // uses (input_ids: bigint[][], logits: Tensor) → Tensor. The processor
+    // MUST return the logits tensor unchanged.
+    // TJS's LogitsProcessor is a Callable subclass; its .push() checks for
+    // a _call method via duck typing. We satisfy the contract with an object
+    // literal that has `_call(input_ids, logits) → logits`.
+    const observer = {
+      _call(_input_ids: bigint[][], logits: Tensor): Tensor {
+        // logits shape: [batch=1, vocab_size]. Read the single row.
+        const data = logits.data as Float32Array;
+        confidenceAcc.recordStep(data);
+        return logits; // unchanged — passive observer
+      },
+    };
+    // The push signature expects LogitsProcessor (a class), but the runtime
+    // dispatch is duck-typed on _call. Cast through unknown to satisfy TS.
+    confidenceProcessor.push(observer as unknown as LogitsProcessor);
+    generateArgs.logits_processor = confidenceProcessor;
+
     const out = await model.generate(generateArgs);
 
     // ── Commit the cache (clean completion only) ──────────────────────
@@ -866,6 +905,7 @@ async function handleGenerate(msg: Extract<WorkerInbound, { type: 'generate' }>)
       seq++;
       post({ type: 'token', generationId: msg.generationId, seq, text: tail });
     }
+    const confidence = confidenceAcc.summarize(isGreedy) ?? undefined;
     post({
       type: 'done',
       generationId: msg.generationId,
@@ -874,6 +914,7 @@ async function handleGenerate(msg: Extract<WorkerInbound, { type: 'generate' }>)
       tokenizerName: tokenizerName(tokenizer),
       kvReuse: { ...kvReuse, cacheCommitted },
       cjkSuppression,
+      confidence,
     });
   } catch (err) {
     // ⚠️ INVALIDATE on ANY non-clean exit — both abort AND error. The reuse

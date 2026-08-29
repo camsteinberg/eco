@@ -36,6 +36,7 @@ import {
 } from './types';
 import type { SystemRoleSupport } from './chat-template-adapter';
 import type { CjkSuppressionTelemetry } from './cjk-suppression';
+import type { ConfidenceSummary } from './confidence';
 import type { KvReuseTelemetry } from './kv-cache';
 import type { Storage } from '../download/storage';
 import {
@@ -104,7 +105,7 @@ export type WorkerOutbound =
   | { type: 'ready'; backend: RuntimeBackend }
   | { type: 'progress'; loaded: number; total: number }
   | { type: 'token'; generationId: string; text: string; seq: number }
-  | { type: 'done'; generationId: string; promptTokens?: number; completionTokens?: number; tokenizerName?: string; kvReuse?: KvReuseTelemetry; cjkSuppression?: CjkSuppressionTelemetry }
+  | { type: 'done'; generationId: string; promptTokens?: number; completionTokens?: number; tokenizerName?: string; kvReuse?: KvReuseTelemetry; cjkSuppression?: CjkSuppressionTelemetry; confidence?: ConfidenceSummary }
   | { type: 'error'; generationId?: string; code: ErrorCode; message: string; details?: Record<string, unknown> };
 
 type ErrorCode = 'webgpu-unavailable' | 'oom' | 'device-lost' | 'init-failed' | 'model-files-missing' | 'generation-failed' | 'timeout' | 'template-missing';
@@ -507,6 +508,7 @@ export class TransformersAdapter implements RuntimeAdapter {
           kvReuse: msg.kvReuse,
           cjkSuppression: msg.cjkSuppression,
           maxInterTokenGapMs,
+          confidence: msg.confidence,
         });
         controller.close();
         return;
