@@ -143,9 +143,10 @@ export default function LicensesPage({
               <p>
                 Not every model here is open-source licensed. The Liquid AI
                 models are published under the LFM Open License, which limits
-                commercial use &mdash; the details are on each row below. A copy
-                of the relevant license text is downloaded and stored alongside
-                the model files on your device.
+                commercial use &mdash; the details are on each row below. The
+                full text of each license is linked from its row, and a verbatim
+                copy of every one is published in Eco&apos;s own source
+                repository.
               </p>
             </section>
 

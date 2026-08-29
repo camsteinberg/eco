@@ -357,6 +357,12 @@ describe('local-ai catalog (Phase C)', () => {
     expect(license.name, `${id}.license.name`).toBe('LFM Open License v1.0');
     expect(license.commercialUseNote, `${id}.license.commercialUseNote`).toMatch(/\S/);
     expect(license.commercialUseNote, `${id}.license.commercialUseNote`).toContain('$10 million');
+    // Point at THIS model's own licence file. All four LFM texts are the same
+    // licence, which makes it easy to link a sibling's repo by accident and
+    // attribute the model to the wrong work.
+    expect(license.url, `${id}.license.url`).toBe(
+      `https://huggingface.co/${license.upstreamRepo}/blob/main/LICENSE`,
+    );
   });
 
   it('claims an SPDX id only for the models that really carry one', () => {

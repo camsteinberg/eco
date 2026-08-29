@@ -153,7 +153,7 @@
       "license": {
         "spdx": null,
         "name": "LFM Open License v1.0",
-        "url": "https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct/blob/main/LICENSE",
+        "url": "https://huggingface.co/LiquidAI/LFM2.5-350M/blob/main/LICENSE",
         "upstreamRepo": "LiquidAI/LFM2.5-350M",
         "confirmed": true,
         "commercialUseNote": "Not an open-source licence. Free for personal, research, and non-profit use; commercial use is allowed only while your organisation's annual revenue stays below US$10 million.",
@@ -405,7 +405,7 @@
       "license": {
         "spdx": null,
         "name": "LFM Open License v1.0",
-        "url": "https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct/blob/main/LICENSE",
+        "url": "https://huggingface.co/LiquidAI/LFM2-2.6B/blob/main/LICENSE",
         "upstreamRepo": "LiquidAI/LFM2-2.6B",
         "confirmed": true,
         "commercialUseNote": "Not an open-source licence. Free for personal, research, and non-profit use; commercial use is allowed only while your organisation's annual revenue stays below US$10 million.",
