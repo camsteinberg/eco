@@ -33,6 +33,13 @@ export type UserDataExportResult = {
   included: UserDataExportPart[]
   /** Stores that could not be read; their files are absent from the archive. */
   failed: UserDataExportPart[]
+  /**
+   * Whether this device is signed in to an Eco account. A guest export has an
+   * empty profile.json by DESIGN, which is a different thing from a store the
+   * browser refused to hand over — so it is reported here rather than being
+   * folded into `failed`, which means "storage refused us".
+   */
+  hasAccount: boolean
 }
 
 /**
@@ -51,7 +58,8 @@ export class UserDataExportUnreadableError extends Error {
 
 function buildReadme(
   included: UserDataExportPart[],
-  failed: UserDataExportPart[]
+  failed: UserDataExportPart[],
+  hasAccount: boolean
 ): string {
   const lines = [
     "Eco Data Export",
@@ -59,7 +67,12 @@ function buildReadme(
     "This archive contains the personal data Eco could read from this browser.",
     "",
     "Contents:",
-    "- profile.json: Your account information",
+    // Without an account every field in profile.json is null. Printing "Your
+    // account information" over an empty file reads as data Eco failed to
+    // fetch; say instead that there is nothing to fetch.
+    hasAccount
+      ? "- profile.json: Your account information"
+      : "- profile.json: Empty, because this device is not signed in to an Eco account. There is no account information to include, and nothing is missing from this archive.",
   ];
 
   if (included.includes("conversations")) {
@@ -88,6 +101,7 @@ export async function exportUserData(
 ): Promise<UserDataExportResult> {
   const files: Record<string, Uint8Array> = {};
   const exportedAt = new Date().toISOString()
+  const hasAccount = profile !== null;
   const included: UserDataExportPart[] = [];
   const failed: UserDataExportPart[] = [];
 
@@ -174,11 +188,14 @@ export async function exportUserData(
     failed.push("settings");
   }
 
+  // Only the two browser stores count here. The profile is never a reason to
+  // fail: for a guest it is legitimately empty, and an archive that is empty
+  // ONLY because there is no account is a complete archive, not a broken one.
   if (included.length === 0) {
     throw new UserDataExportUnreadableError();
   }
 
-  files["README.txt"] = strToU8(buildReadme(included, failed));
+  files["README.txt"] = strToU8(buildReadme(included, failed, hasAccount));
 
   // Create ZIP and trigger download
   const zipped = zipSync(files);
@@ -199,5 +216,6 @@ export async function exportUserData(
     exportedAt,
     included,
     failed,
+    hasAccount,
   }
 }

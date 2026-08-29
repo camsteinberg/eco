@@ -8,6 +8,16 @@ import { SETTINGS_STORAGE_SECTION_ID } from '../../settings/settingsNavigation';
 import { useSettingsStore } from '../../../stores/settingsStore';
 import type { ModelConfig, Slot } from '../../../local-ai/types';
 
+// The tab hosts the guest data export, which reads the session. Signed-out is
+// the default here; the member case flips this ref.
+const sessionRef: { current: { user: { id: string } } | null } = { current: null };
+vi.mock('../../../lib/auth', () => ({
+  useSession: () => ({ data: sessionRef.current }),
+}));
+vi.mock('../../settings/DataExportButton', () => ({
+  DataExportButton: () => <button type="button">Export my data</button>,
+}));
+
 const MODEL: ModelConfig = {
   id: 'local/qwen3-0.6b',
   friendlyName: 'Qwen3',
@@ -413,5 +423,60 @@ describe('SettingsEcoTab — optional callbacks', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: /show technical details/i }));
     expect(screen.queryByText(/switch off eco/i)).toBeNull();
+  });
+});
+
+describe('SettingsEcoTab — your data (guest export)', () => {
+  afterEach(() => {
+    sessionRef.current = null;
+  });
+
+  it('gives a signed-out person a Your data section with the export button', () => {
+    render(
+      <SettingsEcoTab
+        currentModel={MODEL}
+        storageBreakdown={null}
+        storageStatus="loading"
+        slotModelIds={SLOT_MODEL_IDS}
+        onSwitchAI={() => {}}
+        onClearCache={async () => {}}
+      />,
+    );
+
+    expect(screen.getByRole('heading', { name: 'Your data' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /export my data/i })).toBeInTheDocument();
+  });
+
+  it('offers the export before a model is set up too', () => {
+    render(
+      <SettingsEcoTab
+        currentModel={null}
+        storageBreakdown={null}
+        storageStatus="loading"
+        slotModelIds={SLOT_MODEL_IDS}
+        onSwitchAI={() => {}}
+        onClearCache={async () => {}}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: /export my data/i })).toBeInTheDocument();
+  });
+
+  it('hides it from a member, who still has the export on the Account tab', () => {
+    sessionRef.current = { user: { id: '1' } };
+
+    render(
+      <SettingsEcoTab
+        currentModel={MODEL}
+        storageBreakdown={null}
+        storageStatus="loading"
+        slotModelIds={SLOT_MODEL_IDS}
+        onSwitchAI={() => {}}
+        onClearCache={async () => {}}
+      />,
+    );
+
+    expect(screen.queryByRole('heading', { name: 'Your data' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /export my data/i })).not.toBeInTheDocument();
   });
 });

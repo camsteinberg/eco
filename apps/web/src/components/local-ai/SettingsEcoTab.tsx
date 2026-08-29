@@ -17,6 +17,7 @@ import { SETTINGS_STORAGE_SECTION_ID } from '../settings/settingsNavigation';
 import { SettingsRow } from '../settings/SettingsRow';
 import { SettingsSwitch } from '../settings/SettingsSwitch';
 import { CustomInstructionsSection } from '../settings/CustomInstructionsSection';
+import { GuestDataExportSection } from '../settings/GuestDataExportSection';
 
 /**
  * Settings → AI tab.
@@ -85,6 +86,8 @@ export function SettingsEcoTab({
         </SettingsSection>
 
         <CustomInstructionsSection />
+
+        <GuestDataExportSection />
       </div>
     );
   }
@@ -161,6 +164,8 @@ export function SettingsEcoTab({
           onClearModel={onClearCache}
         />
       </SettingsSection>
+
+      <GuestDataExportSection />
 
       <SettingsSection title="Technical details">
         <DetailsDisclosure label="Show technical details">

@@ -230,6 +230,39 @@ describe("exportUserData", () => {
   });
 });
 
+describe("exportUserData when there is no account", () => {
+  it("says profile.json is empty by design rather than printing 'Your account information'", async () => {
+    const result = await exportUserData(null);
+
+    expect(result.hasAccount).toBe(false);
+
+    const readme = strFromU8(capturedFiles["README.txt"]!);
+    expect(readme).not.toContain("- profile.json: Your account information");
+    expect(readme).toContain("not signed in to an Eco account");
+    expect(readme).toContain("nothing is missing from this archive");
+  });
+
+  it("is not reported as a failure or a partial export", async () => {
+    const result = await exportUserData(null);
+
+    expect(result.failed).toEqual([]);
+    expect(result.included).toEqual(["conversations", "settings"]);
+    // "Not included:" is the storage-refused heading; an absent account must
+    // never borrow it.
+    expect(strFromU8(capturedFiles["README.txt"]!)).not.toContain("Not included:");
+    expect(mockAnchor.click).toHaveBeenCalled();
+  });
+
+  it("still keeps 'Your account information' for a signed-in member", async () => {
+    const result = await exportUserData({ name: "Forest User", email: "forest@eco.network" });
+
+    expect(result.hasAccount).toBe(true);
+    const readme = strFromU8(capturedFiles["README.txt"]!);
+    expect(readme).toContain("- profile.json: Your account information");
+    expect(readme).not.toContain("not signed in to an Eco account");
+  });
+});
+
 describe("exportUserData when a store cannot be read", () => {
   it("names conversations as failed instead of shipping an archive with none", async () => {
     mockOpenEcoDB.mockRejectedValue(new Error("IDB unavailable"));

@@ -232,7 +232,7 @@ export const routesStates: StateEntry[] = [
     realism: "real",
     assert: [
       { text: "Your account" },
-      { text: "Sign in to manage your profile, data exports, and account deletion." },
+      { text: "Sign in to manage your profile and account deletion." },
     ],
     notes: "LockedSettingsPreview — the promise a guest is shown instead of an empty account screen.",
   },
