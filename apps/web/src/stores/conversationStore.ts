@@ -3,7 +3,7 @@
 
 import { create } from 'zustand'
 import type { Conversation } from '../lib/types/conversation'
-import { openEcoDB, getActiveBranch, isVersionError } from '../lib/db'
+import { openEcoDB, getActiveBranch, isVersionError, isQuotaExceeded } from '../lib/db'
 import { migrateFromLocalStorage } from '../lib/db-migration'
 import { resolveBranchLeafId } from '../lib/conversation-navigation'
 import { markRestoredInterruptions } from '../lib/chat-recovery'
@@ -161,25 +161,56 @@ export async function closeConversationPersistenceDb(): Promise<void> {
   }
 }
 
-function logConversationPersistenceError(action: string, error: unknown): void {
-  logger.warn(`Conversation persistence failed while trying to ${action}.`, error)
-  useConversationStore.setState({
-    persistenceError: isVersionError(error)
-      ? OUTDATED_BUILD_MESSAGE
-      : error instanceof DbOpenTimeoutError
-        ? DB_OPEN_BLOCKED_MESSAGE
-        : `Eco updated this conversation in memory, but browser storage could not ${action}. Try again or export a copy before closing this tab.`,
-  })
+/**
+ * What a failed storage operation was trying to do, in terms a person can read.
+ *
+ * `kind` decides the honest frame: a failed READ must never claim something was
+ * updated (the transcript beside the notice is empty — telling them their words
+ * are safely in memory would be a lie). `phrase` is a short human clause that
+ * slots into the message and carries NO conversation or message ids: raw UUIDs
+ * in user-facing copy tell the person nothing and look like a crash.
+ */
+type PersistenceFailure = { kind: 'read' | 'write'; phrase: string }
+
+const OUT_OF_SPACE_MESSAGE =
+  'This device is out of storage space, so Eco could not save this conversation. Free up space or delete old conversations, and saving will resume.'
+
+function persistenceErrorMessage(failure: PersistenceFailure, error: unknown): string {
+  // VersionError and a blocked open stay ahead of the quota branch: both name a
+  // specific thing to DO (reload, close the other tab) that freeing space won't fix.
+  if (isVersionError(error)) return OUTDATED_BUILD_MESSAGE
+  if (error instanceof DbOpenTimeoutError) return DB_OPEN_BLOCKED_MESSAGE
+  // Only a WRITE can run out of room, and the message says "could not save" — so a
+  // read that somehow surfaces a quota error must not be reported as a failed save.
+  if (failure.kind === 'write' && isQuotaExceeded(error)) return OUT_OF_SPACE_MESSAGE
+  if (failure.kind === 'read') {
+    return `Eco could not ${failure.phrase} from browser storage. Nothing already saved is lost — try again, or reload this tab.`
+  }
+  return `Eco updated this conversation in memory, but browser storage could not ${failure.phrase}. Try again or export a copy before closing this tab.`
+}
+
+function logConversationPersistenceError(failure: PersistenceFailure, error: unknown): void {
+  logger.warn(`Conversation persistence failed while trying to ${failure.phrase}.`, error)
+
+  const message = persistenceErrorMessage(failure, error)
+  const existing = useConversationStore.getState().persistenceError
+  // One slot, so the first unresolved failure wins until it is dismissed —
+  // otherwise a later, vaguer failure quietly rewrites the notice a person was
+  // in the middle of reading. Running out of space is the exception: it is the
+  // one cause they can act on, so it always takes the slot.
+  if (existing && message !== OUT_OF_SPACE_MESSAGE) return
+
+  useConversationStore.setState({ persistenceError: message })
 }
 
 function runConversationPersistenceTask(
-  action: string,
+  phrase: string,
   task: (db: IDBPDatabase<EcoDB>) => Promise<void>
 ): void {
   void getDb()
     .then((db) => task(db))
     .catch((error) => {
-      logConversationPersistenceError(action, error)
+      logConversationPersistenceError({ kind: 'write', phrase }, error)
     })
 }
 
@@ -270,7 +301,7 @@ export const useConversationStore = create<ConversationState & ConversationActio
       // load (iOS Safari needs the ask each open), best-effort, never blocks
       // the write.
       void requestPersistentStorage()
-      runConversationPersistenceTask('save a conversation', async (db) => {
+      runConversationPersistenceTask('save this conversation', async (db) => {
         const dbConv: DbConversation = {
           id: conv.id,
           title: conv.title,
@@ -294,7 +325,7 @@ export const useConversationStore = create<ConversationState & ConversationActio
       if (currentActiveConversationId === id) {
         persistActiveConversationId(null)
       }
-      runConversationPersistenceTask('remove a conversation', async (db) => {
+      runConversationPersistenceTask('delete this conversation', async (db) => {
         // Delete conversation
         await db.delete('conversations', id)
         // Delete all messages for this conversation
@@ -313,7 +344,7 @@ export const useConversationStore = create<ConversationState & ConversationActio
           c.id === id ? { ...c, title, updatedAt: Date.now() } : c
         ),
       }))
-      runConversationPersistenceTask('rename a conversation', async (db) => {
+      runConversationPersistenceTask('rename this conversation', async (db) => {
         const existing = await db.get('conversations', id)
         if (existing) {
           await db.put('conversations', { ...existing, title, updatedAt: Date.now() })
@@ -343,7 +374,7 @@ export const useConversationStore = create<ConversationState & ConversationActio
           c.id === id ? { ...c, ...updates, updatedAt: Date.now() } : c
         ),
       }))
-      runConversationPersistenceTask('update a conversation', async (db) => {
+      runConversationPersistenceTask('update this conversation', async (db) => {
         const existing = await db.get('conversations', id)
         if (existing) {
           const { activeLeafId, title, preview, pinnedAt } = updates
@@ -411,10 +442,7 @@ export const useConversationStore = create<ConversationState & ConversationActio
         // Try again render.
         return markRestoredInterruptions(restored)
       } catch (error) {
-        logConversationPersistenceError(
-          `load messages for conversation ${conversationId}`,
-          error,
-        )
+        logConversationPersistenceError({ kind: 'read', phrase: 'load this conversation' }, error)
         return []
       }
     },
@@ -424,14 +452,14 @@ export const useConversationStore = create<ConversationState & ConversationActio
         const db = await getDb()
         await db.put('messages', message)
       } catch (error) {
-        logConversationPersistenceError(`save message ${message.id}`, error)
+        logConversationPersistenceError({ kind: 'write', phrase: 'save your last message' }, error)
       }
     },
 
     clearAll() {
       persistActiveConversationId(null)
       set({ conversations: [], activeConversationId: null })
-      runConversationPersistenceTask('clear all conversations', async (db) => {
+      runConversationPersistenceTask('clear your conversations', async (db) => {
         const convTx = db.transaction('conversations', 'readwrite')
         await convTx.store.clear()
         await convTx.done
@@ -448,7 +476,7 @@ export const useConversationStore = create<ConversationState & ConversationActio
           c.id === id ? { ...c, pinnedAt, updatedAt: Date.now() } : c
         ),
       }))
-      runConversationPersistenceTask('pin a conversation', async (db) => {
+      runConversationPersistenceTask('pin this conversation', async (db) => {
         const existing = await db.get('conversations', id)
         if (existing) {
           await db.put('conversations', { ...existing, pinnedAt, updatedAt: Date.now() })
@@ -462,7 +490,7 @@ export const useConversationStore = create<ConversationState & ConversationActio
           c.id === id ? { ...c, pinnedAt: null, updatedAt: Date.now() } : c
         ),
       }))
-      runConversationPersistenceTask('unpin a conversation', async (db) => {
+      runConversationPersistenceTask('unpin this conversation', async (db) => {
         const existing = await db.get('conversations', id)
         if (existing) {
           await db.put('conversations', { ...existing, pinnedAt: null, updatedAt: Date.now() })
@@ -483,7 +511,7 @@ export const useConversationStore = create<ConversationState & ConversationActio
       if (currentActiveConversationId && idSet.has(currentActiveConversationId)) {
         persistActiveConversationId(null)
       }
-      runConversationPersistenceTask('remove multiple conversations', async (db) => {
+      runConversationPersistenceTask('delete those conversations', async (db) => {
         for (const id of ids) {
           await db.delete('conversations', id)
           const msgs = await db.getAllFromIndex('messages', 'by-conversation', id)
@@ -517,7 +545,7 @@ export const useConversationStore = create<ConversationState & ConversationActio
         }
       } catch (error) {
         logConversationPersistenceError(
-          `activate searched message ${messageId} in conversation ${conversationId}`,
+          { kind: 'write', phrase: 'save which message you opened' },
           error,
         )
       }
@@ -621,7 +649,7 @@ async function initConversationStore() {
       persistenceError: null,
     })
   } catch (error) {
-    logConversationPersistenceError('hydrate conversations from IndexedDB', error)
+    logConversationPersistenceError({ kind: 'read', phrase: 'load your conversations' }, error)
     useConversationStore.setState({ hasHydrated: true })
   } finally {
     clearTimeout(timeout)

@@ -154,6 +154,21 @@ export function isVersionError(error: unknown): boolean {
   );
 }
 
+/**
+ * `true` when a write failed because the device is out of storage space.
+ * Browsers spell this as a `QuotaExceededError` `DOMException`; older ones
+ * only set the legacy numeric `code` 22. Unlike every other write failure,
+ * retrying is pointless until the person frees space, so the UI says so.
+ */
+export function isQuotaExceeded(error: unknown): boolean {
+  return (
+    (typeof DOMException !== "undefined"
+      && error instanceof DOMException
+      && (error.name === "QuotaExceededError" || error.code === 22))
+    || (error instanceof Error && error.name === "QuotaExceededError")
+  );
+}
+
 export function openEcoDB(options?: OpenEcoDBOptions): Promise<IDBPDatabase<EcoDB>> {
   return openDB<EcoDB>(ECO_DB_NAME, ECO_DB_VERSION, {
     upgrade(db, oldVersion) {
