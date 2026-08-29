@@ -458,7 +458,7 @@ export function EvalHarnessPanel() {
           { EVERYDAY_CONVERSATION_PROBES },
           { CAPABILITY_PROBE_PROBES },
           { CONVERSATION_INTEGRITY_PROBES },
-          { CONTEXT_STRESS_PROBES },
+          { CONTEXT_STRESS_PROBES, CONTEXT_BOUNDARY_PROBES },
           { KNOWN_ANSWER_PROBES },
           { DISPATCH_PROBES },
           { RETRIEVAL_PROBES },
@@ -501,7 +501,7 @@ export function EvalHarnessPanel() {
           // stress headroom probes are reachable only under the research-arms
           // gate, so `eco-eval-prompts=ctx-stress-…` (with eco-eval-arms=1)
           // passes id-validation here and reaches the harness.
-          ...(includeResearchArms ? CONTEXT_STRESS_PROBES : []),
+          ...(includeResearchArms ? [...CONTEXT_STRESS_PROBES, ...CONTEXT_BOUNDARY_PROBES] : []),
           // Both everyday sets are derived from their corpora, so neither is in
           // the harness's checked-in pool — they are named here so
           // `eco-eval-categories=everyday-use` / `=everyday-conversation` and
