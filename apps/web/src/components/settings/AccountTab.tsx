@@ -130,7 +130,10 @@ export function AccountTab() {
         waitForMinimumDuration(deleteStartedAt, DELETE_PROGRESS_VISIBILITY_MS),
         // Bound best-effort local cleanup so a stalled browser-storage /
         // service-worker teardown can't strand the user on the deletion overlay.
-        settleWithinBudget(clearClientState(), CLIENT_CLEANUP_BUDGET_MS),
+        settleWithinBudget(
+          clearClientState({ includeModelFiles: true }),
+          CLIENT_CLEANUP_BUDGET_MS,
+        ),
         bestEffortSignOut(),
       ])
       window.location.replace('/')
@@ -234,7 +237,8 @@ export function AccountTab() {
 
       <SettingsSection title="Delete account">
         <p className="text-sm text-[var(--eco-text-secondary)]">
-          This permanently deletes your account and account-linked data. This can&apos;t be undone.
+          This permanently deletes your account, account-linked data, and the AI models
+          downloaded to this browser. This can&apos;t be undone.
         </p>
         <button
           type="button"
@@ -251,7 +255,7 @@ export function AccountTab() {
         message={
           deleteLoading
             ? "Deleting your account and browser chat/settings now. You'll return to the home screen once account-linked data is cleared."
-            : "This permanently deletes your account and account-linked data. This can't be undone."
+            : "This permanently deletes your account, account-linked data, and the AI models downloaded to this browser. This can't be undone."
         }
         confirmLabel={deleteLoading ? 'Deleting…' : 'Delete my account'}
         destructive

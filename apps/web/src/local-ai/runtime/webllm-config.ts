@@ -139,6 +139,19 @@ export function webllmModelLibPathFor(_model: ModelConfig): string {
 export type WebLLMCacheScope = 'webllm/model' | 'webllm/config' | 'webllm/wasm';
 
 /**
+ * Every WebLLM Cache API namespace, as a value — the single source of truth for
+ * callers that must ENUMERATE the scopes (account deletion wipes them; the
+ * retired-model migration lists them as `extraCacheNames`). They are disjoint
+ * from Eco's own `eco-local-ai-<id>` namespace, so a sweep keyed on Eco's prefix
+ * will never find them.
+ */
+export const WEBLLM_CACHE_SCOPES: readonly WebLLMCacheScope[] = [
+  'webllm/model',
+  'webllm/config',
+  'webllm/wasm',
+];
+
+/**
  * The Cache API namespace + key WebLLM will look a repo file up under, given its
  * repo-relative path and the model base URL.
  *

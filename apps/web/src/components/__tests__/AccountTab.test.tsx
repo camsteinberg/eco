@@ -404,6 +404,9 @@ describe('AccountTab', () => {
     })
 
     expect(clearClientStateMock).toHaveBeenCalledTimes(1)
+    // Deleting the account also removes the downloaded model weights — the copy in
+    // the confirmation says so, so the call must actually ask for it.
+    expect(clearClientStateMock).toHaveBeenCalledWith({ includeModelFiles: true })
     // Cleanup goes through the bounded helper so a stalled teardown can't hang deletion.
     expect(settleWithinBudgetMock).toHaveBeenCalledTimes(1)
     expect(bestEffortSignOutMock).toHaveBeenCalledTimes(1)
