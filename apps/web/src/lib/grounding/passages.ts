@@ -290,7 +290,7 @@ function tokenize(text: string): string[] {
     .normalize("NFD")
     // Combining diacritical marks — stripped so "café" and "cafe" compare equal.
     // Escaped rather than literal so this file stays pure ASCII (module convention).
-    .replace(/[̀-ͯ]/g, "")
+    .replace(/[\u0300-\u036f]/g, "")
     .split(/[^a-z0-9]+/)
     .filter((t) => t.length > 0);
 }
@@ -517,11 +517,12 @@ function scoreBM25(chunks: ReadonlyArray<Chunk>, qStems: ReadonlySet<string>): M
   if (N === 0) return new Map();
 
   // Document frequency: how many chunks contain each query stem.
+  // One stem-set per chunk, built once and shared by every query term.
+  const stemSets = chunks.map((chunk) => new Set(chunk.stems));
   const df = new Map<string, number>();
   for (const q of qStems) {
     let count = 0;
-    for (const chunk of chunks) {
-      const stemSet = new Set(chunk.stems);
+    for (const stemSet of stemSets) {
       if (stemSet.has(q)) count++;
     }
     df.set(q, count);
