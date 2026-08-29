@@ -320,9 +320,9 @@ describe('local-ai catalog (Phase C)', () => {
   // Eco redistributes the model weights (the /api/local-models proxy streams
   // them, and scripts/mirror-models-to-r2.mjs mirrors them to our own CDN), so
   // we are a REDISTRIBUTOR: Apache-2.0 §4(a) and LFM Open License v1.0 §4(a)
-  // both require the licence to travel with the work. That obligation is only
-  // discharged if the catalog actually knows each model's licence — this block
-  // makes a licence-less catalog entry a build failure rather than a quiet gap.
+  // both require the license to travel with the work. That obligation is only
+  // discharged if the catalog actually knows each model's license — this block
+  // makes a license-less catalog entry a build failure rather than a quiet gap.
   const LFM_LICENSED_IDS = [
     'candidate/lfm2.5-1.2b-instruct-onnx',
     'candidate/lfm2.5-1.2b-instruct-q4-onnx',
@@ -330,7 +330,7 @@ describe('local-ai catalog (Phase C)', () => {
     'candidate/lfm2-2.6b-onnx',
   ] as const;
 
-  it.each(V1_CATALOG_IDS)('declares a complete weights licence for %s', (id) => {
+  it.each(V1_CATALOG_IDS)('declares a complete weights license for %s', (id) => {
     const license = getModel(id)!.license;
     expect(license, `${id}.license`).toBeDefined();
     expect(license.name, `${id}.license.name`).toMatch(/\S/);
@@ -357,8 +357,8 @@ describe('local-ai catalog (Phase C)', () => {
     expect(license.name, `${id}.license.name`).toBe('LFM Open License v1.0');
     expect(license.commercialUseNote, `${id}.license.commercialUseNote`).toMatch(/\S/);
     expect(license.commercialUseNote, `${id}.license.commercialUseNote`).toContain('$10 million');
-    // Point at THIS model's own licence file. All four LFM texts are the same
-    // licence, which makes it easy to link a sibling's repo by accident and
+    // Point at THIS model's own license file. All four LFM texts are the same
+    // license, which makes it easy to link a sibling's repo by accident and
     // attribute the model to the wrong work.
     expect(license.url, `${id}.license.url`).toBe(
       `https://huggingface.co/${license.upstreamRepo}/blob/main/LICENSE`,
@@ -376,10 +376,10 @@ describe('local-ai catalog (Phase C)', () => {
   });
 
   // Gemma 4's publisher declares apache-2.0 in the model-card metadata but also
-  // points `license_link` at Google's own Gemma licence page — a contradiction
+  // points `license_link` at Google's own Gemma license page — a contradiction
   // we have NOT resolved. `confirmed: false` is what makes the UI say "declared
   // by the publisher, not yet confirmed" instead of implying we checked.
-  it('marks only the unverified licence declarations as unconfirmed', () => {
+  it('marks only the unverified license declarations as unconfirmed', () => {
     const unconfirmed = getCatalog()
       .filter((m) => !m.license.confirmed)
       .map((m) => m.id);
@@ -387,13 +387,13 @@ describe('local-ai catalog (Phase C)', () => {
   });
 
   // The obligation is discharged by SHIPPING the text, not by knowing the URL.
-  // Every entry must resolve to a real licence file: either one the download
+  // Every entry must resolve to a real license file: either one the download
   // repo itself carries at the pinned revision (verified over HTTP, in
   // artifact.files, so the download contains it), or the verbatim copy held in
   // catalog/licenses/ that scripts/mirror-models-to-r2.mjs uploads next to the
   // weights and /licenses renders. A dangling textFile means we redistribute
-  // weights with no licence anywhere — exactly the gap this test exists to stop.
-  it.each(V1_CATALOG_IDS)('ships the licence text that travels with %s', (id) => {
+  // weights with no license anywhere — exactly the gap this test exists to stop.
+  it.each(V1_CATALOG_IDS)('ships the license text that travels with %s', (id) => {
     const model = getModel(id)!;
     const license = model.license;
 
@@ -403,7 +403,7 @@ describe('local-ai catalog (Phase C)', () => {
     expect(text.length, `${id} ${license.textFile} is empty`).toBeGreaterThan(1000);
     // Provenance header: where the verbatim text came from and when.
     expect(text.split('\n')[0], `${id} ${license.textFile} header`).toMatch(
-      /^Verbatim copy of the licence text fetched from https:\/\/\S+ on \d{4}-\d{2}-\d{2}\.$/,
+      /^Verbatim copy of the license text fetched from https:\/\/\S+ on \d{4}-\d{2}-\d{2}\.$/,
     );
 
     if (license.artifactLicenseFile !== null) {
@@ -421,7 +421,7 @@ describe('local-ai catalog (Phase C)', () => {
     }
   });
 
-  it('names licence texts that are all actually used (no orphan files)', () => {
+  it('names license texts that are all actually used (no orphan files)', () => {
     const referenced = new Set(getCatalog().map((m) => m.license.textFile));
     const onDisk = readdirSync(LICENSES_DIR).filter((f) => f.endsWith('.txt'));
     expect(onDisk.length).toBeGreaterThan(0);

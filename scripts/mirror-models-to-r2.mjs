@@ -66,10 +66,10 @@ const ONLY = (() => {
 })();
 
 /**
- * Every mirrored model must carry its licence, because mirroring IS
+ * Every mirrored model must carry its license, because mirroring IS
  * redistribution: Apache-2.0 §4(a) and LFM Open License v1.0 §4(a) both require
- * recipients to get a copy of the licence. Most of the repos we download from
- * are repacks that ship no licence file of their own, so for those we upload
+ * recipients to get a copy of the license. Most of the repos we download from
+ * are repacks that ship no license file of their own, so for those we upload
  * the verbatim copy held in `apps/web/src/local-ai/catalog/licenses/` to the
  * same `{hfId}/resolve/{revision}/LICENSE` key the weights live under. Where
  * the source repo DOES carry a LICENSE at the pinned revision it is already in
@@ -174,19 +174,19 @@ function printDryRun(plan) {
   console.log(`\n  ${'TOTAL'.padEnd(42)} ${String(totalFiles).padStart(3)} files  ${fmtGiB(totalBytes).padStart(10)}`);
   console.log(`  ${byModel.size} models → keys like: ${plan[0]?.key ?? '(none)'}`);
 
-  // Licence coverage is a redistribution obligation, so make it visible in the
+  // License coverage is a redistribution obligation, so make it visible in the
   // plan rather than something you have to grep the object list for.
   console.log('\nLICENSE objects (one per model — mirroring is redistribution):');
-  const licenceObjects = plan.filter((f) => f.filePath === 'LICENSE');
-  for (const f of licenceObjects) {
+  const licenseObjects = plan.filter((f) => f.filePath === 'LICENSE');
+  for (const f of licenseObjects) {
     const origin = f.localPath ? 'repo-held copy' : 'source repo';
     console.log(`  ${f.modelId.padEnd(42)} ${String(f.sizeBytes).padStart(7)} B  (${origin})  → ${f.key}`);
   }
-  const withoutLicence = [...byModel.keys()].filter(
-    (id) => !licenceObjects.some((f) => f.modelId === id),
+  const withoutLicense = [...byModel.keys()].filter(
+    (id) => !licenseObjects.some((f) => f.modelId === id),
   );
-  if (withoutLicence.length > 0) {
-    console.log(`\n  WARNING: no LICENSE object for: ${withoutLicence.join(', ')}`);
+  if (withoutLicense.length > 0) {
+    console.log(`\n  WARNING: no LICENSE object for: ${withoutLicense.join(', ')}`);
   }
   console.log('\nNote: this is the one-time seed size. R2 egress is free; the cost this replaces');
   console.log('is per-download Vercel egress (this total × every user who picks each model).');

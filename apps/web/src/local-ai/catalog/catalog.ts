@@ -38,7 +38,7 @@ import catalogData from './catalog-data.json';
  * A shipping catalog entry. Narrower than `ModelConfig`: `license` is optional
  * on the shared type (test fixtures and eval-lane candidates don't carry one),
  * but every entry in catalog-data.json MUST have one — we redistribute the
- * weights, so the licence travels with them. catalog.test.ts pins the
+ * weights, so the license travels with them. catalog.test.ts pins the
  * invariant at runtime; this type gives catalog consumers it at compile time.
  */
 export type CatalogModel = ModelConfig & { license: ModelLicense };

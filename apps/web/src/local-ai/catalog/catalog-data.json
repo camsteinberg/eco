@@ -4,7 +4,7 @@
     "scope": "The shipping user-facing catalog (every entry in `models`). Additional/experimental models are gated out of the shipped user bundle.",
     "field_definitions": "apps/web/src/local-ai/types.ts (ModelConfig type)",
     "last_updated": "2026-08-29",
-    "license_note": "Every entry carries a `license` block describing the licence of the model WEIGHTS (separate from Eco's own AGPL-3.0 code licence). Eco redistributes those weights, so Apache-2.0 §4(a) and LFM Open License v1.0 §4(a) require recipients to get the licence text: `license.textFile` names the verbatim copy under catalog/licenses/ that ships in the bundle, is rendered at /licenses, and is uploaded next to the weights by scripts/mirror-models-to-r2.mjs. `license.artifactLicenseFile` is non-null only where the download repo itself carries a LICENSE at the pinned revision (verified over HTTP); those paths are also in artifact.files so the download itself includes it. `upstreamRepo` is the ORIGINAL author's repo, never the repack we download from. `confirmed: false` means the publisher declares the licence but the declaration is self-inconsistent or unverified.",
+    "license_note": "Every entry carries a `license` block describing the license of the model WEIGHTS (separate from Eco's own AGPL-3.0 code license). Eco redistributes those weights, so Apache-2.0 §4(a) and LFM Open License v1.0 §4(a) require recipients to get the license text: `license.textFile` names the verbatim copy under catalog/licenses/ that ships in the bundle, is rendered at /licenses, and is uploaded next to the weights by scripts/mirror-models-to-r2.mjs. `license.artifactLicenseFile` is non-null only where the download repo itself carries a LICENSE at the pinned revision (verified over HTTP); those paths are also in artifact.files so the download itself includes it. `upstreamRepo` is the ORIGINAL author's repo, never the repack we download from. `confirmed: false` means the publisher declares the license but the declaration is self-inconsistent or unverified.",
     "phase": "bonsai-retirement",
     "artifact_note": "Each model's `artifact` is the canonical download contract. `hfId` + `revision` + `files` feed the server-side proxy allowlist via apps/web/src/lib/local-model-registry.ts (getProxyAllowedLocalModelRegistryArtifacts), and every file MUST have a matching entry in artifact-metadata.json (the proxy's size/SHA-256 verification source — catalog.test.ts pins this invariant). Bootstrap reads this to build the DownloadPlan; mismatches surface as 403 from the proxy."
   },
@@ -74,7 +74,7 @@
         "url": "https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct/blob/main/LICENSE",
         "upstreamRepo": "LiquidAI/LFM2.5-1.2B-Instruct",
         "confirmed": true,
-        "commercialUseNote": "Not an open-source licence. Free for personal, research, and non-profit use; commercial use is allowed only while your organisation's annual revenue stays below US$10 million.",
+        "commercialUseNote": "Not an open-source license. Free for personal, research, and non-profit use; commercial use is allowed only while your organization's annual revenue stays below US$10 million.",
         "textFile": "lfm-open-license-v1.0.txt",
         "artifactLicenseFile": "LICENSE"
       },
@@ -115,7 +115,7 @@
         "url": "https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct/blob/main/LICENSE",
         "upstreamRepo": "LiquidAI/LFM2.5-1.2B-Instruct",
         "confirmed": true,
-        "commercialUseNote": "Not an open-source licence. Free for personal, research, and non-profit use; commercial use is allowed only while your organisation's annual revenue stays below US$10 million.",
+        "commercialUseNote": "Not an open-source license. Free for personal, research, and non-profit use; commercial use is allowed only while your organization's annual revenue stays below US$10 million.",
         "textFile": "lfm-open-license-v1.0.txt",
         "artifactLicenseFile": "LICENSE"
       },
@@ -156,7 +156,7 @@
         "url": "https://huggingface.co/LiquidAI/LFM2.5-350M/blob/main/LICENSE",
         "upstreamRepo": "LiquidAI/LFM2.5-350M",
         "confirmed": true,
-        "commercialUseNote": "Not an open-source licence. Free for personal, research, and non-profit use; commercial use is allowed only while your organisation's annual revenue stays below US$10 million.",
+        "commercialUseNote": "Not an open-source license. Free for personal, research, and non-profit use; commercial use is allowed only while your organization's annual revenue stays below US$10 million.",
         "textFile": "lfm-open-license-v1.0.txt",
         "artifactLicenseFile": null
       },
@@ -408,7 +408,7 @@
         "url": "https://huggingface.co/LiquidAI/LFM2-2.6B/blob/main/LICENSE",
         "upstreamRepo": "LiquidAI/LFM2-2.6B",
         "confirmed": true,
-        "commercialUseNote": "Not an open-source licence. Free for personal, research, and non-profit use; commercial use is allowed only while your organisation's annual revenue stays below US$10 million.",
+        "commercialUseNote": "Not an open-source license. Free for personal, research, and non-profit use; commercial use is allowed only while your organization's annual revenue stays below US$10 million.",
         "textFile": "lfm-open-license-v1.0.txt",
         "artifactLicenseFile": null
       },

@@ -60,7 +60,7 @@ describe("LicensesPage", () => {
 
   // `confirmed: false` means we have NOT verified the publisher's declaration.
   // Saying nothing would imply we had.
-  it("flags every unconfirmed licence as declared but unconfirmed", () => {
+  it("flags every unconfirmed license as declared but unconfirmed", () => {
     render(<LicensesPage />);
 
     const unconfirmed = getCatalog().filter((m) => !m.license.confirmed);

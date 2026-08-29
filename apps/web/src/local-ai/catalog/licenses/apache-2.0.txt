@@ -1,4 +1,4 @@
-Verbatim copy of the licence text fetched from https://www.apache.org/licenses/LICENSE-2.0.txt on 2026-08-29.
+Verbatim copy of the license text fetched from https://www.apache.org/licenses/LICENSE-2.0.txt on 2026-08-29.
 
 
                                  Apache License
