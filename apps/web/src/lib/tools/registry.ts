@@ -14,11 +14,22 @@
  * merely contains a trigger word) feel broken, while a missed match simply yields
  * normal chat. So `match` is deliberately conservative: it abstains by default.
  *
- * The shape mirrors the AI-SDK `tool()` shape so the future model-native path
- * (Phase 4b) can reuse the registry, but it adds the `match` field and uses an
- * inline `validate` type-guard instead of a zod schema (zod is not a dependency in
- * `@eco/web`, and we do not add one here — `match` already returns `null` on bad
- * input, so it doubles as the validator).
+ * The shape mirrors the AI-SDK `tool()` shape so a model-native path could reuse
+ * the registry, but it adds the `match` field and uses an inline `validate`
+ * type-guard instead of a zod schema (zod is not a dependency in `@eco/web`, and we
+ * do not add one here — `match` already returns `null` on bad input, so it doubles
+ * as the validator).
+ *
+ * WHY THE MODEL DOES NOT DISPATCH (measured 2026-08-29, not assumed). With these
+ * six tools' schemas placed in the system prompt in LFM2's own tool-list format,
+ * the shipped default model (LFM2.5-1.2B, greedy, real WebGPU) emitted a tool call
+ * on 1 of 30 turns that a tool should own (the host matchers: 14 of 30), the
+ * schema block cost 1,038 prompt tokens and raised median time-to-first-token from
+ * 512 ms to 3,828 ms, and answers on ordinary turns got worse with the schemas
+ * present. So host-side matching is a measured constraint of the models we ship,
+ * not a placeholder. Re-measure when a new small model lands: the harness arm is
+ * `eco-eval-dispatch=schemas` on the diagnostics eval page
+ * (`local-ai/eval/dispatch-arm.ts`).
  */
 
 /**
@@ -143,7 +154,7 @@ export type EcoToolResult = {
 export type EcoTool<Args = unknown> = {
   /** Stable id used in the ToolCallBlock (e.g. "calculator", "datetime"). */
   name: string;
-  /** One-line description (used later by the 4b model-native path). */
+  /** One-line description; also the verbatim text the dispatch-measurement arm shows the model. */
   description: string;
   /**
    * Runtime validator / type-guard for extracted args. Returns `true` only when
