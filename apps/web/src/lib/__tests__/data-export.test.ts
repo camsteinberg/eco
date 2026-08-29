@@ -9,12 +9,14 @@ const mockGetAllConversations = vi.fn();
 const mockGetAllFromIndexMessages = vi.fn();
 const mockEcoDbClose = vi.fn();
 
+const mockOpenEcoDB = vi.fn(async () => ({
+  getAll: mockGetAllConversations,
+  getAllFromIndex: mockGetAllFromIndexMessages,
+  close: mockEcoDbClose,
+}));
+
 vi.mock("../db", () => ({
-  openEcoDB: vi.fn(async () => ({
-    getAll: mockGetAllConversations,
-    getAllFromIndex: mockGetAllFromIndexMessages,
-    close: mockEcoDbClose,
-  })),
+  openEcoDB: (...args: unknown[]) => mockOpenEcoDB(...(args as [])),
 }));
 
 // Mock openSettingsDB
@@ -22,15 +24,17 @@ const mockGetAllSettings = vi.fn();
 const mockGetAllMemories = vi.fn();
 const mockSettingsDbClose = vi.fn();
 
+const mockOpenSettingsDB = vi.fn(async () => ({
+  getAll: (storeName: string) => {
+    if (storeName === "settings") return mockGetAllSettings();
+    if (storeName === "memories") return mockGetAllMemories();
+    return [];
+  },
+  close: mockSettingsDbClose,
+}));
+
 vi.mock("../settings-db", () => ({
-  openSettingsDB: vi.fn(async () => ({
-    getAll: (storeName: string) => {
-      if (storeName === "settings") return mockGetAllSettings();
-      if (storeName === "memories") return mockGetAllMemories();
-      return [];
-    },
-    close: mockSettingsDbClose,
-  })),
+  openSettingsDB: (...args: unknown[]) => mockOpenSettingsDB(...(args as [])),
   decryptSetting: vi.fn((ciphertext: string, _nonce: string) => {
     return "decrypted:" + ciphertext;
   }),
@@ -93,13 +97,26 @@ beforeEach(() => {
   });
 
   // Default mock returns
+  mockOpenEcoDB.mockImplementation(async () => ({
+    getAll: mockGetAllConversations,
+    getAllFromIndex: mockGetAllFromIndexMessages,
+    close: mockEcoDbClose,
+  }));
+  mockOpenSettingsDB.mockImplementation(async () => ({
+    getAll: (storeName: string) => {
+      if (storeName === "settings") return mockGetAllSettings();
+      if (storeName === "memories") return mockGetAllMemories();
+      return [];
+    },
+    close: mockSettingsDbClose,
+  }));
   mockGetAllConversations.mockResolvedValue([]);
   mockGetAllFromIndexMessages.mockResolvedValue([]);
   mockGetAllSettings.mockResolvedValue([]);
   mockGetAllMemories.mockResolvedValue([]);
 });
 
-import { exportUserData } from "../data-export";
+import { exportUserData, UserDataExportUnreadableError } from "../data-export";
 
 describe("exportUserData", () => {
   it("creates a ZIP blob containing required files", async () => {
@@ -210,5 +227,59 @@ describe("exportUserData", () => {
     // No conversations directory entries
     const convFiles = Object.keys(capturedFiles).filter((k) => k.startsWith("conversations/"));
     expect(convFiles).toHaveLength(0);
+  });
+});
+
+describe("exportUserData when a store cannot be read", () => {
+  it("names conversations as failed instead of shipping an archive with none", async () => {
+    mockOpenEcoDB.mockRejectedValue(new Error("IDB unavailable"));
+    mockGetAllSettings.mockResolvedValue([
+      { key: "custom-instructions", ciphertext: "enc-instr", nonce: "nonce-1" },
+    ]);
+
+    const result = await exportUserData(null);
+
+    expect(result.failed).toEqual(["conversations"]);
+    expect(result.included).toEqual(["settings"]);
+
+    const readme = strFromU8(capturedFiles["README.txt"]!);
+    expect(readme).toContain("Not included:");
+    expect(readme).toContain("your conversations");
+    expect(readme).not.toContain("- conversations/:");
+  });
+
+  it("names settings and memories as failed and omits their files entirely", async () => {
+    mockOpenSettingsDB.mockRejectedValue(new Error("IDB unavailable"));
+    mockGetAllConversations.mockResolvedValue([
+      { id: "conv-1", title: "Chat 1", createdAt: 1000, updatedAt: 2000, activeLeafId: null },
+    ]);
+
+    const result = await exportUserData(null);
+
+    expect(result.failed).toEqual(["settings"]);
+    expect(result.included).toEqual(["conversations"]);
+    // An empty settings.json would read as "you had no settings" — it must be absent.
+    expect(capturedFiles["settings.json"]).toBeUndefined();
+    expect(capturedFiles["memories.json"]).toBeUndefined();
+
+    const readme = strFromU8(capturedFiles["README.txt"]!);
+    expect(readme).toContain("Not included:");
+    expect(readme).toContain("your settings and memories");
+  });
+
+  it("fails outright rather than downloading a profile-only archive", async () => {
+    mockOpenEcoDB.mockRejectedValue(new Error("IDB unavailable"));
+    mockOpenSettingsDB.mockRejectedValue(new Error("IDB unavailable"));
+
+    await expect(exportUserData(null)).rejects.toBeInstanceOf(UserDataExportUnreadableError);
+    expect(mockAnchor.click).not.toHaveBeenCalled();
+  });
+
+  it("reports both stores as included when both read cleanly", async () => {
+    const result = await exportUserData(null);
+
+    expect(result.failed).toEqual([]);
+    expect(result.included).toEqual(["conversations", "settings"]);
+    expect(strFromU8(capturedFiles["README.txt"]!)).not.toContain("Not included:");
   });
 });

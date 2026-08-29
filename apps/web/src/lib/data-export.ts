@@ -4,6 +4,7 @@
 import { zipSync, strToU8 } from "fflate";
 import { openEcoDB } from "./db";
 import { openSettingsDB, decryptSetting } from "./settings-db";
+import { logger } from "./logger";
 
 /**
  * Export all user data as a ZIP file for GDPR compliance.
@@ -11,9 +12,75 @@ import { openSettingsDB, decryptSetting } from "./settings-db";
  * decrypts settings and memories from eco-settings IDB,
  * packages everything into a ZIP, and triggers a browser download.
  */
+
+/**
+ * The two browser stores this export reads. Each can fail independently — a
+ * database that will not open, a read that throws — and a failure must be
+ * NAMED rather than quietly leaving the archive short. An archive missing every
+ * conversation looks identical to an archive from someone who never chatted.
+ */
+export type UserDataExportPart = "conversations" | "settings";
+
+const PART_LABELS: Record<UserDataExportPart, string> = {
+  conversations: "your conversations",
+  settings: "your settings and memories",
+};
+
 export type UserDataExportResult = {
   filename: string
   exportedAt: string
+  /** Stores that were read and are present in the archive. */
+  included: UserDataExportPart[]
+  /** Stores that could not be read; their files are absent from the archive. */
+  failed: UserDataExportPart[]
+}
+
+/**
+ * Neither store could be read, so there is nothing to hand over but the account
+ * profile. Downloading that and calling it "your data" would be a lie, so the
+ * export fails outright and the UI shows an error instead of a receipt.
+ */
+export class UserDataExportUnreadableError extends Error {
+  constructor() {
+    super(
+      "Eco could not read your conversations or your settings from this browser's storage, so there was nothing to export. Try again, or reload this tab."
+    );
+    this.name = "UserDataExportUnreadableError";
+  }
+}
+
+function buildReadme(
+  included: UserDataExportPart[],
+  failed: UserDataExportPart[]
+): string {
+  const lines = [
+    "Eco Data Export",
+    "",
+    "This archive contains the personal data Eco could read from this browser.",
+    "",
+    "Contents:",
+    "- profile.json: Your account information",
+  ];
+
+  if (included.includes("conversations")) {
+    lines.push("- conversations/: Your chat conversations and messages");
+  }
+  if (included.includes("settings")) {
+    lines.push("- settings.json: Your decrypted settings");
+    lines.push("- memories.json: Your decrypted memories");
+  }
+
+  if (failed.length > 0) {
+    lines.push("");
+    lines.push("Not included:");
+    for (const part of failed) {
+      lines.push(
+        `- ${PART_LABELS[part]}: Eco could not read this from the browser's storage, so it is missing from this archive. Nothing already saved is lost — try exporting again.`
+      );
+    }
+  }
+
+  return lines.join("\n") + "\n";
 }
 
 export async function exportUserData(
@@ -21,17 +88,8 @@ export async function exportUserData(
 ): Promise<UserDataExportResult> {
   const files: Record<string, Uint8Array> = {};
   const exportedAt = new Date().toISOString()
-
-  // README
-  files["README.txt"] = strToU8(
-    "Eco Data Export\n\n" +
-      "This archive contains all your personal data from Eco.\n\n" +
-      "Contents:\n" +
-      "- profile.json: Your account information\n" +
-      "- conversations/: Your chat conversations and messages\n" +
-      "- settings.json: Your decrypted settings\n" +
-      "- memories.json: Your decrypted memories\n"
-  );
+  const included: UserDataExportPart[] = [];
+  const failed: UserDataExportPart[] = [];
 
   // Profile
   files["profile.json"] = strToU8(
@@ -47,6 +105,7 @@ export async function exportUserData(
   );
 
   // Conversations and messages from eco-chat IDB
+  const conversationFiles: Record<string, Uint8Array> = {};
   try {
     const chatDb = await openEcoDB();
     try {
@@ -58,15 +117,20 @@ export async function exportUserData(
           "by-conversation",
           conv.id
         );
-        files[`conversations/${conv.id}.json`] = strToU8(
+        conversationFiles[`conversations/${conv.id}.json`] = strToU8(
           JSON.stringify({ conversation: conv, messages }, null, 2)
         );
       }
     } finally {
       chatDb.close();
     }
-  } catch {
-    // If eco-chat DB doesn't exist or is inaccessible, skip conversations
+    included.push("conversations");
+    Object.assign(files, conversationFiles);
+  } catch (error) {
+    // A partly-read store is worse than an absent one: it looks complete. Drop
+    // whatever was collected and report the whole part as unreadable.
+    logger.warn("Data export could not read conversations from storage.", error);
+    failed.push("conversations");
   }
 
   // Settings and memories from eco-settings IDB
@@ -100,12 +164,21 @@ export async function exportUserData(
     } finally {
       settingsDb.close();
     }
-  } catch {
-    // If eco-settings DB doesn't exist or is inaccessible, skip settings/memories
+    included.push("settings");
+    files["settings.json"] = strToU8(JSON.stringify(decryptedSettings, null, 2));
+    files["memories.json"] = strToU8(JSON.stringify(decryptedMemories, null, 2));
+  } catch (error) {
+    // Same rule as conversations: an empty settings.json would read as "you had
+    // no settings", so the file is omitted and the README says why.
+    logger.warn("Data export could not read settings and memories from storage.", error);
+    failed.push("settings");
   }
 
-  files["settings.json"] = strToU8(JSON.stringify(decryptedSettings, null, 2));
-  files["memories.json"] = strToU8(JSON.stringify(decryptedMemories, null, 2));
+  if (included.length === 0) {
+    throw new UserDataExportUnreadableError();
+  }
+
+  files["README.txt"] = strToU8(buildReadme(included, failed));
 
   // Create ZIP and trigger download
   const zipped = zipSync(files);
@@ -124,5 +197,7 @@ export async function exportUserData(
   return {
     filename,
     exportedAt,
+    included,
+    failed,
   }
 }

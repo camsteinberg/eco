@@ -6,12 +6,32 @@
 import { useState } from 'react'
 import { useSession } from '../../lib/auth'
 import { exportUserData } from '../../lib/data-export'
+import type { UserDataExportPart, UserDataExportResult } from '../../lib/data-export'
 import { ErrorLine } from '../ui/ErrorNotice'
 
 type ExportState = 'idle' | 'exporting' | 'done' | 'error'
-type ExportReceipt = {
-  filename: string
-  exportedAt: string
+type ExportReceipt = UserDataExportResult
+
+const PART_PHRASES: Record<UserDataExportPart, string> = {
+  conversations: 'your conversations',
+  settings: 'your settings and memories',
+}
+
+function joinPhrases(parts: UserDataExportPart[]): string {
+  const phrases = parts.map((part) => PART_PHRASES[part])
+  if (phrases.length <= 1) return phrases[0] ?? ''
+  return `${phrases.slice(0, -1).join(', ')} and ${phrases[phrases.length - 1]}`
+}
+
+/**
+ * The archive is short of something. Say which part is in it and which part the
+ * browser would not hand over — a receipt that only says "downloading" beside a
+ * ZIP with no conversations in it is the failure this copy exists to prevent.
+ */
+function partialFailureMessage(receipt: ExportReceipt): string {
+  return `The archive has ${joinPhrases(receipt.included)}, but ${joinPhrases(
+    receipt.failed,
+  )} couldn't be read from this browser's storage. Nothing already saved is lost — try again, or reload this tab.`
 }
 
 export function DataExportButton() {
@@ -32,6 +52,9 @@ export function DataExportButton() {
       setReceipt(nextReceipt)
       setState('done')
     } catch (err) {
+      // Drop any earlier receipt: leaving a past success on screen beside a
+      // failure reads as though this attempt produced that archive.
+      setReceipt(null)
       setState('error')
       setErrorMessage(err instanceof Error ? err.message : 'Export failed')
     }
@@ -73,6 +96,9 @@ export function DataExportButton() {
           <p className="font-medium text-[var(--eco-text)]">
             Your browser started downloading the archive.
           </p>
+          {receipt.failed.length > 0 ? (
+            <p className="mt-1 text-[var(--eco-text)]">{partialFailureMessage(receipt)}</p>
+          ) : null}
           <p className="mt-1">
             File: <span className="font-medium text-[var(--eco-text)]">{receipt.filename}</span>
           </p>

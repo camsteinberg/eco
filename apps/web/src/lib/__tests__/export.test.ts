@@ -150,6 +150,48 @@ describe("exportConversationAsMarkdown", () => {
     expect(result).toContain("---");
   });
 
+  it("states that the file holds the active branch only", async () => {
+    mockDb.get.mockResolvedValue(mockConversation);
+    vi.mocked(getActiveBranch).mockResolvedValue(branchMessages);
+
+    const result = await exportConversationAsMarkdown("conv-1");
+
+    expect(result).toContain(
+      "*This file contains the active branch of the conversation only.*"
+    );
+  });
+
+  it("lists the sources under an assistant message that has citations", async () => {
+    const grounded: DbMessage[] = [
+      mockMessages[0]!,
+      {
+        ...mockMessages[1]!,
+        citations: [
+          { id: 1, title: "Photosynthesis", url: "https://example.org/photosynthesis" },
+          { id: 2, title: "", url: "https://example.org/untitled" },
+        ],
+      },
+    ];
+    mockDb.get.mockResolvedValue(mockConversation);
+    vi.mocked(getActiveBranch).mockResolvedValue(grounded);
+
+    const result = await exportConversationAsMarkdown("conv-1");
+
+    expect(result).toContain("Sources:");
+    expect(result).toContain("- [Photosynthesis](https://example.org/photosynthesis)");
+    // No title to show, so the URL is the link text rather than an empty label.
+    expect(result).toContain("- [https://example.org/untitled](https://example.org/untitled)");
+  });
+
+  it("adds no Sources line to a message without citations", async () => {
+    mockDb.get.mockResolvedValue(mockConversation);
+    vi.mocked(getActiveBranch).mockResolvedValue(branchMessages);
+
+    const result = await exportConversationAsMarkdown("conv-1");
+
+    expect(result).not.toContain("Sources:");
+  });
+
   it("skips system messages", async () => {
     const messagesWithSystem: DbMessage[] = [
       {

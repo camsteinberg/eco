@@ -86,6 +86,13 @@ export async function exportConversationAsMarkdown(
     `*Exported from Eco on ${new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}*`
   );
   lines.push("");
+  // The Markdown export flattens ONE path through the message tree. Without this
+  // line a reader has no way to tell an edited-away branch from a chat that never
+  // happened; the JSON export is the one that carries every branch.
+  lines.push(
+    "*This file contains the active branch of the conversation only.*"
+  );
+  lines.push("");
 
   for (const msg of branch) {
     if (msg.role === "system") continue;
@@ -95,6 +102,16 @@ export async function exportConversationAsMarkdown(
     lines.push(`**${roleLabel}** *(${timestamp})*`);
     lines.push("");
     lines.push(msg.content);
+    if (msg.citations && msg.citations.length > 0) {
+      // A grounded answer without its sources is indistinguishable from one the
+      // model made up, so the export carries the links the chat UI shows.
+      lines.push("");
+      lines.push("Sources:");
+      for (const citation of msg.citations) {
+        const label = citation.title?.trim() ? citation.title.trim() : citation.url;
+        lines.push(`- [${label}](${citation.url})`);
+      }
+    }
     if (msg.reactions && msg.reactions.length > 0) {
       const emojiLabels = msg.reactions.map((r) => `[${r.emoji}]`).join(" ");
       lines.push("");
