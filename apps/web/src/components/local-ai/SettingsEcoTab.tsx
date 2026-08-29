@@ -4,6 +4,7 @@
 'use client';
 
 import { Button } from '@eco/ui';
+import Link from 'next/link';
 import type { ModelConfig, Slot } from '../../local-ai/types';
 import type { SlotStatus } from '../../local-ai/lifecycle/slots';
 import { getDisplayInfo } from '../../local-ai/display';
@@ -110,6 +111,7 @@ export function SettingsEcoTab({
           showProvenance={showTechnicalDetails}
           status={currentModelStatus}
         />
+        <ModelLicensesLink />
       </SettingsSection>
 
       <CustomInstructionsSection />
@@ -203,6 +205,22 @@ export function SettingsEcoTab({
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * The models are third-party works under their own licenses, and two of the
+ * ones Eco can download are not open-source licensed. A person who wants to
+ * know that should be able to find it from the place the model is named.
+ */
+function ModelLicensesLink() {
+  return (
+    <Link
+      href="/licenses"
+      className="mt-3 inline-block text-sm text-[var(--eco-text-secondary)] underline hover:text-[var(--eco-text)]"
+    >
+      Model licenses ›
+    </Link>
   );
 }
 

@@ -116,12 +116,25 @@ export default function TransparencyPage({
             <p>
               Eco is built on radical transparency. We publish exactly how the
               system works because privacy claims are only meaningful when they
-              can be verified. Every line of code is open source under the{" "}
+              can be verified. Every line of our code is open source under the{" "}
               <strong className="text-[var(--eco-text)]">
                 AGPL-3.0
               </strong>{" "}
               license &mdash; anyone can inspect, audit, and confirm our
               architecture enforces what we promise.
+            </p>
+            <p className="mt-3">
+              The AI models are a different matter: they are separate works by
+              other publishers, each under its own license, and not all of them
+              are open source. We list every one, and who wrote it, on the{" "}
+              <Link
+                href="/licenses"
+                className="font-medium underline transition-colors hover:text-[var(--eco-text)]"
+                style={{ color: "var(--eco-primary)" }}
+              >
+                model licenses
+              </Link>{" "}
+              page.
             </p>
           </section>
 
