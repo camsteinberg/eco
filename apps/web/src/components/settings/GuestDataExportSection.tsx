@@ -27,7 +27,7 @@ export function GuestDataExportSection() {
   return (
     <SettingsSection
       title="Your data"
-      description="Download everything Eco has stored on this device — your conversations, settings, and memories. The archive is built here in your browser; nothing is uploaded."
+      description="Download the data Eco has stored on this device — your conversations, settings, and memories. The archive is built here in your browser; nothing is uploaded."
     >
       <DataExportButton />
     </SettingsSection>
