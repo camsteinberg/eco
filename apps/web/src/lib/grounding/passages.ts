@@ -2,45 +2,53 @@
 // Copyright (C) 2026 Bos Computing LLC
 
 /**
- * Passage-level retrieval: fetch a Wikipedia article BODY and pick the sentences
- * that actually answer the question.
+ * Passage-level retrieval: fetch a Wikipedia article BODY and pick the chunks
+ * that best answer the question, scored with BM25.
  *
- * WHY THIS EXISTS. The shipped grounding tool injects the article's LEAD summary
- * (`wikimedia.truncateExtract`, ~4 sentences / 600 chars). Two live checks on
- * 2026-08-29 showed the lead is the wrong span for body facts: "how many calories
- * in an apple" resolves to *Apple*, whose lead has no calorie figure (it is in the
- * Nutrition section). Search finds the page; the answer is not in what we inject.
+ * WHY BM25. Deterministic, ~3 KB of logic, no second model, no GPU contention.
+ * The standard BM25 parameters (k1 = 1.2, b = 0.75) are CHOSEN as the textbook
+ * defaults, not measured against our data — tuning them on a corpus we plan to
+ * judge would be overfitting. IDF is computed over the chunks of THIS article
+ * (the "collection" is the single fetched page), which is enough to favour rare
+ * query terms over terms that appear in every section.
+ *
+ * WHY CHUNKS, NOT SENTENCES. The previous sentence selector caused two bugs
+ * (PR #309): it broke at decimal points inside numbers ("3.5 oz") and it lost
+ * the calorie sentence entirely when a trailing citation marker defeated the
+ * split. A measurement was inconclusive partly because the selected unit was too
+ * small to carry context. Passage-level chunks (~1000 characters, broken on
+ * paragraph/sentence boundaries, never mid-sentence) are large enough to carry a
+ * fact in context and robust to the formatting quirks TextExtracts emits.
+ *
+ * DEFERRED. Model-rewritten query formation is deliberately not built: it costs
+ * a full extra generation before any answer, the 1.2B self-dispatches 1 turn in
+ * 30 (measured 2026-08-29), and arXiv 2603.11513 finds method improvements give
+ * limited benefit below 7B.
  *
  * WHAT THIS IS. The measurement arm's treatment: whole-article plain text →
- * sections → sentences → question-overlap scoring → the top few quoted sentences
- * inside the same data fence the lead note uses. It is NOT switched on for anyone:
- * the shipped tool still runs in `'lead'` mode and only the diagnostics eval
- * harness constructs the `'passages'` variant. The pre-committed decision rule for
- * whether it ever ships lives in eco-notes (search-measurement protocol,
- * 2026-08-29) — nothing here may be tuned against results.
+ * sections → passage chunks → BM25 scoring → the top few quoted passages inside
+ * the same data fence the lead note uses. It is NOT switched on for anyone: the
+ * shipped tool still runs in `'lead'` mode and only the diagnostics eval harness
+ * constructs the `'passages'` variant.
  *
- * SCORING IS CRUDE ON PURPOSE. Content-word overlap with 5-character stemming, no
- * embeddings, no reranker. A retrieval mechanism that needs a second model to be
- * useful is a different (much larger) decision; this measures whether the CHEAPEST
- * honest version of "quote the right sentence" moves answer correctness at all.
- *
- * The host is HARDCODED: `fetchArticlePlainText` composes `en.wikipedia.org` itself
- * and takes only a title, so the allow-list is structural rather than a check that
- * could be forgotten. Requests go DIRECTLY from the browser to Wikimedia — same
- * privacy posture as `wikimedia.ts`; Eco's servers never see the title.
+ * The host is HARDCODED: `fetchArticlePlainText` composes `en.wikipedia.org`
+ * itself and takes only a title, so the allow-list is structural rather than a
+ * check that could be forgotten. Requests go DIRECTLY from the browser to
+ * Wikimedia — same privacy posture as `wikimedia.ts`; Eco's servers never see
+ * the title.
  */
 
 import { FENCE_ANSWER_INSTRUCTION, FENCE_CLOSE, FENCE_OPEN, FENCE_PREAMBLE, neutralizeFenceMarkers } from "./fence";
 import type { GroundingRequestOptions, WikipediaDeclineReason } from "./types";
 import { DEFAULT_TIMEOUT_MS, groundedApiFetch } from "./wikimedia";
 
-/** One selected sentence, with the section it came from and its overlap score. */
+/** One selected passage chunk, with the section it came from and its BM25 score. */
 export type Passage = {
-  /** The cleaned sentence, whitespace-collapsed and citation-marker stripped. */
-  sentence: string;
-  /** The `== Heading ==` this sentence sat under; `""` for the lead section. */
+  /** The cleaned passage text, whitespace-collapsed and citation-marker stripped. */
+  text: string;
+  /** The `== Heading ==` this passage sat under; `""` for the lead section. */
   sectionTitle: string;
-  /** Fraction of the question's content stems present in sentence + heading (0..1). */
+  /** BM25 score for this passage against the question. */
   score: number;
 };
 
@@ -192,7 +200,7 @@ export async function fetchArticlePlainText(
 }
 
 // ---------------------------------------------------------------------------
-// Passage selection (pure, deterministic)
+// Passage selection: BM25 over passage-level chunks (pure, deterministic)
 // ---------------------------------------------------------------------------
 
 /**
@@ -241,23 +249,37 @@ const QUESTION_STOPWORDS: ReadonlySet<string> = new Set([
   "when", "where", "which", "while", "who", "why", "will", "with", "would", "you", "your",
 ]);
 
-/** Below this a "sentence" is a caption, a stub line, or a fragment. */
-const MIN_SENTENCE_CHARS = 30;
-/** Above this it is a run-on paragraph the splitter failed on; too costly to inject. */
-const MAX_SENTENCE_CHARS = 400;
 /** Tokens at least this long are stemmed by truncation. */
 const STEM_MIN_LEN = 6;
 /** …to this many characters ("calories"/"calorie" → "calor"). */
 const STEM_LEN = 5;
 
-/** Defaults: four sentences, 500 characters of quoted text in total. */
-const DEFAULT_K = 4;
-const DEFAULT_MAX_CHARS = 500;
+/**
+ * Target chunk size in characters. Chunks break on paragraph/sentence boundaries
+ * and may exceed this when a single sentence is longer, but never split mid-sentence.
+ */
+const TARGET_CHUNK_CHARS = 1000;
+
+/**
+ * BM25 saturation parameter. Standard default (Robertson & Walker, 1994).
+ * CHOSEN, not measured — tuning against our own data would be overfitting.
+ */
+const BM25_K1 = 1.2;
+
+/**
+ * BM25 length-normalization parameter. Standard default (Robertson & Walker, 1994).
+ * CHOSEN, not measured — same rationale as k1.
+ */
+const BM25_B = 0.75;
+
+/** Top-3 chunks, ~3000 characters of quoted text in total. */
+const DEFAULT_K = 3;
+const DEFAULT_MAX_CHARS = 3000;
 
 export type SelectPassagesOptions = {
-  /** Maximum passages returned (default 4). */
+  /** Maximum passages returned (default 3). */
   k?: number;
-  /** Maximum TOTAL characters of selected sentence text (default 500). */
+  /** Maximum TOTAL characters of selected passage text (default 3000). */
   maxChars?: number;
 };
 
@@ -268,7 +290,7 @@ function tokenize(text: string): string[] {
     .normalize("NFD")
     // Combining diacritical marks — stripped so "café" and "cafe" compare equal.
     // Escaped rather than literal so this file stays pure ASCII (module convention).
-    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[̀-ͯ]/g, "")
     .split(/[^a-z0-9]+/)
     .filter((t) => t.length > 0);
 }
@@ -359,15 +381,6 @@ function endsWithAbbreviation(body: string, dotIndex: number): boolean {
 /**
  * Split a section body into sentence-ish spans.
  *
- * This DIVERGES from `wikimedia.truncateExtract`, which the previous comment here
- * claimed parity with. That parity was the bug. The shared regex treats every `.`
- * as a terminator, so the real Nutrition sentence "A reference serving of 100 g
- * (3.5 oz) provides 52 calories…" broke at the decimal point and the surviving
- * fragment ("5 oz) provides 52 calories…") no longer carried the "apple" token —
- * it scored below lead sentences and was never selected. The divergence is
- * deliberate and CONFINED to this diagnostics-only arm; the shipped lead path in
- * `wikimedia.ts` is untouched, so the A/B still compares the same lead text it did.
- *
  * A terminator run ends a sentence only when the next character is whitespace or
  * the string ends. That single rule is what keeps number-internal stops together:
  * the `.` in "3.5" or "42.195" is followed by a digit, so it is never a boundary.
@@ -420,17 +433,153 @@ function splitSentences(body: string): string[] {
   return out;
 }
 
-type Candidate = { sentence: string; sectionTitle: string; score: number; order: number };
+// ---------------------------------------------------------------------------
+// Chunking: paragraph/sentence-boundary chunks of ~TARGET_CHUNK_CHARS
+// ---------------------------------------------------------------------------
+
+/** A section's lines collected for chunking. */
+type SectionBlock = {
+  sectionTitle: string;
+  /** Raw lines of body text (between headings), joined for processing. */
+  lines: string[];
+};
+
+/** A passage chunk ready for scoring. */
+type Chunk = {
+  /** Cleaned text (citations stripped, sentences cleaned, whitespace collapsed). */
+  text: string;
+  /** Section heading this chunk came from. */
+  sectionTitle: string;
+  /** Stemmed tokens of the chunk text PLUS heading tokens. */
+  stems: string[];
+  /** Appearance order in the article (for tie-breaking). */
+  order: number;
+};
 
 /**
- * Pick the sentences most likely to answer `question`, in score order.
+ * Break a section body into passage chunks of roughly TARGET_CHUNK_CHARS.
  *
- * PURE and DETERMINISTIC: same text + same question ⇒ same passages, byte for
- * byte. Ties break toward the EARLIER sentence in the article (Wikipedia puts the
+ * Strategy: split into sentences, then greedily accumulate sentences into a chunk
+ * until adding the next sentence would exceed the target. A single sentence longer
+ * than the target becomes its own chunk (never split mid-sentence). Empty sentences
+ * are dropped.
+ */
+function chunkSection(body: string, sectionTitle: string, startOrder: number, headingStems: string[]): Chunk[] {
+  const cleaned = stripCitationMarkers(body);
+  const sentences = splitSentences(cleaned).map(cleanSentence).filter((s) => s.length > 0);
+  if (sentences.length === 0) return [];
+
+  const chunks: Chunk[] = [];
+  let current: string[] = [];
+  let currentLen = 0;
+
+  const flush = (): void => {
+    if (current.length === 0) return;
+    const text = current.join(" ");
+    const chunkStems = [...tokenize(text).map(stem), ...headingStems];
+    chunks.push({
+      text,
+      sectionTitle,
+      stems: chunkStems,
+      order: startOrder + chunks.length,
+    });
+    current = [];
+    currentLen = 0;
+  };
+
+  for (const sentence of sentences) {
+    // If adding this sentence would exceed the target and we already have content,
+    // flush the current chunk first.
+    if (currentLen > 0 && currentLen + sentence.length > TARGET_CHUNK_CHARS) {
+      flush();
+    }
+    current.push(sentence);
+    currentLen += sentence.length;
+  }
+  flush();
+
+  return chunks;
+}
+
+// ---------------------------------------------------------------------------
+// BM25 scoring
+// ---------------------------------------------------------------------------
+
+/**
+ * Score each chunk against the question using BM25.
+ *
+ * IDF is computed over the chunks of THIS article — the "collection" is the single
+ * fetched page. This is enough to favour rare query terms over terms that appear
+ * in every section.
+ */
+function scoreBM25(chunks: ReadonlyArray<Chunk>, qStems: ReadonlySet<string>): Map<Chunk, number> {
+  const N = chunks.length;
+  if (N === 0) return new Map();
+
+  // Document frequency: how many chunks contain each query stem.
+  const df = new Map<string, number>();
+  for (const q of qStems) {
+    let count = 0;
+    for (const chunk of chunks) {
+      const stemSet = new Set(chunk.stems);
+      if (stemSet.has(q)) count++;
+    }
+    df.set(q, count);
+  }
+
+  // Average document length (in stems).
+  let totalLen = 0;
+  for (const chunk of chunks) {
+    totalLen += chunk.stems.length;
+  }
+  const avgDl = totalLen / N;
+
+  const scores = new Map<Chunk, number>();
+  for (const chunk of chunks) {
+    // Term frequency map for this chunk.
+    const tf = new Map<string, number>();
+    for (const s of chunk.stems) {
+      tf.set(s, (tf.get(s) ?? 0) + 1);
+    }
+
+    let score = 0;
+    const dl = chunk.stems.length;
+
+    for (const q of qStems) {
+      const termFreq = tf.get(q) ?? 0;
+      if (termFreq === 0) continue;
+
+      const docFreq = df.get(q) ?? 0;
+      // IDF: log((N - df + 0.5) / (df + 0.5) + 1) — the "+1" variant that
+      // avoids negative IDF for terms appearing in more than half the documents.
+      const idf = Math.log((N - docFreq + 0.5) / (docFreq + 0.5) + 1);
+
+      // BM25 TF component.
+      const tfNorm = (termFreq * (BM25_K1 + 1)) /
+        (termFreq + BM25_K1 * (1 - BM25_B + BM25_B * (dl / avgDl)));
+
+      score += idf * tfNorm;
+    }
+
+    scores.set(chunk, score);
+  }
+
+  return scores;
+}
+
+// ---------------------------------------------------------------------------
+// Public API: selectPassages + buildPassageNote
+// ---------------------------------------------------------------------------
+
+/**
+ * Pick the passage chunks most likely to answer `question`, scored by BM25.
+ *
+ * PURE and DETERMINISTIC: same text + same question => same passages, byte for
+ * byte. Ties break toward the EARLIER chunk in the article (Wikipedia puts the
  * definitional statement first), so the ordering never depends on sort stability.
  *
  * Bounds hold strictly: at most `k` passages and at most `maxChars` characters of
- * sentence text in total. A passage that would push the total over the cap ends
+ * passage text in total. A passage that would push the total over the cap ends
  * the selection rather than being skipped — "the top ones that fit" is a rule a
  * reader can predict; "the top ones that happen to be short" is not.
  */
@@ -447,30 +596,18 @@ export function selectPassages(
   const stems = questionStems(question);
   if (stems.size === 0) return [];
 
-  const candidates: Candidate[] = [];
+  // Parse the article into section blocks, respecting EXCLUDED_SECTIONS.
+  const sections: SectionBlock[] = [];
   let sectionTitle = "";
   let excludedAtLevel: number | null = null;
   let buffer: string[] = [];
-  let order = 0;
 
-  const flush = (): void => {
+  const flushSection = (): void => {
     if (buffer.length === 0) return;
-    const body = stripCitationMarkers(buffer.join(" "));
-    buffer = [];
-    if (excludedAtLevel !== null) return;
-    const headingStems = new Set(tokenize(sectionTitle).map(stem));
-    for (const raw of splitSentences(body)) {
-      const sentence = cleanSentence(raw);
-      if (sentence.length < MIN_SENTENCE_CHARS || sentence.length > MAX_SENTENCE_CHARS) continue;
-      const present = new Set([...tokenize(sentence).map(stem), ...headingStems]);
-      let hits = 0;
-      for (const s of stems) {
-        if (present.has(s)) hits++;
-      }
-      const index = order++;
-      if (hits === 0) continue;
-      candidates.push({ sentence, sectionTitle, score: hits / stems.size, order: index });
+    if (excludedAtLevel === null) {
+      sections.push({ sectionTitle, lines: buffer });
     }
+    buffer = [];
   };
 
   for (const line of text.split("\n")) {
@@ -479,7 +616,7 @@ export function selectPassages(
       buffer.push(line);
       continue;
     }
-    flush();
+    flushSection();
     const level = (heading[1] ?? "==").length;
     const title = heading[2] ?? "";
     // Leaving an excluded section: the next heading at the same or shallower level.
@@ -491,20 +628,43 @@ export function selectPassages(
     }
     sectionTitle = title;
   }
-  flush();
+  flushSection();
 
-  candidates.sort((a, b) => (b.score - a.score) || (a.order - b.order));
+  // Build chunks from all non-excluded sections.
+  let orderCounter = 0;
+  const allChunks: Chunk[] = [];
+  for (const section of sections) {
+    const body = section.lines.join("\n");
+    const headingStems = tokenize(section.sectionTitle).map(stem);
+    const sectionChunks = chunkSection(body, section.sectionTitle, orderCounter, headingStems);
+    orderCounter += sectionChunks.length;
+    allChunks.push(...sectionChunks);
+  }
+
+  if (allChunks.length === 0) return [];
+
+  // Score with BM25.
+  const scores = scoreBM25(allChunks, stems);
+
+  // Sort: highest score first, ties broken by earlier position in the article.
+  const sorted = [...allChunks]
+    .filter((c) => (scores.get(c) ?? 0) > 0)
+    .sort((a, b) => {
+      const sa = scores.get(a) ?? 0;
+      const sb = scores.get(b) ?? 0;
+      return (sb - sa) || (a.order - b.order);
+    });
 
   const out: Passage[] = [];
   let used = 0;
-  for (const candidate of candidates) {
+  for (const chunk of sorted) {
     if (out.length >= k) break;
-    if (used + candidate.sentence.length > maxChars) break;
-    used += candidate.sentence.length;
+    if (used + chunk.text.length > maxChars) break;
+    used += chunk.text.length;
     out.push({
-      sentence: candidate.sentence,
-      sectionTitle: candidate.sectionTitle,
-      score: candidate.score,
+      text: chunk.text,
+      sectionTitle: chunk.sectionTitle,
+      score: scores.get(chunk) ?? 0,
     });
   }
   return out;
@@ -515,13 +675,13 @@ export function selectPassages(
 // ---------------------------------------------------------------------------
 
 /**
- * Build the passages inject block: the selected sentences, each quoted and tagged
+ * Build the passages inject block: the selected chunks, each quoted and tagged
  * with its article + section, inside the SAME data fence and with the SAME opening
  * and closing instructions as the lead note (`buildFoundNote`). Sharing the
  * scaffolding is what makes the lead-vs-passages A/B measure the retrieved SPAN
  * rather than two different prompts.
  *
- * Every untrusted span — the title, the section heading, the sentence — is
+ * Every untrusted span — the title, the section heading, the passage text — is
  * neutralized BEFORE it is fenced, so a vandalized article cannot forge a
  * counterfeit `[BEGIN SOURCE TEXT]` region or close the real one early. No URL, for
  * the reason recorded on `FENCE_ANSWER_INSTRUCTION`.
@@ -530,8 +690,8 @@ export function buildPassageNote(title: string, passages: Passage[]): string {
   const dataLines = passages.map((p) =>
     neutralizeFenceMarkers(
       p.sectionTitle.trim() === ""
-        ? `[Source: Wikipedia — "${title}"] "${p.sentence}"`
-        : `[Source: Wikipedia — "${title}", section "${p.sectionTitle}"] "${p.sentence}"`,
+        ? `[Source: Wikipedia — "${title}"] "${p.text}"`
+        : `[Source: Wikipedia — "${title}", section "${p.sectionTitle}"] "${p.text}"`,
     ),
   );
 
