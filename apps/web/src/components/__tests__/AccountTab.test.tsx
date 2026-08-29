@@ -21,6 +21,8 @@ const {
   exportUserDataMock: vi.fn().mockResolvedValue({
     filename: 'eco-account-export.json',
     exportedAt: '2026-04-30T10:00:00.000Z',
+    included: ['conversations', 'settings'],
+    failed: [],
   }),
 }))
 
@@ -104,6 +106,8 @@ describe('AccountTab', () => {
     exportUserDataMock.mockResolvedValue({
       filename: 'eco-account-export.json',
       exportedAt: '2026-04-30T10:00:00.000Z',
+      included: ['conversations', 'settings'],
+      failed: [],
     })
     Object.defineProperty(window, 'location', {
       value: {
