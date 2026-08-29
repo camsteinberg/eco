@@ -12,27 +12,42 @@
  * ordinary chat — so the defects that live outside every feature's mental model of
  * its input have somewhere to show up.
  *
- * THE BAR. Eco runs on-device; that is the product's whole promise. Two of the six
- * shipping tools reach the network when they match, so a spurious match is not a
- * cosmetic bug — it is an unrequested outbound request derived from text the user
- * pasted privately, plus an unrelated article injected at the front of the model's
- * system prompt. So the assertion is deliberately narrow and deliberately harsh:
- * NO network-backed tool may fire on input where a reasonable user would not expect
- * a lookup. The four local tools (calculator, datetime, unit, identity) are free to
- * match whatever they like here — they compute locally and send nothing.
+ * THE BAR — TWO RISKS, NOT ONE.
  *
- * Both directions are asserted. Abstention alone is trivially satisfiable by never
- * grounding anything, which would destroy the feature that kills confident
- * hallucination on factual questions, so the corpus carries genuine factual asks
- * that MUST still reach a lookup.
+ * (1) The NETWORK risk. Eco runs on-device; that is the product's whole promise.
+ * One of the six shipping tools reaches the network when it matches, so a spurious
+ * match is not a cosmetic bug — it is an unrequested outbound request derived from
+ * text the user pasted privately, plus an unrelated article injected at the front
+ * of the model's system prompt.
+ *
+ * (2) The HIJACK risk. The other five tools (identity, calculator, datetime, unit,
+ * money) send nothing, and this sweep used to exempt them for that reason. That
+ * exemption tested the wrong risk. Per `hooks/useChat/tool-step.ts`, a non-citation
+ * match returns `{ systemNote: null, canonicalAnswer: result.display }` — the host's
+ * string becomes the assistant's reply verbatim and GENERATION IS SKIPPED. So a
+ * spurious local match does not merely add noise; it takes the user's turn away and
+ * answers a question they did not ask. Measured when the exemption was lifted: a
+ * nine-item to-do list containing "she asked like 10 days ago" was answered, whole,
+ * with a date. Privacy was intact and the turn was still destroyed.
+ *
+ * So the assertion is deliberately harsh in both directions: NO tool of either kind
+ * may claim a turn where a reasonable user would not expect it.
+ *
+ * Both directions are asserted for both risks. Abstention alone is trivially
+ * satisfiable by deleting the feature — never grounding anything, never matching a
+ * local tool — so the corpus carries genuine factual asks that MUST still reach a
+ * lookup, and genuine arithmetic/date/unit/money/privacy asks that MUST still reach
+ * their local tool.
  */
 
 import { describe, it, expect } from "vitest";
 
 import { detectTool, DEFAULT_TOOLS } from "../lib/tools";
 import {
+  localToolPositives,
   shouldLookUp,
   shouldNotLookUp,
+  shouldNotUseAnyTool,
   REALISTIC_INPUTS,
 } from "./fixtures/realistic-inputs";
 
@@ -48,6 +63,17 @@ const NETWORK_BACKED: readonly string[] = DEFAULT_TOOLS.filter(
 ).map((tool) => tool.name);
 
 /**
+ * The tools that answer the turn themselves, derived the same way — everything the
+ * registry does NOT mark `"citation"`. Those are the tools whose `display` becomes
+ * the reply verbatim while generation is skipped (`tool-step.ts`), so a spurious
+ * match here costs the user their turn. Deriving it rather than listing names means
+ * a future local tool is covered the moment it is registered.
+ */
+const LOCAL_BACKED: readonly string[] = DEFAULT_TOOLS.filter(
+  (tool) => tool.presentation !== "citation",
+).map((tool) => tool.name);
+
+/**
  * The detection a user would actually get, reduced to the only part that matters
  * here: did a tool that makes an outbound request claim this turn, and on what?
  * Returning the args (not just a boolean) is what makes a failure readable — the
@@ -59,6 +85,22 @@ function networkLookupFor(text: string): { tool: string; args: unknown } | null 
     return null;
   }
   if (!NETWORK_BACKED.includes(detection.tool.name)) {
+    return null;
+  }
+  return { tool: detection.tool.name, args: detection.args };
+}
+
+/**
+ * The same reduction for the hijack risk: did a tool that ANSWERS the turn claim
+ * it, and with what? The args are what makes a failure legible — they name the
+ * question the user would have been answered instead of their own.
+ */
+function localAnswerFor(text: string): { tool: string; args: unknown } | null {
+  const detection = detectTool(text);
+  if (detection === null) {
+    return null;
+  }
+  if (!LOCAL_BACKED.includes(detection.tool.name)) {
     return null;
   }
   return { tool: detection.tool.name, args: detection.args };
@@ -105,12 +147,18 @@ const KNOWN_GAPS: ReadonlyMap<string, string> = new Map([
   ],
   [
     "factual-questions/half-life-carbon-14",
-    "Contains digits ('carbon-14'), and the file's locked digit posture hands " +
-      "digit-bearing asks to the calculator. Pre-existing.",
+    "No tool claims this turn at all. The annotation used to say the calculator " +
+      "took it under 'the file's locked digit posture'; measured 2026-08-29, the " +
+      "calculator abstains and so does everything else. The digit posture is real " +
+      "but it lives inside GROUNDING: no Title-Case entity is extractable from " +
+      "'carbon-14', so the turn falls to the zero-entity keyword path, and " +
+      "`buildKeywordQuery` rejects any turn containing a digit. Pre-existing.",
   ],
   [
     "factual-questions/tell-me-about-krakatoa",
-    "Same digit posture ('1883'). Pre-existing.",
+    "Same correction and same cause as carbon-14: nothing matches, the calculator " +
+      "is not involved, and the digit in '1883' is what makes grounding's " +
+      "zero-entity keyword path decline. Pre-existing.",
   ],
   [
     "factual-questions/how-do-mrna-vaccines-work",
@@ -157,6 +205,57 @@ describe("realistic-input sweep — genuine factual asks still ground", () => {
     }
     it(`still looks up for ${sample.id}`, () => {
       expect(networkLookupFor(sample.text)).not.toBeNull();
+    });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// The second bar: no local tool takes a turn it was not asked for. A match here
+// costs the user their whole reply, not their privacy — see the header.
+// ---------------------------------------------------------------------------
+
+describe("realistic-input sweep — no local tool hijacks a turn", () => {
+  it("reports the local-tool false-fire rate", () => {
+    const samples = shouldNotUseAnyTool();
+    const fires = samples
+      .map((sample) => ({ id: sample.id, hit: localAnswerFor(sample.text) }))
+      .filter((row) => row.hit !== null);
+
+    // The measurement, printed rather than reduced to a green tick, so the next
+    // person reads a number instead of trusting a pass. 1/33 when the local
+    // exemption was first lifted (2026-08-29): the to-do list matched datetime
+    // `{op:"offset",days:-10}`. 0/33 after the datetime ask-window guard.
+    console.info(
+      `local-tool false fires: ${fires.length}/${samples.length}` +
+        (fires.length === 0
+          ? ""
+          : ` — ${fires.map((row) => `${row.id} → ${row.hit?.tool}`).join(", ")}`),
+    );
+
+    expect(fires).toEqual([]);
+  });
+
+  for (const sample of shouldNotUseAnyTool()) {
+    it(`answers nothing itself for ${sample.id}`, () => {
+      expect(localAnswerFor(sample.text)).toBeNull();
+    });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Its counterweight: the local tools must still answer what they exist for, or
+// the abstention above is satisfiable by deleting them.
+// ---------------------------------------------------------------------------
+
+describe("realistic-input sweep — the local tools still answer their own asks", () => {
+  it("carries a positive for every registered local tool", () => {
+    const covered = [...new Set(localToolPositives().map((s) => s.expectLocalTool))].sort();
+    expect(covered).toEqual([...LOCAL_BACKED].sort());
+  });
+
+  for (const sample of localToolPositives()) {
+    it(`answers ${sample.id} with the ${sample.expectLocalTool} tool`, () => {
+      expect(localAnswerFor(sample.text)?.tool).toBe(sample.expectLocalTool);
     });
   }
 });

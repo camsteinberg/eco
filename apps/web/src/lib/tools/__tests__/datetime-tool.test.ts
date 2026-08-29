@@ -132,6 +132,48 @@ describe("datetimeTool.match — false-positive guard (must NOT match)", () => {
   }
 });
 
+/**
+ * The offset branch used to read "N days ago / from today / later" anywhere in the
+ * turn, with no requirement that a date was being asked about. Measured in the
+ * realistic-input sweep (2026-08-29): a nine-item to-do list containing "she asked
+ * like 10 days ago" matched `{op:"offset",days:-10}`, and because a datetime match
+ * returns a canonicalAnswer, the reply to the whole turn would have been the date
+ * ten days ago. Nothing left the device; the turn was still taken.
+ *
+ * The guard is scope, not a longer pattern: a short turn IS the ask, and a long one
+ * needs the same date cue the "in N days" branch below it already required.
+ */
+describe("datetimeTool.match — offsets are scoped to the ask, not the paste", () => {
+  const TASK_LIST =
+    "help me figure out what to actually do today, I keep bouncing between these and finishing nothing\n\n" +
+    "- call the dentist back (they left a voicemail tuesday)\n" +
+    "- finish the Q3 deck — slides 8-14 still empty\n" +
+    "- renew car registration, expires end of month\n" +
+    "- reply to Jenna about the wedding, she asked like 10 days ago\n" +
+    "- gym\n- pick up the prescription\n- laundry (out of clean shirts as of tomorrow)\n" +
+    "- look into that weird charge on the credit card statement\n" +
+    "- book flights for october before they go up\n\n" +
+    "the deck is the one I keep avoiding. meeting is thursday";
+
+  it("abstains when the offset phrase is buried in a pasted to-do list", () => {
+    expect(match(TASK_LIST)).toBeNull();
+  });
+
+  it("still matches when the offset phrase is essentially the whole turn", () => {
+    expect(match("30 days ago")).toEqual({ op: "offset", days: -30 });
+  });
+
+  it("still matches a long turn that carries a date cue", () => {
+    const longAsk =
+      "I'm trying to work out when my return window actually closes — I bought it on a Friday " +
+      "and the shop said the policy runs from the purchase date, not the delivery date, which " +
+      "is a whole other argument. Anyway: what day was 30 days ago, so I can count forward " +
+      "from there and stop guessing at this?";
+    expect(longAsk.length).toBeGreaterThan(280);
+    expect(match(longAsk)).toEqual({ op: "offset", days: -30 });
+  });
+});
+
 describe("datetimeTool.match — abstention on empty/garbage", () => {
   it("returns null for empty / whitespace", () => {
     expect(match("")).toBeNull();
