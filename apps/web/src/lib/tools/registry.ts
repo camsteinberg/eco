@@ -144,6 +144,34 @@ export type EcoToolResult = {
    *  renders a deterministic "couldn't confirm this" marker. Absent on FOUND (which
    *  carries `citation` instead), on the deterministic ToolCallBlock tools, and on abstain. */
   verification?: GroundingVerification;
+  /**
+   * MEASUREMENT-ONLY provenance for a grounded FOUND result: which span of the
+   * article reached the model, and what it cost to get it.
+   *
+   * Set ONLY by a grounding tool built in `'passages'` mode
+   * (`createWikipediaGroundingTool`), which nothing in the chat pipeline
+   * constructs — the shipped `wikipediaGroundingTool` runs in `'lead'` mode and
+   * never sets this field, so its results are unchanged. The eval harness's
+   * retrieval arm reads it to report added prompt tokens and body-fetch time
+   * per the search-measurement protocol (eco-notes, 2026-08-29).
+   *
+   * `mode` distinguishes a real passage injection from the fallback: when the body
+   * fetch fails, selects nothing, or the turn also requested a Wikidata property,
+   * the LEAD note is injected instead and recorded as `'passages-fallback-lead'`
+   * rather than silently counted as a passages turn. `'lead'` is reserved for a
+   * future caller that wants the field set on the control arm too.
+   */
+  retrieval?: {
+    mode: "lead" | "passages" | "passages-fallback-lead";
+    /** Sentences actually injected; 0 on either fallback. */
+    passageCount: number;
+    /** Character length of `forModel` — the added-prompt-cost measure. */
+    injectedChars: number;
+    /** Wall-clock ms of the article-body request; `null` when none was made. */
+    bodyFetchMs: number | null;
+    /** The section heading each injected passage came from, in injection order. */
+    sectionTitles: string[];
+  };
 };
 
 /**

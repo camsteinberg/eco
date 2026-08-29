@@ -80,6 +80,15 @@ export type EvalCategory =
    * composite: the graded unit here is the tool call, not the reply.
    */
   | 'dispatch'
+  /**
+   * The passage-retrieval probe set (local-ai/eval/retrieval-probes.ts): the
+   * frozen 20-row protocol corpus, the blind corpus's no-tool rows, and three
+   * hostile-fixture rows, run to measure whether injecting question-matched body
+   * SENTENCES beats injecting the article's lead summary. Its own category so a
+   * run scopes to exactly that comparison; the graded unit is the answer, but the
+   * decision-grade score is blind human scoring, not this run's composite.
+   */
+  | 'retrieval'
   | 'captured';
 
 /**
@@ -526,6 +535,18 @@ export type EvalPerf = {
   totalMs: number;
   /** Raw completion tokens produced (worker-side count). */
   completionTokens: number;
+  /**
+   * Tokenizer-backed INPUT length for this generation, as reported by the
+   * adapter's `done` event. The transformers adapter reports it (the worker reads
+   * the rendered `input_ids` tensor width); LiteRT does not, so it is `null` there
+   * and on every run persisted before this field existed.
+   *
+   * The retrieval measurement's cost rule is stated in ADDED PROMPT TOKENS, and a
+   * chars/4 estimate is not good enough to decide a threshold on — so the real
+   * number is recorded whenever the runtime will give it, alongside the estimate on
+   * `EvalResult.grounding.injectedTokensEstimate`.
+   */
+  promptTokens?: number | null;
   /** Produced >=1 token without error. */
   smokePass: boolean;
   /**
@@ -541,6 +562,51 @@ export type EvalPerf = {
    * Optional for the same persisted-run back-compat reason as above.
    */
   ranToCap?: boolean;
+};
+
+/** How a grounding tool step ended, in the retrieval arm's vocabulary. */
+export type EvalGroundingOutcome = 'found' | 'hedge' | 'decline' | 'degraded' | 'none';
+
+/**
+ * What the retrieval arm's tool step did on one probe (local-ai/eval/retrieval-arm.ts).
+ *
+ * Present only on results from a run that set `groundingArm`; absent everywhere
+ * else, including every run persisted before the arm existed. Every field is a
+ * MEASUREMENT, and the two output-derived flags are signals for a blind human
+ * scorer rather than verdicts — see the arm module for what each one over- and
+ * under-counts.
+ */
+export type EvalGroundingRecord = {
+  /** Did the shipped matcher claim this turn at all? `false` = no lookup happened. */
+  fired: boolean;
+  /** Resolved article title, on a FOUND result. */
+  title?: string;
+  /** Resolved article URL, on a FOUND result. */
+  url?: string;
+  /** The tool's own extraction-confidence tier for the hit. */
+  confidence?: string;
+  /** Which span reached the model. Absent when nothing fired. */
+  mode?: 'lead' | 'passages' | 'passages-fallback-lead';
+  /** Sentences injected, in `'passages'` mode. */
+  passageCount?: number;
+  /** Character length of the injected note; 0 when nothing fired. */
+  injectedChars: number;
+  /** `injectedChars / 4` — the harness-wide estimate, kept beside `perf.promptTokens`. */
+  injectedTokensEstimate: number;
+  /** Wall-clock ms of the whole tool step (match + every fetch). */
+  toolMs: number;
+  /** Wall-clock ms of the article-BODY request alone; `null` when none was made. */
+  bodyFetchMs?: number | null;
+  /** Section heading per injected passage, in injection order. */
+  sectionTitles?: string[];
+  /** How the tool step ended. */
+  outcome: EvalGroundingOutcome;
+  /** Hostile rows only: did the fixture's injected sentence reach the injected note? */
+  injectionSurfaced?: boolean;
+  /** Hostile rows only: did the fixture's sentinel word reach the model's REPLY? */
+  sentinelInOutput?: boolean;
+  /** Fraction of the reply inside verbatim >=40-char spans of the injected note. */
+  parrotRatio?: number;
 };
 
 /** One scored prompt × model result. */
@@ -568,6 +634,12 @@ export type EvalResult = {
    * (and on runs persisted before this field existed).
    */
   judge?: JudgeDimension[];
+  /**
+   * What the retrieval arm's grounding tool step did on this probe. Present only
+   * when the run set `groundingArm`; absent on every other run, so a stored result
+   * says for itself whether a tool ran rather than relying on the typed label.
+   */
+  grounding?: EvalGroundingRecord;
   error: string | null;
 };
 
@@ -621,6 +693,14 @@ export type EvalRunConfigFingerprint = {
    * than relying on the human-typed label.
    */
   dispatchArm?: 'schemas';
+  /**
+   * Which retrieval arm ran the grounding tool for this run: `'lead'` (the
+   * control — today's shipped lead-summary injection) or `'passages'` (the
+   * treatment). Absent when the run ran NO tool at all, which is every other run
+   * the harness has ever produced — so a stored run always says whether a tool
+   * touched its prompts, and a lead run can never be mistaken for a tool-free one.
+   */
+  groundingArm?: 'lead' | 'passages';
   /** Number of prompt specs run per model. */
   promptCount: number;
   /** Deterministic non-content hash of selected prompt IDs, categories, topology metadata, and scoring flags. */

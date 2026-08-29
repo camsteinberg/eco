@@ -181,6 +181,21 @@ async function groundedFetch(
   }
 }
 
+/**
+ * The public form of {@link groundedFetch}: same timeout, caller-signal
+ * composition, `Api-User-Agent` header and single bounded 429/503 retry, exposed
+ * so a sibling module that reaches a Wikimedia endpoint (the passage body fetch in
+ * `passages.ts`) inherits the etiquette rather than re-implementing it. Resolves to
+ * a possibly-non-ok `Response`; rejects on timeout/caller-abort and on a genuine
+ * network failure, exactly as the internal form does.
+ */
+export function groundedApiFetch(
+  url: string,
+  opts?: GroundingRequestOptions,
+): Promise<Response> {
+  return groundedFetch(url, opts, true);
+}
+
 function isAbortError(err: unknown): boolean {
   return (
     err instanceof DOMException && err.name === "AbortError"
