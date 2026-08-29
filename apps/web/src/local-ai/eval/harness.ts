@@ -64,6 +64,11 @@ import type { ModelConfig } from '../types';
 import type { ChatMessage, GenerateOptions, TokenEvent } from '../runtime/types';
 import { getEvalCandidateModel } from './eval-candidates';
 import { applyDispatchArm } from './dispatch-arm';
+import {
+  runGroundingStep,
+  withOutputSignals,
+  type EvalGroundingArm,
+} from './retrieval-arm';
 import { applyEcoTangentArm, type EcoTangentArm } from './eco-tangent';
 import {
   applyEverydayArmOptions,
@@ -77,6 +82,7 @@ import { SHAPE_PROBES, SHAPE_RESEARCH_ARMS } from './shape-probes';
 import { CONTEXT_STRESS_PROBES } from './context-stress-probes';
 import type {
   EvalEverydayArmId,
+  EvalGroundingRecord,
   EvalMessageTopology,
   EvalPromptContractId,
   EvalPromptSpec,
@@ -230,6 +236,20 @@ export type EvalRunConfig = {
    * base prompt that arm produced.
    */
   dispatchArm?: 'schemas';
+  /**
+   * Passage-retrieval arm (local-ai/eval/retrieval-arm.ts) — the ONLY config that
+   * makes the harness run a TOOL. Unset (every run to date) leaves the harness
+   * tool-free: no matcher runs and nothing is fetched. `'lead'` is the control —
+   * the shipped grounding tool, injecting the article's lead summary. `'passages'`
+   * is the treatment — the same tool built with `extractMode: 'passages'`, which
+   * fetches the article body and injects question-matched sentences.
+   *
+   * A LOCAL, UNSHIPPED parameterization: production imports the shipped tool and
+   * has no switch for this. Composes AFTER `identityArm` and `dispatchArm` — the
+   * grounding note is appended to whatever system prompt those produced, so the
+   * arms stack rather than shadow. Stamped on the run's fingerprint.
+   */
+  groundingArm?: EvalGroundingArm;
   /** Hard cap per generation (default 512 — keeps runs fast). */
   maxTokensCap?: number;
   /** Applies to the TOKEN STREAM only, not load (default 60000). */
@@ -484,6 +504,8 @@ type StreamOutcome = {
   output: string;
   /** Worker-reported completion tokens, else null (fall back to event count). */
   reportedCompletionTokens: number | null;
+  /** Adapter-reported tokenizer-backed PROMPT tokens, else null (LiteRT omits it). */
+  reportedPromptTokens: number | null;
   tokenEventCount: number;
   ttftMs: number | null;
   /** Adapter-reported max inter-token gap (ms), else null (#28 stall signature). */
@@ -537,6 +559,7 @@ async function runStream(
   const startMs = now();
   let output = '';
   let reportedCompletionTokens: number | null = null;
+  let reportedPromptTokens: number | null = null;
   let tokenEventCount = 0;
   let ttftMs: number | null = null;
   let maxInterTokenGapMs: number | null = null;
@@ -552,6 +575,12 @@ async function runStream(
       } else if (event.kind === 'done') {
         if (typeof event.completionTokens === 'number') {
           reportedCompletionTokens = event.completionTokens;
+        }
+        // The tokenizer-backed input length, when the adapter reports it. The
+        // retrieval arm's cost rule is stated in added PROMPT tokens, so this is
+        // the number that decides it; the chars/4 estimate is only a fallback.
+        if (typeof event.promptTokens === 'number') {
+          reportedPromptTokens = event.promptTokens;
         }
         // The adapter measures the gap on its own performance clock (decode-
         // faithful); read it straight off `done` rather than re-deriving here.
@@ -587,6 +616,7 @@ async function runStream(
   return {
     output,
     reportedCompletionTokens,
+    reportedPromptTokens,
     tokenEventCount,
     ttftMs,
     maxInterTokenGapMs,
@@ -606,6 +636,7 @@ function buildResult(
   outcome: StreamOutcome,
   promptTrace: EvalPromptTrace,
   sampleIndex?: number,
+  grounding?: EvalGroundingRecord,
 ): EvalResult {
   // Prefer the worker-reported raw count; fall back to the visible token-event
   // count only when a runtime omits `done.completionTokens`. That fallback
@@ -645,11 +676,13 @@ function buildResult(
       tokensPerSec,
       totalMs,
       completionTokens,
+      promptTokens: outcome.reportedPromptTokens,
       smokePass,
       maxInterTokenGapMs: outcome.maxInterTokenGapMs,
       ranToCap: hitTokenCap,
     },
     ...(spec.judge && spec.judge.length > 0 ? { judge: spec.judge } : {}),
+    ...(grounding !== undefined ? { grounding } : {}),
     error: outcome.error,
   };
 }
@@ -903,6 +936,10 @@ export async function runEval(config: EvalRunConfig, deps?: EvalRunnerDeps): Pro
     config.dispatchArm === 'schemas'
       ? (modelId: string): string => applyDispatchArm(identityArmed(modelId))
       : identityArmed;
+  // Retrieval measurement arm. Composes AFTER the prompt arms rather than with
+  // them: its note is per-PROBE (it depends on what the tool found for that turn),
+  // so it is appended inside the prompt loop, not folded into `buildSystemPrompt`.
+  const groundingArm = config.groundingArm;
   const buildOptions = everydayArm
     ? (modelId: string, intent: ChatIntent): GenerateOptions =>
       applyEverydayArmOptions(d.buildOptions(modelId, intent), everydayArm)
@@ -967,6 +1004,25 @@ export async function runEval(config: EvalRunConfig, deps?: EvalRunnerDeps): Pro
       const requestedMaxTokens = Math.min(baseOptions.maxTokens ?? cap, cap);
       const requestedOptions: GenerateOptions = { ...baseOptions, maxTokens: requestedMaxTokens };
 
+      // Retrieval arm: actually RUN the grounding tool for this probe and append
+      // its note to the system prompt joined by "\n\n" — byte-for-byte the join
+      // the chat pipeline uses at its tool step (useChat.ts). The tool sees ONLY
+      // the final user turn; the replayed history is untouched, which is where
+      // grounding fires in production. Timed separately from generation so the
+      // protocol's cost rule can name the tool step and the token stream apart.
+      // Unset arm = no tool runs at all, i.e. every run before this existed.
+      let groundingRecord: EvalGroundingRecord | undefined;
+      let groundingNote: string | null = null;
+      if (groundingArm !== undefined) {
+        const step = await runGroundingStep(spec.id, spec.prompt, groundingArm, runSignal, d.now);
+        groundingRecord = step.record;
+        groundingNote = step.systemNote;
+      }
+      const armedSystemPrompt =
+        groundingNote !== null
+          ? [buildSystemPrompt(modelId), groundingNote].join('\n\n')
+          : buildSystemPrompt(modelId);
+
       // Messages composed through the SHARED production helpers (hints on
       // user turns — see the header's fidelity note). Multi-turn probes
       // (captured failures / follow-up controls) replay their prior turns
@@ -974,7 +1030,7 @@ export async function runEval(config: EvalRunConfig, deps?: EvalRunnerDeps): Pro
       // as production re-renders history.
       const composed = composeProbeMessages(
         spec,
-        buildSystemPrompt(modelId),
+        armedSystemPrompt,
         modelId,
         messageTopology,
       );
@@ -1005,6 +1061,11 @@ export async function runEval(config: EvalRunConfig, deps?: EvalRunnerDeps): Pro
             outcome,
             composed.promptTrace,
             resultSampleIndex,
+            // Sentinel-in-output and parroting need the REPLY, so they are filled
+            // in per sample rather than once per probe.
+            groundingRecord !== undefined
+              ? withOutputSignals(groundingRecord, spec.id, groundingNote, outcome.output)
+              : undefined,
           ),
         );
         completed++;
@@ -1023,6 +1084,7 @@ export async function runEval(config: EvalRunConfig, deps?: EvalRunnerDeps): Pro
     includeResearchArms: config.includeResearchArms ?? false,
     ...(config.everydayArm ? { everydayArm: config.everydayArm } : {}),
     ...(config.dispatchArm ? { dispatchArm: config.dispatchArm } : {}),
+    ...(groundingArm !== undefined ? { groundingArm } : {}),
     promptCount: prompts.length,
     promptSetHash: hashPromptSet(prompts),
     compositionEra: COMPOSITION_ERA,
