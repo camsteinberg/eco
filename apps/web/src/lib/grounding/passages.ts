@@ -195,8 +195,23 @@ export async function fetchArticlePlainText(
 // Passage selection (pure, deterministic)
 // ---------------------------------------------------------------------------
 
-/** `== Heading ==` … `====== Heading ======`, the TextExtracts section marker. */
-const HEADING = /^\s*(={2,6})\s*(.+?)\s*\1\s*$/;
+/**
+ * `== Heading ==` … `====== Heading ======`, the TextExtracts section marker.
+ *
+ * The opening and closing runs are matched INDEPENDENTLY. An earlier version used
+ * a backreference (`\s*\1\s*$`), which requires both runs to be the same length —
+ * and TextExtracts does not guarantee that. Observed live on 2026-08-29 against the
+ * real "Apple" article: `== Nutrition ===`. Under the backreference that line was
+ * not a heading at all, so "Nutrition" never joined the section's stem set and
+ * `EXCLUDED_SECTIONS` could not see an equivalent `== References ===` either.
+ *
+ * Group 1 is the OPENING run and remains the level that drives `excludedAtLevel`
+ * nesting; group 2 is the title. The title must start with a character that is
+ * neither `=` nor whitespace, so a marker-only line (`===`, `=====`) is not a
+ * heading with an empty title; a title containing an internal `=` ("E = mc2") is
+ * still captured, because the lazy title stops only at the final marker run.
+ */
+const HEADING = /^\s*(={2,6})\s*([^=\s].*?)\s*=+\s*$/;
 
 /**
  * Sections that never carry an answer, only apparatus. Compared case-folded
@@ -308,12 +323,101 @@ function cleanSentence(raw: string): string {
 }
 
 /**
- * Split a section body into sentence-ish spans. Same terminator-based split
- * `wikimedia.truncateExtract` uses, so the two paths agree about what a sentence
- * is; abbreviations ("approx.") will over-split, which costs recall, never safety.
+ * Abbreviations whose trailing full stop is not a sentence end. Matched
+ * CASE-SENSITIVELY, and the list is deliberately tiny: "no." and "st." in
+ * lowercase are ordinary words that really do end sentences, so only the
+ * capitalized number/street/title forms are protected. Single capital initials
+ * ("J.") are handled by a rule rather than listed.
+ */
+const ABBREVIATIONS: ReadonlySet<string> = new Set([
+  "approx.", "Approx.", "e.g.", "E.g.", "i.e.", "I.e.", "Dr.", "No.", "St.",
+]);
+
+/** Longest abbreviation we look back for; bounds the scan so it stays linear. */
+const MAX_ABBREVIATION_LOOKBACK = 12;
+
+/** Is the `.` at `dotIndex` the tail of an abbreviation rather than a sentence end? */
+function endsWithAbbreviation(body: string, dotIndex: number): boolean {
+  let start = dotIndex;
+  while (
+    start > 0 &&
+    dotIndex - start < MAX_ABBREVIATION_LOOKBACK &&
+    /[A-Za-z.]/.test(body[start - 1] ?? "")
+  ) {
+    start--;
+  }
+  const word = body.slice(start, dotIndex + 1);
+  if (ABBREVIATIONS.has(word)) return true;
+  // A lone capital letter plus a stop is an initial ("J. R. R. Tolkien"), not an
+  // end — but ONLY when the letter starts its own token. "100 °C." and "40 kJ."
+  // look identical to an initial otherwise, and those really do end sentences.
+  const before = start === 0 ? "" : (body[start - 1] ?? "");
+  const startsToken = before === "" || /[\s("[]/.test(before);
+  return startsToken && /^[A-Z]\.$/.test(word);
+}
+
+/**
+ * Split a section body into sentence-ish spans.
+ *
+ * This DIVERGES from `wikimedia.truncateExtract`, which the previous comment here
+ * claimed parity with. That parity was the bug. The shared regex treats every `.`
+ * as a terminator, so the real Nutrition sentence "A reference serving of 100 g
+ * (3.5 oz) provides 52 calories…" broke at the decimal point and the surviving
+ * fragment ("5 oz) provides 52 calories…") no longer carried the "apple" token —
+ * it scored below lead sentences and was never selected. The divergence is
+ * deliberate and CONFINED to this diagnostics-only arm; the shipped lead path in
+ * `wikimedia.ts` is untouched, so the A/B still compares the same lead text it did.
+ *
+ * A terminator run ends a sentence only when the next character is whitespace or
+ * the string ends. That single rule is what keeps number-internal stops together:
+ * the `.` in "3.5" or "42.195" is followed by a digit, so it is never a boundary.
+ * The abbreviation check covers the remaining case — a stop that IS followed by
+ * whitespace but still is not an end ("approx. 40 g", "Dr. Smith", "J. R. R.").
+ *
+ * Pure and linear: one left-to-right scan with a bounded lookback, no backtracking
+ * regex. Spans are returned raw, terminator and trailing space included; cleaning
+ * is still `cleanSentence`'s job.
  */
 function splitSentences(body: string): string[] {
-  return body.match(/[^.!?]+[.!?]+(?:\s|$)|[^.!?]+$/g) ?? [];
+  const out: string[] = [];
+  let start = 0;
+  let i = 0;
+
+  while (i < body.length) {
+    const ch = body[i] ?? "";
+    if (ch !== "." && ch !== "!" && ch !== "?") {
+      i++;
+      continue;
+    }
+
+    let runEnd = i;
+    while (runEnd < body.length) {
+      const c = body[runEnd] ?? "";
+      if (c !== "." && c !== "!" && c !== "?") break;
+      runEnd++;
+    }
+
+    const next = runEnd < body.length ? (body[runEnd] ?? "") : null;
+    const terminates =
+      (next === null || /\s/.test(next)) &&
+      !(runEnd - i === 1 && ch === "." && endsWithAbbreviation(body, i));
+
+    if (!terminates) {
+      i = runEnd;
+      continue;
+    }
+
+    // Consume the one whitespace character after the run, as the old regex did.
+    const spanEnd = next === null ? runEnd : runEnd + 1;
+    const span = body.slice(start, spanEnd);
+    if (span.trim() !== "") out.push(span);
+    start = spanEnd;
+    i = spanEnd;
+  }
+
+  const tail = body.slice(start);
+  if (tail.trim() !== "") out.push(tail);
+  return out;
 }
 
 type Candidate = { sentence: string; sectionTitle: string; score: number; order: number };
