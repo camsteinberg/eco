@@ -43,6 +43,24 @@ const ARTICLE = [
   "",
 ].join("\n");
 
+/**
+ * The same article in the shapes TextExtracts ACTUALLY emits: the Nutrition
+ * heading closes with three equals signs rather than two, and the serving size
+ * carries a decimal point. Verified live against "Apple" on 2026-08-29.
+ */
+const REAL_SHAPE_ARTICLE = [
+  "An apple is a round, edible fruit produced by an apple tree. Apple trees are cultivated worldwide and are the most widely grown species in the genus Malus.",
+  "",
+  "== Nutrition ===",
+  "A reference serving of 100 g (3.5 oz) provides 52 calories, 14% carbohydrates, 79% water and negligible protein.",
+  "",
+  "== References ===",
+  "Juniper, Barrie E. The Story of the Apple, a reference work on apple calories.",
+  "",
+  "=== Citations ===",
+  "A cited note about the calories in an apple that must never be selected here.",
+].join("\n");
+
 describe("selectPassages", () => {
   it("returns the buried answer sentence first, ahead of the lead", () => {
     const passages = selectPassages(ARTICLE, "how many calories in an apple");
@@ -87,6 +105,103 @@ describe("selectPassages", () => {
     });
 
     expect(passages.map((p) => p.sectionTitle)).toEqual(["Nutrition"]);
+  });
+
+  it("finds the answer under a heading whose markers do not match", () => {
+    // The shapes below are the ones TextExtracts really emitted for "Apple" on
+    // 2026-08-29: a `== Nutrition ===` heading (mismatched markers) and a serving
+    // size written with a decimal point. Both defeated the selector; the sanitised
+    // fixture above passed only because neither shape was present.
+    const passages = selectPassages(REAL_SHAPE_ARTICLE, "how many calories in an apple");
+
+    const answer = passages.find((p) => p.sentence.includes("52 calories"));
+    expect(answer).toBeDefined();
+    expect(answer?.sectionTitle).toBe("Nutrition");
+    // The decimal survived: the sentence was not cut at "3.5".
+    expect(answer?.sentence).toContain("(3.5 oz)");
+    expect(answer?.sentence.startsWith("A reference serving")).toBe(true);
+  });
+
+  it("excludes a mismatched apparatus heading and everything nested under it", () => {
+    const passages = selectPassages(REAL_SHAPE_ARTICLE, "how many calories in an apple", {
+      k: 20,
+      maxChars: 100_000,
+    });
+
+    expect(passages.map((p) => p.sectionTitle)).not.toContain("References");
+    expect(passages.map((p) => p.sectionTitle)).not.toContain("Citations");
+    expect(passages.some((p) => p.sentence.includes("must never be selected"))).toBe(false);
+  });
+
+  it("does not treat a marker-only line as a heading", () => {
+    const markerOnly = [
+      "===",
+      "The apple tree is grown across the temperate world for its edible fruit.",
+    ].join("\n");
+
+    const passages = selectPassages(markerOnly, "where is the apple tree grown");
+
+    expect(passages).toHaveLength(1);
+    expect(passages[0]?.sectionTitle).toBe("");
+  });
+
+  it("keeps a decimal number inside one sentence", () => {
+    const body = [
+      "== Running ==",
+      "The marathon distance of 42.195 km is measured from the official start line.",
+    ].join("\n");
+
+    const passages = selectPassages(body, "how long is the marathon distance");
+
+    expect(passages).toHaveLength(1);
+    expect(passages[0]?.sentence).toBe(
+      "The marathon distance of 42.195 km is measured from the official start line.",
+    );
+  });
+
+  it("still splits a full stop that ends a sentence", () => {
+    const body = [
+      "== Water ==",
+      "Pure water boils at exactly 100 \u00b0C. Water freezes at zero degrees under standard pressure.",
+    ].join("\n");
+
+    const passages = selectPassages(body, "when water boils and when water freezes", {
+      k: 10,
+      maxChars: 100_000,
+    });
+
+    expect(passages.map((p) => p.sentence)).toEqual([
+      "Pure water boils at exactly 100 \u00b0C.",
+      "Water freezes at zero degrees under standard pressure.",
+    ]);
+  });
+
+  it("keeps a name's initials in one sentence", () => {
+    const body = [
+      "== Authors ==",
+      "The apple monograph was written by J. R. R. Barrie for the orchard society.",
+    ].join("\n");
+
+    const passages = selectPassages(body, "who wrote the apple monograph");
+
+    expect(passages).toHaveLength(1);
+    expect(passages[0]?.sentence).toBe(
+      "The apple monograph was written by J. R. R. Barrie for the orchard society.",
+    );
+  });
+
+  it("does not split at a common abbreviation", () => {
+    const body = [
+      "== Baking ==",
+      "The recipe needs approx. 40 g of dried apple pieces to bake properly.",
+    ].join("\n");
+
+    const passages = selectPassages(body, "how much dried apple does the recipe need");
+
+    expect(passages).toHaveLength(1);
+    expect(passages[0]?.sentence).toBe(
+      "The recipe needs approx. 40 g of dried apple pieces to bake properly.",
+    );
   });
 
   it("holds the k bound", () => {
