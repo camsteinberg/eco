@@ -584,6 +584,7 @@ describe('WebLLMAdapter — confidence', () => {
       // drain
     }
     expect(receivedArgs?.logprobs).toBe(true);
+    expect(receivedArgs?.extra_body).toEqual({ enable_thinking: false });
     expect(receivedArgs?.top_logprobs).toBe(1);
   });
 
