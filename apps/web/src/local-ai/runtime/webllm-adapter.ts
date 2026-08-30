@@ -41,6 +41,7 @@
  */
 
 import type { ModelConfig } from '../types';
+import { StreamLogprobAccumulator } from './confidence';
 import {
   AdapterError,
   type ChatMessage,
@@ -57,6 +58,21 @@ import {
 } from './webllm-config';
 
 // ─── Engine interface ──────────────────────────────────────────────────────
+
+/** Shape of a single streamed chunk from `chat.completions.create`. */
+export type WebLLMChunk = {
+  choices: Array<{
+    delta: { content?: string };
+    finish_reason?: string;
+    logprobs?: {
+      content?: Array<{
+        logprob: number;
+        top_logprobs?: Array<{ logprob: number }>;
+      }> | null;
+    } | null;
+  }>;
+  usage?: { prompt_tokens?: number; completion_tokens?: number };
+};
 
 /**
  * Minimal slice of the MLCEngine surface that we use. Defined here so
@@ -75,6 +91,10 @@ export type WebLLMEngine = {
         stream: true;
         max_tokens?: number;
         temperature?: number;
+        /** Request per-token log-probabilities on each chunk. */
+        logprobs?: boolean;
+        /** How many top alternatives to include alongside the chosen token. */
+        top_logprobs?: number;
         /**
          * With `include_usage: true`, the engine emits a FINAL chunk carrying
          * `usage` whose `choices` array is EMPTY — the only chunk that reports
@@ -82,13 +102,7 @@ export type WebLLMEngine = {
          * `completionTokens` is always 0.
          */
         stream_options?: { include_usage?: boolean };
-      }): Promise<AsyncIterable<{
-        choices: Array<{
-          delta: { content?: string };
-          finish_reason?: string;
-        }>;
-        usage?: { prompt_tokens?: number; completion_tokens?: number };
-      }>>;
+      }): Promise<AsyncIterable<WebLLMChunk>>;
     };
   };
   interruptGenerate(): void;
@@ -357,16 +371,20 @@ export class WebLLMAdapter implements RuntimeAdapter {
 
     this.inFlight = { abort: onAbort };
 
-    let chunks: AsyncIterable<{
-      choices: Array<{ delta: { content?: string }; finish_reason?: string }>;
-      usage?: { prompt_tokens?: number; completion_tokens?: number };
-    }>;
+    // Effective temperature: the adapter defaults to 0.7 when not specified.
+    const effectiveTemp = options?.temperature ?? 0.7;
+    const isGreedy = effectiveTemp === 0;
+    const confidenceAcc = new StreamLogprobAccumulator();
+
+    let chunks: AsyncIterable<WebLLMChunk>;
     try {
       chunks = await engine.chat.completions.create({
         messages,
         stream: true,
         max_tokens: options?.maxTokens ?? 512,
-        temperature: options?.temperature ?? 0.7,
+        temperature: effectiveTemp,
+        logprobs: true,
+        top_logprobs: 1,
         // Ask for the trailing usage chunk — without it completionTokens is 0.
         // The drain loop below tolerates that final empty-choices chunk (no
         // token, no early break); see the finish_reason NOTE.
@@ -393,7 +411,8 @@ export class WebLLMAdapter implements RuntimeAdapter {
           yield { kind: 'error', reason: 'Generation aborted', code: 'aborted' };
           return;
         }
-        const delta = chunk.choices[0]?.delta?.content;
+        const choice = chunk.choices[0];
+        const delta = choice?.delta?.content;
         if (delta) {
           if (!firstTokenEmitted) {
             firstTokenEmitted = true;
@@ -401,6 +420,11 @@ export class WebLLMAdapter implements RuntimeAdapter {
           }
           seq++;
           yield { kind: 'token', text: delta, seq };
+        }
+        // Accumulate the chosen-token logprob when present.
+        const logprobEntry = choice?.logprobs?.content?.[0];
+        if (logprobEntry != null) {
+          confidenceAcc.recordStep(logprobEntry.logprob);
         }
         if (chunk.usage) {
           lastUsage = chunk.usage;
@@ -410,18 +434,12 @@ export class WebLLMAdapter implements RuntimeAdapter {
         // lock; breaking here deadlocks the NEXT create() forever.
       }
       emit?.({ phase: 'generation-complete', at: now() });
-      // TODO(confidence): WebLLM's `chat.completions.create` accepts
-      // `logprobs: true, top_logprobs: 1` and returns per-chunk
-      // `choices[0].logprobs.content[].logprob` + `top_logprobs[]`. When
-      // the runtime bake-off wires this up, compute ConfidenceSummary from
-      // those per-chunk logprobs so both runtimes emit the same field.
-      // Field names on the chunk type:
-      //   chunk.choices[0].logprobs?.content?.[0]?.logprob   (chosen token)
-      //   chunk.choices[0].logprobs?.content?.[0]?.top_logprobs (alternatives)
+      const confidence = confidenceAcc.summarize(isGreedy);
       yield {
         kind: 'done',
         promptTokens: lastUsage?.prompt_tokens,
         completionTokens: lastUsage?.completion_tokens,
+        ...(confidence != null ? { confidence } : {}),
       };
     } catch (err) {
       if (aborted) {

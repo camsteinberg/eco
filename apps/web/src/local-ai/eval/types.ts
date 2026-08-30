@@ -564,9 +564,10 @@ export type EvalPerf = {
    */
   ranToCap?: boolean;
   /**
-   * Per-generation confidence summary from the logits observer (Transformers
-   * path only). Optional: absent on runs persisted before this field existed
-   * and on runtimes that do not expose logits (WebLLM, LiteRT).
+   * Per-generation confidence summary. Transformers provides full-vocabulary
+   * entropy; WebLLM provides chosen-token logprobs only (entropy fields are
+   * `null`). Optional: absent on runs persisted before this field existed
+   * and on runtimes that do not expose logits (LiteRT).
    */
   confidence?: ConfidenceSummary;
 };

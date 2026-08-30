@@ -49,8 +49,8 @@ export type LocalAiUsage = {
    */
   maxInterTokenGapMs?: number | null;
   /**
-   * Per-generation confidence summary from the logits observer (Transformers
-   * path only; absent on WebLLM until logprob support is wired). Measurement
+   * Per-generation confidence summary (Transformers provides full entropy;
+   * WebLLM provides chosen-token logprobs, entropy fields null). Measurement
    * only — does not gate or alter generation.
    */
   confidence?: ConfidenceSummary;

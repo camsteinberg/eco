@@ -513,7 +513,7 @@ type StreamOutcome = {
   /** Adapter-reported max inter-token gap (ms), else null (#28 stall signature). */
   maxInterTokenGapMs: number | null;
   endedCleanly: boolean;
-  /** Per-generation confidence summary (Transformers path only). */
+  /** Per-generation confidence summary (Transformers + WebLLM; absent on LiteRT). */
   confidence: import('../runtime/confidence').ConfidenceSummary | null;
   /** Error reason from an 'error' event or a timeout, else null. */
   error: string | null;

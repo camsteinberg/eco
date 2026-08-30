@@ -33,12 +33,17 @@ export type ConfidenceSummary = {
   minAt: number;
   /** Arithmetic mean of top-1 log-probabilities. */
   meanTop1LogProb: number;
-  /** Arithmetic mean of per-step Shannon entropy (nats). */
-  meanEntropy: number;
-  /** Maximum per-step Shannon entropy (nats). */
-  maxEntropy: number;
-  /** Step index (0-based) where the maximum entropy occurred. */
-  maxEntropyAt: number;
+  /** Arithmetic mean of per-step Shannon entropy (nats).
+   *  `null` when only the chosen-token logprob is available (e.g. WebLLM's
+   *  OpenAI-style stream) — Shannon entropy requires the FULL vocabulary
+   *  distribution, not just the top-1 logprob. */
+  meanEntropy: number | null;
+  /** Maximum per-step Shannon entropy (nats). `null` for the same reason
+   *  as `meanEntropy`. */
+  maxEntropy: number | null;
+  /** Step index (0-based) where the maximum entropy occurred. `null` when
+   *  entropy is unavailable. */
+  maxEntropyAt: number | null;
   /** True when decoding was greedy (do_sample: false / temperature 0), meaning
    *  top-1 log-prob is the EXACT chosen-token log-prob. Under sampling it is
    *  an approximation — the sampled token may differ from argmax. */
@@ -176,6 +181,54 @@ export class ConfidenceAccumulator {
       meanEntropy: this.sumEntropy / this.steps,
       maxEntropy: this.maxEntropy,
       maxEntropyAt: this.maxEntropyAt,
+      greedy,
+    };
+  }
+}
+
+// ─── Stream-logprob accumulator (WebLLM / OpenAI-style) ─────────────────
+
+/**
+ * Accumulates confidence statistics from per-chunk chosen-token log-
+ * probabilities, as provided by OpenAI-style streaming APIs (WebLLM).
+ *
+ * Unlike `ConfidenceAccumulator` (which sees the FULL logit vector and can
+ * compute Shannon entropy), this class only receives the single chosen-token
+ * logprob per step. Entropy fields on the produced `ConfidenceSummary` are
+ * therefore honestly `null`.
+ */
+export class StreamLogprobAccumulator {
+  private steps = 0;
+  private sumTop1LogProb = 0;
+  private minTop1LogProb = Infinity;
+  private minAt = 0;
+
+  /** Record one decode step's chosen-token log-probability. */
+  recordStep(logprob: number): void {
+    if (logprob < this.minTop1LogProb) {
+      this.minTop1LogProb = logprob;
+      this.minAt = this.steps;
+    }
+    this.sumTop1LogProb += logprob;
+    this.steps++;
+  }
+
+  /**
+   * Produce the final summary. Returns `null` if no steps were recorded.
+   *
+   * Entropy fields are `null` — computing Shannon entropy requires the full
+   * vocabulary distribution, which an OpenAI-style stream does not provide.
+   */
+  summarize(greedy: boolean): ConfidenceSummary | null {
+    if (this.steps === 0) return null;
+    return {
+      steps: this.steps,
+      minTop1LogProb: this.minTop1LogProb,
+      minAt: this.minAt,
+      meanTop1LogProb: this.sumTop1LogProb / this.steps,
+      meanEntropy: null,
+      maxEntropy: null,
+      maxEntropyAt: null,
       greedy,
     };
   }
