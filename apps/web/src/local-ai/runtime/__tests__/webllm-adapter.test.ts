@@ -4,7 +4,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ModelConfig } from '../../types';
 import { AdapterError } from '../types';
-import { WebLLMAdapter, type WebLLMEngine } from '../webllm-adapter';
+import type { ConfidenceSummary } from '../confidence';
+import { WebLLMAdapter, type WebLLMChunk, type WebLLMEngine } from '../webllm-adapter';
 
 // Captures the appConfig the adapter hands the REAL hasModelInCache: a
 // self-hosted model is NOT in prebuiltAppConfig, so the adapter must pass its
@@ -28,15 +29,10 @@ const MODEL: ModelConfig = {
   },
 };
 
-type Chunk = {
-  choices: Array<{ delta: { content?: string }; finish_reason?: string }>;
-  usage?: { prompt_tokens?: number; completion_tokens?: number };
-};
-
 function makeEngine(opts?: {
   reloadFails?: Error;
   createFails?: Error;
-  chunks?: Chunk[];
+  chunks?: WebLLMChunk[];
   iterDelayMs?: number;
 }): WebLLMEngine {
   return {
@@ -544,5 +540,254 @@ describe('WebLLMAdapter — weightsCached', () => {
     adapter = new WebLLMAdapter({ engineFactory: async () => engine });
 
     expect(await adapter.weightsCached(MODEL)).toBe(false);
+  });
+});
+
+// ─── Confidence from streamed logprobs ────────────────────────────────────
+
+describe('WebLLMAdapter — confidence', () => {
+  it('passes logprobs: true and top_logprobs: 1 to create()', async () => {
+    let receivedArgs:
+      | Parameters<WebLLMEngine['chat']['completions']['create']>[0]
+      | undefined;
+    engine = {
+      reload: async () => undefined,
+      chat: {
+        completions: {
+          create: async (args) => {
+            receivedArgs = args;
+            return (async function* () {
+              yield { choices: [{ delta: { content: 'hi' }, finish_reason: 'stop' }] };
+            })();
+          },
+        },
+      },
+      interruptGenerate: () => undefined,
+      unload: async () => undefined,
+    };
+    adapter = new WebLLMAdapter({ engineFactory: async () => engine });
+    await adapter.load(MODEL);
+
+    for await (const _event of adapter.generate([{ role: 'user', content: 'hi' }])) {
+      // drain
+    }
+    expect(receivedArgs?.logprobs).toBe(true);
+    expect(receivedArgs?.top_logprobs).toBe(1);
+  });
+
+  it('accumulates logprobs into a ConfidenceSummary with null entropy fields', async () => {
+    const chunks: WebLLMChunk[] = [
+      {
+        choices: [{
+          delta: { content: 'A' },
+          logprobs: { content: [{ logprob: -0.1, top_logprobs: [{ logprob: -0.1 }] }] },
+        }],
+      },
+      {
+        choices: [{
+          delta: { content: 'B' },
+          logprobs: { content: [{ logprob: -0.5, top_logprobs: [{ logprob: -0.5 }] }] },
+        }],
+      },
+      {
+        choices: [{
+          delta: { content: 'C' },
+          finish_reason: 'stop',
+          logprobs: { content: [{ logprob: -0.3, top_logprobs: [{ logprob: -0.3 }] }] },
+        }],
+        usage: { prompt_tokens: 5, completion_tokens: 3 },
+      },
+    ];
+
+    engine = makeEngine({ chunks });
+    adapter = new WebLLMAdapter({ engineFactory: async () => engine });
+    await adapter.load(MODEL);
+
+    const events: import('../types').TokenEvent[] = [];
+    for await (const event of adapter.generate([{ role: 'user', content: 'x' }])) {
+      events.push(event);
+    }
+
+    const done = events.find((e) => e.kind === 'done');
+    expect(done).toBeDefined();
+    if (done?.kind !== 'done') throw new Error('expected done');
+
+    const conf = done.confidence;
+    expect(conf).toBeDefined();
+    const c = conf as ConfidenceSummary;
+    expect(c.steps).toBe(3);
+    expect(c.minTop1LogProb).toBeCloseTo(-0.5, 6);
+    expect(c.minAt).toBe(1);
+    expect(c.meanTop1LogProb).toBeCloseTo((-0.1 + -0.5 + -0.3) / 3, 6);
+    // Entropy fields are honestly null — WebLLM only provides the chosen-token logprob.
+    expect(c.meanEntropy).toBeNull();
+    expect(c.maxEntropy).toBeNull();
+    expect(c.maxEntropyAt).toBeNull();
+  });
+
+  it('greedy is true when temperature is 0', async () => {
+    const chunks: WebLLMChunk[] = [
+      {
+        choices: [{
+          delta: { content: 'X' },
+          finish_reason: 'stop',
+          logprobs: { content: [{ logprob: -0.01, top_logprobs: [{ logprob: -0.01 }] }] },
+        }],
+      },
+    ];
+
+    engine = makeEngine({ chunks });
+    adapter = new WebLLMAdapter({ engineFactory: async () => engine });
+    await adapter.load(MODEL);
+
+    const events: import('../types').TokenEvent[] = [];
+    for await (const event of adapter.generate(
+      [{ role: 'user', content: 'q' }],
+      { temperature: 0 },
+    )) {
+      events.push(event);
+    }
+
+    const done = events.find((e) => e.kind === 'done');
+    if (done?.kind !== 'done') throw new Error('expected done');
+    expect(done.confidence?.greedy).toBe(true);
+  });
+
+  it('greedy is false when temperature is nonzero', async () => {
+    const chunks: WebLLMChunk[] = [
+      {
+        choices: [{
+          delta: { content: 'X' },
+          finish_reason: 'stop',
+          logprobs: { content: [{ logprob: -0.2, top_logprobs: [{ logprob: -0.2 }] }] },
+        }],
+      },
+    ];
+
+    engine = makeEngine({ chunks });
+    adapter = new WebLLMAdapter({ engineFactory: async () => engine });
+    await adapter.load(MODEL);
+
+    const events: import('../types').TokenEvent[] = [];
+    for await (const event of adapter.generate(
+      [{ role: 'user', content: 'q' }],
+      { temperature: 0.7 },
+    )) {
+      events.push(event);
+    }
+
+    const done = events.find((e) => e.kind === 'done');
+    if (done?.kind !== 'done') throw new Error('expected done');
+    expect(done.confidence?.greedy).toBe(false);
+  });
+
+  it('records top_logprobs[0] (top-1) not the sampled-token logprob under sampling', async () => {
+    // Under temperature > 0, the sampled token may differ from argmax.
+    // entry.logprob is the SAMPLED token's logprob; top_logprobs[0].logprob
+    // is the TOP-1 (argmax) token's logprob. The adapter must record top-1
+    // so the statistic matches the Transformers path.
+    const chunks: WebLLMChunk[] = [
+      {
+        choices: [{
+          delta: { content: 'A' },
+          logprobs: {
+            content: [{
+              logprob: -1.2,  // sampled token (NOT argmax)
+              top_logprobs: [{ logprob: -0.05 }],  // argmax token
+            }],
+          },
+        }],
+      },
+      {
+        choices: [{
+          delta: { content: 'B' },
+          finish_reason: 'stop',
+          logprobs: {
+            content: [{
+              logprob: -0.8,  // sampled
+              top_logprobs: [{ logprob: -0.3 }],  // argmax
+            }],
+          },
+        }],
+      },
+    ];
+
+    engine = makeEngine({ chunks });
+    adapter = new WebLLMAdapter({ engineFactory: async () => engine });
+    await adapter.load(MODEL);
+
+    const events: import('../types').TokenEvent[] = [];
+    for await (const event of adapter.generate(
+      [{ role: 'user', content: 'q' }],
+      { temperature: 0.7 },
+    )) {
+      events.push(event);
+    }
+
+    const done = events.find((e) => e.kind === 'done');
+    if (done?.kind !== 'done') throw new Error('expected done');
+    const c = done.confidence as ConfidenceSummary;
+    // Must use top-1 values (-0.05, -0.3), NOT sampled values (-1.2, -0.8).
+    expect(c.minTop1LogProb).toBeCloseTo(-0.3, 6);
+    expect(c.meanTop1LogProb).toBeCloseTo((-0.05 + -0.3) / 2, 6);
+    expect(c.minAt).toBe(1);
+    expect(c.greedy).toBe(false);
+  });
+
+  it('iterates all entries in a multi-token logprobs.content array', async () => {
+    // A single chunk may carry more than one token entry in logprobs.content.
+    const chunks: WebLLMChunk[] = [
+      {
+        choices: [{
+          delta: { content: 'AB' },
+          finish_reason: 'stop',
+          logprobs: {
+            content: [
+              { logprob: -0.1, top_logprobs: [{ logprob: -0.1 }] },
+              { logprob: -0.9, top_logprobs: [{ logprob: -0.9 }] },
+            ],
+          },
+        }],
+      },
+    ];
+
+    engine = makeEngine({ chunks });
+    adapter = new WebLLMAdapter({ engineFactory: async () => engine });
+    await adapter.load(MODEL);
+
+    const events: import('../types').TokenEvent[] = [];
+    for await (const event of adapter.generate([{ role: 'user', content: 'q' }])) {
+      events.push(event);
+    }
+
+    const done = events.find((e) => e.kind === 'done');
+    if (done?.kind !== 'done') throw new Error('expected done');
+    const c = done.confidence as ConfidenceSummary;
+    // Both entries must be recorded.
+    expect(c.steps).toBe(2);
+    expect(c.minTop1LogProb).toBeCloseTo(-0.9, 6);
+    expect(c.minAt).toBe(1);
+    expect(c.meanTop1LogProb).toBeCloseTo((-0.1 + -0.9) / 2, 6);
+  });
+
+  it('omits confidence when no logprobs appear on any chunk', async () => {
+    // Chunks without logprobs — e.g. engine does not support it.
+    const chunks: WebLLMChunk[] = [
+      { choices: [{ delta: { content: 'hi' }, finish_reason: 'stop' }] },
+    ];
+
+    engine = makeEngine({ chunks });
+    adapter = new WebLLMAdapter({ engineFactory: async () => engine });
+    await adapter.load(MODEL);
+
+    const events: import('../types').TokenEvent[] = [];
+    for await (const event of adapter.generate([{ role: 'user', content: 'q' }])) {
+      events.push(event);
+    }
+
+    const done = events.find((e) => e.kind === 'done');
+    if (done?.kind !== 'done') throw new Error('expected done');
+    // No logprobs → no confidence field on the done event.
+    expect(done.confidence).toBeUndefined();
   });
 });
