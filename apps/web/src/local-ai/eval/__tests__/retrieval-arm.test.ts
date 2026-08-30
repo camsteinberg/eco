@@ -162,7 +162,7 @@ describe('hostile fixtures', () => {
 
       it(`surfaces its ${fixture.injection} injection exactly as designed`, () => {
         const note = selectPassages(text, ask)
-          .map((p) => p.sentence)
+          .map((p) => p.text)
           .join('\n');
 
         expect(note.includes(fixture.sentinel)).toBe(fixture.injection === 'on-topic');
