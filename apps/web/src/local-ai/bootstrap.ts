@@ -49,10 +49,7 @@ import {
   setWebLLMEngineFactory,
   type WebLLMEngine,
 } from './runtime/webllm-adapter';
-import {
-  buildWebLLMAppConfig,
-  WEBLLM_QWEN2_0_5B_MODEL_LIB_PATH,
-} from './runtime/webllm-config';
+import { buildWebLLMAppConfig } from './runtime/webllm-config';
 import {
   setAdapterFactory,
   hasAdapterFactory,
@@ -200,7 +197,7 @@ export async function bootstrapLocalAi(options?: BootstrapOptions): Promise<void
   // engine requests and the URLs the bridge wrote can never diverge. `model_lib`
   // is the same-origin vendored wasm; the engine fetches + caches it itself.
   if (!hasWebLLMEngineFactory()) {
-    setWebLLMEngineFactory(async ({ modelId, contextWindowSize, onProgress }) => {
+    setWebLLMEngineFactory(async ({ modelId, modelLibPath, contextWindowSize, onProgress }) => {
       const mod = await import('@mlc-ai/web-llm');
       const origin = window.location.origin;
       // contextWindowSize is the catalog's capabilities.contextTokens; it becomes
@@ -209,7 +206,7 @@ export async function bootstrapLocalAi(options?: BootstrapOptions): Promise<void
       const appConfig = buildWebLLMAppConfig(
         modelId,
         origin,
-        WEBLLM_QWEN2_0_5B_MODEL_LIB_PATH,
+        modelLibPath,
         contextWindowSize,
       );
       const engine = new mod.MLCEngine({

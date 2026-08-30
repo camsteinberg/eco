@@ -25,6 +25,7 @@
 
 import type { AppConfig, ModelRecord } from '@mlc-ai/web-llm';
 import type { ModelConfig } from '../types';
+import { AdapterError } from './types';
 
 /**
  * The prebuilt-model-library version this npm is compatible with — mirrors
@@ -50,12 +51,6 @@ const WEBLLM_MODEL_LIB_MAP: Readonly<Record<string, string>> = {
   'candidate/qwen3-0.6b-mlc': `${WEBLLM_MODEL_LIB_BASE_PATH}Qwen3-0.6B-q4f16_1_cs1k-webgpu.wasm`,
 };
 
-/**
- * Backward-compatible alias — the Qwen2 library path as a named constant so
- * existing imports (tests, documentation) continue to work without churn.
- */
-export const WEBLLM_QWEN2_0_5B_MODEL_LIB_PATH =
-  WEBLLM_MODEL_LIB_MAP['candidate/qwen2.5-0.5b-mlc']!;
 
 /**
  * MLC's `ModelRecord.model_id` (and its cache layout) uses the repo name WITHOUT
@@ -130,12 +125,20 @@ export function buildWebLLMAppConfig(
 /**
  * The `model_lib` wasm path for a WebLLM model — resolved per-entry from
  * `WEBLLM_MODEL_LIB_MAP`. Each model architecture has its own compiled wasm
- * library; the map is the single source of truth. An unregistered model id
- * falls back to the Qwen2 library (which will fail at MLC init if the
- * architecture doesn't match — a loud, immediate failure, not a silent one).
+ * library; the map is the single source of truth. Throws for an unregistered
+ * model id so a misconfigured entry fails immediately at the point of origin
+ * instead of producing a cryptic MLC engine error after a full download.
  */
 export function webllmModelLibPathFor(model: ModelConfig): string {
-  return WEBLLM_MODEL_LIB_MAP[model.id] ?? WEBLLM_QWEN2_0_5B_MODEL_LIB_PATH;
+  const path = WEBLLM_MODEL_LIB_MAP[model.id];
+  if (!path) {
+    throw new AdapterError(
+      `No model_lib wasm vendored for "${model.id}" — add it to WEBLLM_MODEL_LIB_MAP in webllm-config.ts.`,
+      'init-failed',
+      false,
+    );
+  }
+  return path;
 }
 
 // ─── Cache-key mapping ──────────────────────────────────────────────────────

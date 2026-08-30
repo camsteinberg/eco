@@ -24,6 +24,18 @@ import {
 } from '../webllm-cache-bridge';
 import { WebLLMAdapter } from '../webllm-adapter';
 
+// The cache-bridge test uses a synthetic model id not in WEBLLM_MODEL_LIB_MAP.
+// Mock webllmModelLibPathFor to return a deterministic path for any model
+// instead of throwing — the per-model resolution is tested in
+// webllm-config.test.ts; this test focuses on the bridge's cache contract.
+vi.mock('../webllm-config', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../webllm-config')>();
+  return {
+    ...actual,
+    webllmModelLibPathFor: () => '/webllm/v0_2_84/test-model-lib.wasm',
+  };
+});
+
 // ─── In-memory Cache API (keys by request.url, exactly like the browser) ─────
 
 class MemCache {
