@@ -125,6 +125,12 @@ export type WebLLMEngineFactory = (
   options: {
     modelId: string;
     /**
+     * Same-origin path to the vendored `model_lib` wasm for this model.
+     * Resolved per-model by `webllmModelLibPathFor` — the adapter passes it
+     * so the factory never needs to know about the model-library map.
+     */
+    modelLibPath: string;
+    /**
      * Catalog `capabilities.contextTokens` for this model — the engine caps its
      * KV-cache allocation to this via `ModelRecord.overrides.context_window_size`
      * (the model's native window is larger). Passed from the adapter, which holds
@@ -277,6 +283,7 @@ export class WebLLMAdapter implements RuntimeAdapter {
     try {
       engine = await factory({
         modelId: mlcId,
+        modelLibPath: webllmModelLibPathFor(model),
         contextWindowSize: model.capabilities.contextTokens,
         onProgress: options?.onLoadProgress
           ? (loaded, total) => {

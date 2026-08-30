@@ -211,6 +211,23 @@ const CHAT_INTENT_MODEL_DATA: Record<string, ChatIntentModelSlice> = {
       },
     },
   },
+  // Runtime bake-off cell: Qwen3-0.6B on MLC — same qwen3 family / fast tier
+  // / sampling as local/qwen3-0.6b so the runtime comparison uses the real
+  // generation profile. maxNewTokens set to 512 (webgpu) matching the ONNX sibling.
+  "candidate/qwen3-0.6b-mlc": {
+    id: "candidate/qwen3-0.6b-mlc",
+    family: "qwen3",
+    qualityTier: "fast",
+    maxNewTokens: { webgpu: 512 },
+    generationDefaults: {
+      topP: 0.95,
+      topK: 20,
+      repetitionPenalty: 1.08,
+      intentOverrides: {
+        writing: { topP: 0.92 },
+      },
+    },
+  },
   // ─── Chat #7 M2 bake-off candidates (2026-06-10, dev-only lane) ───────
   // The gemma4 family is outside the v1 LocalModelFamily union, so that entry
   // casts to ChatIntentModelSlice (same pattern as smollm3/bitnet above);

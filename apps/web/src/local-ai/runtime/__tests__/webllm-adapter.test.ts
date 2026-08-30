@@ -13,6 +13,18 @@ import { WebLLMAdapter, type WebLLMChunk, type WebLLMEngine } from '../webllm-ad
 const hasModelInCacheSpy = vi.hoisted(() => vi.fn());
 vi.mock('@mlc-ai/web-llm', () => ({ hasModelInCache: hasModelInCacheSpy }));
 
+// The adapter test uses a synthetic model id not in WEBLLM_MODEL_LIB_MAP.
+// Mock webllmModelLibPathFor to return a deterministic path for any model
+// instead of throwing — the adapter's wasm-path resolution is tested in
+// webllm-config.test.ts; this test focuses on the adapter's engine lifecycle.
+vi.mock('../webllm-config', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../webllm-config')>();
+  return {
+    ...actual,
+    webllmModelLibPathFor: () => '/webllm/v0_2_84/test-model-lib.wasm',
+  };
+});
+
 const MODEL: ModelConfig = {
   id: 'local/smollm2-1.7b-webllm-q4f16',
   friendlyName: 'SmolLM2',

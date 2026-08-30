@@ -25,6 +25,7 @@
 
 import type { AppConfig, ModelRecord } from '@mlc-ai/web-llm';
 import type { ModelConfig } from '../types';
+import { AdapterError } from './types';
 
 /**
  * The prebuilt-model-library version this npm is compatible with — mirrors
@@ -39,18 +40,17 @@ export const WEBLLM_MODEL_LIB_VERSION = 'v0_2_84';
 export const WEBLLM_MODEL_LIB_BASE_PATH = `/webllm/${WEBLLM_MODEL_LIB_VERSION}/`;
 
 /**
- * The one `model_lib` this stage targets: the Qwen2-0.5B q4f16 WebGPU library
- * compiled against web-llm v0_2_84. Version-coupled by construction (see
- * WEBLLM_MODEL_LIB_VERSION). The wasm binary itself is vendored to
- * `apps/web/public/webllm/v0_2_84/` in a SEPARATE hash-verified step — this
- * constant only references its future same-origin path; nothing here ships it.
- *
- * A future multi-model stage derives this per-model from the catalog entry
- * instead of a constant; until a second WebLLM model exists there is exactly
- * one library, so a constant is the honest representation.
+ * Per-model `model_lib` wasm filenames, keyed by model id. Each WebLLM model
+ * architecture needs its own compiled wasm library (compiled per model arch +
+ * quantization + prefill-chunk against a specific web-llm release). The wasm
+ * binaries are vendored to `apps/web/public/webllm/v0_2_84/` in a SEPARATE
+ * hash-verified step — these constants only reference same-origin paths.
  */
-export const WEBLLM_QWEN2_0_5B_MODEL_LIB_PATH =
-  `${WEBLLM_MODEL_LIB_BASE_PATH}Qwen2-0.5B-Instruct-q4f16_1_cs1k-webgpu.wasm`;
+const WEBLLM_MODEL_LIB_MAP: Readonly<Record<string, string>> = {
+  'candidate/qwen2.5-0.5b-mlc': `${WEBLLM_MODEL_LIB_BASE_PATH}Qwen2-0.5B-Instruct-q4f16_1_cs1k-webgpu.wasm`,
+  'candidate/qwen3-0.6b-mlc': `${WEBLLM_MODEL_LIB_BASE_PATH}Qwen3-0.6B-q4f16_1_cs1k-webgpu.wasm`,
+};
+
 
 /**
  * MLC's `ModelRecord.model_id` (and its cache layout) uses the repo name WITHOUT
@@ -123,14 +123,22 @@ export function buildWebLLMAppConfig(
 }
 
 /**
- * The `model_lib` wasm path for a catalog model. One WebLLM model exists this
- * stage, so this returns the single vendored library regardless of input; the
- * parameter is here so the call sites already pass the model and a future
- * multi-model stage only has to change this body (e.g. a per-entry catalog
- * field) without touching its callers.
+ * The `model_lib` wasm path for a WebLLM model — resolved per-entry from
+ * `WEBLLM_MODEL_LIB_MAP`. Each model architecture has its own compiled wasm
+ * library; the map is the single source of truth. Throws for an unregistered
+ * model id so a misconfigured entry fails immediately at the point of origin
+ * instead of producing a cryptic MLC engine error after a full download.
  */
-export function webllmModelLibPathFor(_model: ModelConfig): string {
-  return WEBLLM_QWEN2_0_5B_MODEL_LIB_PATH;
+export function webllmModelLibPathFor(model: ModelConfig): string {
+  const path = WEBLLM_MODEL_LIB_MAP[model.id];
+  if (!path) {
+    throw new AdapterError(
+      `No model_lib wasm vendored for "${model.id}" — add it to WEBLLM_MODEL_LIB_MAP in webllm-config.ts.`,
+      'init-failed',
+      false,
+    );
+  }
+  return path;
 }
 
 // ─── Cache-key mapping ──────────────────────────────────────────────────────

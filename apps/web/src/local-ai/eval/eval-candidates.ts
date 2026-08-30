@@ -404,6 +404,58 @@ const GEMMA4_E4B_LITERT: ModelConfig = {
   },
 };
 
+// Qwen3-0.6B via WebLLM/MLC — the same 0.6B Qwen3 weights the shipping catalog
+// serves as ONNX (local/qwen3-0.6b), but on the MLC/WebLLM runtime. Exists so
+// the diagnostics eval harness can run the same model on both runtimes (ONNX vs
+// MLC) and compare TTFT, decode throughput, context ceiling, and output parity.
+// Dev-only: rides the validation-allowed lane (403 in production), never enters
+// the shipping catalog, ModelSelector, or recommendation engine.
+const QWEN3_0_6B_MLC: ModelConfig = {
+  id: 'candidate/qwen3-0.6b-mlc',
+  friendlyName: 'Qwen3 0.6B (MLC)',
+  vendor: 'Alibaba',
+  sizeGB: 0.33,
+  runtime: 'webllm',
+  format: 'mlc-q4f16',
+  capabilities: {
+    intent: ['snappy', 'balanced'],
+    tasks: ['chat', 'writing', 'reasoning'],
+    // Deliberately 16384: the adapter passes this to MLC as
+    // context_window_size, and the eval depth probes need up to ~12k tokens
+    // to derive the context ceiling via ctx-boundary-* tests. The native
+    // Qwen3-0.6B config declares 40960; this cap keeps KV-cache allocation
+    // reasonable in the browser while leaving headroom for the probes.
+    contextTokens: 16384,
+  },
+  bestFor:
+    'Runtime bake-off cell: the same Qwen3-0.6B weights the catalog serves as ONNX, but on the WebLLM/MLC runtime, so diagnostics can compare both runtimes on identical weights.',
+  knownLimitation:
+    'Dev-only runtime comparison cell. Not a shipping default; exists only to A/B the MLC runtime against the ONNX runtime on the same model in the eval harness.',
+  evidenceTier: 'predicted',
+  systemRoleSupport: 'native',
+  artifact: {
+    hfId: 'mlc-ai/Qwen3-0.6B-q4f16_1-MLC',
+    revision: '8c14ce481d4c692769976ad52afea453a102df19',
+    files: [
+      'params_shard_0.bin',
+      'params_shard_1.bin',
+      'params_shard_2.bin',
+      'params_shard_3.bin',
+      'params_shard_4.bin',
+      'params_shard_5.bin',
+      'params_shard_6.bin',
+      'params_shard_7.bin',
+      'params_shard_8.bin',
+      'tensor-cache.json',
+      'mlc-chat-config.json',
+      'tokenizer.json',
+      'tokenizer_config.json',
+      'vocab.json',
+      'merges.txt',
+    ],
+  },
+};
+
 const MODELS: readonly ModelConfig[] = Object.freeze([
   Object.freeze(QWEN3_1_7B),
   Object.freeze(QWEN3_0_6B_Q4),
@@ -412,6 +464,7 @@ const MODELS: readonly ModelConfig[] = Object.freeze([
   Object.freeze(GEMMA4_E2B),
   Object.freeze(GEMMA4_E2B_QAT_Q4),
   Object.freeze(GEMMA4_E4B_LITERT),
+  Object.freeze(QWEN3_0_6B_MLC),
 ]);
 
 const MODELS_BY_ID: ReadonlyMap<string, ModelConfig> = new Map(
@@ -514,6 +567,26 @@ export const EVAL_CANDIDATE_ARTIFACT_METADATA: Readonly<
   // now lives in catalog/artifact-metadata.json.)
   'candidate/gemma-4-e4b-litert': Object.freeze({
     'gemma-4-E4B-it-web.litertlm': { sizeBytes: 2969059328, oid: '3904d826d5dddd25ea173e85204caec09e68ba038116e9b992b69cbdc94f57a0' },
+  }),
+  // Qwen3-0.6B MLC runtime bake-off cell: same Qwen3 weights as local/qwen3-0.6b
+  // but on the WebLLM/MLC runtime for a paired A/B. 64-char oids are LFS SHA-256
+  // (proxy-verified); 40-char oids are git-blob hashes (pass through unverified).
+  'candidate/qwen3-0.6b-mlc': Object.freeze({
+    'params_shard_0.bin': { sizeBytes: 77791232, oid: '61062e64b475309e648516c853c7bd949344f1ce5c0921e9b121f905953ce9e3' },
+    'params_shard_1.bin': { sizeBytes: 32740608, oid: 'a7d9e88e510636b34c850bf19c660c38cdacbe64bd128c6bb4dcc710455db81d' },
+    'params_shard_2.bin': { sizeBytes: 31866624, oid: 'eb5af136518c33abd7c2eb66e154b5504ce27f62728aafffd8fca26a3cab64a9' },
+    'params_shard_3.bin': { sizeBytes: 33505024, oid: '482d32bfefe36ec9ee452d88c25cce42f31d8350e4abccc8f4727e4006ab2859' },
+    'params_shard_4.bin': { sizeBytes: 32000000, oid: 'b3d1ecb2553ae323c95b19e231dc74e1ef34d63094ccf0dd3e79a37f312663f3' },
+    'params_shard_5.bin': { sizeBytes: 31866624, oid: '2c753a811fbea6e0292caf39d9f9ceeb8cb5ff74a183f7350be3f846f3013438' },
+    'params_shard_6.bin': { sizeBytes: 33505024, oid: '52d543cee1e1d6526dae4a5a36a69c1bafa222d1e3e95c4ee46456d56f1aeab2' },
+    'params_shard_7.bin': { sizeBytes: 32000000, oid: '3d9047c2603d24b4ca8e689bc924a7715224205ba591504238ff5910e8542c65' },
+    'params_shard_8.bin': { sizeBytes: 30097152, oid: '13985d7899bf0188ff5a0d37fe6254a8b3e3bf7e4aba0d198de1469faa9ef9b4' },
+    'tensor-cache.json': { sizeBytes: 129391, oid: 'ba8ccdc73c2bcb0e2a0897cd1f3dc21a7d7b7cab' },
+    'mlc-chat-config.json': { sizeBytes: 2075, oid: 'b91a63cc536d16cbc6a0924f6b9db770b91e894d' },
+    'tokenizer.json': { sizeBytes: 11422654, oid: 'aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4' },
+    'tokenizer_config.json': { sizeBytes: 9676, oid: 'b7104cb637a5ac4ccfb8c26922019149cdfb015f' },
+    'vocab.json': { sizeBytes: 2776833, oid: '4783fe10ac3adce15ac8f358ef5462739852c569' },
+    'merges.txt': { sizeBytes: 1671853, oid: '31349551d90c7606f325fe0f11bbb8bd5fa0d7c7' },
   }),
 });
 

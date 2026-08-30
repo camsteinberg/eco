@@ -368,6 +368,9 @@ const PROFILE_BY_MODEL_ID: Record<string, GenerationProfileSlice> = {
   // so it rides the shared generic Qwen slice (same as qwen3-0.6b) — deliberately
   // NOT QWEN35_GEN, which carries the Qwen3.5-family-only CJK-token suppression.
   "candidate/qwen2.5-0.5b-mlc": QWEN_GEN,
+  // Runtime bake-off cell: Qwen3-0.6B on MLC — same qwen3 family as local/qwen3-0.6b,
+  // so it rides the same generic Qwen slice. NOT QWEN35_GEN.
+  "candidate/qwen3-0.6b-mlc": QWEN_GEN,
   // No-GPU (WASM/CPU-EP) floor models: the lightest int8 SmolLM2 (fast floor) and the
   // deeper q4 Granite. Both are small instruct models with no vendor-specific sampling
   // rec, so they ride the generic small-instruct Qwen slice (moderate temperature plus a

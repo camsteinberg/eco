@@ -3,6 +3,7 @@
 
 import { describe, expect, it } from 'vitest';
 import type { ModelConfig } from '../../types';
+import { AdapterError } from '../types';
 import { getModel } from '../../catalog/catalog';
 import {
   buildWebLLMAppConfig,
@@ -11,12 +12,16 @@ import {
   webllmCacheTargetFor,
   webllmModelBaseUrl,
   webllmModelLibPathFor,
-  WEBLLM_QWEN2_0_5B_MODEL_LIB_PATH,
 } from '../webllm-config';
 
 const ORIGIN = 'https://econetwork.ai';
 const MLC_ID = 'Qwen2-0.5B-Instruct-q4f16_1-MLC';
 const CTX = 4096;
+
+/** Resolved from the map — tests use it to avoid duplicating the literal. */
+const QWEN2_LIB_PATH = webllmModelLibPathFor({
+  id: 'candidate/qwen2.5-0.5b-mlc',
+} as ModelConfig);
 
 describe('stripMlcOrgPrefix', () => {
   it('strips the mlc-ai/ org prefix', () => {
@@ -52,14 +57,14 @@ describe('webllmModelBaseUrl', () => {
 
 describe('buildWebLLMModelRecord / buildWebLLMAppConfig', () => {
   it('builds a single-record config whose base matches webllmModelBaseUrl', () => {
-    const record = buildWebLLMModelRecord(MLC_ID, ORIGIN, WEBLLM_QWEN2_0_5B_MODEL_LIB_PATH, CTX);
+    const record = buildWebLLMModelRecord(MLC_ID, ORIGIN, QWEN2_LIB_PATH, CTX);
     expect(record).toEqual({
       model: webllmModelBaseUrl(MLC_ID, ORIGIN),
       model_id: MLC_ID,
-      model_lib: WEBLLM_QWEN2_0_5B_MODEL_LIB_PATH,
+      model_lib: QWEN2_LIB_PATH,
       overrides: { context_window_size: CTX },
     });
-    const appConfig = buildWebLLMAppConfig(MLC_ID, ORIGIN, WEBLLM_QWEN2_0_5B_MODEL_LIB_PATH, CTX);
+    const appConfig = buildWebLLMAppConfig(MLC_ID, ORIGIN, QWEN2_LIB_PATH, CTX);
     expect(appConfig.model_list).toEqual([record]);
   });
 
@@ -69,11 +74,11 @@ describe('buildWebLLMModelRecord / buildWebLLMAppConfig', () => {
     // {...mlcChatConfig, ...record.overrides, ...chatOpts}). It MUST reflect the
     // catalog value the caller threads in — Qwen2.5-0.5B ships a 32768 native
     // window, so without this the engine would allocate KV for 32k.
-    const wide = buildWebLLMModelRecord(MLC_ID, ORIGIN, WEBLLM_QWEN2_0_5B_MODEL_LIB_PATH, 8192);
+    const wide = buildWebLLMModelRecord(MLC_ID, ORIGIN, QWEN2_LIB_PATH, 8192);
     expect(wide.overrides?.context_window_size).toBe(8192);
-    const capped = buildWebLLMModelRecord(MLC_ID, ORIGIN, WEBLLM_QWEN2_0_5B_MODEL_LIB_PATH, CTX);
+    const capped = buildWebLLMModelRecord(MLC_ID, ORIGIN, QWEN2_LIB_PATH, CTX);
     expect(capped.overrides?.context_window_size).toBe(CTX);
-    expect(buildWebLLMAppConfig(MLC_ID, ORIGIN, WEBLLM_QWEN2_0_5B_MODEL_LIB_PATH, CTX).model_list[0]!.overrides?.context_window_size).toBe(CTX);
+    expect(buildWebLLMAppConfig(MLC_ID, ORIGIN, QWEN2_LIB_PATH, CTX).model_list[0]!.overrides?.context_window_size).toBe(CTX);
   });
 
   it('carries the SHIPPING catalog contextTokens for the WebLLM model (single source of truth)', () => {
@@ -91,16 +96,35 @@ describe('buildWebLLMModelRecord / buildWebLLMAppConfig', () => {
   });
 
   it('points model_lib at the same-origin versioned wasm dir', () => {
-    expect(WEBLLM_QWEN2_0_5B_MODEL_LIB_PATH).toBe(
+    expect(QWEN2_LIB_PATH).toBe(
       '/webllm/v0_2_84/Qwen2-0.5B-Instruct-q4f16_1_cs1k-webgpu.wasm',
     );
   });
 });
 
 describe('webllmModelLibPathFor', () => {
-  it('returns the single vendored library for any webllm model this stage', () => {
-    const model = { id: 'x', runtime: 'webllm' } as ModelConfig;
-    expect(webllmModelLibPathFor(model)).toBe(WEBLLM_QWEN2_0_5B_MODEL_LIB_PATH);
+  it('returns the Qwen2 library for candidate/qwen2.5-0.5b-mlc', () => {
+    const model = { id: 'candidate/qwen2.5-0.5b-mlc', runtime: 'webllm' } as ModelConfig;
+    expect(webllmModelLibPathFor(model)).toBe(QWEN2_LIB_PATH);
+  });
+
+  it('returns the Qwen3 library for candidate/qwen3-0.6b-mlc', () => {
+    const model = { id: 'candidate/qwen3-0.6b-mlc', runtime: 'webllm' } as ModelConfig;
+    expect(webllmModelLibPathFor(model)).toBe(
+      '/webllm/v0_2_84/Qwen3-0.6B-q4f16_1_cs1k-webgpu.wasm',
+    );
+  });
+
+  it('throws AdapterError (init-failed) for an unregistered model id', () => {
+    const model = { id: 'candidate/unknown-mlc', runtime: 'webllm' } as ModelConfig;
+    expect(() => webllmModelLibPathFor(model)).toThrow(AdapterError);
+    try {
+      webllmModelLibPathFor(model);
+    } catch (err) {
+      expect(err).toBeInstanceOf(AdapterError);
+      expect((err as AdapterError).code).toBe('init-failed');
+      expect((err as AdapterError).message).toContain('candidate/unknown-mlc');
+    }
   });
 });
 

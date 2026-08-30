@@ -22,10 +22,25 @@ directory and updating `WEBLLM_MODEL_LIB_VERSION` in
   Apache-2.0. The filename says "Qwen2" because the library is per-architecture;
   it serves the Qwen2.5-0.5B-Instruct q4f16 build (`candidate/qwen2.5-0.5b-mlc`).
 
+### `Qwen3-0.6B-q4f16_1_cs1k-webgpu.wasm`
+
+- Source: <https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/web-llm-models/v0_2_84/base/Qwen3-0.6B-q4f16_1_cs1k-webgpu.wasm>
+- Size: 5,535,989 bytes
+- sha256: `4db800b24119204e1a0386e8a12e084d5012aa60f77c5bffad362f20498df912`
+- Integrity: git blob sha (`8986dabcdc0d1aa473b9bfac5748eaf43adfb89c`) verified
+  identical to the upstream repository's blob metadata at vendoring time.
+- Upstream project: [mlc-ai/binary-mlc-llm-libs](https://github.com/mlc-ai/binary-mlc-llm-libs),
+  Apache-2.0. Serves the Qwen3-0.6B q4f16 MLC build (`candidate/qwen3-0.6b-mlc`),
+  an eval-only runtime bake-off cell.
+
 ## Re-verifying
 
 ```sh
 shasum -a 256 Qwen2-0.5B-Instruct-q4f16_1_cs1k-webgpu.wasm
 git hash-object Qwen2-0.5B-Instruct-q4f16_1_cs1k-webgpu.wasm
 gh api "repos/mlc-ai/binary-mlc-llm-libs/contents/web-llm-models/v0_2_84/base/Qwen2-0.5B-Instruct-q4f16_1_cs1k-webgpu.wasm?ref=main" --jq .sha
+
+shasum -a 256 Qwen3-0.6B-q4f16_1_cs1k-webgpu.wasm
+git hash-object Qwen3-0.6B-q4f16_1_cs1k-webgpu.wasm
+gh api "repos/mlc-ai/binary-mlc-llm-libs/contents/web-llm-models/v0_2_84/base/Qwen3-0.6B-q4f16_1_cs1k-webgpu.wasm?ref=main" --jq .sha
 ```

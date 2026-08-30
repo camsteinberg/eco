@@ -25,6 +25,7 @@ const CANDIDATE_IDS = [
   "candidate/gemma-4-e2b-onnx",
   "candidate/gemma-4-e2b-qat-q4-onnx",
   "candidate/gemma-4-e4b-litert",
+  "candidate/qwen3-0.6b-mlc",
 ] as const;
 
 const SHA1 = /^[0-9a-f]{40}$/;
