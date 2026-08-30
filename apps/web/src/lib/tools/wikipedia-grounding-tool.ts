@@ -1599,24 +1599,50 @@ export const wikipediaGroundingTool: EcoTool<GroundingArgs> = createWikipediaGro
  * Build grounding args for a FORCED lookup (the "Check a source" user action).
  *
  * Bypasses every candidacy guard (deny patterns, cue requirements, entity
- * extraction confidence gates) and goes straight to the full-text search
- * fallback: the user's raw question becomes the search query, and the cleaned
- * keyword corpus anchors the inverted coverage gate exactly as the organic
- * zero-entity path does. When keyword cleaning yields nothing usable (too short,
- * all stopwords), the trimmed question itself is used as the entity — the lookup
- * will rely on CirrusSearch ranking and the coverage gate will decide acceptance.
+ * extraction confidence gates) but keeps two things the organic path holds:
+ *
+ * - The pronoun / elliptical follow-up resolves against the last grounded
+ *   subject when the host supplies one ("how tall is it?" → the mountain), so a
+ *   forced check on a follow-up turn looks up the subject, not the pronoun.
+ * - The query is built from the ASK WINDOW, not the raw turn: pasted prose is
+ *   never sent to Wikipedia. Only when the turn is one unbroken block with no
+ *   separable ask does the (capped) turn itself become the query — the user
+ *   explicitly asked for this lookup on this turn, which the organic path lacks.
+ *
+ * Otherwise it goes straight to the full-text search fallback: the ask becomes
+ * the search query and its cleaned keyword corpus anchors the inverted coverage
+ * gate exactly as the organic zero-entity path does.
  *
  * This is the ONLY public entry point for forced grounding; the rest of the
  * module's internals stay private.
  */
-export function buildForcedGroundingArgs(userText: string): GroundingArgs {
-  const trimmed = userText.trim();
-  const capped = trimmed.slice(0, FULLTEXT_SEARCH_MAX_CHARS);
-  const keywordCorpus = buildKeywordQuery(trimmed);
+export function buildForcedGroundingArgs(
+  userText: string,
+  context?: ToolMatchContext,
+): GroundingArgs {
+  const windows = askWindows(userText);
+  const ask = (windows.length > 0 ? windows.join(" ") : userText.trim()).slice(
+    0,
+    FULLTEXT_SEARCH_MAX_CHARS,
+  );
+  const lastGroundedTitle = context?.lastGroundedTitle;
+  if (typeof lastGroundedTitle === "string" && lastGroundedTitle !== "") {
+    const isPronounFollowup = FOLLOWUP_REFERENCE.test(ask);
+    const isElliptical =
+      ask.length <= FOLLOWUP_ELLIPTICAL_MAX_LEN && FACTUAL_ATTRIBUTE.test(ask) && !/\d/.test(ask);
+    if (isPronounFollowup || isElliptical) {
+      return {
+        entity: lastGroundedTitle,
+        wikidataProperty: detectWikidataProperty(ask),
+        confidence: "followup",
+      };
+    }
+  }
+  const keywordCorpus = buildKeywordQuery(ask);
   return {
-    entity: keywordCorpus ?? capped,
-    wikidataProperty: detectWikidataProperty(trimmed),
+    entity: keywordCorpus ?? ask,
+    wikidataProperty: detectWikidataProperty(ask),
     fulltext: true,
-    searchText: capped,
+    searchText: ask,
   };
 }

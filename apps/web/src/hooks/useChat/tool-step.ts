@@ -215,7 +215,7 @@ export async function runToolStep(
   // execution, phase flip, citation/verification return, and error handling are
   // IDENTICAL to the organic citation path below — only the detection is bypassed.
   if (options?.forceMatch) {
-    const forcedArgs = buildForcedGroundingArgs(latestUserText);
+    const forcedArgs = buildForcedGroundingArgs(latestUserText, options.matchContext);
     store.setStreamPhase("looking-up");
     let result: Awaited<ReturnType<typeof wikipediaGroundingTool.execute>>;
     try {

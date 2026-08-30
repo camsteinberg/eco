@@ -2104,6 +2104,22 @@ describe("wikipediaGroundingTool.execute — verification signal", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("buildForcedGroundingArgs", () => {
+  it("resolves a pronoun follow-up against the last grounded subject", () => {
+    const args = buildForcedGroundingArgs("how tall is it?", {
+      lastGroundedTitle: "Mount Kilimanjaro",
+    });
+    expect(args.entity).toBe("Mount Kilimanjaro");
+    expect(args.confidence).toBe("followup");
+    expect(args.fulltext).toBeUndefined();
+  });
+
+  it("searches only the ask window, never pasted prose", () => {
+    const pasted = "Dear landlord, " + "the boiler has been broken for weeks. ".repeat(20);
+    const args = buildForcedGroundingArgs(`${pasted}\n\nwho invented the printing press`);
+    expect(args.searchText).toBe("who invented the printing press");
+    expect(args.searchText).not.toContain("landlord");
+  });
+
   it("returns fulltext args with the user text as searchText", () => {
     const args = buildForcedGroundingArgs("who invented the printing press");
     expect(args.fulltext).toBe(true);
