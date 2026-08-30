@@ -283,6 +283,16 @@ export type EvalRunConfig = {
  */
 async function defaultPrepareModel(model: ModelConfig, signal?: AbortSignal): Promise<void> {
   await bootstrapLocalAi();
+  if (model.runtime === 'webllm') {
+    // A WebLLM model serves from WebLLM's own Cache API namespaces, which only
+    // the cache bridge populates (the engine's base URL is a same-origin path
+    // that deliberately 404s). Setup and upgrade run the bridge for catalog
+    // models; nothing runs it for an eval-only model, so `loadModel` alone
+    // fails with a cache miss. The bridge has a returning-user fast path, so
+    // this is a no-op once the weights are present.
+    const { bridgeDownloadWebLLMModel } = await import('../runtime/webllm-cache-bridge');
+    await bridgeDownloadWebLLMModel(model, { signal });
+  }
   await loadModel(model, { signal });
 }
 
