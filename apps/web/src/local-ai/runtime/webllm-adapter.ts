@@ -104,6 +104,7 @@ export type WebLLMEngine = {
         max_tokens?: number;
         temperature?: number;
         /** Request per-token log-probabilities on each chunk. */
+        extra_body?: { enable_thinking?: boolean | null };
         logprobs?: boolean;
         /** How many top alternatives to include alongside the chosen token. */
         top_logprobs?: number;
@@ -404,6 +405,12 @@ export class WebLLMAdapter implements RuntimeAdapter {
         temperature: effectiveTemp,
         logprobs: true,
         top_logprobs: 1,
+        // Qwen3-family chat templates default to the <think> reasoning mode;
+        // the Transformers worker renders with `enable_thinking: false` and
+        // this lane must match, or the same model answers differently per
+        // runtime and every reply carries a reasoning block. Ignored by
+        // models whose template has no thinking switch.
+        extra_body: { enable_thinking: false },
         // Ask for the trailing usage chunk — without it completionTokens is 0.
         // The drain loop below tolerates that final empty-choices chunk (no
         // token, no early break); see the finish_reason NOTE.
