@@ -35,11 +35,10 @@ import {
   AutoModelForCausalLM,
   TextStreamer,
   env,
-  LogitsProcessor,
   LogitsProcessorList,
-  Tensor,
 } from '@huggingface/transformers';
 import { ConfidenceAccumulator } from '../local-ai/runtime/confidence';
+import { ConfidenceObserver } from '../local-ai/runtime/confidence-observer';
 import { CacheApiStorage, type Storage } from '../local-ai/download/storage';
 import { createStorageBridge } from '../local-ai/runtime/storage-bridge';
 import { createFetchFailureTracker, type FetchLike } from './fetch-failure-tracker';
@@ -841,28 +840,9 @@ async function handleGenerate(msg: Extract<WorkerInbound, { type: 'generate' }>)
     const isGreedy = !samplingArgs.do_sample;
 
     const confidenceProcessor = new LogitsProcessorList();
-    // LogitsProcessorList.push() accepts a LogitsProcessor. We construct an
-    // object with a `_call` method matching the Callable protocol that TJS
-    // uses (input_ids: bigint[][], logits: Tensor) → Tensor. The processor
-    // MUST return the logits tensor unchanged.
-    // TJS's LogitsProcessor is a Callable subclass; its .push() checks for
-    // a _call method via duck typing. We satisfy the contract with an object
-    // literal that has `_call(input_ids, logits) → logits`.
-    const observer = {
-      _call(_input_ids: bigint[][], logits: Tensor): Tensor {
-        // logits shape: [batch=1, vocab_size]. Read the single row.
-        // Record only float32 logits. Any other dtype would be read as the
-        // wrong numbers and silently corrupt the calibration data; skipping
-        // leaves `confidence` absent on the receipt, which is honest.
-        if (logits.type === 'float32' && logits.data instanceof Float32Array) {
-          confidenceAcc.recordStep(logits.data);
-        }
-        return logits; // unchanged — passive observer
-      },
-    };
-    // The push signature expects LogitsProcessor (a class), but the runtime
-    // dispatch is duck-typed on _call. Cast through unknown to satisfy TS.
-    confidenceProcessor.push(observer as unknown as LogitsProcessor);
+    // Must be a real LogitsProcessor subclass: the list CALLS each entry as a
+    // function (see confidence-observer.ts). Returns logits unchanged.
+    confidenceProcessor.push(new ConfidenceObserver(confidenceAcc));
     generateArgs.logits_processor = confidenceProcessor;
 
     const out = await model.generate(generateArgs);
