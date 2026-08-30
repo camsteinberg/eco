@@ -177,6 +177,7 @@ export function MessageBubble({
   const autoAcceptTools = useSettingsStore((s) => s.autoAcceptTools);
   const showTechnicalDetails = useSettingsStore((s) => s.showTechnicalDetails);
   const groundingNoticeSeen = useSettingsStore((s) => s.groundingNoticeSeen);
+  const groundingEnabled = useSettingsStore((s) => s.groundingEnabled);
   const shouldReduce = useReducedMotion();
   const isUser = role === "user";
 
@@ -430,6 +431,8 @@ export function MessageBubble({
               localCompletionTokens={localCompletionTokens}
               onFlagForEval={onFlagForEval}
               plainText={isCanonicalAnswer}
+              hasCitation={hasGroundingCitation}
+              lookupsEnabled={groundingEnabled}
             />
             {showTechnicalDetails && !isUser && (tokenCount ?? 0) > 0 && !isStreaming && (
               <span className="text-[10px] text-[var(--eco-text-secondary)]">

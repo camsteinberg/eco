@@ -17,7 +17,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { WikipediaResult, WikidataStatement } from "../../../lib/grounding";
+import type { WikipediaResult, WikidataStatement, WikipediaFulltextResult } from "../../../lib/grounding";
 import {
   runToolStep,
   type ToolStepStore,
@@ -40,6 +40,7 @@ const groundingMock = vi.hoisted(() => ({
   wikiResult: { found: false, reason: "no-match" } as WikipediaResult,
   wikidata: null as WikidataStatement | null,
   lookupCalls: [] as Array<{ query: string; signal?: AbortSignal }>,
+  fulltextResult: null as WikipediaFulltextResult | null,
 }));
 
 vi.mock("../../../lib/grounding", () => ({
@@ -55,6 +56,19 @@ vi.mock("../../../lib/grounding", () => ({
   ),
   getWikidataStatement: vi.fn(
     async (): Promise<WikidataStatement | null> => groundingMock.wikidata,
+  ),
+  searchWikipediaFulltext: vi.fn(
+    async (
+      query: string,
+      opts?: { signal?: AbortSignal; timeoutMs?: number },
+    ): Promise<WikipediaFulltextResult> => {
+      groundingMock.lookupCalls.push({ query, signal: opts?.signal });
+      if (groundingMock.fulltextResult) return groundingMock.fulltextResult;
+      if (groundingMock.wikiResult.found) {
+        return { found: true, pages: [{ title: groundingMock.wikiResult.title }] };
+      }
+      return { found: false, reason: "no-match" };
+    },
   ),
 }));
 
@@ -84,6 +98,7 @@ function makeStore() {
 beforeEach(() => {
   groundingMock.wikiResult = { found: false, reason: "no-match" };
   groundingMock.wikidata = null;
+  groundingMock.fulltextResult = null;
   groundingMock.lookupCalls.length = 0;
 });
 
@@ -611,5 +626,91 @@ describe("runToolStep — options.matchContext", () => {
     // The default path calls the barrel detectTool with (text, context).
     expect(spy).toHaveBeenCalledWith("how tall is it", { lastGroundedTitle: "Paris" });
     spy.mockRestore();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// forceMatch — the "Check a source" user action
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("runToolStep — forceMatch (Check a source)", () => {
+  it("executes the grounding tool without candidacy detection on a turn the matchers would reject", async () => {
+    // "write me a poem" is deny-listed by the normal candidacy matchers, so
+    // without forceMatch it would abstain. With forceMatch it goes straight
+    // to the grounding tool with forced args. The fulltext search returns a
+    // page whose title passes the inverted coverage gate, then the entity
+    // lookup resolves the article.
+    groundingMock.fulltextResult = {
+      found: true,
+      pages: [{ title: "Stars" }],
+    };
+    groundingMock.wikiResult = {
+      found: true,
+      title: "Stars",
+      extract: "Stars are luminous spheroids of plasma.",
+      url: "https://en.wikipedia.org/wiki/Stars",
+      qid: "Q523",
+    };
+    const { store, calls, phases } = makeStore();
+    const out = await runToolStep("write me a poem about the stars", store, undefined, {
+      forceMatch: true,
+    });
+
+    // No ToolCallBlock (citation path).
+    expect(calls).toHaveLength(0);
+    // The forced lookup produced a note and citation.
+    expect(out.systemNote).not.toBeNull();
+    expect(out.citation).toBeDefined();
+    expect(out.citation).toMatchObject({ source: "Wikipedia" });
+    expect(out.verification).toBeUndefined();
+    // Phase flipped to "looking-up".
+    expect(phases).toEqual(["looking-up"]);
+  });
+
+  it("returns verification on not-found — the user sees an honest 'couldn't find a source'", async () => {
+    groundingMock.wikiResult = { found: false, reason: "no-match" };
+    const { store, calls } = makeStore();
+    const out = await runToolStep("tell me something obscure about nothing", store, undefined, {
+      forceMatch: true,
+    });
+
+    expect(calls).toHaveLength(0);
+    // The forced path yields the same not-found behavior as organic grounding:
+    // a system note for the model and a verification marker for the host.
+    expect(out.systemNote).not.toBeNull();
+    expect(out.citation).toBeUndefined();
+    expect(out.verification).toBeDefined();
+  });
+
+  it("returns a safe note when the grounding tool throws", async () => {
+    // Simulate a network failure that throws instead of returning a result.
+    const { searchWikipediaFulltext } = await import("../../../lib/grounding");
+    vi.mocked(searchWikipediaFulltext).mockRejectedValueOnce(new Error("network down"));
+    const { store, calls } = makeStore();
+    const out = await runToolStep("who is Albert Einstein", store, undefined, {
+      forceMatch: true,
+    });
+
+    expect(calls).toHaveLength(0);
+    expect(out.systemNote).toContain("failed to run");
+    expect(out.citation).toBeUndefined();
+    expect(out.verification).toBeUndefined();
+  });
+
+  it("threads the abort signal into the forced grounding execute", async () => {
+    groundingMock.wikiResult = {
+      found: true,
+      title: "Paris",
+      extract: "Paris is the capital of France.",
+      url: "https://en.wikipedia.org/wiki/Paris",
+    };
+    const controller = new AbortController();
+    const { store } = makeStore();
+    await runToolStep("what is Paris", store, controller.signal, {
+      forceMatch: true,
+    });
+
+    expect(groundingMock.lookupCalls.length).toBeGreaterThanOrEqual(1);
+    expect(groundingMock.lookupCalls[0]!.signal).toBe(controller.signal);
   });
 });

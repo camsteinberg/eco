@@ -26,7 +26,7 @@
  * reach into unrelated store state.
  */
 
-import { detectTool, detectToolFrom } from "../../lib/tools";
+import { detectTool, detectToolFrom, wikipediaGroundingTool, buildForcedGroundingArgs } from "../../lib/tools";
 import type {
   AnyEcoTool,
   EcoCitation,
@@ -188,6 +188,9 @@ const VERIFICATION_LOOKUPS_OFF: GroundingVerification = { status: "lookups-off" 
  *   detection (each tool's `match`), e.g. the previously grounded subject so a
  *   pronoun follow-up resolves. The caller derives it from the chat store; tools
  *   that ignore it are unaffected. Absent ⇒ detection runs context-free as before.
+ * @param options.forceMatch - when `true`, bypass all candidacy detection and force
+ *   the grounding tool with args built from the user text via
+ *   {@link buildForcedGroundingArgs}. Used by the "Check a source" user action.
  */
 export async function runToolStep(
   latestUserText: string,
@@ -197,6 +200,7 @@ export async function runToolStep(
     tools?: readonly AnyEcoTool[];
     declineTools?: readonly AnyEcoTool[];
     matchContext?: ToolMatchContext;
+    forceMatch?: boolean;
   },
 ): Promise<ToolStepResult> {
   // Clear any tool calls from a prior turn BEFORE detection. This is the single
@@ -204,6 +208,30 @@ export async function runToolStep(
   // tool turn doesn't show the prior turn's call". In edit/regenerate paths the
   // store's setMessages already cleared activeToolCalls; this is idempotent.
   store.clearToolState();
+
+  // ── Forced grounding ("Check a source") ─────────────────────────────────
+  // When the caller sets `forceMatch`, skip all candidacy detection and execute
+  // the grounding tool directly with args built from the user's question. The
+  // execution, phase flip, citation/verification return, and error handling are
+  // IDENTICAL to the organic citation path below — only the detection is bypassed.
+  if (options?.forceMatch) {
+    const forcedArgs = buildForcedGroundingArgs(latestUserText, options.matchContext);
+    store.setStreamPhase("looking-up");
+    let result: Awaited<ReturnType<typeof wikipediaGroundingTool.execute>>;
+    try {
+      result = await wikipediaGroundingTool.execute(forcedArgs, { signal });
+    } catch {
+      return {
+        systemNote:
+          "A tool was attempted but failed to run; answer the user normally without it, and do not claim a tool result.",
+      };
+    }
+    return {
+      systemNote: result.forModel === "" ? null : result.forModel,
+      ...(result.citation !== undefined ? { citation: result.citation } : {}),
+      ...(result.verification !== undefined ? { verification: result.verification } : {}),
+    };
+  }
 
   // No explicit list ⇒ the barrel `detectTool` (over DEFAULT_TOOLS) — the original
   // path, so existing `vi.spyOn(tools, "detectTool")` seams still intercept. An

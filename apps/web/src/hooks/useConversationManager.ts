@@ -562,6 +562,11 @@ export function useConversationManager(
         return;
       }
 
+      if (action === "check-source") {
+        regenerateMessage(messageId, { forceGrounding: true });
+        return;
+      }
+
       // Read the live reply from the chat store. `possiblyTruncated` and
       // `localCompletionTokens` are written there on completion and persist
       // with the message, so a restored reply carries them too. Both guards

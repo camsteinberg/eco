@@ -334,4 +334,94 @@ describe("MessageActions — flag for eval (dev capture)", () => {
     fireEvent.click(screen.getByRole("button", { name: /more actions/i }));
     expect(screen.queryByRole("menuitem", { name: /flag for eval/i })).not.toBeInTheDocument();
   });
+
+  // ── "Check a source" button ─────────────────────────────────────────────
+
+  describe("Check a source button", () => {
+    it("is shown for the latest assistant reply when lookups are enabled and no citation exists", () => {
+      render(
+        <MessageActions
+          content="Some answer"
+          role="assistant"
+          isLatestAssistant={true}
+          onAssistantAction={() => {}}
+          lookupsEnabled={true}
+          hasCitation={false}
+        />,
+      );
+      expect(screen.getByRole("button", { name: /check a source/i })).toBeInTheDocument();
+    });
+
+    it("is hidden when the message already has a citation", () => {
+      render(
+        <MessageActions
+          content="Some answer"
+          role="assistant"
+          isLatestAssistant={true}
+          onAssistantAction={() => {}}
+          lookupsEnabled={true}
+          hasCitation={true}
+        />,
+      );
+      expect(screen.queryByRole("button", { name: /check a source/i })).not.toBeInTheDocument();
+    });
+
+    it("is hidden when lookups are disabled", () => {
+      render(
+        <MessageActions
+          content="Some answer"
+          role="assistant"
+          isLatestAssistant={true}
+          onAssistantAction={() => {}}
+          lookupsEnabled={false}
+          hasCitation={false}
+        />,
+      );
+      expect(screen.queryByRole("button", { name: /check a source/i })).not.toBeInTheDocument();
+    });
+
+    it("is hidden for non-latest assistant messages", () => {
+      render(
+        <MessageActions
+          content="Some answer"
+          role="assistant"
+          isLatestAssistant={false}
+          onAssistantAction={() => {}}
+          lookupsEnabled={true}
+          hasCitation={false}
+        />,
+      );
+      expect(screen.queryByRole("button", { name: /check a source/i })).not.toBeInTheDocument();
+    });
+
+    it("is hidden for user messages", () => {
+      render(
+        <MessageActions
+          content="My question"
+          role="user"
+          isLatestAssistant={false}
+          onAssistantAction={() => {}}
+          lookupsEnabled={true}
+          hasCitation={false}
+        />,
+      );
+      expect(screen.queryByRole("button", { name: /check a source/i })).not.toBeInTheDocument();
+    });
+
+    it("fires onAssistantAction('check-source') when clicked", () => {
+      const handler = vi.fn();
+      render(
+        <MessageActions
+          content="Some answer"
+          role="assistant"
+          isLatestAssistant={true}
+          onAssistantAction={handler}
+          lookupsEnabled={true}
+          hasCitation={false}
+        />,
+      );
+      fireEvent.click(screen.getByRole("button", { name: /check a source/i }));
+      expect(handler).toHaveBeenCalledWith("check-source");
+    });
+  });
 });

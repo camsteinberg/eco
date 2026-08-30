@@ -35,6 +35,10 @@ type MessageActionsProps = {
    * corrupting the computed value. Copies the string verbatim instead.
    */
   plainText?: boolean;
+  /** True when the message already carries a grounding citation. */
+  hasCitation?: boolean;
+  /** True when external lookups (Wikipedia) are enabled in settings. */
+  lookupsEnabled?: boolean;
 };
 
 /**
@@ -45,7 +49,7 @@ type MessageActionsProps = {
  * `continue` sends a turn, because continuing needs the partial reply in the
  * history.
  */
-export type AssistantReplyControl = "continue" | ReplyRegenerateControl;
+export type AssistantReplyControl = "continue" | "check-source" | ReplyRegenerateControl;
 
 export function MessageActions({
   content,
@@ -57,6 +61,8 @@ export function MessageActions({
   localCompletionTokens,
   onFlagForEval,
   plainText = false,
+  hasCitation = false,
+  lookupsEnabled = true,
 }: MessageActionsProps) {
   const [copied, setCopied] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -170,6 +176,8 @@ export function MessageActions({
     && (localCompletionTokens === undefined
       || localCompletionTokens >= SHORTER_MIN_COMPLETION_TOKENS);
   const showMoreDepth = canRunReplyControls && modelCanDeepen;
+  const showCheckSource =
+    canRunReplyControls && lookupsEnabled && !hasCitation;
 
   return (
     <div className="flex items-center gap-1 rounded-lg border border-[var(--eco-border)] bg-[var(--eco-surface-elevated)] p-1 opacity-100 shadow-sm transition-opacity focus-within:opacity-100 motion-reduce:transition-none md:opacity-0 md:group-hover:opacity-100">
@@ -270,6 +278,18 @@ export function MessageActions({
           className={textActionButtonClass}
         >
           More depth
+        </button>
+      )}
+
+      {showCheckSource && onAssistantAction && (
+        <button
+          type="button"
+          onClick={() => onAssistantAction("check-source")}
+          className={textActionButtonClass}
+          aria-label="Check a source on Wikipedia"
+          title="Look this up on Wikipedia directly from your device"
+        >
+          Check a source
         </button>
       )}
 
