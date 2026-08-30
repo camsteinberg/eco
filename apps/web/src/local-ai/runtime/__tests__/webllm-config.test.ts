@@ -98,8 +98,20 @@ describe('buildWebLLMModelRecord / buildWebLLMAppConfig', () => {
 });
 
 describe('webllmModelLibPathFor', () => {
-  it('returns the single vendored library for any webllm model this stage', () => {
-    const model = { id: 'x', runtime: 'webllm' } as ModelConfig;
+  it('returns the Qwen2 library for candidate/qwen2.5-0.5b-mlc', () => {
+    const model = { id: 'candidate/qwen2.5-0.5b-mlc', runtime: 'webllm' } as ModelConfig;
+    expect(webllmModelLibPathFor(model)).toBe(WEBLLM_QWEN2_0_5B_MODEL_LIB_PATH);
+  });
+
+  it('returns the Qwen3 library for candidate/qwen3-0.6b-mlc', () => {
+    const model = { id: 'candidate/qwen3-0.6b-mlc', runtime: 'webllm' } as ModelConfig;
+    expect(webllmModelLibPathFor(model)).toBe(
+      '/webllm/v0_2_84/Qwen3-0.6B-q4f16_1_cs1k-webgpu.wasm',
+    );
+  });
+
+  it('falls back to the Qwen2 library for an unregistered model id', () => {
+    const model = { id: 'candidate/unknown-mlc', runtime: 'webllm' } as ModelConfig;
     expect(webllmModelLibPathFor(model)).toBe(WEBLLM_QWEN2_0_5B_MODEL_LIB_PATH);
   });
 });
