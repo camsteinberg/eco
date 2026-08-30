@@ -8,6 +8,7 @@ import { useSearchParams } from 'next/navigation';
 import { Button } from '@eco/ui';
 import { BackendCrossCheckPanel } from './BackendCrossCheckPanel';
 import { EvalHarnessPanel } from './EvalHarnessPanel';
+import { RuntimeParityPanel } from './RuntimeParityPanel';
 import { SustainedProbePanel } from './SustainedProbePanel';
 import type { LocalAiDiagnostic } from '../../../src/local-ai/diagnostics/capture';
 import {
@@ -787,6 +788,9 @@ export function DiagnosticsClient() {
 
         {/* WebGPU/WASM backend cross-check */}
         <BackendCrossCheckPanel />
+
+        {/* Cross-runtime parity */}
+        <RuntimeParityPanel />
 
         {/* Eval harness panel */}
         <EvalHarnessPanel />
