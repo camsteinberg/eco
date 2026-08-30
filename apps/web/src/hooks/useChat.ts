@@ -1276,7 +1276,9 @@ export function useChat() {
         // grounded antecedent stays context-free (preserves the existing idiom).
         ...(Object.keys(matchContext).length > 0 ? { matchContext } : {}),
         // "Check a source" action: bypass candidacy and force the grounding tool.
-        ...(overrides?.forceGrounding ? { forceMatch: true } : {}),
+        // Never when lookups are off or not yet loaded — the button is hidden then,
+        // but the network must not be reachable through this path regardless.
+        ...(overrides?.forceGrounding && externalLookupsAllowed ? { forceMatch: true } : {}),
       },
     );
 

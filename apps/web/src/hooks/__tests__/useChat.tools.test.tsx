@@ -870,4 +870,26 @@ describe("useChat — regenerate with forceGrounding (Check a source)", () => {
       ]),
     );
   });
+
+  it("does not run a lookup when external lookups are off, even if forced", async () => {
+    setScripts([{ kind: "tokens", tokens: ["Here is a poem."] }]);
+    const { result } = renderHook(() => useChat());
+    await act(async () => {
+      await result.current.sendMessage("write me a short poem about dogs");
+    });
+    const firstAssistant = lastAssistant()!;
+
+    useSettingsStore.setState({ groundingEnabled: false });
+    groundingMock.fulltextPages = [{ title: "Dogs" }];
+    setScripts([{ kind: "tokens", tokens: ["Dogs are domesticated animals."] }]);
+    await act(async () => {
+      await result.current.regenerateMessage(firstAssistant.id, {
+        forceGrounding: true,
+      });
+    });
+
+    // The setting wins: no network lookup, no citation.
+    expect(groundingMock.lookupCalls).toHaveLength(0);
+    expect(lastAssistant()!.citations).toBeUndefined();
+  });
 });
