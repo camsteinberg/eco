@@ -171,6 +171,8 @@ const groundingMock = vi.hoisted(() => ({
   lookupCalls: [] as Array<{ query: string; signal?: AbortSignal }>,
   /** Resolves the lookup only when released — lets a test stop mid-lookup. */
   gate: null as null | (() => void),
+  /** Override fulltext search results for forced-grounding tests. */
+  fulltextPages: null as Array<{ title: string }> | null,
 }));
 
 vi.mock("../../lib/grounding", () => ({
@@ -187,6 +189,18 @@ vi.mock("../../lib/grounding", () => ({
     },
   ),
   getWikidataStatement: vi.fn(async () => groundingMock.wikidata),
+  searchWikipediaFulltext: vi.fn(
+    async (query: string, opts?: { signal?: AbortSignal }) => {
+      groundingMock.lookupCalls.push({ query, signal: opts?.signal });
+      if (groundingMock.fulltextPages) {
+        return { found: true, pages: groundingMock.fulltextPages };
+      }
+      if (groundingMock.wikiResult.found) {
+        return { found: true, pages: [{ title: groundingMock.wikiResult.title }] };
+      }
+      return { found: false, reason: "no-match" };
+    },
+  ),
 }));
 
 // Imports AFTER the mocks so the hook picks up the mocked seams.
@@ -241,6 +255,7 @@ beforeEach(() => {
   groundingMock.wikidata = null;
   groundingMock.lookupCalls.length = 0;
   groundingMock.gate = null;
+  groundingMock.fulltextPages = null;
   // Web lookups default ON only after settings hydrate (the locked default). Reset
   // before each test so the gate is in its default state; fail-closed tests flip it.
   useSettingsStore.setState({ hasLoaded: true, groundingEnabled: true });
@@ -806,5 +821,53 @@ describe("useChat — host-authoritative identity/privacy (Finding G)", () => {
     // NOT the web-lookups-off from-memory path — the identity truth takes precedence.
     expect(assistant.verification).toBeUndefined();
     expect(assistant.content).not.toContain("Yes, I'm ChatGPT");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 7. forceGrounding — regenerate with "Check a source"
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("useChat — regenerate with forceGrounding (Check a source)", () => {
+  it("forces the grounding tool on a turn the matchers would normally skip", async () => {
+    // First: send a conversational turn that grounding would skip (deny-listed).
+    setScripts([{ kind: "tokens", tokens: ["Here is a poem."] }]);
+    const { result } = renderHook(() => useChat());
+    await act(async () => {
+      await result.current.sendMessage("write me a short poem about dogs");
+    });
+
+    const firstAssistant = lastAssistant()!;
+    // No grounding ran — the deny-set screens creative asks.
+    expect(groundingMock.lookupCalls).toHaveLength(0);
+    expect(firstAssistant.citations).toBeUndefined();
+
+    // Now regenerate with forceGrounding — the forced path bypasses candidacy.
+    // The fulltext search returns "Dogs" (matching the "dogs" token in the keyword
+    // corpus), then lookupWikipedia resolves the article.
+    groundingMock.fulltextPages = [{ title: "Dogs" }];
+    groundingMock.wikiResult = {
+      found: true,
+      title: "Dog",
+      extract: "The dog is a domesticated descendant of the wolf.",
+      url: "https://en.wikipedia.org/wiki/Dog",
+    };
+    setScripts([{ kind: "tokens", tokens: ["Dogs are domesticated animals."] }]);
+    await act(async () => {
+      await result.current.regenerateMessage(firstAssistant.id, {
+        forceGrounding: true,
+      });
+    });
+
+    // The forced path DID run a grounding lookup.
+    expect(groundingMock.lookupCalls.length).toBeGreaterThanOrEqual(1);
+    // The new assistant message carries a citation.
+    const newAssistant = lastAssistant()!;
+    expect(newAssistant.citations).toBeDefined();
+    expect(newAssistant.citations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ source: "Wikipedia", title: "Dog" }),
+      ]),
+    );
   });
 });

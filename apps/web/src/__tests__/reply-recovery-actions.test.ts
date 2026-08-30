@@ -101,8 +101,8 @@ const REGENERATE_CONTROLS = Object.keys(
   REPLY_CONTROL_TREATMENTS,
 ) as readonly ReplyRegenerateControl[];
 
-/** All four, in menu order. Typed so a fifth control is a type error here. */
-const CONTROLS: readonly AssistantReplyControl[] = ["continue", ...REGENERATE_CONTROLS];
+/** All five, in menu order. Typed so a sixth control is a type error here. */
+const CONTROLS: readonly AssistantReplyControl[] = ["continue", "check-source", ...REGENERATE_CONTROLS];
 
 /** Every model a user can actually be served, derived so a new one is covered. */
 const CATALOG_MODEL_IDS: readonly string[] = getCatalog().map((model) => model.id);
@@ -153,19 +153,21 @@ function resolveTypedTurn(text: string, modelId: string): Resolved {
  * has no forced intent, so its sampling is whatever its canned turn routes to.
  */
 function resolveControl(control: AssistantReplyControl, modelId: string): Resolved {
-  return control === "continue"
-    ? resolveTypedTurn(CONTINUE_TURN, modelId)
-    : resolveIntent(REPLY_CONTROL_TREATMENTS[control].intent, modelId);
+  if (control === "continue" || control === "check-source") {
+    return resolveTypedTurn(CONTINUE_TURN, modelId);
+  }
+  return resolveIntent(REPLY_CONTROL_TREATMENTS[control].intent, modelId);
 }
 
 /** The text of the final user turn for one control, before hinting. */
 function composedTurn(control: AssistantReplyControl): string {
-  // `continue` sends its canned turn as the whole message; the other three
-  // append their directive to the END of the user's own turn, which is what
-  // `appendTurnDirective` does inside `buildPrompt`.
-  return control === "continue"
-    ? CONTINUE_TURN
-    : `${EXAMPLE_ASK}\n\n${REPLY_CONTROL_TREATMENTS[control].directive}`;
+  // `continue` sends its canned turn as the whole message; `check-source`
+  // regenerates with forceGrounding and no directive; the other three append
+  // their directive to the END of the user's own turn.
+  if (control === "continue" || control === "check-source") {
+    return CONTINUE_TURN;
+  }
+  return `${EXAMPLE_ASK}\n\n${REPLY_CONTROL_TREATMENTS[control].directive}`;
 }
 
 /** The turn the model receives for one control on one model. */
@@ -204,6 +206,18 @@ function compact(resolved: Resolved): string {
  */
 const CONTROL_SAMPLING_TODAY: Readonly<Record<string, Readonly<Record<string, string>>>> = {
   continue: {
+    "local/qwen3-0.6b": "quick:512/0.32",
+    "candidate/lfm2.5-1.2b-instruct-onnx": "quick:1024/0.2",
+    "candidate/lfm2.5-1.2b-instruct-q4-onnx": "quick:1024/0.2",
+    "candidate/lfm2.5-350m-onnx": "quick:384/0.25",
+    "candidate/qwen3.5-2b-onnx": "quick:1024/0.32",
+    "candidate/gemma-4-e2b-litert": "quick:256/0.18",
+    "candidate/qwen2.5-0.5b-mlc": "quick:1024/0.45",
+    "candidate/granite-4.0-350m-onnx": "quick:512/0.32",
+    "candidate/smollm2-360m-instruct-onnx": "quick:512/0.32",
+    "candidate/lfm2-2.6b-onnx": "quick:1024/0.2",
+  },
+  "check-source": {
     "local/qwen3-0.6b": "quick:512/0.32",
     "candidate/lfm2.5-1.2b-instruct-onnx": "quick:1024/0.2",
     "candidate/lfm2.5-1.2b-instruct-q4-onnx": "quick:1024/0.2",
@@ -324,6 +338,10 @@ const DEEPENABLE_TODAY: Readonly<Record<string, boolean>> = {
 const RENDERED_TURN_TODAY: Readonly<Record<string, string>> = {
   "continue@default": "Continue your previous answer.",
   "continue@litert":
+    "Continue your previous answer."
+    + "\n\nAnswer directly and briefly. For a single factual question, give the answer first and stop. For a short follow-up, make only the requested change.",
+  "check-source@default": "Continue your previous answer.",
+  "check-source@litert":
     "Continue your previous answer."
     + "\n\nAnswer directly and briefly. For a single factual question, give the answer first and stop. For a short follow-up, make only the requested change.",
   "shorter@default":

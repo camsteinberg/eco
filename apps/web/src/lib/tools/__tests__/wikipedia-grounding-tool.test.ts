@@ -36,6 +36,7 @@ import {
   titleCoversEntity,
   userTextCoversTitle,
   buildKeywordQuery,
+  buildForcedGroundingArgs,
   askWindows,
   isPlausibleEntity,
   MAX_TITLE_LEN,
@@ -2095,5 +2096,44 @@ describe("wikipediaGroundingTool.execute — verification signal", () => {
     });
     expect(result.verification).toBeUndefined();
     expect(result.citation?.title).toBe("Apple");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// buildForcedGroundingArgs — the "Check a source" forced-args builder
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("buildForcedGroundingArgs", () => {
+  it("returns fulltext args with the user text as searchText", () => {
+    const args = buildForcedGroundingArgs("who invented the printing press");
+    expect(args.fulltext).toBe(true);
+    expect(args.searchText).toBe("who invented the printing press");
+    // The entity should be the cleaned keyword corpus (via buildKeywordQuery).
+    expect(args.entity).not.toBe("");
+  });
+
+  it("uses trimmed text as entity when buildKeywordQuery yields nothing", () => {
+    // A single short word with a digit — buildKeywordQuery rejects digits.
+    const args = buildForcedGroundingArgs("42");
+    expect(args.fulltext).toBe(true);
+    expect(args.entity).toBe("42");
+    expect(args.searchText).toBe("42");
+  });
+
+  it("caps searchText at 200 characters", () => {
+    const long = "a".repeat(300);
+    const args = buildForcedGroundingArgs(long);
+    expect(args.searchText!.length).toBe(200);
+  });
+
+  it("detects a Wikidata property when the question implies one", () => {
+    const args = buildForcedGroundingArgs("what is the population of France");
+    // detectWikidataProperty should find P1082 (population).
+    expect(args.wikidataProperty).toBe("P1082");
+  });
+
+  it("sets wikidataProperty to null when no property is implied", () => {
+    const args = buildForcedGroundingArgs("tell me about dogs");
+    expect(args.wikidataProperty).toBeNull();
   });
 });

@@ -48,7 +48,7 @@ export {
 } from "./identity-tool";
 export { moneyTool } from "./money-tool";
 export { unitTool } from "./unit-tool";
-export { wikipediaGroundingTool } from "./wikipedia-grounding-tool";
+export { wikipediaGroundingTool, buildForcedGroundingArgs } from "./wikipedia-grounding-tool";
 
 /**
  * The shipping tools in priority order. `detectTool` returns the first whose

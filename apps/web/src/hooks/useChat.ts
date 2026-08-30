@@ -465,6 +465,12 @@ export type RegenerateOverrides = {
    * design and not an implementation detail.
    */
   turnDirective?: string;
+  /**
+   * When true, force the grounding tool to run on this generation regardless of
+   * the candidacy matchers. Used by the "Check a source" user action to
+   * re-run the turn with a Wikipedia lookup.
+   */
+  forceGrounding?: boolean;
 };
 
 /** Everything `streamResponse` accepts for one dispatch. */
@@ -1269,6 +1275,8 @@ export function useChat() {
         // Omit matchContext entirely when context-free, so a turn with no recent
         // grounded antecedent stays context-free (preserves the existing idiom).
         ...(Object.keys(matchContext).length > 0 ? { matchContext } : {}),
+        // "Check a source" action: bypass candidacy and force the grounding tool.
+        ...(overrides?.forceGrounding ? { forceMatch: true } : {}),
       },
     );
 

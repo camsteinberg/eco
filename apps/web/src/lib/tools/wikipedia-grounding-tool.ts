@@ -1594,3 +1594,29 @@ export function createWikipediaGroundingTool(
 
 /** The SHIPPED grounding tool: lead-summary mode, live Wikipedia body fetcher. */
 export const wikipediaGroundingTool: EcoTool<GroundingArgs> = createWikipediaGroundingTool();
+
+/**
+ * Build grounding args for a FORCED lookup (the "Check a source" user action).
+ *
+ * Bypasses every candidacy guard (deny patterns, cue requirements, entity
+ * extraction confidence gates) and goes straight to the full-text search
+ * fallback: the user's raw question becomes the search query, and the cleaned
+ * keyword corpus anchors the inverted coverage gate exactly as the organic
+ * zero-entity path does. When keyword cleaning yields nothing usable (too short,
+ * all stopwords), the trimmed question itself is used as the entity — the lookup
+ * will rely on CirrusSearch ranking and the coverage gate will decide acceptance.
+ *
+ * This is the ONLY public entry point for forced grounding; the rest of the
+ * module's internals stay private.
+ */
+export function buildForcedGroundingArgs(userText: string): GroundingArgs {
+  const trimmed = userText.trim();
+  const capped = trimmed.slice(0, FULLTEXT_SEARCH_MAX_CHARS);
+  const keywordCorpus = buildKeywordQuery(trimmed);
+  return {
+    entity: keywordCorpus ?? capped,
+    wikidataProperty: detectWikidataProperty(trimmed),
+    fulltext: true,
+    searchText: capped,
+  };
+}
