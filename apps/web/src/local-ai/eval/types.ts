@@ -15,6 +15,7 @@
  */
 
 import type { ChatIntent } from '../../lib/chat-intent';
+import type { ConfidenceSummary } from '../runtime/confidence';
 
 // ─── Prompt set ──────────────────────────────────────────────────────────
 
@@ -562,6 +563,12 @@ export type EvalPerf = {
    * Optional for the same persisted-run back-compat reason as above.
    */
   ranToCap?: boolean;
+  /**
+   * Per-generation confidence summary from the logits observer (Transformers
+   * path only). Optional: absent on runs persisted before this field existed
+   * and on runtimes that do not expose logits (WebLLM, LiteRT).
+   */
+  confidence?: ConfidenceSummary;
 };
 
 /** How a grounding tool step ended, in the retrieval arm's vocabulary. */

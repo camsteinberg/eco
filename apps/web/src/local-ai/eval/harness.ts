@@ -513,6 +513,8 @@ type StreamOutcome = {
   /** Adapter-reported max inter-token gap (ms), else null (#28 stall signature). */
   maxInterTokenGapMs: number | null;
   endedCleanly: boolean;
+  /** Per-generation confidence summary (Transformers path only). */
+  confidence: import('../runtime/confidence').ConfidenceSummary | null;
   /** Error reason from an 'error' event or a timeout, else null. */
   error: string | null;
   startMs: number;
@@ -565,6 +567,7 @@ async function runStream(
   let tokenEventCount = 0;
   let ttftMs: number | null = null;
   let maxInterTokenGapMs: number | null = null;
+  let confidence: import('../runtime/confidence').ConfidenceSummary | null = null;
   let endedCleanly = false;
   let error: string | null = null;
 
@@ -587,6 +590,7 @@ async function runStream(
         // The adapter measures the gap on its own performance clock (decode-
         // faithful); read it straight off `done` rather than re-deriving here.
         maxInterTokenGapMs = event.maxInterTokenGapMs ?? null;
+        confidence = event.confidence ?? null;
         endedCleanly = true;
         break;
       } else {
@@ -622,6 +626,7 @@ async function runStream(
     tokenEventCount,
     ttftMs,
     maxInterTokenGapMs,
+    confidence,
     endedCleanly,
     error,
     startMs,
@@ -682,6 +687,7 @@ function buildResult(
       smokePass,
       maxInterTokenGapMs: outcome.maxInterTokenGapMs,
       ranToCap: hitTokenCap,
+      ...(outcome.confidence != null ? { confidence: outcome.confidence } : {}),
     },
     ...(spec.judge && spec.judge.length > 0 ? { judge: spec.judge } : {}),
     ...(grounding !== undefined ? { grounding } : {}),

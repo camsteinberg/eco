@@ -251,6 +251,7 @@ export function createLocalAiLegacyInference(): LocalAiLegacyInference {
                   ...(event.maxInterTokenGapMs !== undefined
                     ? { maxInterTokenGapMs: event.maxInterTokenGapMs }
                     : {}),
+                  ...(event.confidence != null ? { confidence: event.confidence } : {}),
                 });
                 setLastTemplateName(event.tokenizerName ?? null);
                 if (process.env.NODE_ENV !== 'production' && event.kvReuse != null) {

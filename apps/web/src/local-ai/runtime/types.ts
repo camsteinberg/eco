@@ -10,6 +10,7 @@
 
 import type { ModelConfig, ModelRuntime } from '../types';
 import type { CjkSuppressionTelemetry } from './cjk-suppression';
+import type { ConfidenceSummary } from './confidence';
 import type { KvReuseTelemetry } from './kv-cache';
 
 // ─── Conversation shape ────────────────────────────────────────────────────────
@@ -94,7 +95,7 @@ export type GenerateOptions = {
 
 export type TokenEvent =
   | { kind: 'token'; text: string; seq?: number }
-  | { kind: 'done'; promptTokens?: number; completionTokens?: number; tokenizerName?: string; kvReuse?: KvReuseTelemetry; cjkSuppression?: CjkSuppressionTelemetry; maxInterTokenGapMs?: number | null }
+  | { kind: 'done'; promptTokens?: number; completionTokens?: number; tokenizerName?: string; kvReuse?: KvReuseTelemetry; cjkSuppression?: CjkSuppressionTelemetry; maxInterTokenGapMs?: number | null; confidence?: ConfidenceSummary }
   | { kind: 'error'; reason: string; code?: AdapterErrorCode };
 
 export type AdapterErrorCode =

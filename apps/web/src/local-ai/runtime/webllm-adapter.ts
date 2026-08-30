@@ -410,6 +410,14 @@ export class WebLLMAdapter implements RuntimeAdapter {
         // lock; breaking here deadlocks the NEXT create() forever.
       }
       emit?.({ phase: 'generation-complete', at: now() });
+      // TODO(confidence): WebLLM's `chat.completions.create` accepts
+      // `logprobs: true, top_logprobs: 1` and returns per-chunk
+      // `choices[0].logprobs.content[].logprob` + `top_logprobs[]`. When
+      // the runtime bake-off wires this up, compute ConfidenceSummary from
+      // those per-chunk logprobs so both runtimes emit the same field.
+      // Field names on the chunk type:
+      //   chunk.choices[0].logprobs?.content?.[0]?.logprob   (chosen token)
+      //   chunk.choices[0].logprobs?.content?.[0]?.top_logprobs (alternatives)
       yield {
         kind: 'done',
         promptTokens: lastUsage?.prompt_tokens,

@@ -9,10 +9,6 @@
  * captures the values here so `useChat` can read them after the stream
  * closes.
  *
- * Confidence is intentionally absent — the v1.0 catalog models don't
- * surface a confidence score. Consumers must handle null confidence (the
- * message field is already nullable in the chat store).
- *
  * SINGLETON CONSTRAINT: This module holds a single module-level
  * `lastUsage` value. It is correct for v1.0 because only one local
  * generation can run at a time (lifecycle singleton + lock + cooldown
@@ -24,6 +20,7 @@
  */
 
 import type { CjkSuppressionTelemetry } from './cjk-suppression';
+import type { ConfidenceSummary } from './confidence';
 import type { KvReuseTelemetry } from './kv-cache';
 
 export type LocalAiUsage = {
@@ -51,6 +48,12 @@ export type LocalAiUsage = {
    * the budget, not a slow-but-steady generation. Threaded into the receipt.
    */
   maxInterTokenGapMs?: number | null;
+  /**
+   * Per-generation confidence summary from the logits observer (Transformers
+   * path only; absent on WebLLM until logprob support is wired). Measurement
+   * only — does not gate or alter generation.
+   */
+  confidence?: ConfidenceSummary;
 };
 
 let lastUsage: LocalAiUsage | null = null;
