@@ -59,15 +59,27 @@ import {
 
 // ─── Engine interface ──────────────────────────────────────────────────────
 
-/** Shape of a single streamed chunk from `chat.completions.create`. */
+/**
+ * Shape of a single streamed chunk from `chat.completions.create`.
+ *
+ * Mirrors `ChatCompletionChunk.Choice` from the shipped `.d.ts` at
+ * `@mlc-ai/web-llm/lib/openai_api_protocols/chat_completion.d.ts`:
+ *   - `logprobs.content` is `Array<ChatCompletionTokenLogprob> | null`
+ *   - each `ChatCompletionTokenLogprob` has `{ token, bytes, logprob,
+ *     top_logprobs: Array<TopLogprob> }` (top_logprobs is NOT optional)
+ *   - each `TopLogprob` has `{ token, bytes, logprob }`
+ *
+ * A chunk may carry more than one entry in `content` (multi-token
+ * chunks), so callers must iterate the full array.
+ */
 export type WebLLMChunk = {
   choices: Array<{
     delta: { content?: string };
     finish_reason?: string;
     logprobs?: {
-      content?: Array<{
+      content: Array<{
         logprob: number;
-        top_logprobs?: Array<{ logprob: number }>;
+        top_logprobs: Array<{ logprob: number }>;
       }> | null;
     } | null;
   }>;
@@ -421,10 +433,18 @@ export class WebLLMAdapter implements RuntimeAdapter {
           seq++;
           yield { kind: 'token', text: delta, seq };
         }
-        // Accumulate the chosen-token logprob when present.
-        const logprobEntry = choice?.logprobs?.content?.[0];
-        if (logprobEntry != null) {
-          confidenceAcc.recordStep(logprobEntry.logprob);
+        // Accumulate top-1 logprobs. A chunk may carry multiple entries
+        // in `logprobs.content` (multi-token chunks). For each entry, prefer
+        // `top_logprobs[0].logprob` (the argmax token's logprob) over
+        // `entry.logprob` (the sampled token's logprob) so this statistic
+        // matches the Transformers path's `minTop1LogProb` / `meanTop1LogProb`
+        // which always record argmax, even under sampling.
+        const logprobEntries = choice?.logprobs?.content;
+        if (logprobEntries != null) {
+          for (const entry of logprobEntries) {
+            const top1 = entry.top_logprobs[0]?.logprob ?? entry.logprob;
+            confidenceAcc.recordStep(top1);
+          }
         }
         if (chunk.usage) {
           lastUsage = chunk.usage;

@@ -580,20 +580,20 @@ describe('WebLLMAdapter — confidence', () => {
       {
         choices: [{
           delta: { content: 'A' },
-          logprobs: { content: [{ logprob: -0.1 }] },
+          logprobs: { content: [{ logprob: -0.1, top_logprobs: [{ logprob: -0.1 }] }] },
         }],
       },
       {
         choices: [{
           delta: { content: 'B' },
-          logprobs: { content: [{ logprob: -0.5 }] },
+          logprobs: { content: [{ logprob: -0.5, top_logprobs: [{ logprob: -0.5 }] }] },
         }],
       },
       {
         choices: [{
           delta: { content: 'C' },
           finish_reason: 'stop',
-          logprobs: { content: [{ logprob: -0.3 }] },
+          logprobs: { content: [{ logprob: -0.3, top_logprobs: [{ logprob: -0.3 }] }] },
         }],
         usage: { prompt_tokens: 5, completion_tokens: 3 },
       },
@@ -631,7 +631,7 @@ describe('WebLLMAdapter — confidence', () => {
         choices: [{
           delta: { content: 'X' },
           finish_reason: 'stop',
-          logprobs: { content: [{ logprob: -0.01 }] },
+          logprobs: { content: [{ logprob: -0.01, top_logprobs: [{ logprob: -0.01 }] }] },
         }],
       },
     ];
@@ -659,7 +659,7 @@ describe('WebLLMAdapter — confidence', () => {
         choices: [{
           delta: { content: 'X' },
           finish_reason: 'stop',
-          logprobs: { content: [{ logprob: -0.2 }] },
+          logprobs: { content: [{ logprob: -0.2, top_logprobs: [{ logprob: -0.2 }] }] },
         }],
       },
     ];
@@ -679,6 +679,95 @@ describe('WebLLMAdapter — confidence', () => {
     const done = events.find((e) => e.kind === 'done');
     if (done?.kind !== 'done') throw new Error('expected done');
     expect(done.confidence?.greedy).toBe(false);
+  });
+
+  it('records top_logprobs[0] (top-1) not the sampled-token logprob under sampling', async () => {
+    // Under temperature > 0, the sampled token may differ from argmax.
+    // entry.logprob is the SAMPLED token's logprob; top_logprobs[0].logprob
+    // is the TOP-1 (argmax) token's logprob. The adapter must record top-1
+    // so the statistic matches the Transformers path.
+    const chunks: WebLLMChunk[] = [
+      {
+        choices: [{
+          delta: { content: 'A' },
+          logprobs: {
+            content: [{
+              logprob: -1.2,  // sampled token (NOT argmax)
+              top_logprobs: [{ logprob: -0.05 }],  // argmax token
+            }],
+          },
+        }],
+      },
+      {
+        choices: [{
+          delta: { content: 'B' },
+          finish_reason: 'stop',
+          logprobs: {
+            content: [{
+              logprob: -0.8,  // sampled
+              top_logprobs: [{ logprob: -0.3 }],  // argmax
+            }],
+          },
+        }],
+      },
+    ];
+
+    engine = makeEngine({ chunks });
+    adapter = new WebLLMAdapter({ engineFactory: async () => engine });
+    await adapter.load(MODEL);
+
+    const events: import('../types').TokenEvent[] = [];
+    for await (const event of adapter.generate(
+      [{ role: 'user', content: 'q' }],
+      { temperature: 0.7 },
+    )) {
+      events.push(event);
+    }
+
+    const done = events.find((e) => e.kind === 'done');
+    if (done?.kind !== 'done') throw new Error('expected done');
+    const c = done.confidence as ConfidenceSummary;
+    // Must use top-1 values (-0.05, -0.3), NOT sampled values (-1.2, -0.8).
+    expect(c.minTop1LogProb).toBeCloseTo(-0.3, 6);
+    expect(c.meanTop1LogProb).toBeCloseTo((-0.05 + -0.3) / 2, 6);
+    expect(c.minAt).toBe(1);
+    expect(c.greedy).toBe(false);
+  });
+
+  it('iterates all entries in a multi-token logprobs.content array', async () => {
+    // A single chunk may carry more than one token entry in logprobs.content.
+    const chunks: WebLLMChunk[] = [
+      {
+        choices: [{
+          delta: { content: 'AB' },
+          finish_reason: 'stop',
+          logprobs: {
+            content: [
+              { logprob: -0.1, top_logprobs: [{ logprob: -0.1 }] },
+              { logprob: -0.9, top_logprobs: [{ logprob: -0.9 }] },
+            ],
+          },
+        }],
+      },
+    ];
+
+    engine = makeEngine({ chunks });
+    adapter = new WebLLMAdapter({ engineFactory: async () => engine });
+    await adapter.load(MODEL);
+
+    const events: import('../types').TokenEvent[] = [];
+    for await (const event of adapter.generate([{ role: 'user', content: 'q' }])) {
+      events.push(event);
+    }
+
+    const done = events.find((e) => e.kind === 'done');
+    if (done?.kind !== 'done') throw new Error('expected done');
+    const c = done.confidence as ConfidenceSummary;
+    // Both entries must be recorded.
+    expect(c.steps).toBe(2);
+    expect(c.minTop1LogProb).toBeCloseTo(-0.9, 6);
+    expect(c.minAt).toBe(1);
+    expect(c.meanTop1LogProb).toBeCloseTo((-0.1 + -0.9) / 2, 6);
   });
 
   it('omits confidence when no logprobs appear on any chunk', async () => {
