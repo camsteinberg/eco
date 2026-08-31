@@ -15,8 +15,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { useChatStore } from "../../stores/chatStore";
 import type { ChatMessage } from "../../stores/chatStore";
-import { selectMessagesForContext } from "../../lib/context-window";
-import { estimateRenderingOverhead } from "../useChat";
+
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -183,62 +182,7 @@ describe("CS-2: setMessages resets streamPhase (proving the bug)", () => {
   });
 });
 
-// ─── CS-4: estimateRenderingOverhead ──────────────────────────────────────────
-
-describe("CS-4: estimateRenderingOverhead", () => {
-  it("scales with user turn count", () => {
-    const fewTurns = [
-      { role: "user" }, { role: "assistant" },
-    ];
-    const manyTurns = [
-      { role: "user" }, { role: "assistant" },
-      { role: "user" }, { role: "assistant" },
-      { role: "user" }, { role: "assistant" },
-      { role: "user" }, { role: "assistant" },
-      { role: "user" }, { role: "assistant" },
-    ];
-    const few = estimateRenderingOverhead(fewTurns, 4096);
-    const many = estimateRenderingOverhead(manyTurns, 4096);
-    expect(many).toBeGreaterThan(few);
-  });
-
-  it("caps at 10% of context length", () => {
-    // 100 user turns × 24 = 2400, but cap at 10% of 4096 = 409
-    const messages = Array.from({ length: 200 }, (_, i) => ({
-      role: i % 2 === 0 ? "user" : "assistant",
-    }));
-    const overhead = estimateRenderingOverhead(messages, 4096);
-    expect(overhead).toBeLessThanOrEqual(Math.floor(4096 * 0.10));
-  });
-
-  it("returns a positive value even for a single user turn", () => {
-    const messages = [{ role: "user" }];
-    expect(estimateRenderingOverhead(messages, 4096)).toBeGreaterThan(0);
-  });
-
-  it("integrated: selectMessagesForContext with overhead prevents safety failure", () => {
-    // End-to-end: a window that would pass 0.75 raw but fail 0.90 rendered
-    // now evicts enough to pass safety.
-    const ctx = 4096;
-    const systemPrompt = "s".repeat(400); // 100 tokens
-    const messages: ChatMessage[] = [];
-    for (let i = 0; i < 29; i++) {
-      messages.push(msg("user", "u".repeat(200), `u${i}`));
-      messages.push(msg("assistant", "a".repeat(200), `a${i}`));
-    }
-    // 58 messages × 50 tokens = 2900 raw tokens
-
-    const overhead = estimateRenderingOverhead(messages, ctx);
-    const selected = selectMessagesForContext(messages, ctx, systemPrompt, {
-      reservedOverheadTokens: overhead,
-    });
-
-    // The selected + overhead + system must fit 0.90·ctx
-    const selectedTokens = selected.reduce(
-      (sum, m) => sum + Math.ceil(m.content.length / 4),
-      0,
-    );
-    const renderedTotal = selectedTokens + overhead + Math.ceil(systemPrompt.length / 4);
-    expect(renderedTotal).toBeLessThanOrEqual(Math.floor(ctx * 0.90));
-  });
-});
+// ─── CS-4: estimateRenderingOverhead deleted in R2 ──────────────────────────
+// The function and its compensation constants (24, 128, 10%) were removed along
+// with the 0.75/0.9 budget ratios they guarded against. Context budgeting now
+// uses arithmetic on real counts (contextLength − maxNewTokens).

@@ -31,6 +31,7 @@ import { recommend, NoAssignableModelError } from "../local-ai/selection/recomme
 import { getOnDeviceSystemPrompt } from "../lib/system-prompt";
 import {
   getGenerationProfile,
+  getMaxNewTokensCeiling,
   inferChatIntent,
   inferTurnIntent,
   type ChatIntent,
@@ -107,33 +108,6 @@ export {
   createGeneration,
   type Generation,
 } from "./useChat/generation";
-
-/**
- * Estimate the rendering overhead (hints, recaps, tool note) that the prompt
- * assembly adds on top of the raw message content. Passed to
- * `selectMessagesForContext` as `reservedOverheadTokens` so the selection
- * budget accounts for the tokens that will exist in the rendered prompt but
- * not in the raw conversation, preventing a window that passes selection from
- * failing the 0.90 safety check.
- *
- * Per-turn overhead: recaps and tool notes add a fixed amount.
- * The reserve is capped at 10% of the context length to avoid over-eviction
- * in long conversations where the user-turn count is large.
- *
- * @internal Exported for unit testing.
- */
-export function estimateRenderingOverhead(
-  messages: ReadonlyArray<{ role: string }>,
-  contextLength: number,
-): number {
-  const PER_TURN_HINT_TOKENS = 24;
-  const FIXED_OVERHEAD_TOKENS = 128;
-  const userTurnCount = messages.filter((m) => m.role === "user").length;
-  return Math.min(
-    userTurnCount * PER_TURN_HINT_TOKENS + FIXED_OVERHEAD_TOKENS,
-    Math.floor(contextLength * 0.10),
-  );
-}
 
 /**
  * Build a composed system prompt combining the Eco identity prompt and custom
@@ -539,6 +513,29 @@ export function useChat() {
   const effectiveModelContextLength = getContextTokens(resolvedSelectedModel, undefined, {
     allowValidationModel: allowValidationModelMetadata,
   });
+  // The largest generation the model could produce under any intent. Used as
+  // the conservative fallback when no user turn is available to derive a
+  // per-turn grant (e.g. context divider before the first message).
+  const modelMaxNewTokensCeiling = getMaxNewTokensCeiling(resolvedSelectedModel, {
+    allowValidationModel: allowValidationModelMetadata,
+  });
+
+  /**
+   * Per-turn generation grant for the latest user turn in `msgs`. Reserves
+   * exactly what this turn will be granted (384–2048 by intent) rather than
+   * the model's ceiling, so usable history stays as large as possible. Falls
+   * back to the model's ceiling when no user turn exists yet.
+   */
+  function getPerTurnMaxNewTokens(
+    msgs: ReadonlyArray<{ role: string; content: string }>,
+  ): number {
+    const intent = getLatestTurnIntent(
+      msgs as Array<{ role: "user" | "assistant" | "system"; content: string }>,
+    );
+    return getGenerationProfile(intent, true, resolvedSelectedModel, {
+      allowValidationModel: allowValidationModelMetadata,
+    }).maxTokens;
+  }
 
   useEffect(() => {
     const hasDraft = composerDraft.trim().length > 0;
@@ -1538,11 +1535,7 @@ export function useChat() {
       // playMessageReceived swallow their own errors) — keep it that way.
       // confidence is always null in v1 (no heuristic confidence score).
       const lastUsage = getLocalAiLastUsage();
-      const possiblyTruncated =
-        lastUsage?.maxTokens != null
-        && lastUsage.maxTokens > 0
-        && lastUsage.completionTokens != null
-        && lastUsage.completionTokens >= Math.floor(lastUsage.maxTokens * 0.95);
+      const possiblyTruncated = lastUsage?.finishReason === 'length';
       updateMessage(assistantId, {
         status: "complete",
         inferenceMethod: "local",
@@ -1802,12 +1795,14 @@ export function useChat() {
     try {
       const allMsgs = useChatStore.getState().messages;
       const msgsForApi = allMsgs.filter((m) => m.id !== assistantId);
-      // Apply context window: only send messages that fit in the model's context
+      // Apply context window: only send messages that fit in the model's context.
+      // Reserve the per-turn grant (intent-dependent, 384–2048) rather than the
+      // model ceiling, so usable history stays as large as possible.
       const windowedMsgs = selectMessagesForContext(
         msgsForApi,
         effectiveModelContextLength,
         composedSystemPrompt,
-        { reservedOverheadTokens: estimateRenderingOverhead(msgsForApi, effectiveModelContextLength) },
+        { maxNewTokens: getPerTurnMaxNewTokens(msgsForApi) },
       );
       const apiMessages = windowedMsgs.map((m) => ({ role: m.role, content: m.content }));
 
@@ -1910,7 +1905,7 @@ export function useChat() {
       fullBranch,
       effectiveModelContextLength,
       composedSystemPrompt,
-      { reservedOverheadTokens: estimateRenderingOverhead(fullBranch, effectiveModelContextLength) },
+      { maxNewTokens: getPerTurnMaxNewTokens(fullBranch) },
     );
     const branchForApi = windowedBranch.map((m) => ({ role: m.role, content: m.content }));
 
@@ -1996,7 +1991,7 @@ export function useChat() {
       ancestors,
       effectiveModelContextLength,
       composedSystemPrompt,
-      { reservedOverheadTokens: estimateRenderingOverhead(ancestors, effectiveModelContextLength) },
+      { maxNewTokens: getPerTurnMaxNewTokens(ancestors) },
     );
     const apiMessages = windowedAncestors.map((m) => ({ role: m.role, content: m.content }));
 
@@ -2117,7 +2112,7 @@ export function useChat() {
       retryAncestors,
       effectiveModelContextLength,
       composedSystemPrompt,
-      { reservedOverheadTokens: estimateRenderingOverhead(retryAncestors, effectiveModelContextLength) },
+      { maxNewTokens: getPerTurnMaxNewTokens(retryAncestors) },
     );
     const retryApiMessages = retryWindowedAncestors.map((m) => ({ role: m.role, content: m.content }));
 
@@ -2245,16 +2240,31 @@ export function useChat() {
 
   // Compute the context divider position for the current message list.
   // Memoized so it only recalculates when messages or context params change.
+  // Reserves the per-turn grant (intent-dependent) for the latest user turn,
+  // falling back to the model's ceiling when no user turn is present yet.
   const contextDividerIndex = useMemo(() => {
     if (messages.length === 0) return -1;
+    const hasUserTurn = messages.some((m) => m.role === "user");
+    let maxNewTokens: number;
+    if (!hasUserTurn) {
+      // No user turn yet — reserve the model ceiling (conservative).
+      maxNewTokens = modelMaxNewTokensCeiling;
+    } else {
+      const intent = getLatestTurnIntent(
+        messages as unknown as Array<{ role: "user" | "assistant" | "system"; content: string }>,
+      );
+      maxNewTokens = getGenerationProfile(intent, true, resolvedSelectedModel, {
+        allowValidationModel: allowValidationModelMetadata,
+      }).maxTokens;
+    }
     const selection = selectContextWindow(
       messages,
       effectiveModelContextLength,
       composedSystemPrompt,
-      { reservedOverheadTokens: estimateRenderingOverhead(messages, effectiveModelContextLength) },
+      { maxNewTokens },
     );
     return findContextDividerIndex(messages, selection);
-  }, [messages, effectiveModelContextLength, composedSystemPrompt]);
+  }, [messages, effectiveModelContextLength, composedSystemPrompt, modelMaxNewTokensCeiling, resolvedSelectedModel, allowValidationModelMetadata]);
 
   // The "Eco can no longer see the first N messages" note.
   //

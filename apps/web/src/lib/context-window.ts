@@ -4,16 +4,6 @@
 import type { ChatMessage } from "../stores/chatStore";
 
 /**
- * Estimate token count for a string using the chars/4 heuristic.
- * No tokenizer dependency -- good enough for context budget management.
- */
-export type TokenEstimator = (text: string) => number;
-
-export function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4);
-}
-
-/**
  * The refusal shown when a turn's prompt won't fit the local model's context
  * even after the new-token budget is clamped to the floor. Exported as a stable
  * constant so the error surface (`ErrorMessage`) can match it exactly and give
@@ -26,8 +16,18 @@ export function estimateTokens(text: string): number {
 export const CONTEXT_WINDOW_REFUSAL_MESSAGE =
   "This conversation has grown past what the local model can hold in context. Start a new chat to keep going, or try a shorter question.";
 
-function countTokens(text: string, estimator?: TokenEstimator): number {
-  return estimator ? Math.max(0, Math.ceil(estimator(text))) : estimateTokens(text);
+/**
+ * 4-chars-per-token APPROXIMATION used by the synchronous selection walk.
+ * This is NOT a real token count — it is a heuristic that under- or over-
+ * counts depending on the tokenizer, language, and content.
+ *
+ * It survives because `selectMessagesForContext` is synchronous (called
+ * from `useMemo`) while the real tokenizer lives in the Transformers
+ * worker and is only reachable via the adapter's async `countTokens`.
+ * **R5 deletes this** when window selection moves into the worker.
+ */
+function approximateTokensForSelection(text: string): number {
+  return Math.ceil(text.length / 4);
 }
 
 export type ContextSelectionDiagnostics = {
@@ -73,16 +73,13 @@ export type LocalContextSafetyDecision =
 const EVICTION_QUANTUM_FRACTION = 1 / 8;
 
 export type ContextSelectionOptions = {
-  estimateTokens?: TokenEstimator;
   /**
-   * Token budget reserved for rendering overhead that exists in the rendered
-   * prompt but NOT in the raw message content (per-turn hints, branch recaps,
-   * grounding tool system notes). Subtracted from the history budget so that
-   * any window passing selection also passes the 0.90 safety check
-   * (`assessLocalContextSafety`) on the rendered prompt. Callers compute this
-   * from the branch's user-turn count and a per-turn hint ceiling.
+   * Maximum tokens the model will generate. Subtracted from the context
+   * length to derive the history budget. Required for accurate windowing;
+   * defaults to 2048 (the catalog maximum — conservative, never
+   * under-reserves) when omitted.
    */
-  reservedOverheadTokens?: number;
+  maxNewTokens?: number;
 };
 
 /**
@@ -134,12 +131,12 @@ export function coalesceConsecutiveUsers(messages: ChatMessage[]): ChatMessage[]
 }
 
 /**
- * Select the most recent messages that fit within 75% of the model's context
- * window. System prompt tokens are deducted first (always included, outside
- * the history budget). Only complete user+assistant pairs are kept, and when
- * history must be evicted the cut advances in quantum steps (see
- * `EVICTION_QUANTUM_FRACTION`) so the window start — and with it KV-cache
- * reuse — stays stable between evictions.
+ * Select the most recent messages that fit within the context headroom
+ * (contextLength − maxNewTokens). System prompt tokens are deducted first
+ * (always included, outside the history budget). Only complete user+assistant
+ * pairs are kept, and when history must be evicted the cut advances in
+ * quantum steps (see `EVICTION_QUANTUM_FRACTION`) so the window start — and
+ * with it KV-cache reuse — stays stable between evictions.
  *
  * Empty assistant turns (errored / stopped before first token) are filtered
  * out before selection so they never replay to the model. If removal creates
@@ -184,11 +181,10 @@ export function selectContextWindow(
   );
   if (cleaned.length === 0) return empty;
 
-  // Compute available token budget
-  const totalBudget = Math.floor(modelContextLength * 0.75);
-  const systemTokens = systemPrompt ? countTokens(systemPrompt, options?.estimateTokens) : 0;
-  const reserved = options?.reservedOverheadTokens ?? 0;
-  const historyBudget = Math.max(0, totalBudget - systemTokens - reserved);
+  // Compute available token budget: full context minus the generation reserve.
+  const totalBudget = modelContextLength - (options?.maxNewTokens ?? 2048);
+  const systemTokens = systemPrompt ? approximateTokensForSelection(systemPrompt) : 0;
+  const historyBudget = Math.max(0, totalBudget - systemTokens);
 
   // Walk backward from the end, accumulating tokens.
   // Track indices of messages to include.
@@ -197,7 +193,7 @@ export function selectContextWindow(
 
   for (let i = cleaned.length - 1; i >= 0; i--) {
     const msg = cleaned[i]!;
-    const msgTokens = countTokens(msg.content, options?.estimateTokens);
+    const msgTokens = approximateTokensForSelection(msg.content);
 
     if (tokensUsed + msgTokens > historyBudget && startIndex < cleaned.length) {
       // This message would exceed budget and we already have at least one message
@@ -217,7 +213,7 @@ export function selectContextWindow(
     const quantum = Math.max(1, Math.floor(historyBudget * EVICTION_QUANTUM_FRACTION));
     let evictedTokens = 0;
     for (let i = 0; i < startIndex; i++) {
-      evictedTokens += countTokens(cleaned[i]!.content, options?.estimateTokens);
+      evictedTokens += approximateTokensForSelection(cleaned[i]!.content);
     }
     const targetEvicted = Math.ceil(evictedTokens / quantum) * quantum;
 
@@ -227,7 +223,7 @@ export function selectContextWindow(
     }
 
     while (startIndex < lastUserIndex && evictedTokens < targetEvicted) {
-      evictedTokens += countTokens(cleaned[startIndex]!.content, options?.estimateTokens);
+      evictedTokens += approximateTokensForSelection(cleaned[startIndex]!.content);
       startIndex++;
     }
   }
@@ -284,11 +280,11 @@ export function getContextSelectionDiagnostics(
   selectedMessages: ChatMessage[],
   modelContextLength: number,
   systemPrompt?: string,
-  options?: ContextSelectionOptions,
+  options?: { maxNewTokens?: number },
 ): ContextSelectionDiagnostics {
-  const systemPromptTokens = systemPrompt ? countTokens(systemPrompt, options?.estimateTokens) : 0;
+  const systemPromptTokens = systemPrompt ? approximateTokensForSelection(systemPrompt) : 0;
   const selectedMessageTokens = selectedMessages.reduce(
-    (sum, message) => sum + countTokens(message.content, options?.estimateTokens),
+    (sum, message) => sum + approximateTokensForSelection(message.content),
     0,
   );
   const truncatedCount = Math.max(0, activeBranch.length - selectedMessages.length);
@@ -299,7 +295,7 @@ export function getContextSelectionDiagnostics(
     truncatedCount,
     wasTruncated: truncatedCount > 0,
     modelContextLength,
-    totalBudgetTokens: Math.floor(modelContextLength * 0.75),
+    totalBudgetTokens: modelContextLength - (options?.maxNewTokens ?? 2048),
     systemPromptTokens,
     selectedMessageTokens,
   };
@@ -323,16 +319,15 @@ export function clampRequestedNewTokensForContext(
   systemPrompt: string,
   modelContextLength: number,
   requestedNewTokens: number,
-  options?: { estimateTokens?: TokenEstimator; floor?: number },
+  options?: { floor?: number },
 ): number {
   const floor = options?.floor ?? MIN_LOCAL_NEW_TOKENS;
-  const systemPromptTokens = systemPrompt ? countTokens(systemPrompt, options?.estimateTokens) : 0;
+  const systemPromptTokens = systemPrompt ? approximateTokensForSelection(systemPrompt) : 0;
   const promptTokens = messages.reduce(
-    (sum, message) => sum + countTokens(message.content, options?.estimateTokens),
+    (sum, message) => sum + approximateTokensForSelection(message.content),
     systemPromptTokens,
   );
-  const safeBudgetTokens = Math.floor(modelContextLength * 0.9);
-  const headroom = safeBudgetTokens - promptTokens;
+  const headroom = modelContextLength - promptTokens;
   return Math.max(Math.min(requestedNewTokens, headroom), Math.min(floor, requestedNewTokens));
 }
 
@@ -341,15 +336,14 @@ export function assessLocalContextSafety(
   systemPrompt: string,
   modelContextLength: number,
   requestedNewTokens: number,
-  options?: { estimateTokens?: TokenEstimator },
 ): LocalContextSafetyDecision {
-  const systemPromptTokens = systemPrompt ? countTokens(systemPrompt, options?.estimateTokens) : 0;
+  const systemPromptTokens = systemPrompt ? approximateTokensForSelection(systemPrompt) : 0;
   const promptTokens = messages.reduce(
-    (sum, message) => sum + countTokens(message.content, options?.estimateTokens),
+    (sum, message) => sum + approximateTokensForSelection(message.content),
     systemPromptTokens,
   );
   const totalTokens = promptTokens + Math.max(0, requestedNewTokens);
-  const safeBudgetTokens = Math.floor(modelContextLength * 0.9);
+  const safeBudgetTokens = modelContextLength;
 
   if (totalTokens <= safeBudgetTokens) {
     return {

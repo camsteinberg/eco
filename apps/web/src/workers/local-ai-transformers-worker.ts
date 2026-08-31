@@ -236,6 +236,9 @@ self.addEventListener('message', async (event: MessageEvent<WorkerInbound>) => {
       case 'unload':
         await handleUnload();
         break;
+      case 'countTokens':
+        await handleCountTokens(msg);
+        break;
     }
   } catch (err) {
     post({
@@ -245,6 +248,26 @@ self.addEventListener('message', async (event: MessageEvent<WorkerInbound>) => {
     });
   }
 });
+
+// ─── countTokens ───────────────────────────────────────────────────────────
+
+async function handleCountTokens(msg: Extract<WorkerInbound, { type: 'countTokens' }>): Promise<void> {
+  if (!loaded?.tokenizer) return;
+  try {
+    const inputs = await tokenizeRenderedTemplate(
+      loaded.tokenizer as Parameters<typeof tokenizeRenderedTemplate>[0],
+      msg.text,
+      { return_tensor: 'pt' },
+    );
+    const inputIdsTensor = (inputs as {
+      input_ids?: { data: ArrayLike<unknown>; dims?: number[] };
+    }).input_ids;
+    const count = inputIdsTensor?.dims?.[1] ?? 0;
+    post({ type: 'tokenCount', requestId: msg.requestId, count });
+  } catch {
+    // Silently drop — main thread times out and returns null.
+  }
+}
 
 // ─── init ──────────────────────────────────────────────────────────────────
 
@@ -890,9 +913,11 @@ async function handleGenerate(msg: Extract<WorkerInbound, { type: 'generate' }>)
       post({ type: 'token', generationId: msg.generationId, seq, text: tail });
     }
     const confidence = confidenceAcc.summarize(isGreedy) ?? undefined;
+    const maxNewTokens = samplingArgs.max_new_tokens as number;
     post({
       type: 'done',
       generationId: msg.generationId,
+      finishReason: completionTokens >= maxNewTokens ? 'length' : 'eos',
       promptTokens,
       completionTokens,
       tokenizerName: tokenizerName(tokenizer),

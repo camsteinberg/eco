@@ -130,6 +130,7 @@ const shared = vi.hoisted(() => {
     }>,
     lastUsage: null as
       | {
+          finishReason?: 'eos' | 'length' | 'abort';
           promptTokens?: number;
           completionTokens?: number;
           maxTokens?: number;
@@ -586,8 +587,8 @@ describe("useChat — normal on-device stream (sendMessage)", () => {
     expect(assistant.possiblyTruncated).toBe(false);
   });
 
-  it("flags possiblyTruncated when completionTokens reaches >= 95% of maxTokens", async () => {
-    setScripts([{ kind: "tokens", tokens: ["x"] }]);    setLastUsage({ promptTokens: 5, completionTokens: 1000, maxTokens: 1024 });
+  it("flags possiblyTruncated when finishReason is 'length'", async () => {
+    setScripts([{ kind: "tokens", tokens: ["x"] }]);    setLastUsage({ promptTokens: 5, completionTokens: 1000, maxTokens: 1024, finishReason: 'length' });
 
     const { result } = renderHook(() => useChat());
     await act(async () => {
@@ -1627,14 +1628,18 @@ describe("useChat — a model bound to eco-smart dispatches (no eco-fast collaps
 // The shrunk context window note
 // ═══════════════════════════════════════════════════════════════════════════
 //
-// Models hold different amounts of a conversation (the everyday 1.2B holds
-// 8192 tokens, the LiteRT build 2048). Switching to a model that holds LESS
+// Models hold different amounts of a conversation (the everyday 1.2B has
+// a 4096-token context, the LiteRT build 2048). Switching to a model that holds LESS
 // quietly pushes more of the history out of context: the divider moves and
 // nothing says why. The note says why, ONCE, and only when it is actually
 // true — the window shrank AND this conversation overflows the new one.
 
 describe("useChat — the out-of-context note", () => {
-  /** A conversation big enough to overflow 2048 tokens but fit inside 8192. */
+  /**
+   * A conversation big enough to overflow the gemma-litert model's history
+   * budget (2048 ctx - 1024 quick grant = 1024) but fit inside the everyday
+   * model (4096 ctx - 1024 quick grant = 3072). ~2500 tokens of messages.
+   */
   function seedLongConversation(): void {
     const paragraph = "word ".repeat(500); // ~2500 chars ≈ 625 tokens
     useChatStore.setState({
@@ -1666,8 +1671,8 @@ describe("useChat — the out-of-context note", () => {
     useChatStore.setState({ selectedModel: "eco-fast" });
 
     const { result } = renderHook(() => useChat());
-    // The whole conversation fits the 8192-token model: nothing is out of
-    // context yet, so there is nothing to say.
+    // The conversation fits the everyday model's history budget (4096 - 1024
+    // quick grant = 3072): nothing is out of context yet.
     expect(result.current.contextDividerIndex).toBe(-1);
     expect(useChatStore.getState().contextWindowNotice).toBe("none");
 
@@ -1675,8 +1680,8 @@ describe("useChat — the out-of-context note", () => {
       useChatStore.setState({ selectedModel: "eco-smart" });
     });
 
-    // The 2048-token model cannot hold it, so the divider appears and the
-    // note says so by the composer.
+    // The gemma model's history budget (2048 - 1024 = 1024) cannot hold
+    // ~2500 tokens, so the divider appears and the note says so by the composer.
     expect(result.current.contextDividerIndex).toBeGreaterThan(0);
     expect(useChatStore.getState().contextWindowNotice).toBe("visible");
   });

@@ -497,6 +497,10 @@ export class LiteRTAdapter implements RuntimeAdapter {
     }
   }
 
+  async countTokens(_text: string): Promise<null> {
+    return null;
+  }
+
   async unload(): Promise<void> {
     const engine = this.engine;
     this.engine = null;

@@ -120,6 +120,8 @@ export type WebLLMEngine = {
   };
   interruptGenerate(): void;
   unload(): Promise<void>;
+  /** Optional: encode text to token ids (for countTokens support). */
+  tokenize?: (text: string) => number[] | Promise<number[]>;
 };
 
 export type WebLLMEngineFactory = (
@@ -431,6 +433,7 @@ export class WebLLMAdapter implements RuntimeAdapter {
     }
 
     let lastUsage: { prompt_tokens?: number; completion_tokens?: number } | undefined;
+    let lastFinishReason: string | undefined;
     try {
       for await (const chunk of chunks) {
         if (aborted) {
@@ -446,6 +449,9 @@ export class WebLLMAdapter implements RuntimeAdapter {
           }
           seq++;
           yield { kind: 'token', text: delta, seq };
+        }
+        if (choice?.finish_reason) {
+          lastFinishReason = choice.finish_reason;
         }
         // Accumulate top-1 logprobs. A chunk may carry multiple entries
         // in `logprobs.content` (multi-token chunks). For each entry, prefer
@@ -471,6 +477,7 @@ export class WebLLMAdapter implements RuntimeAdapter {
       const confidence = confidenceAcc.summarize(isGreedy);
       yield {
         kind: 'done',
+        finishReason: lastFinishReason === 'length' ? 'length' : lastFinishReason === 'stop' ? 'eos' : undefined,
         promptTokens: lastUsage?.prompt_tokens,
         completionTokens: lastUsage?.completion_tokens,
         ...(confidence != null ? { confidence } : {}),
@@ -495,6 +502,16 @@ export class WebLLMAdapter implements RuntimeAdapter {
       if (options?.signal) {
         options.signal.removeEventListener('abort', onAbort);
       }
+    }
+  }
+
+  async countTokens(text: string): Promise<number | null> {
+    if (!this.engine?.tokenize) return null;
+    try {
+      const tokens = await this.engine.tokenize(text);
+      return tokens.length;
+    } catch {
+      return null;
     }
   }
 

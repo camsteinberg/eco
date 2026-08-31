@@ -95,7 +95,7 @@ export type GenerateOptions = {
 
 export type TokenEvent =
   | { kind: 'token'; text: string; seq?: number }
-  | { kind: 'done'; promptTokens?: number; completionTokens?: number; tokenizerName?: string; kvReuse?: KvReuseTelemetry; cjkSuppression?: CjkSuppressionTelemetry; maxInterTokenGapMs?: number | null; confidence?: ConfidenceSummary }
+  | { kind: 'done'; finishReason?: 'eos' | 'length' | 'abort'; promptTokens?: number; completionTokens?: number; tokenizerName?: string; kvReuse?: KvReuseTelemetry; cjkSuppression?: CjkSuppressionTelemetry; maxInterTokenGapMs?: number | null; confidence?: ConfidenceSummary }
   | { kind: 'error'; reason: string; code?: AdapterErrorCode };
 
 export type AdapterErrorCode =
@@ -150,6 +150,13 @@ export type RuntimeAdapter = {
    * already checks Eco's storage directly for them.
    */
   weightsCached?(model: ModelConfig): Promise<boolean>;
+  /**
+   * Count the number of tokens in `text` using the model's real tokenizer.
+   * Returns `null` when the adapter cannot count (e.g. LiteRT has no
+   * tokenizer access). Async because the Transformers path crosses a
+   * worker boundary.
+   */
+  countTokens?(text: string): Promise<number | null>;
 };
 
 // ─── Adapter errors ────────────────────────────────────────────────────────
