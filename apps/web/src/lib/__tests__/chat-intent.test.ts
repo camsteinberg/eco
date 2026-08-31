@@ -3,10 +3,6 @@
 
 import { describe, expect, it } from "vitest";
 import {
-  applyTurnHints,
-  LONG_CHAT_COMPACT_FROM_INDEX,
-  buildHintedUserTurn,
-  buildTurnQualityInstruction,
   getGenerationProfile,
   inferChatIntent,
   inferTurnIntent,
@@ -34,8 +30,8 @@ describe("chat intent quality helpers", () => {
   });
 
   it("uses lower temperature for code than writing", () => {
-    expect(getGenerationProfile("code", false).temperature).toBeLessThan(
-      getGenerationProfile("writing", false).temperature,
+    expect(getGenerationProfile("code", true, "local/qwen3-0.6b").temperature).toBeLessThan(
+      getGenerationProfile("writing", true, "local/qwen3-0.6b").temperature,
     );
   });
 
@@ -56,7 +52,7 @@ describe("chat intent quality helpers", () => {
         allowValidationModel: true,
       }),
     ).toMatchObject({
-      temperature: 0.75,
+      temperature: 0.5,
     });
     expect(getGenerationProfile("writing", true, "local/qwen3-0.6b")).toMatchObject({
       temperature: 0.48,
@@ -104,48 +100,6 @@ describe("chat intent quality helpers", () => {
     expect(getGenerationProfile("writing", true, "local/qwen3-0.6b").maxTokens).toBe(512);
   });
 
-  it("returns empty string for quick intent (no scaffolding to leak)", () => {
-    expect(buildTurnQualityInstruction("quick", true, "local/qwen3-0.6b")).toBe("");
-  });
-
-  it("returns a working-code hint for code intent regardless of model", () => {
-    const instruction = buildTurnQualityInstruction("code", true, "local/qwen3-0.6b");
-    expect(instruction).toContain("working code");
-  });
-
-  it("returns format hint for writing intent without food content", () => {
-    const instruction = buildTurnQualityInstruction("writing", true, "local/qwen3-0.6b");
-    expect(instruction).toContain("format");
-    expect(instruction).not.toContain("vegetarian");
-    expect(instruction).not.toContain("recipe");
-    expect(instruction).not.toContain("vegan");
-    expect(instruction).not.toContain("broth");
-  });
-
-  it("keeps standard quality hints model-independent", () => {
-    const local = buildTurnQualityInstruction("explain", true, "local/qwen3-0.6b");
-    const network = buildTurnQualityInstruction("explain", false, undefined);
-    expect(local).toBe(network);
-  });
-
-  it.each([
-    "candidate/gemma-4-e2b-litert",
-    "candidate/gemma-4-e4b-litert",
-  ])("uses compact quick/explain/deep hints for Gemma LiteRT %s", (modelId) => {
-    const explain = buildTurnQualityInstruction("explain", true, modelId);
-    const deep = buildTurnQualityInstruction("deep", true, modelId);
-
-    expect(explain).toContain("at most three concise paragraphs or bullets");
-    expect(deep).toContain("at most three short sections");
-    expect(deep).toContain("two bullets each");
-    const quick = buildTurnQualityInstruction("quick", true, modelId);
-
-    expect(quick).toContain("Answer directly and briefly");
-    expect(quick).toContain("single factual question");
-    expect(deep).not.toContain("concrete recommendations and tradeoffs");
-    expect(deep).not.toContain("tradeoff");
-  });
-
   it("uses a runtime-honest validation profile for Gemma E4B LiteRT", () => {
     const profile = getGenerationProfile("quick", true, "candidate/gemma-4-e4b-litert", {
       allowValidationModel: true,
@@ -157,33 +111,6 @@ describe("chat intent quality helpers", () => {
     });
     expect(profile).not.toHaveProperty("repetitionPenalty");
     expect(profile).not.toHaveProperty("noRepeatNgramSize");
-  });
-
-  it("canary: no intent returns food, capability, or model-specific content", () => {
-    const forbidden = [
-      "vegetarian",
-      "vegan",
-      "plant-based",
-      "broth",
-      "legumes",
-      "recipes",
-      "plans, drafts",
-      "running locally",
-      "open source",
-      "Bonsai",
-      "experimental",
-      "competitive chat assistant",
-      "polished assistant response",
-    ];
-    const intents: Array<"quick" | "explain" | "deep" | "code" | "writing" | "file" | "research"> = [
-      "quick", "explain", "deep", "code", "writing", "file", "research",
-    ];
-    for (const intent of intents) {
-      const result = buildTurnQualityInstruction(intent, true, "local/qwen3-0.6b");
-      for (const word of forbidden) {
-        expect(result).not.toContain(word);
-      }
-    }
   });
 
   it("can use lab-only local model profiles inside validation harnesses", () => {
@@ -212,14 +139,14 @@ describe("chat intent quality helpers", () => {
       }),
     ).toMatchObject({
       maxTokens: 1024,
-      temperature: 0.45,
+      temperature: 0.5,
     });
   });
 
   it("fails closed for hidden direct local model IDs before prompt-profile generation", () => {
     const hiddenProfile = getGenerationProfile("deep", true, "local/smollm3-3b");
     expect(hiddenProfile).toMatchObject({
-      temperature: 0.55,
+      temperature: 0.5,
       maxTokens: 2048,
     });
     expect(hiddenProfile).not.toHaveProperty("topP");
@@ -299,189 +226,13 @@ describe("LFM2.5-1.2B default-model token budgets", () => {
   });
 });
 
-// ─── User-turn hint placement (Wave 2.6 Stage 1) ───────────────────────────
-// Hints ride the END of user turns; history re-renders must reproduce them
-// byte-identically (the KV strict-prefix contract — see PR #151 for the miss
-// class a render asymmetry causes).
+// ─── Turn intent (position-aware routing) ───────────────────────────────────
 
-describe("user-turn hint placement", () => {
-  const MODEL = "candidate/lfm2.5-1.2b-instruct-onnx";
-
-  it("appends the per-intent hint after a blank line; empty hints are a no-op", () => {
-    const deepHint = buildTurnQualityInstruction("deep", true, MODEL);
-    expect(buildHintedUserTurn("give me some tips on negotiating a raise", "deep", true, MODEL))
-      .toBe(`give me some tips on negotiating a raise\n\n${deepHint}`);
-    // quick has no hint — the turn stays byte-identical.
-    expect(buildHintedUserTurn("what is the capital of australia", "quick", true, MODEL))
-      .toBe("what is the capital of australia");
-  });
-
-  it("applyTurnHints re-derives each user turn from its own text and position", () => {
-    const messages = [
-      { role: "user" as const, content: "how do i get better at cooking" },
-      { role: "assistant" as const, content: "Practice the basics." },
-      { role: "user" as const, content: "what is the capital of france" },
-    ];
-    const hinted = applyTurnHints(messages, true, MODEL);
-    const deepHint = buildTurnQualityInstruction("deep", true, MODEL);
-    // Turn 1 is teaching-shaped → deep hint appended.
-    expect(hinted[0]!.content).toBe(`how do i get better at cooking\n\n${deepHint}`);
-    // Assistant turns pass through untouched.
-    expect(hinted[1]).toBe(messages[1]);
-    // Turn 3 is a single fact → brief → quick → no hint.
-    expect(hinted[2]!.content).toBe("what is the capital of france");
-  });
-
-  it("re-rendering the same raw history yields identical bytes (KV contract)", () => {
-    const messages = [
-      { role: "user" as const, content: "walk me through setting up a monthly budget" },
-      { role: "assistant" as const, content: "First, list your income." },
-      { role: "user" as const, content: "make day 3 harder" },
-    ];
-    const first = applyTurnHints(messages, true, MODEL);
-    const second = applyTurnHints(messages, true, MODEL);
-    expect(second).toEqual(first);
-  });
-
+describe("turn intent routing", () => {
   it("position feeds the follow-up guard: first turn vs in-thread", () => {
     // In-thread anaphoric follow-up → brief → quick.
     expect(inferTurnIntent("can you make that one shorter", true)).toBe("quick");
     // Same text opening a conversation → focused → explain.
     expect(inferTurnIntent("can you make that one shorter", false)).toBe("explain");
-  });
-
-  it("applyTurnHints is applied to RAW store content exactly once per dispatch", () => {
-    // The transform is NOT idempotent by design (re-applying would re-append).
-    // This pin documents the architecture: always transform from raw
-    // apiMessages, never from already-hinted content.
-    const messages = [{ role: "user" as const, content: "how do i get better at cooking" }];
-    const once = applyTurnHints(messages, true, MODEL);
-    const twice = applyTurnHints(once, true, MODEL);
-    expect(twice[0]!.content).not.toBe(once[0]!.content);
-  });
-});
-
-// ─── Long chats: compact hint from the third user turn (2026-08-27) ─────────
-// Measured on the 1.2B (10-turn Lisbon chat, 4096 ctx): every explain turn ran
-// ~2 000 chars, the history budget held ~5 turns, and the turn-10 summary was
-// confidently wrong because turns 1–5 had been evicted. Shorter replies in the
-// body of a chat double the turns that fit. The switch is keyed on the turn's
-// POSITION in the rendered list, which is exactly what the KV contract allows.
-
-describe("long-chat compact hint", () => {
-  const MODEL = "candidate/lfm2.5-1.2b-instruct-onnx";
-  const explainAsk = "what should we know about the trams in lisbon, are they worth it?";
-
-  it("switches explain turns to the compact hint from LONG_CHAT_COMPACT_FROM_INDEX", () => {
-    const filler = { role: "assistant" as const, content: "ok" };
-    const messages = [
-      { role: "user" as const, content: explainAsk },
-      filler,
-      { role: "user" as const, content: explainAsk },
-      filler,
-      { role: "user" as const, content: explainAsk },
-    ];
-    const hinted = applyTurnHints(messages, true, MODEL);
-    const full = buildTurnQualityInstruction("explain", true, MODEL);
-    const compact = buildTurnQualityInstruction("explain", true, MODEL, { compact: true });
-    expect(compact).not.toBe(full);
-    expect(LONG_CHAT_COMPACT_FROM_INDEX).toBe(4);
-    expect(hinted[0]!.content).toBe(`${explainAsk}\n\n${full}`);
-    expect(hinted[2]!.content).toBe(`${explainAsk}\n\n${full}`);
-    expect(hinted[4]!.content).toBe(`${explainAsk}\n\n${compact}`);
-  });
-
-  it("leaves deep, code and writing turns at their full hint deep into a chat", () => {
-    for (const intent of ["deep", "code", "writing"] as const) {
-      expect(buildTurnQualityInstruction(intent, true, MODEL, { compact: true }))
-        .toBe(buildTurnQualityInstruction(intent, true, MODEL));
-    }
-  });
-
-  it("still yields to an explicit length instruction", () => {
-    const ask = "in one sentence, are the trams worth it?";
-    expect(buildHintedUserTurn(ask, "explain", true, MODEL, { compact: true })).toBe(ask);
-  });
-});
-
-// ─── Hint suppression on explicit instructions (gates-run finding) ──────────
-
-describe("hint suppression on explicit format instructions", () => {
-  const MODEL = "candidate/lfm2.5-1.2b-instruct-onnx";
-
-  it("never appends a hint after an explicit format/length instruction", () => {
-    // Measured (wave26-stage1-gates, if3/LFM): a hint AFTER the instruction
-    // wins by recency and broke "in exactly one sentence" into six. The
-    // user's instruction is inviolable — the hint yields, whatever the intent.
-    const ask = "Answer in exactly one sentence: why is the sky blue?";
-    expect(buildHintedUserTurn(ask, "explain", true, MODEL)).toBe(ask);
-    expect(buildHintedUserTurn(ask, "deep", true, MODEL)).toBe(ask);
-
-    const teachingWithFormat = "give me tips on negotiating a raise, keep it short";
-    expect(buildHintedUserTurn(teachingWithFormat, "deep", true, MODEL)).toBe(teachingWithFormat);
-  });
-
-  it("suppression flows through applyTurnHints history re-renders", () => {
-    const messages = [
-      { role: "user" as const, content: "explain photosynthesis in 2 sentences" },
-      { role: "assistant" as const, content: "Plants convert light to energy. That fuels growth." },
-      { role: "user" as const, content: "how do i get better at cooking" },
-    ];
-    const hinted = applyTurnHints(messages, true, MODEL);
-    // The instruction turn stays raw on re-render…
-    expect(hinted[0]!.content).toBe("explain photosynthesis in 2 sentences");
-    // …while the ordinary teaching turn still gets its hint.
-    expect(hinted[2]!.content).toContain("\n\n");
-  });
-});
-
-// ─── Social-turn hint suppression (root cause #1: greeting instruction-echo) ─
-// A social turn (greeting/thanks/ack/farewell) carries no task to apply a
-// hint to, so appending one is nonsense — and the Gemma-LiteRT quick hint made
-// the model parrot the instruction on "Hello". The hint is suppressed for
-// social turns on EVERY model; the suppression is a pure function of the turn's
-// own text, so the KV re-render contract holds. This is root cause #1 from the
-// prompt-persona quality pass.
-
-describe("social-turn hint suppression", () => {
-  const DEFAULT_MODEL = "candidate/lfm2.5-1.2b-instruct-onnx";
-  const GEMMA_LITERT = "candidate/gemma-4-e2b-litert";
-
-  it.each([DEFAULT_MODEL, GEMMA_LITERT])(
-    "never appends a hint to a social turn for %s",
-    (modelId) => {
-      for (const social of ["Hello", "hi", "thanks!", "good morning", "ok cool", "bye"]) {
-        expect(buildHintedUserTurn(social, "quick", true, modelId), social).toBe(social);
-      }
-    },
-  );
-
-  it("Gemma-LiteRT would otherwise append its non-empty quick hint — social is what suppresses it", () => {
-    // The regression: the Gemma quick hint is non-empty, so without the social
-    // guard "Hello" would become "Hello\n\n<instruction>" and the model echoes it.
-    const factualQuick = "who wrote the great gatsby";
-    // A genuine factual-quick ask KEEPS the Gemma hint (do not weaken it).
-    expect(buildHintedUserTurn(factualQuick, "quick", true, GEMMA_LITERT)).toContain("\n\n");
-    // …while the greeting is left untouched.
-    expect(buildHintedUserTurn("Hello", "quick", true, GEMMA_LITERT)).toBe("Hello");
-  });
-
-  it("social suppression flows through applyTurnHints and re-renders byte-identically", () => {
-    const messages = [
-      { role: "user" as const, content: "Hello" },
-      { role: "assistant" as const, content: "Hi! How can I help?" },
-      { role: "user" as const, content: "how do i get better at cooking" },
-      { role: "assistant" as const, content: "Practice the basics." },
-      { role: "user" as const, content: "thanks!" },
-    ];
-    const first = applyTurnHints(messages, true, GEMMA_LITERT);
-    // Social turns pass through untouched (identity, not a new object).
-    expect(first[0]).toBe(messages[0]);
-    expect(first[4]).toBe(messages[4]);
-    // The teaching turn still gets its hint.
-    expect(first[2]!.content).toContain("\n\n");
-    // Re-rendering the same raw history yields identical bytes (KV contract).
-    const second = applyTurnHints(messages, true, GEMMA_LITERT);
-    expect(second).toEqual(first);
   });
 });

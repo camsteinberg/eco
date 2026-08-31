@@ -32,7 +32,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  buildTurnQualityInstruction,
   getGenerationProfile,
   inferChatIntent,
 } from "../chat-intent";
@@ -287,13 +286,9 @@ describe("writing intent — the apology regression, half recovered", () => {
     expect({
       intent,
       maxTokens: getGenerationProfile(intent, true, PREFERRED_DEFAULT_MODEL_ID).maxTokens,
-      hint: buildTurnQualityInstruction(intent, true, PREFERRED_DEFAULT_MODEL_ID),
     }).toEqual({
       intent: "explain",
       maxTokens: 1536,
-      hint:
-        "Lead with a plain-language explanation, then develop the details that matter"
-        + " — reasons, examples, practical implications.",
     });
   });
 

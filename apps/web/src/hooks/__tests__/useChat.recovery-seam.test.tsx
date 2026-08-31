@@ -14,9 +14,7 @@
  *   - a forced intent resolves generation options through the REAL per-model
  *     profile machinery for that intent (expected values are computed by
  *     calling it here, never transcribed);
- *   - a directive lands exactly once at the end of the final user turn, and the
- *     per-intent hint disappears only because the directive trips the EXISTING
- *     `hasExplicitFormatInstruction` detector;
+ *   - a directive lands exactly once at the end of the final user turn;
  *   - nothing the directive adds is ever persisted;
  *   - sibling semantics (same parentId) are unchanged when overrides are passed.
  */
@@ -148,38 +146,16 @@ vi.mock("../../local-ai/lifecycle/generation-receipt", () => ({
 import { useChat } from "../useChat";
 import { useChatStore } from "../../stores/chatStore";
 import {
-  buildHintedUserTurn,
   getGenerationProfile,
-  inferTurnIntent,
   type ChatIntent,
 } from "../../lib/chat-intent";
-import { hasExplicitFormatInstruction } from "../../lib/answer-shape";
 
 // ─── Fixtures ──────────────────────────────────────────────────────────────
 
-/**
- * ★ THE SHIPPING CLOSED-DIRECTION DIRECTIVE — pinned, not paraphrased.
- *
- * `hasExplicitFormatInstruction` is TRUE for this string and FALSE for the
- * natural rewordings ("Be concise.", "Shorter.", "Just the answer."). The
- * suppression the seam relies on is that detector and nothing else, so the
- * directive is chosen AGAINST the detector — rewording it silently restores the
- * per-intent hint after our instruction, where it wins by recency on a small
- * model. `SUPPRESSING_DIRECTIVE` / `NON_SUPPRESSING_DIRECTIVE` below are the two
- * sides of that asymmetry, and both are asserted on purpose.
- */
 const SUPPRESSING_DIRECTIVE = "Keep it short. Lead with the answer itself.";
 const NON_SUPPRESSING_DIRECTIVE = "Be concise.";
 
-/**
- * A turn that carries a non-empty per-intent hint (asserted, not assumed —
- * `carries a hint at all` below fails loudly if routing ever flattens it, which
- * would leave the suppression assertions measuring nothing).
- */
 const HINTED_PROMPT = "why do leaves change colour in the autumn";
-
-/** Every user turn in these tests is the first message, so nothing precedes it. */
-const HAS_PRIOR_TURNS = false;
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
@@ -240,14 +216,9 @@ function expectedOptionsFor(intent: ChatIntent): Record<string, unknown> {
   };
 }
 
-/** The turn the production hint pipeline renders for a given composed text. */
+/** User turns pass through unchanged (per-turn hints removed in R1). */
 function renderTurn(text: string): string {
-  return buildHintedUserTurn(
-    text,
-    inferTurnIntent(text, HAS_PRIOR_TURNS),
-    true,
-    TEST_MODEL_ID,
-  );
+  return text;
 }
 
 function countOccurrences(haystack: string, needle: string): number {
@@ -293,16 +264,8 @@ afterEach(() => {
 // ═════════════════════════════════════════════════════════════════════════
 
 describe("recovery seam — the instrument", () => {
-  it("carries a hint at all, so the suppression assertions measure something", () => {
-    expect(renderTurn(HINTED_PROMPT)).not.toBe(HINTED_PROMPT);
-    expect(renderTurn(HINTED_PROMPT).startsWith(`${HINTED_PROMPT}\n\n`)).toBe(true);
-  });
-
-  it("keeps the two directive strings on opposite sides of the detector", () => {
-    // If this ever collapses to one side, the asymmetry the seam depends on is
-    // gone and the suppression test below would pass for the wrong reason.
-    expect(hasExplicitFormatInstruction(SUPPRESSING_DIRECTIVE)).toBe(true);
-    expect(hasExplicitFormatInstruction(NON_SUPPRESSING_DIRECTIVE)).toBe(false);
+  it("user turns pass through unchanged (no per-turn hints)", () => {
+    expect(renderTurn(HINTED_PROMPT)).toBe(HINTED_PROMPT);
   });
 });
 
@@ -355,45 +318,31 @@ describe("recovery seam — forced intent", () => {
   it("leaves the composed messages alone — only sampling moves", async () => {
     await sendThenRegenerate(HINTED_PROMPT, { intent: "quick" });
 
-    // The hint still derives from the turn's own text: forcing an intent must
-    // not feed a caller's preference into the classifiers (KV purity contract).
+    // Forcing an intent must not change the composed messages.
     expect(dispatched(1).messages).toEqual(dispatched(0).messages);
     expect(finalUserTurn(1)).toBe(renderTurn(HINTED_PROMPT));
   });
 });
 
 // ═════════════════════════════════════════════════════════════════════════
-// 3. Directive placement + hint suppression
+// 3. Directive placement
 // ═════════════════════════════════════════════════════════════════════════
 
 describe("recovery seam — turn directive", () => {
-  it("lands exactly once at the end of the final user turn, and the hint yields", async () => {
+  it("lands exactly once at the end of the final user turn", async () => {
     await sendThenRegenerate(HINTED_PROMPT, { turnDirective: SUPPRESSING_DIRECTIVE });
 
     const turn = finalUserTurn(1);
     expect(turn).toBe(`${HINTED_PROMPT}\n\n${SUPPRESSING_DIRECTIVE}`);
     expect(countOccurrences(turn, SUPPRESSING_DIRECTIVE)).toBe(1);
-    // The hint the same turn carried WITHOUT the directive is gone — and it is
-    // gone because `hasExplicitFormatInstruction` fired, not because anything
-    // here special-cases directives.
-    const baselineHint = renderTurn(HINTED_PROMPT).slice(HINTED_PROMPT.length + 2);
-    expect(baselineHint.length).toBeGreaterThan(0);
-    expect(turn).not.toContain(baselineHint);
   });
 
-  it("does NOT suppress the hint when the directive reads as ordinary prose", async () => {
-    // ★ The load-bearing asymmetry. Suppression is the EXISTING detector's
-    // decision, so a directive the detector does not recognise gets the hint
-    // appended AFTER it — where the hint wins by recency, which is the defect
-    // the seam exists to avoid. Directive strings must therefore be chosen
-    // against `hasExplicitFormatInstruction`, never reworded for tone.
+  it("appends the directive after the prompt text", async () => {
     await sendThenRegenerate(HINTED_PROMPT, { turnDirective: NON_SUPPRESSING_DIRECTIVE });
 
     const composed = `${HINTED_PROMPT}\n\n${NON_SUPPRESSING_DIRECTIVE}`;
     const turn = finalUserTurn(1);
-    expect(turn).toBe(renderTurn(composed));
-    expect(turn).not.toBe(composed);
-    expect(turn.startsWith(`${composed}\n\n`)).toBe(true);
+    expect(turn).toBe(composed);
     expect(countOccurrences(turn, NON_SUPPRESSING_DIRECTIVE)).toBe(1);
   });
 

@@ -30,7 +30,6 @@ import { getModel as getLocalAiCatalogModel } from "../local-ai/catalog/catalog"
 import { recommend, NoAssignableModelError } from "../local-ai/selection/recommend";
 import { getOnDeviceSystemPrompt } from "../lib/system-prompt";
 import {
-  applyTurnHints,
   getGenerationProfile,
   inferChatIntent,
   inferTurnIntent,
@@ -43,13 +42,6 @@ import {
 } from "../lib/detail-recap";
 import { inferAnswerShape, type AnswerShape } from "../lib/answer-shape";
 import {
-  buildLocalHardConstraintRepair,
-  type LocalHardConstraintRepair,
-} from "../lib/local-generation-constraints";
-import {
-  buildIntegrityRepairPrompt,
-  derivePrivacyGuard,
-  findLeaks,
   redactReplyForIntegrity,
 } from "../lib/conversation-integrity-guard";
 import { LocalInferenceStreamError } from "../local-ai/runtime/errors";
@@ -124,8 +116,7 @@ export {
  * not in the raw conversation, preventing a window that passes selection from
  * failing the 0.90 safety check.
  *
- * Per-turn overhead: the longest hint (`buildTurnQualityInstruction`) is
- * ~120 chars ≈ 30 tokens. Recaps and tool notes add a fixed amount.
+ * Per-turn overhead: recaps and tool notes add a fixed amount.
  * The reserve is capped at 10% of the context length to avoid over-eviction
  * in long conversations where the user-turn count is large.
  *
@@ -486,15 +477,8 @@ export type StreamResponseOverrides = RegenerateOverrides & {
  * message — the input list is never mutated, which is what keeps the directive
  * out of the stored conversation.
  *
- * The END placement, and composing this BEFORE any intent/hint work, is the
- * whole design: `buildHintedUserTurn` decides hint suppression from the turn's
- * own bytes via `hasExplicitFormatInstruction`, so a directive phrased as an
- * explicit format instruction suppresses the per-intent hint through the
- * EXISTING mechanism — no directive-aware special case anywhere. A directive
- * that does NOT read as one still gets the hint appended after it, exactly as
- * a user's own phrasing would; that asymmetry is deliberate and load-bearing,
- * so directive strings are chosen against the detector, not against this code.
- * The blank-line join is the same separator `buildHintedUserTurn` uses.
+ * The END placement keeps the directive visible to the model as the last
+ * instruction in the user turn.
  *
  * No-op for an absent/blank directive, or a list with no user turn.
  */
@@ -603,10 +587,7 @@ export function useChat() {
   function getLatestTurnIntent(
     apiMessages: Array<{ role: "user" | "assistant" | "system"; content: string }>,
   ) {
-    // Same per-turn inference rule `applyTurnHints` uses for history
-    // re-renders (KV contract: the latest turn must classify identically when
-    // it later re-renders as history). hasPriorTurns = any message precedes
-    // the latest user turn in the list.
+    // hasPriorTurns = any message precedes the latest user turn in the list.
     let lastUserIndex = -1;
     for (let i = apiMessages.length - 1; i >= 0; i--) {
       if (apiMessages[i]!.role === "user") {
@@ -681,13 +662,8 @@ export function useChat() {
     return { stopped: true, grantedNewTokens };
   }
 
-  // Wave 2.6 Stage 1: per-intent hints moved OUT of the system message onto
-  // the end of each user turn (`applyTurnHints` — shared with the eval
-  // harness). Measured: the system-front hint recovered only 9% (LFM) / 29%
-  // (Qwen) of the explicit-phrasing premium vs 35% / 68% at the user turn,
-  // AND a hint-free front keeps strict-prefix KV reuse across intent changes
-  // (#151 front-of-prompt variance). The system message is the base prompt
-  // only (plus any per-turn tool note appended downstream).
+  // The system message is the base prompt only (plus any per-turn tool note
+  // appended downstream).
   function buildQualitySystemPrompt(
     model: string,
     baseSystemPrompt?: string,
@@ -1057,10 +1033,9 @@ export function useChat() {
     turnShape: AnswerShape;
     systemPrompt: string;
     /**
-     * apiMessages as the model will actually see them: per-turn hints applied to
-     * every user turn, then each user turn's recaps appended after that.
-     * Every rebuild path reads THIS, never raw apiMessages, so a re-render can
-     * never drift from what was sent.
+     * apiMessages as the model will actually see them: directives composed,
+     * then each user turn's recaps appended. Every rebuild path reads THIS,
+     * never raw apiMessages, so a re-render can never drift from what was sent.
      */
     hintedMessages: Array<{ role: "user" | "assistant" | "system"; content: string }>;
     messagesWithSystem: Array<{ role: "user" | "assistant" | "system"; content: string }>;
@@ -1080,16 +1055,14 @@ export function useChat() {
     overrides?: StreamResponseOverrides,
   ): LocalDispatchPlan {
     // Compose the directive onto the final user turn FIRST, so everything below
-    // — classification, the shape receipt, and above all `applyTurnHints` —
-    // sees the turn exactly as the model will. That ordering is what lets the
-    // existing explicit-format-instruction suppression apply to the directive.
+    // — classification and the shape receipt — sees the turn exactly as the
+    // model will.
     const composedMessages = appendTurnDirective(apiMessages, overrides?.turnDirective);
     // A forced intent substitutes for the classified one HERE, at the options
     // layer — the classifiers themselves are never told about it. Receipts
     // report this same value, so diagnostics describe the sampling actually run.
     const turnIntent = overrides?.intent ?? getLatestTurnIntent(composedMessages);
-    // Receipt observability only — derived with the SAME position rule the
-    // hint path uses (hasPriorTurns = anything precedes the last user turn).
+    // Receipt observability only.
     let lastUserIndex = -1;
     for (let i = composedMessages.length - 1; i >= 0; i--) {
       if (composedMessages[i]!.role === "user") {
@@ -1102,14 +1075,11 @@ export function useChat() {
       { hasPriorTurns: lastUserIndex > 0 },
     );
     const systemPrompt = buildQualitySystemPrompt(model, overrides?.systemPrompt);
-    // Hints ride the user turns (every turn, deterministically re-derived —
-    // see the KV contract at lib/chat-intent.applyTurnHints).
-    const hintedMessages = applyTurnHints(composedMessages, isLocalAiModel(model), model);
     // Recaps go on LAST, after every decision the turn's own text makes.
     // Measured: classifying recapped text flips this corpus's budget turn from
     // `explain` to `deep`, which would resolve different sampling options —
     // so nothing above this line may ever see a recap.
-    const recappedMessages = appendBranchRecaps(hintedMessages, branchRecaps);
+    const recappedMessages = appendBranchRecaps(composedMessages, branchRecaps);
     return {
       turnIntent,
       turnShape,
@@ -1128,7 +1098,7 @@ export function useChat() {
    * Stream an on-device model response into the given assistant message.
    * Shared between sendMessage, editMessage, and regenerateMessage.
    *
-   * Pipeline: resolveDispatch → buildPrompt → runGeneration (+repair) →
+   * Pipeline: resolveDispatch → buildPrompt → runGeneration →
    * recordReceipt. Each step is a focused unit; `runGeneration` is the single
    * read→batch→flush primitive shared with the offline continue path.
    */
@@ -1425,40 +1395,17 @@ export function useChat() {
       return;
     }
 
-    let effectiveGenerationOptions = { ...localGenerationOptions };
-    let effectiveSystemPrompt = systemPrompt;
-
     // ── Per-GENERATION receipt scope ───────────────────────────────────────
-    // A turn can run TWO generations: the primary, then a hard-constraint
-    // repair that rewrites the system prompt and the last user turn. They are
-    // separate inference runs with separate prompts, sampling and timings, so
-    // each one gets its own scope and its own receipt.
-    //
-    // These were once turn-scoped, which silently merged the pair: the single
-    // surviving row carried the repair's prompt hash and sampling but the
-    // PRIMARY's first-token time and BOTH trails, and the primary generation's
-    // compute vanished from diagnostics. That merge is what left the KV-reuse
-    // lane unable to separate "the chat turn re-prefilled" from "the repair
-    // re-prefilled" — and a repair always re-prefills by construction, since
-    // it changes the front of the prompt.
-    let generationRole: GenerationRole = 'primary';
-    let receiptStreamStartMs = Date.now();
+    const generationRole: GenerationRole = 'primary';
+    const receiptStreamStartMs = Date.now();
     // Breadcrumb trail for THIS generation. The runtime adapters emit lifecycle
     // events during load and generation; the shim forwards them to this
     // callback. We stamp each with ms-from-stream-start off our own clock
     // (event.at is a different time base) so the trail is self-consistent, and
     // derive first-token latency from the first `first-token`. Timings and
     // phase names only — never message content.
-    let generationEvents: { at: number; phase: LifecyclePhase }[] = [];
+    const generationEvents: { at: number; phase: LifecyclePhase }[] = [];
     let firstTokenMs: number | null = null;
-
-    /** Open a fresh receipt scope; every field above belongs to one generation. */
-    function beginGenerationScope(role: GenerationRole): void {
-      generationRole = role;
-      receiptStreamStartMs = Date.now();
-      generationEvents = [];
-      firstTokenMs = null;
-    }
     function recordLifecycleBreadcrumb(event: LifecycleEvent): void {
       const at = Date.now() - receiptStreamStartMs;
       generationEvents.push({ at, phase: event.phase });
@@ -1481,8 +1428,7 @@ export function useChat() {
     /**
      * Freeze what the CURRENT generation scope knows. Called synchronously by
      * `recordReceiptAsync`, because the prompt hash it awaits resolves a
-     * microtask later — and on a repair turn the scope has been reopened by
-     * then, so a lazily-built body would describe the wrong generation.
+     * microtask later — a lazily-built body could describe a stale snapshot.
      */
     function snapshotReceiptBase(): ReceiptBase {
       return {
@@ -1492,19 +1438,19 @@ export function useChat() {
         timestamp: Date.now(),
         templateName: getLocalAiLastTemplateName(),
         samplingProfile: {
-          ...(effectiveGenerationOptions.temperature != null && {
-            temperature: effectiveGenerationOptions.temperature,
+          ...(localGenerationOptions.temperature != null && {
+            temperature: localGenerationOptions.temperature,
           }),
-          ...(effectiveGenerationOptions.max_new_tokens != null && {
-            maxTokens: effectiveGenerationOptions.max_new_tokens,
+          ...(localGenerationOptions.max_new_tokens != null && {
+            maxTokens: localGenerationOptions.max_new_tokens,
           }),
-          ...(effectiveGenerationOptions.top_p != null && { topP: effectiveGenerationOptions.top_p }),
-          ...(effectiveGenerationOptions.top_k != null && { topK: effectiveGenerationOptions.top_k }),
-          ...(effectiveGenerationOptions.repetition_penalty != null && {
-            repetitionPenalty: effectiveGenerationOptions.repetition_penalty,
+          ...(localGenerationOptions.top_p != null && { topP: localGenerationOptions.top_p }),
+          ...(localGenerationOptions.top_k != null && { topK: localGenerationOptions.top_k }),
+          ...(localGenerationOptions.repetition_penalty != null && {
+            repetitionPenalty: localGenerationOptions.repetition_penalty,
           }),
-          ...(effectiveGenerationOptions.no_repeat_ngram_size != null && {
-            noRepeatNgramSize: effectiveGenerationOptions.no_repeat_ngram_size,
+          ...(localGenerationOptions.no_repeat_ngram_size != null && {
+            noRepeatNgramSize: localGenerationOptions.no_repeat_ngram_size,
           }),
           intent: turnIntent,
           answerShape: plan.turnShape,
@@ -1517,17 +1463,15 @@ export function useChat() {
 
     function recordReceiptAsync(
       build: (base: ReceiptBase, sph: string) => GenerationReceipt,
-      prompt = effectiveSystemPrompt,
+      prompt = systemPrompt,
     ): void {
-      // Snapshot BEFORE handing off: the hash resolves a microtask later, and
-      // on a repair turn `beginGenerationScope` has reopened the scope by then.
+      // Snapshot BEFORE handing off: the hash resolves a microtask later.
       const base = snapshotReceiptBase();
       recordGenerationReceiptAsync(prompt, (sph) => build(base, sph));
     }
 
-    // Terminal-status handlers shared by the primary + repair generations. Each
-    // mirrors the prior single-catch behavior for that status and records the
-    // matching receipt. Returning here means the turn is finished.
+    // Terminal-status handlers. Each records the matching receipt.
+    // Returning here means the turn is finished.
     function finalizeErrorResult(error: unknown): void {
       applyLocalGenerationError(error, assistantId, model);
       recordReceiptAsync((base, sph) => ({
@@ -1586,123 +1530,6 @@ export function useChat() {
         return;
       }
 
-      // ── Hard-constraint repair (second generation) ────────────────────────
-      // Skipped when the user stopped (abort set) — the explicit user-stop
-      // invariant: a stopped turn is never silently re-generated.
-      let deterministicReplacementApplied = false;
-      // RAW turn again: a repair triggers on a hard constraint the USER stated,
-      // so a host-authored directive must not be able to trigger one.
-      const latestUserPrompt = [...apiMessages]
-        .reverse()
-        .find((message) => message.role === "user")?.content ?? "";
-      // Conversation-integrity guard (#27): armed only when the history carries a
-      // privacy marker AND this turn drafts new correspondence. Read from
-      // apiMessages (the windowed history + this turn), never a host-authored
-      // directive. The guarantee is applied deterministically at completion; here
-      // we prefer a hardened regeneration when the primary draft actually leaked.
-      const integrityGuard = derivePrivacyGuard(apiMessages, latestUserPrompt);
-      const integrityLeaked =
-        integrityGuard.armed
-        && findLeaks(primaryResult.finalText, integrityGuard.forbiddenSpans).length > 0;
-      const repair: LocalHardConstraintRepair | null =
-        buildLocalHardConstraintRepair({
-          userPrompt: latestUserPrompt,
-          outputText: primaryResult.finalText,
-        })
-        ?? (integrityLeaked
-          ? {
-              reason: "conversation-integrity",
-              ...buildIntegrityRepairPrompt(latestUserPrompt, integrityGuard.forbiddenSpans),
-              generationOptions: { temperature: 0.4, top_p: 0.85 },
-            }
-          : null);
-      if (repair && !generation.abortController.signal.aborted) {
-        if (repair.replacementText !== undefined) {
-          deterministicReplacementApplied = true;
-          updateMessage(assistantId, {
-            content: repair.replacementText,
-            lastSeq: 0,
-          });
-          generation.batcher.resetSeq();
-        } else {
-          // A second generation is about to run. Record the primary's receipt
-          // HERE, while the scope still describes it and before the context
-          // guard below can end the turn — otherwise the primary's prompt,
-          // sampling, timing and KV decision are lost, and a guard bail leaves
-          // the turn with no receipt at all.
-          const primaryUsage = getLocalAiLastUsage();
-          recordReceiptAsync((base, sph) => ({
-            ...base,
-            systemPromptHash: sph,
-            status: 'complete' as const,
-            promptTokens: primaryUsage?.promptTokens ?? 0,
-            completionTokens: primaryUsage?.completionTokens ?? 0,
-            ...(primaryUsage?.kvReuse != null ? { kvReuse: primaryUsage.kvReuse } : {}),
-            ...(primaryUsage?.cjkSuppression != null
-              ? { cjkSuppression: primaryUsage.cjkSuppression }
-              : {}),
-            ...(primaryUsage?.maxInterTokenGapMs !== undefined
-              ? { maxInterTokenGapMs: primaryUsage.maxInterTokenGapMs }
-              : {}),
-            ranToCap: ranToCapFromUsage(primaryUsage),
-          }));
-
-          const repairSystemPrompt = [systemPrompt, repair.systemInstruction].join("\n\n");
-          const repairHintedMessages = [
-            ...plan.hintedMessages.slice(0, -1),
-            { role: "user" as const, content: repair.userPrompt },
-          ];
-          const repairOptions = {
-            ...localGenerationOptions,
-            ...repair.generationOptions,
-          };
-          const repairContextGuard = stopForUnsafeLocalContext(
-            assistantId,
-            repairHintedMessages,
-            repairSystemPrompt,
-            model,
-            repairOptions.max_new_tokens ?? localGenerationOptions.max_new_tokens,
-          );
-          if (repairContextGuard.stopped) {
-            return;
-          }
-          repairOptions.max_new_tokens = repairContextGuard.grantedNewTokens;
-          beginGenerationScope('repair');
-          effectiveGenerationOptions = repairOptions;
-          effectiveSystemPrompt = repairSystemPrompt;
-          updateMessage(assistantId, { content: "", lastSeq: 0 });
-          generation.batcher.resetSeq();
-          const repairMessages = [
-            {
-              role: "system" as const,
-              content: repairSystemPrompt,
-            },
-            ...repairHintedMessages,
-          ];
-          const repairResult = await runGeneration({
-            generation,
-            stream: v1LocalShim.generate(
-              repairMessages,
-              model,
-              { ...repairOptions, onLifecycleEvent: recordLifecycleBreadcrumb },
-            ),
-            assistantId,
-            ...streamIO,
-          });
-          // Preserve the prior single-try semantics: a repair-stream failure was
-          // caught by the same catch as the primary loop, so it routes through the
-          // same error/aborted handling rather than completing normally.
-          if (repairResult.status === "error") {
-            finalizeErrorResult(repairResult.error);
-            return;
-          }
-          if (repairResult.status === "aborted") {
-            finalizeAbortedResult();
-            return;
-          }
-        }
-      }
-
       // ── Completion: usage + receipt ───────────────────────────────────────
       // INVARIANT: nothing in this block may throw. It runs outside
       // runGeneration's error mapping, so a throw would only reach the caller's
@@ -1712,8 +1539,7 @@ export function useChat() {
       // confidence is always null in v1 (no heuristic confidence score).
       const lastUsage = getLocalAiLastUsage();
       const possiblyTruncated =
-        !deterministicReplacementApplied
-        && lastUsage?.maxTokens != null
+        lastUsage?.maxTokens != null
         && lastUsage.maxTokens > 0
         && lastUsage.completionTokens != null
         && lastUsage.completionTokens >= Math.floor(lastUsage.maxTokens * 0.95);
@@ -1815,7 +1641,7 @@ export function useChat() {
     const localFallbackMessages = buildLocalFallbackMessages({
       systemPrompt: localSystemPrompt,
       messages: appendBranchRecaps(
-        applyTurnHints(apiMessages, isLocalAiModel(localModelId), localModelId),
+        apiMessages,
         buildBranchRecaps(apiMessages),
       ),
       partialAssistantContent,

@@ -4,12 +4,13 @@
 import { describe, expect, it } from "vitest";
 
 import { hasExplicitFormatInstruction } from "../answer-shape";
-import { applyTurnHints, inferTurnIntent, type ChatTurnMessage } from "../chat-intent";
+import { inferTurnIntent } from "../chat-intent";
+
+type ChatTurnMessage = { role: "user" | "assistant" | "system"; content: string };
 import { selectMessagesForContext } from "../context-window";
 import {
   appendBranchRecaps,
   applyDetailRecaps,
-  buildBranchDetailRecaps,
   buildBranchRecaps,
   buildDetailRecap,
   extractStatedDetails,
@@ -382,9 +383,8 @@ describe("buildDetailRecap — across the whole conversation corpus", () => {
     for (const item of EVERYDAY_CONVERSATION_CORPUS) {
       if (fires.includes(item.id)) continue;
       const turns = conversation(item.id);
-      const hinted = applyTurnHints(turns, true);
-      const withFigures = appendFigureRecaps(hinted, buildBranchFigureRecaps(turns));
-      const withBoth = appendBranchRecaps(hinted, buildBranchRecaps(turns));
+      const withFigures = appendFigureRecaps(turns, buildBranchFigureRecaps(turns));
+      const withBoth = appendBranchRecaps(turns, buildBranchRecaps(turns));
       expect([item.id, buildDetailRecap(priorUserTurns(item.id))]).toEqual([item.id, ""]);
       expect([item.id, withBoth.map((m) => m.content)]).toEqual([
         item.id,
@@ -456,8 +456,6 @@ describe("applyDetailRecaps — leaves the existing turn machinery alone", () =>
   });
 
   it("WHY the recap is applied last: classifying recapped text changes the intent", () => {
-    // The reason this runs after `applyTurnHints` rather than before it — the
-    // same measured reason `figure-recap.test.ts` records for its own block.
     // Recapped text is longer and denser, and on this conversation that alone
     // flips a turn from `explain` to `deep`, which resolves different sampling
     // options. Kept as a standing net: if this ever stops being true the
@@ -472,23 +470,4 @@ describe("applyDetailRecaps — leaves the existing turn machinery alone", () =>
     expect(flipped).toBe(true);
   });
 
-  it("dispatch order leaves every hint decision exactly as the raw turn made it", () => {
-    const messages = birthdayTurns();
-    const hinted = applyTurnHints(messages, true);
-    const composed = appendBranchRecaps(hinted, buildBranchRecaps(messages));
-
-    composed.forEach((message, i) => {
-      const hintedContent = hinted[i]!.content;
-      expect(message.content.startsWith(hintedContent)).toBe(true);
-      const tail = message.content.slice(hintedContent.length);
-      expect(tail === "" || tail.startsWith("\n\n")).toBe(true);
-    });
-  });
-
-  it("recaps the same details whether or not hints were applied first", () => {
-    const messages = birthdayTurns();
-    expect(buildBranchDetailRecaps(applyTurnHints(messages, true))).toEqual(
-      buildBranchDetailRecaps(messages),
-    );
-  });
 });

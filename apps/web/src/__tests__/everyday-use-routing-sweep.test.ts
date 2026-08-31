@@ -14,24 +14,16 @@
  *
  * WHAT THE HOST DECIDES before a token is generated, and what this measures:
  *
- *   1. THE HINT appended to the user's turn. "Lead with a plain-language
- *      explanation, then develop the details that matter — reasons, examples,
- *      practical implications" is good advice for a question about a concept and
- *      a description of the failure mode for someone who pasted an email and
- *      asked for it to sound less annoyed.
- *   2. THE TOKEN BUDGET. A ceiling, not a target — and on the everyday default
+ *   1. THE TOKEN BUDGET. A ceiling, not a target — and on the everyday default
  *      only `quick` sits below 1536, so a budget assertion here is an intent
  *      assertion wearing a length label. Kept in budget terms because the budget
  *      is what reaches the runtime; not to be read as independent of intent.
- *   3. THE SAMPLING CONTROLS. `noRepeatNgramSize` is banned across the FULL
+ *   2. THE SAMPLING CONTROLS. `noRepeatNgramSize` is banned across the FULL
  *      sequence by Transformers.js, prompt included, so it forbids the model from
  *      reusing spans of the user's own text — on the exact turns whose entire
  *      requirement is reusing the user's own text.
- *   4. THE SYSTEM PROMPT, which this sweep does NOT route and cannot vary per
- *      turn. See the standing observation at the end of this file: the shipping
- *      on-device prompt carries its own development instruction on every turn, so
- *      hint-level fixes alone cannot deliver a direct posture. Anyone reading a
- *      green run as "the posture is fixed" would be wrong.
+ *   3. THE SYSTEM PROMPT, which this sweep does NOT route and cannot vary per
+ *      turn.
  *
  * WHAT IT DOES NOT MEASURE. Whether the generated answer is any good. That needs
  * a loaded model on real hardware. This measures the conditions we hand the model
@@ -51,33 +43,7 @@
  *   Each check is written to measure the property it NAMES rather than a symptom
  *   of it — because a check that can be satisfied by a change which does not help
  *   the user is not a weak check, it is a check measuring something other than
- *   what its name says. Repairs worth understanding before adding a fifth check:
- *     - the elaboration check matched four substrings of two hint strings, so it
- *       measured "contains this wording", not "instructs development". Rewording
- *       a hint — for good reasons, using text that already ships in this same
- *       function — closed all twenty-five of its gaps. It now pins the
- *       classification of every hint the codebase can emit, so new wording has to
- *       be classified rather than silently pass.
- *     - the faithfulness check asked whether ANY model bans n-grams at an intent;
- *       one model bans at every intent, so it was rescoped to the bans routing
- *       arms ABOVE `quick`. That rescoping made it a constant PASS: it granted
- *       every item, every intent and every model a clean bill while the one
- *       remaining defect — the starter's BASE ban, which blocked all ten "give me
- *       my own words back" items — sat in the one blind spot it had created. It
- *       is unscoped again, because the property is what the USER's turn reaches,
- *       not which layer of config put it there. Attributing the harm to routing
- *       is the aggregate's job, below, and mis-scoping the per-item check to do
- *       it cost the check its whole subject. That ban has since come off on
- *       measured evidence and all ten gaps closed; the unscoped check is what
- *       keeps it off.
- *     - the per-item checks are all local, and the cheapest global change that
- *       satisfies them (moving turns onto `writing`) can arm bans no single item
- *       view would show. The exposure block below measures that as two separate
- *       things — what the corpus is exposed to, and the part ROUTING added — and
- *       pins the precondition that decides whether the second can move at all.
- *       `needs-guidance` is the other counterweight: it catches both emptying
- *       every hint AND replacing every hint with a brevity directive, either of
- *       which would satisfy `no-elaboration-hint` everywhere.
+ *   what its name says.
  *
  * ★ A COUNTERWEIGHT CAN GO VACUOUS WITHOUT ANYONE TOUCHING IT. Both n-gram
  * measures here degenerated into constants not through an edit to this file but
@@ -101,8 +67,6 @@
 import { describe, it, expect } from "vitest";
 
 import {
-  buildHintedUserTurn,
-  buildTurnQualityInstruction,
   getGenerationProfile,
   inferTurnIntent,
   type ChatIntent,
@@ -150,68 +114,15 @@ const BUDGET_MODEL = PREFERRED_DEFAULT_MODEL_ID;
 /** The top of the direct band — `quick`, the only budget below the middle. */
 const DIRECT_BAND_MAX_TOKENS = 1024;
 
-/**
- * Phrases that instruct the model to DEVELOP rather than deliver.
- *
- * Matched against the appended HINT only, never the whole turn — the user's own
- * words are not an instruction we gave, and "tradeoffs" is an ordinary English
- * word somebody will eventually type.
- *
- * These are not free-floating: `pins every hint the codebase can emit` below
- * asserts the classification of every string `buildTurnQualityInstruction` can
- * produce, across all intents and all catalog models. That test is the point.
- * Without it this list is a fingerprint of two literals, and an audit showed the
- * whole `no-elaboration-hint` block — twenty-five gaps — closing by adopting
- * replacement wording that already ships a few lines away in the same function.
- */
-const ELABORATION_MARKERS: readonly string[] = [
-  "develop the details",
-  "sections",
-  "tradeoffs",
-  "reasons, examples",
-];
-
-/**
- * Phrases that instruct the model to CUT SHORT or STOP.
- *
- * RULE, applied mechanically: a hint curtails if it puts a ceiling on the answer
- * ("at most three…", "keep the explanation short", "briefly") or tells the model
- * to stop or to do only the one thing ("give the answer first and stop", "Stop
- * when the distinction is clear"). "Avoid filler" is NOT a ceiling and does not
- * count — a three-part answer with no filler is still a three-part answer.
- *
- * ★ THESE ARE ORDINARY WORDS PEOPLE TYPE, unlike the elaboration markers. Two
- * corpus items say "shorter." and "keep it short" in the user's own voice. They
- * are matched against the appended HINT ONLY, and `records that the curtailment
- * markers are words users themselves type` below pins that as a live hazard
- * rather than a comment: widening this match to the whole turn would read a
- * user ASKING for brevity as us imposing it. The elaboration list gets a
- * stronger guard because it can afford one; this list cannot, so it gets a
- * standing reminder of why the scoping is load-bearing.
- */
-const CURTAILMENT_MARKERS: readonly string[] = ["briefly", "at most", "short", "stop"];
 
 type Routing = {
   readonly shape: AnswerShape;
   readonly intent: ChatIntent;
   readonly maxTokens: number;
-  /** The instruction appended to the turn; empty when none was. */
-  readonly hint: string;
-  readonly elaborationMarkers: readonly string[];
-  readonly curtailmentMarkers: readonly string[];
   /**
    * Every catalog model whose profile arms a prompt-inclusive n-gram ban at THIS
    * turn's routed intent, with the ban size — i.e. what this turn actually meets
    * on each model a user can be served.
-   *
-   * ★ DELIBERATELY UNSCOPED, and it was not always. It used to exclude models
-   * that ban at `quick` too, on the reasoning that a base ban is a model-profile
-   * decision routing cannot lift. The effect was a check that passed for every
-   * item, at every intent, on every model — while the single remaining base ban
-   * blocked all ten of the turns whose whole requirement is quoting the user
-   * back. A per-item check answers "what does this person's turn run into"; the
-   * answer does not change because the setting lives in a profile rather than a
-   * route. Attribution is the aggregate's job (`armedByRouting` below).
    */
   readonly ngramBanningModels: readonly string[];
 };
@@ -228,31 +139,18 @@ function ngramSizeAt(intent: ChatIntent, modelId: string): number | undefined {
 function route(item: EverydayUseItem): Routing {
   const prior = hasPriorTurns(item.id);
   const intent = inferTurnIntent(item.userInput, prior);
-  const rendered = buildHintedUserTurn(item.userInput, intent, true, BUDGET_MODEL);
-  const hint = rendered === item.userInput ? "" : rendered.slice(item.userInput.length + 2);
   return {
     shape: inferAnswerShape(item.userInput, { hasPriorTurns: prior }),
     intent,
     maxTokens: getGenerationProfile(intent, true, BUDGET_MODEL).maxTokens,
-    hint,
-    elaborationMarkers: ELABORATION_MARKERS.filter((marker) =>
-      hint.toLowerCase().includes(marker),
-    ),
-    curtailmentMarkers: CURTAILMENT_MARKERS.filter((marker) =>
-      hint.toLowerCase().includes(marker),
-    ),
     ngramBanningModels: CATALOG_MODEL_IDS.filter(
       (modelId) => ngramSizeAt(intent, modelId) != null,
     ),
   };
 }
 
-/** The four checks, one per routing need. `null` = the need is met. */
+/** The checks, one per routing need. `null` = the need is met. */
 const CHECKS = {
-  "no-elaboration-hint": (r: Routing) =>
-    r.elaborationMarkers.length === 0
-      ? null
-      : `told to elaborate (${r.elaborationMarkers.join(", ")}) via intent "${r.intent}"`,
   "direct-budget": (r: Routing) =>
     r.maxTokens <= DIRECT_BAND_MAX_TOKENS
       ? null
@@ -263,25 +161,14 @@ const CHECKS = {
       : `as routed (intent "${r.intent}") this turn meets a prompt-inclusive n-gram ban on ${r.ngramBanningModels
           .map((m) => `${m} (n=${String(ngramSizeAt(r.intent, m) ?? 0)})`)
           .join(", ")} — the model may reuse at most n-1 consecutive tokens of the user's own words`,
-  "needs-guidance": (r: Routing) => {
-    if (r.hint.length === 0) {
-      return `turn carries no instruction at all via intent "${r.intent}"`;
-    }
-    // Presence alone was the whole check, which made it satisfiable by handing a
-    // eulogy "Answer directly and briefly … give the answer first and stop." —
-    // a string that already ships two dozen lines away in the same function. An
-    // audit reached a false 86/86 through exactly that door.
-    return r.curtailmentMarkers.length === 0
-      ? null
-      : `told to cut short (${r.curtailmentMarkers.join(", ")}) via intent "${r.intent}", on a turn whose good answer is multi-part and names no length bound`;
-  },
 } as const;
 
 type Need = keyof typeof CHECKS;
 type GapKey = `${Need}/${string}`;
 
-function checkOf(need: Need, item: EverydayUseItem): string | null {
-  return CHECKS[need](route(item));
+function checkOf(need: string, item: EverydayUseItem): string | null {
+  const check = (CHECKS as Record<string, ((r: Routing) => string | null) | undefined>)[need];
+  return check ? check(route(item)) : null;
 }
 
 type NgramExposure = {
@@ -414,13 +301,8 @@ const GAP_MECHANISMS = {
   "explain-default-middle": [
     "Nothing in the cascade matches and `inferAnswerShape` (answer-shape.ts) returns",
     "`uncertain` or `focused`, both of which `mapShapeToDepthIntent` (chat-intent.ts) maps",
-    "to the default middle: `explain`, 1536 tokens, carrying 'Lead with a",
-    "plain-language explanation, then develop the details that matter — reasons,",
-    "examples, practical implications'. Good advice for a question about a concept, and",
-    "a description of the failure mode for the twenty-odd items here that asked for an",
-    "artifact or a verdict. Note what this bucket IS: `explain` is where turns land when",
-    "nothing fired, so rewording its hint without changing what arrives there only",
-    "changes the flavour of the default.",
+    "to the default middle: `explain`, 1536 tokens. This is where turns land when",
+    "nothing fired — the default bucket.",
   ].join(" "),
 
   // `long-form-bare-long` lived here and is deliberately gone: LONG_FORM_RE and
@@ -448,18 +330,17 @@ const GAP_MECHANISMS = {
 
   "plurality-to-teaching": [
     "`PLURALITY_RE` treats 'ideas for', 'tips on', 'ways to' as teaching signals, so",
-    "'gift ideas for my dad' routes to `deep` with the sections-and-tradeoffs hint.",
+    "'gift ideas for my dad' routes to `deep` (2048 tokens).",
     "Asking for a list of options is not asking to be taught about the space of options",
     "— and this item's bounce condition is literally 'twenty vague options instead of",
     "eight good ones'.",
   ].join(" "),
 
   "brevity-misses-the-budget": [
-    "The user gave an explicit brevity instruction and the per-turn hint was correctly",
-    "suppressed — but nothing carried that instruction to the BUDGET.",
-    "`getGenerationProfile` takes no content parameter at all, so the budget path cannot",
-    "see the user's words; hint suppression and routing are two systems that do not",
-    "talk. 'keep it short and dont make it weird' still gets the 1536-token middle.",
+    "The user gave an explicit brevity instruction but nothing carried it to the BUDGET.",
+    "`getGenerationProfile` (chat-intent.ts) takes no content parameter at all, so the",
+    "budget path cannot see the user's words. 'keep it short and dont make it weird'",
+    "still gets the 1536-token middle.",
   ].join(" "),
 } as const;
 
@@ -472,20 +353,7 @@ type GapMechanism = keyof typeof GAP_MECHANISMS;
  */
 const KNOWN_GAPS: ReadonlyMap<GapKey, { mechanism: GapMechanism; intent: ChatIntent }> =
   new Map<GapKey, { mechanism: GapMechanism; intent: ChatIntent }>([
-    // ── faithful-reproduction: CLOSED, all ten together ─────────────────────
-    // These ten were one mechanism — the starter's prompt-inclusive n-gram ban,
-    // base plus a `writing` override — and they closed together the moment a
-    // real-model A/B settled that the ban could come off. Deleted rather than
-    // relaxed, per this file's rule. `faithful-reproduction` now has no pinned
-    // gaps at all, so every item that needs it is live above.
-    // work-email-tone-fix and school-essay-not-ai moved explain → writing (the
-    // transform widening, isTextTransformAsk). Their `no-elaboration-hint` gap
-    // CLOSED — the writing hint is "avoid filler", not "develop the details" —
-    // so those two entries are deleted, not relaxed. `direct-budget` still fails:
-    // writing's budget is the same 1536 middle as explain's, so the gap now sits
-    // under `writing-budget-is-middle` instead of `explain-default-middle`.
     ["direct-budget/work-email-tone-fix", { mechanism: "writing-budget-is-middle", intent: "writing" }],
-    ["no-elaboration-hint/work-followup-shorter", { mechanism: "explain-default-middle", intent: "explain" }],
     ["direct-budget/work-followup-shorter", { mechanism: "explain-default-middle", intent: "explain" }],
     ["direct-budget/rewrite-03", { mechanism: "writing-budget-is-middle", intent: "writing" }],
     ["direct-budget/sw-15", { mechanism: "writing-budget-is-middle", intent: "writing" }],
@@ -493,94 +361,32 @@ const KNOWN_GAPS: ReadonlyMap<GapKey, { mechanism: GapMechanism; intent: ChatInt
     ["direct-budget/work-sick-text", { mechanism: "brevity-misses-the-budget", intent: "explain" }],
     ["direct-budget/draft-01", { mechanism: "writing-budget-is-middle", intent: "writing" }],
     ["direct-budget/admin-gym-cancellation", { mechanism: "writing-budget-is-middle", intent: "writing" }],
-    ["no-elaboration-hint/family-eulogy", { mechanism: "explain-default-middle", intent: "explain" }],
     ["direct-budget/ft-06", { mechanism: "writing-budget-is-middle", intent: "writing" }],
-    ["no-elaboration-hint/health-blood-results", { mechanism: "explain-default-middle", intent: "explain" }],
     ["direct-budget/health-blood-results", { mechanism: "explain-default-middle", intent: "explain" }],
-    ["no-elaboration-hint/health-hospital-letter", { mechanism: "explain-default-middle", intent: "explain" }],
     ["direct-budget/school-letter-esl-parent", { mechanism: "explain-default-middle", intent: "explain" }],
-    // ★ TWO NEW no-elaboration-hint GAPS, opened by the routing fix and recorded
-    // rather than absorbed. Both turns used to escape this check by landing on
-    // an intent that was WRONG for a different reason: the school letter matched
-    // WRITING_RE on its own "we write to advise", and the landlord's letter
-    // matched RESEARCH_RE on "your current lease term". Classifying the ask
-    // moved both to `explain`, which is the right task class and carries the
-    // elaboration hint. Neither person wants development — one wants three
-    // lines with two figures in them, the other wants a verdict and a deadline.
-    // The gap is the `explain` hint, not the routing, and it is now visible.
-    ["no-elaboration-hint/school-letter-esl-parent", { mechanism: "explain-default-middle", intent: "explain" }],
-    ["no-elaboration-hint/legal-rent-increase", { mechanism: "explain-default-middle", intent: "explain" }],
-    // `direct-budget/summarise-01` was pinned here under
-    // `cascade-beats-brief-shape`. It CLOSED on 2026-07-27 when WRITING_RE
-    // stopped matching the bare word 'message' inside the user's pasted thread:
-    // the turn routes `quick` at 1024 now, which its `brief` shape said all
-    // along. The mechanism went with it.
     ["direct-budget/explain-01", { mechanism: "explain-default-middle", intent: "explain" }],
-    ["no-elaboration-hint/school-fractions", { mechanism: "explain-default-middle", intent: "explain" }],
     ["direct-budget/school-fractions", { mechanism: "explain-default-middle", intent: "explain" }],
-    // `factual-01` ("how long do you boil eggs for hard boiled") had both of its
-    // needs pinned here under `long-form-bare-long`. Both CLOSED on 2026-07-27
-    // when LONG_FORM_RE and DEEP_RE were narrowed off bare words: the turn now
-    // routes `quick` at 1024 tokens with no hint, which is what its bounce
-    // condition asked for. The mechanism went with them.
-    ["no-elaboration-hint/factual-02", { mechanism: "explain-default-middle", intent: "explain" }],
-    ["no-elaboration-hint/decide-01", { mechanism: "explain-default-middle", intent: "explain" }],
     ["direct-budget/decide-01", { mechanism: "explain-default-middle", intent: "explain" }],
-    ["no-elaboration-hint/money-insurance-jump", { mechanism: "explain-default-middle", intent: "explain" }],
     ["direct-budget/money-insurance-jump", { mechanism: "explain-default-middle", intent: "explain" }],
-    ["no-elaboration-hint/ft-14", { mechanism: "explain-default-middle", intent: "explain" }],
-    ["no-elaboration-hint/money-budget-house", { mechanism: "explain-default-middle", intent: "explain" }],
     ["direct-budget/money-budget-house", { mechanism: "explain-default-middle", intent: "explain" }],
-    ["no-elaboration-hint/excel-sumif", { mechanism: "explain-default-middle", intent: "explain" }],
     ["direct-budget/excel-sumif", { mechanism: "explain-default-middle", intent: "explain" }],
-    ["no-elaboration-hint/sw-13", { mechanism: "explain-default-middle", intent: "explain" }],
     ["direct-budget/sw-13", { mechanism: "explain-default-middle", intent: "explain" }],
-    ["no-elaboration-hint/food-fridge-dinner", { mechanism: "explain-default-middle", intent: "explain" }],
     ["direct-budget/food-fridge-dinner", { mechanism: "explain-default-middle", intent: "explain" }],
-    ["no-elaboration-hint/ideas-01", { mechanism: "plurality-to-teaching", intent: "deep" }],
     ["direct-budget/ideas-01", { mechanism: "plurality-to-teaching", intent: "deep" }],
-    ["no-elaboration-hint/family-text-thread", { mechanism: "explain-default-middle", intent: "explain" }],
     ["direct-budget/family-text-thread", { mechanism: "explain-default-middle", intent: "explain" }],
-    ["no-elaboration-hint/company-01", { mechanism: "explain-default-middle", intent: "explain" }],
     ["direct-budget/company-01", { mechanism: "explain-default-middle", intent: "explain" }],
-    ["no-elaboration-hint/company-02", { mechanism: "explain-default-middle", intent: "explain" }],
     ["direct-budget/company-02", { mechanism: "explain-default-middle", intent: "explain" }],
-    ["no-elaboration-hint/translate-01", { mechanism: "explain-default-middle", intent: "explain" }],
     ["direct-budget/translate-01", { mechanism: "explain-default-middle", intent: "explain" }],
-    ["no-elaboration-hint/ft-04", { mechanism: "explain-default-middle", intent: "explain" }],
     ["direct-budget/ft-04", { mechanism: "explain-default-middle", intent: "explain" }],
-    ["no-elaboration-hint/ft-13", { mechanism: "explain-default-middle", intent: "explain" }],
     ["direct-budget/ft-13", { mechanism: "explain-default-middle", intent: "explain" }],
-
-    // ── WAVE 2 — the proofread-class jobs ─────────────────────────────
-    // Nine turns whose entire requirement is the user's own text back, added to
-    // widen the one measurement that had a single item on it. Their
-    // `faithful-reproduction` need closed on arrival rather than ever being
-    // pinned here: these nine items and the original ten share one mechanism
-    // (the starter's prompt-inclusive n-gram ban), and that mechanism came off
-    // before this corpus wave and that fix were ever combined and run together.
-    // Their other two needs each turn carries are untouched by that fix and
-    // remain open below: eight are the >360-character catch-all reading the
-    // length of what they PASTED as a request for a lecture, and the ninth is
-    // the budget path that cannot see a length bound. A wave of nine new items
-    // explained entirely by mechanisms already on file is evidence those
-    // mechanisms are real, not curve-fitted to the forty.
-
     ["direct-budget/proofread-teacher-note-esl", { mechanism: "writing-budget-is-middle", intent: "writing" }],
     ["direct-budget/proofread-birthday-caption", { mechanism: "writing-budget-is-middle", intent: "writing" }],
-    ["no-elaboration-hint/proofread-memorial-tribute", { mechanism: "explain-default-middle", intent: "explain" }],
     ["direct-budget/proofread-memorial-tribute", { mechanism: "explain-default-middle", intent: "explain" }],
     ["direct-budget/proofread-grandfather-letter", { mechanism: "writing-budget-is-middle", intent: "writing" }],
     ["direct-budget/proofread-vet-application", { mechanism: "writing-budget-is-middle", intent: "writing" }],
     ["direct-budget/proofread-crew-email", { mechanism: "writing-budget-is-middle", intent: "writing" }],
     ["direct-budget/proofread-review-reply", { mechanism: "writing-budget-is-middle", intent: "writing" }],
-
-    // The one that routes `deep` with NO hint at all: she typed "keep it short",
-    // hint suppression saw it, and the 2048-token budget did not. Suppression and
-    // routing are two systems that do not talk, which is the whole mechanism.
     ["direct-budget/proofread-marketplace-ad", { mechanism: "brevity-misses-the-budget", intent: "writing" }],
-    // The one that routes `writing`: "posting this on the school parents page" hits
-    // the writing branch, whose budget is the 1536 middle whatever the artifact is.
     ["direct-budget/proofread-school-post", { mechanism: "writing-budget-is-middle", intent: "writing" }],
   ]);
 
@@ -589,127 +395,84 @@ const KNOWN_GAPS: ReadonlyMap<GapKey, { mechanism: GapMechanism; intent: ChatInt
 // ---------------------------------------------------------------------------
 
 const ROUTING_TODAY: Readonly<
-  Record<string, { intent: ChatIntent; maxTokens: number; temperature: number; hint: string }>
+  Record<string, { intent: ChatIntent; maxTokens: number }>
 > = {
-  // Transform ask ("make this sound less passive aggressive") — routes `writing`
-  // now (isTextTransformAsk), not `explain`. Measured: on the 1.2B the explain
-  // hint made it lecture instead of returning the rewrite.
-  "work-email-tone-fix": { intent: "writing", maxTokens: 1536, temperature: 0.4, hint: "Match the requested format and tone; avoid filler." },
-  "work-followup-shorter": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "rewrite-03": { intent: "writing", maxTokens: 1536, temperature: 0.4, hint: "Match the requested format and tone; avoid filler." },
-  "sw-15": { intent: "writing", maxTokens: 1536, temperature: 0.4, hint: "Match the requested format and tone; avoid filler." },
-  // Transform ask ("make this better … dont make it sound like ai") — routes
-  // `writing` now via the "make it sound" arm of isTextTransformAsk.
-  "school-essay-not-ai": { intent: "writing", maxTokens: 1536, temperature: 0.4, hint: "Match the requested format and tone; avoid filler." },
-  "work-sick-text": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "" },
-  "draft-01": { intent: "writing", maxTokens: 1536, temperature: 0.4, hint: "Match the requested format and tone; avoid filler." },
-  "admin-gym-cancellation": { intent: "writing", maxTokens: 1536, temperature: 0.4, hint: "Match the requested format and tone; avoid filler." },
-  "family-eulogy": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "ft-06": { intent: "writing", maxTokens: 1536, temperature: 0.4, hint: "Match the requested format and tone; avoid filler." },
-  "health-blood-results": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "health-hospital-letter": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "school-letter-esl-parent": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "legal-rent-increase": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "summarise-01": { intent: "quick", maxTokens: 1024, temperature: 0.2, hint: "" },
-  "explain-01": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "school-fractions": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "factual-01": { intent: "quick", maxTokens: 1024, temperature: 0.2, hint: "" },
-  "factual-02": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "factual-04": { intent: "quick", maxTokens: 1024, temperature: 0.2, hint: "" },
-  "decide-01": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "money-insurance-jump": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "ft-14": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "money-budget-house": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "excel-sumif": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "sw-13": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "food-fridge-dinner": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "travel-lisbon-kid": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "ideas-01": { intent: "deep", maxTokens: 2048, temperature: 0.3, hint: "Use clear sections; include concrete recommendations and tradeoffs." },
-  "family-text-thread": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "company-01": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "company-02": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "translate-01": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "translate-02": { intent: "quick", maxTokens: 1024, temperature: 0.2, hint: "" },
-  "ft-01": { intent: "quick", maxTokens: 1024, temperature: 0.2, hint: "" },
-  "ft-04": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "ft-08": { intent: "quick", maxTokens: 1024, temperature: 0.2, hint: "" },
-  "ft-13": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "sw-12": { intent: "quick", maxTokens: 1024, temperature: 0.2, hint: "" },
-  "ft-15": { intent: "quick", maxTokens: 1024, temperature: 0.2, hint: "" },
-  // ── WAVE 2 — the proofread-class jobs ─────────────────────────────────────
-  // Eight of nine USED to land on `deep` at 2048 tokens because of how long the
-  // thing they PASTED is, on turns whose whole instruction was "fix my mistakes
-  // and change nothing else" — and were then told to "include concrete
-  // recommendations and tradeoffs". Live replies duly came back with a
-  // "Concrete Recommendations & Tradeoffs" section instead of the corrected
-  // text (`deliversUnburied` averaged 0.42 across `deep` against 0.91 across
-  // `writing`).
-  //
-  // The cascade now classifies the INSTRUCTION rather than the paste, and reads
-  // a repair ask as a writing ask, so eight reach `writing` — including
-  // `school-essay-not-ai` ("make this better … dont make it sound like ai"),
-  // which the transform widening (isTextTransformAsk) now routes. One does not,
-  // deliberately: `memorial-tribute` ("knock the spelling errors out of it") is
-  // a repair ask no repair OR transform verb covers, so it stays `explain`.
-  // Widening the vocabulary until it passed would be fitting the rule to the
-  // labelled item instead of to the category. See lib/ask-text.ts.
-  //
-  // `marketplace-ad` still carries no hint at all — she typed "keep it short" —
-  // but now takes the 1536 writing ceiling rather than 2048.
-  "proofread-teacher-note-esl": { intent: "writing", maxTokens: 1536, temperature: 0.4, hint: "Match the requested format and tone; avoid filler." },
-  "proofread-birthday-caption": { intent: "writing", maxTokens: 1536, temperature: 0.4, hint: "Match the requested format and tone; avoid filler." },
-  "proofread-memorial-tribute": { intent: "explain", maxTokens: 1536, temperature: 0.3, hint: "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications." },
-  "proofread-grandfather-letter": { intent: "writing", maxTokens: 1536, temperature: 0.4, hint: "Match the requested format and tone; avoid filler." },
-  "proofread-vet-application": { intent: "writing", maxTokens: 1536, temperature: 0.4, hint: "Match the requested format and tone; avoid filler." },
-  "proofread-crew-email": { intent: "writing", maxTokens: 1536, temperature: 0.4, hint: "Match the requested format and tone; avoid filler." },
-  "proofread-marketplace-ad": { intent: "writing", maxTokens: 1536, temperature: 0.4, hint: "" },
-  "proofread-review-reply": { intent: "writing", maxTokens: 1536, temperature: 0.4, hint: "Match the requested format and tone; avoid filler." },
-  "proofread-school-post": { intent: "writing", maxTokens: 1536, temperature: 0.4, hint: "Match the requested format and tone; avoid filler." },
+  "work-email-tone-fix": { intent: "writing", maxTokens: 1536 },
+  "work-followup-shorter": { intent: "explain", maxTokens: 1536 },
+  "rewrite-03": { intent: "writing", maxTokens: 1536 },
+  "sw-15": { intent: "writing", maxTokens: 1536 },
+  "school-essay-not-ai": { intent: "writing", maxTokens: 1536 },
+  "work-sick-text": { intent: "explain", maxTokens: 1536 },
+  "draft-01": { intent: "writing", maxTokens: 1536 },
+  "admin-gym-cancellation": { intent: "writing", maxTokens: 1536 },
+  "family-eulogy": { intent: "explain", maxTokens: 1536 },
+  "ft-06": { intent: "writing", maxTokens: 1536 },
+  "health-blood-results": { intent: "explain", maxTokens: 1536 },
+  "health-hospital-letter": { intent: "explain", maxTokens: 1536 },
+  "school-letter-esl-parent": { intent: "explain", maxTokens: 1536 },
+  "legal-rent-increase": { intent: "explain", maxTokens: 1536 },
+  "summarise-01": { intent: "quick", maxTokens: 1024 },
+  "explain-01": { intent: "explain", maxTokens: 1536 },
+  "school-fractions": { intent: "explain", maxTokens: 1536 },
+  "factual-01": { intent: "quick", maxTokens: 1024 },
+  "factual-02": { intent: "explain", maxTokens: 1536 },
+  "factual-04": { intent: "quick", maxTokens: 1024 },
+  "decide-01": { intent: "explain", maxTokens: 1536 },
+  "money-insurance-jump": { intent: "explain", maxTokens: 1536 },
+  "ft-14": { intent: "explain", maxTokens: 1536 },
+  "money-budget-house": { intent: "explain", maxTokens: 1536 },
+  "excel-sumif": { intent: "explain", maxTokens: 1536 },
+  "sw-13": { intent: "explain", maxTokens: 1536 },
+  "food-fridge-dinner": { intent: "explain", maxTokens: 1536 },
+  "travel-lisbon-kid": { intent: "explain", maxTokens: 1536 },
+  "ideas-01": { intent: "deep", maxTokens: 2048 },
+  "family-text-thread": { intent: "explain", maxTokens: 1536 },
+  "company-01": { intent: "explain", maxTokens: 1536 },
+  "company-02": { intent: "explain", maxTokens: 1536 },
+  "translate-01": { intent: "explain", maxTokens: 1536 },
+  "translate-02": { intent: "quick", maxTokens: 1024 },
+  "ft-01": { intent: "quick", maxTokens: 1024 },
+  "ft-04": { intent: "explain", maxTokens: 1536 },
+  "ft-08": { intent: "quick", maxTokens: 1024 },
+  "ft-13": { intent: "explain", maxTokens: 1536 },
+  "sw-12": { intent: "quick", maxTokens: 1024 },
+  "ft-15": { intent: "quick", maxTokens: 1024 },
+  "proofread-teacher-note-esl": { intent: "writing", maxTokens: 1536 },
+  "proofread-birthday-caption": { intent: "writing", maxTokens: 1536 },
+  "proofread-memorial-tribute": { intent: "explain", maxTokens: 1536 },
+  "proofread-grandfather-letter": { intent: "writing", maxTokens: 1536 },
+  "proofread-vet-application": { intent: "writing", maxTokens: 1536 },
+  "proofread-crew-email": { intent: "writing", maxTokens: 1536 },
+  "proofread-marketplace-ad": { intent: "writing", maxTokens: 1536 },
+  "proofread-review-reply": { intent: "writing", maxTokens: 1536 },
+  "proofread-school-post": { intent: "writing", maxTokens: 1536 },
 };
 
 /**
  * The same facts per model, because the intent alone does not decide what the
- * model receives. Format: `intent:maxTokens/temperature[/nNoRepeatNgram]`.
- *
- * Two things visible here that no per-item view shows:
- *
- *   - `candidate/lfm2.5-350m-onnx` — the instant-start floor on constrained
- *     devices (since the 2026-08-09 model-ladder fix a capable device's first
- *     answer comes from the 1.2B default, not this; the 350M is the starter only
- *     where the class-best is too big to download fast, e.g. f16-less adapters) —
- *     carries an n-gram ban on ALL SEVEN intents and caps every one at 384 tokens.
- *   - `candidate/qwen2.5-0.5b-mlc` is the one row whose temperatures are the
- *     bare per-intent defaults rather than a model profile, because it is absent
- *     from chat-intent's model registry. Its runtime forwards only max_tokens
- *     and temperature, so this row IS the whole sampling policy for that lane —
- *     which makes the default table live code, not the dead fallback it looks
- *     like. Anything that touches it changes what those users get.
+ * model receives. Format: `intent:maxTokens[/nNoRepeatNgram]`.
  */
 const MODEL_MATRIX_TODAY: Readonly<Record<string, string>> = {
   "local/qwen3-0.6b":
-    "quick:512/0.32 explain:512/0.42 deep:512/0.6 code:512/0.2 writing:512/0.48 file:512/0.6 research:512/0.6",
+    "quick:512 explain:512 deep:512 code:512 writing:512 file:512 research:512",
   "candidate/lfm2.5-1.2b-instruct-onnx":
-    "quick:1024/0.2 explain:1536/0.3 deep:2048/0.3 code:2048/0.2 writing:1536/0.4 file:2048/0.3 research:2048/0.3",
-  // f16-less plain-int4 build of the same 1.2B — same slice + 2048 budget as above.
+    "quick:1024 explain:1536 deep:2048 code:2048 writing:1536 file:2048 research:2048",
   "candidate/lfm2.5-1.2b-instruct-q4-onnx":
-    "quick:1024/0.2 explain:1536/0.3 deep:2048/0.3 code:2048/0.2 writing:1536/0.4 file:2048/0.3 research:2048/0.3",
+    "quick:1024 explain:1536 deep:2048 code:2048 writing:1536 file:2048 research:2048",
   "candidate/lfm2.5-350m-onnx":
-    "quick:384/0.25 explain:384/0.45 deep:384/0.45 code:384/0.45 writing:384/0.38 file:384/0.45 research:384/0.45",
+    "quick:384 explain:384 deep:384 code:384 writing:384 file:384 research:384",
   "candidate/qwen3.5-2b-onnx":
-    "quick:1024/0.32 explain:1536/0.42 deep:2048/0.6 code:2048/0.2 writing:1536/0.48 file:2048/0.6 research:2048/0.6",
+    "quick:1024 explain:1536 deep:2048 code:2048 writing:1536 file:2048 research:2048",
   "candidate/gemma-4-e2b-litert":
-    "quick:256/0.18 explain:768/0.3 deep:1536/0.42 code:1024/0.18 writing:1024/0.45 file:1536/0.45 research:1536/0.45",
+    "quick:256 explain:768 deep:1536 code:1024 writing:1024 file:1536 research:1536",
   "candidate/qwen2.5-0.5b-mlc":
-    "quick:1024/0.45 explain:1536/0.55 deep:2048/0.55 code:2048/0.25 writing:1536/0.75 file:2048/0.4 research:2048/0.35",
-  // No-GPU CPU-EP floor models (deeper q4 Granite + lightest int8 SmolLM2) — same 512
-  // CPU-EP cap + generic Qwen slice as qwen3-0.6b.
+    "quick:1024 explain:1536 deep:2048 code:2048 writing:1536 file:2048 research:2048",
   "candidate/granite-4.0-350m-onnx":
-    "quick:512/0.32 explain:512/0.42 deep:512/0.6 code:512/0.2 writing:512/0.48 file:512/0.6 research:512/0.6",
+    "quick:512 explain:512 deep:512 code:512 writing:512 file:512 research:512",
   "candidate/smollm2-360m-instruct-onnx":
-    "quick:512/0.32 explain:512/0.42 deep:512/0.6 code:512/0.2 writing:512/0.48 file:512/0.6 research:512/0.6",
-  // LFM2-2.6B — the graduated deeper/eco-smart pick (webgpu 2048 ceiling).
+    "quick:512 explain:512 deep:512 code:512 writing:512 file:512 research:512",
   "candidate/lfm2-2.6b-onnx":
-    "quick:1024/0.2 explain:1536/0.3 deep:2048/0.3 code:2048/0.2 writing:1536/0.4 file:2048/0.3 research:2048/0.3",
+    "quick:1024 explain:1536 deep:2048 code:2048 writing:1536 file:2048 research:2048",
 };
 
 describe("everyday-use sweep — today's routing, pinned exactly", () => {
@@ -719,20 +482,18 @@ describe("everyday-use sweep — today's routing, pinned exactly", () => {
       expect({
         intent: routing.intent,
         maxTokens: routing.maxTokens,
-        temperature: getGenerationProfile(routing.intent, true, BUDGET_MODEL).temperature,
-        hint: routing.hint,
       }).toEqual(ROUTING_TODAY[item.id]);
     });
   }
 
-  it("hands every catalog model the same budgets and sampling as before", () => {
+  it("hands every catalog model the same budgets as before", () => {
     const actual: Record<string, string> = {};
     for (const modelId of CATALOG_MODEL_IDS) {
       actual[modelId] = INTENT_ORDER.map((intent) => {
         const profile = getGenerationProfile(intent, true, modelId);
         const ngram =
           profile.noRepeatNgramSize != null ? `/n${String(profile.noRepeatNgramSize)}` : "";
-        return `${intent}:${String(profile.maxTokens)}/${String(profile.temperature)}${ngram}`;
+        return `${intent}:${String(profile.maxTokens)}${ngram}`;
       }).join(" ");
     }
     expect(actual).toEqual(MODEL_MATRIX_TODAY);
@@ -743,111 +504,10 @@ describe("everyday-use sweep — today's routing, pinned exactly", () => {
 // Integrity — the instrument itself
 // ---------------------------------------------------------------------------
 
-/**
- * Every hint string the codebase can emit, with our classification of it.
- *
- * THIS IS THE LOAD-BEARING GUARD on `no-elaboration-hint`. Without it the marker
- * list is a fingerprint of two literals: an audit closed all twenty-five gaps in
- * that block by adopting the LiteRT wording that already ships in the same
- * function — wording which still says "at most three short sections with two
- * bullets each", near-verbatim one item's own bounce condition. With this pin, a
- * reworded hint fails here and has to be classified deliberately.
- */
-type HintClassification = {
-  /** Instructs the model to DEVELOP rather than deliver — `no-elaboration-hint`. */
-  readonly elaborates: boolean;
-  /** Instructs the model to cut short or stop — `needs-guidance`. */
-  readonly curtails: boolean;
-};
-
-const HINT_CLASSIFICATION: Readonly<Record<string, HintClassification>> = {
-  "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications.":
-    { elaborates: true, curtails: false },
-  "Use clear sections; include concrete recommendations and tradeoffs.": {
-    elaborates: true,
-    curtails: false,
-  },
-  "Lead with the working code or fix; keep the explanation short.": {
-    elaborates: false,
-    curtails: true,
-  },
-  "Match the requested format and tone; avoid filler.": { elaborates: false, curtails: false },
-  "Lead with the conclusion; cite specifics from the file.": { elaborates: false, curtails: false },
-  "Distinguish supported claims from uncertain ones; cite sources only when you can back the claim.":
-    { elaborates: false, curtails: false },
-  // ★ The three LiteRT strings below are the nearest available replacement
-  // wording for the two default hints that carry every `no-elaboration-hint`
-  // gap, which is exactly why an audit reached for them. Two of the three
-  // curtail, so adopting them now trips `needs-guidance` instead of scoring a
-  // clean sweep. That is the counterweight doing its job.
-  "Answer directly and briefly. For a single factual question, give the answer first and stop. For a short follow-up, make only the requested change.":
-    { elaborates: false, curtails: true },
-  "Lead with the direct answer, then cover the essential details in at most three concise paragraphs or bullets. Stop when the distinction is clear.":
-    { elaborates: false, curtails: true },
-  "Use at most three short sections with two bullets each. Give concrete steps and a brief why for each. Finish with one short takeaway.":
-    { elaborates: true, curtails: true },
-};
-
 describe("everyday-use sweep — the instrument", () => {
   it("covers forty-nine jobs across every category the authors identified", () => {
     expect(EVERYDAY_USE_CORPUS.length).toBe(49);
     expect(new Set(EVERYDAY_USE_CORPUS.map((i) => i.category)).size).toBeGreaterThanOrEqual(9);
-  });
-
-  it("pins every hint the codebase can emit, and how we classify it", () => {
-    const emitted: Record<string, HintClassification> = {};
-    for (const modelId of [...CATALOG_MODEL_IDS, undefined]) {
-      for (const intent of INTENT_ORDER) {
-        const hint = buildTurnQualityInstruction(intent, true, modelId);
-        if (hint.length === 0) {
-          continue;
-        }
-        emitted[hint] = {
-          elaborates: ELABORATION_MARKERS.some((m) => hint.toLowerCase().includes(m)),
-          curtails: CURTAILMENT_MARKERS.some((m) => hint.toLowerCase().includes(m)),
-        };
-      }
-    }
-    // A reworded or new hint lands here as an unclassified key. Classify it on
-    // purpose — do not delete the entry to make this pass.
-    expect(emitted).toEqual(HINT_CLASSIFICATION);
-  });
-
-  it("keeps every marker earning its place in a hint we actually ship", () => {
-    const shipped = Object.keys(HINT_CLASSIFICATION).join(" ").toLowerCase();
-    for (const marker of [...ELABORATION_MARKERS, ...CURTAILMENT_MARKERS]) {
-      expect(shipped, `marker "${marker}" matches no hint we emit`).toContain(marker);
-    }
-  });
-
-  it("never reads an elaboration marker out of the user's own words", () => {
-    for (const item of EVERYDAY_USE_CORPUS) {
-      for (const marker of ELABORATION_MARKERS) {
-        expect(
-          item.userInput.toLowerCase().includes(marker),
-          `${item.id} contains "${marker}" — the check would blame us for the user's wording`,
-        ).toBe(false);
-      }
-    }
-  });
-
-  it("records that the curtailment markers ARE words users themselves type", () => {
-    // The guard above holds for elaboration markers because "tradeoffs" and
-    // "develop the details" are not how people write. It CANNOT hold here:
-    // asking for something shorter is one of the most ordinary things a person
-    // types. So the safety comes entirely from scoping the match to the hint,
-    // and this pins the hazard as a live fact rather than a comment — if
-    // anyone ever widens curtailment matching to the whole turn, these two
-    // items are what it will misread, calling a user's own brevity request our
-    // instruction to cut them off.
-    const spokenByUsers = EVERYDAY_USE_CORPUS.filter((item) =>
-      CURTAILMENT_MARKERS.some((m) => item.userInput.toLowerCase().includes(m)),
-    ).map((item) => item.id);
-    expect(spokenByUsers.sort()).toEqual([
-      "proofread-marketplace-ad",
-      "work-followup-shorter",
-      "work-sick-text",
-    ]);
   });
 
   it("derives a routing need, quoting the item, for every item", () => {
@@ -887,7 +547,6 @@ describe("everyday-use sweep — the instrument", () => {
   });
 
   it("carries a counterweight, so the corpus is not satisfiable by saying less", () => {
-    expect(itemsNeeding("needs-guidance").length).toBeGreaterThanOrEqual(4);
     expect(itemsNeeding("faithful-reproduction").length).toBeGreaterThanOrEqual(8);
   });
 
@@ -901,8 +560,7 @@ describe("everyday-use sweep — the instrument", () => {
    * this repo and asserted in none, which is how the n-gram checks decayed. On
    * the everyday default exactly one intent sits inside the direct band, so the
    * check is today equivalent to `intent === "quick"` — a second reading of
-   * intent, not an independent length signal. Reading a `direct-budget` pass and
-   * a `no-elaboration-hint` pass as two pieces of evidence double-counts one.
+   * intent, not an independent length signal.
    *
    * Not softened, because it is not wrong: the budget IS what reaches the
    * runtime. It is under-powered, and the honest stronger form is unreachable
@@ -977,12 +635,9 @@ describe("everyday-use sweep — n-gram exposure across the corpus", () => {
 // ---------------------------------------------------------------------------
 
 const NEED_DESCRIPTIONS: Record<Need, string> = {
-  "no-elaboration-hint": "asks for an artifact or a verdict, so is not told to elaborate",
   "direct-budget": "is bounded in length, so routes inside the direct band",
   "faithful-reproduction":
     "must give the user's own words back, so the turn as routed meets no n-gram ban",
-  "needs-guidance":
-    "has a multi-part answer, so receives an instruction that does not cut it short",
 };
 
 for (const need of Object.keys(CHECKS) as Need[]) {
@@ -1189,10 +844,10 @@ describe("everyday-use sweep — the intent cascade reads pasted content", () =>
 /**
  * The instruction this sweep cannot route.
  *
- * Every turn also carries the on-device system prompt, which is not per-turn and
- * so never appears in any hint measured above. It contains its own development
- * directive — now the direct posture (open-vs-closed axis), shipped 2026-08-26
- * after the posture-direct A/B arm was validated.
+ * Every turn also carries the on-device system prompt, which is not per-turn.
+ * It contains its own development directive — now the direct posture
+ * (open-vs-closed axis), shipped 2026-08-26 after the posture-direct A/B arm
+ * was validated.
  *
  * Pinned so it cannot be forgotten, and so changing it is deliberate.
  */
@@ -1201,8 +856,6 @@ describe("everyday-use sweep — the system prompt is not routed", () => {
     const prompt = getOnDeviceSystemPrompt();
     expect(prompt).toContain("let the question decide");
     expect(prompt).toContain("an open question");
-    // And it is invisible to the marker set the per-turn checks use.
-    expect(ELABORATION_MARKERS.filter((m) => prompt.toLowerCase().includes(m))).toEqual([]);
   });
 });
 

@@ -4,7 +4,9 @@
 import { describe, expect, it } from "vitest";
 
 import { hasExplicitFormatInstruction } from "../answer-shape";
-import { applyTurnHints, inferTurnIntent, type ChatTurnMessage } from "../chat-intent";
+import { inferTurnIntent } from "../chat-intent";
+
+type ChatTurnMessage = { role: "user" | "assistant" | "system"; content: string };
 import {
   FIGURE_RECAP_CAP,
   appendFigureRecaps,
@@ -346,11 +348,10 @@ describe("applyFigureRecaps — leaves the existing turn machinery alone", () =>
   });
 
   it("WHY the recap is applied last: classifying recapped text changes the intent", () => {
-    // The reason `appendFigureRecaps` runs after `applyTurnHints` rather than
-    // before it. Recapped text is longer and denser, and on this conversation
-    // that alone flips a turn's intent — which resolves different sampling
-    // options. Kept as a standing net: if this ever stops being true the
-    // ordering is still correct, but the measured reason for it has changed.
+    // Recapped text is longer and denser, and on this conversation that alone
+    // flips a turn's intent — which resolves different sampling options. Kept
+    // as a standing net: if this ever stops being true the ordering is still
+    // correct, but the measured reason for it has changed.
     const messages = budgetTurns();
     const recapped = applyFigureRecaps(messages);
     const flipped = messages.some(
@@ -361,25 +362,4 @@ describe("applyFigureRecaps — leaves the existing turn machinery alone", () =>
     expect(flipped).toBe(true);
   });
 
-  it("dispatch order leaves every hint decision exactly as the raw turn made it", () => {
-    // Production composes hints first, then the recap. Reproduced here: the
-    // hinted text must be untouched, with the recap strictly appended after it.
-    const messages = budgetTurns();
-    const hinted = applyTurnHints(messages, true);
-    const composed = appendFigureRecaps(hinted, buildBranchFigureRecaps(messages));
-
-    composed.forEach((message, i) => {
-      const hintedContent = hinted[i]!.content;
-      expect(message.content.startsWith(hintedContent)).toBe(true);
-      const tail = message.content.slice(hintedContent.length);
-      expect(tail === "" || tail.startsWith("\n\n")).toBe(true);
-    });
-  });
-
-  it("recaps the same figures whether or not hints were applied first", () => {
-    const messages = budgetTurns();
-    const recaps = buildBranchFigureRecaps(messages);
-    const hintedRecaps = buildBranchFigureRecaps(applyTurnHints(messages, true));
-    expect(hintedRecaps).toEqual(recaps);
-  });
 });

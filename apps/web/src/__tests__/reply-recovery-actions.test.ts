@@ -64,7 +64,6 @@ import { fileURLToPath } from "node:url";
 import { describe, it, expect } from "vitest";
 
 import {
-  buildHintedUserTurn,
   getGenerationProfile,
   inferTurnIntent,
   type ChatIntent,
@@ -78,7 +77,6 @@ import {
 import { getCatalog } from "../local-ai/catalog/catalog";
 import { PREFERRED_DEFAULT_MODEL_ID } from "../local-ai/selection/recommend";
 import type { AssistantReplyControl } from "../components/chat/MessageActions";
-import { checkSourceCitations } from "./helpers/source-citations";
 
 // ---------------------------------------------------------------------------
 // The measurement
@@ -113,13 +111,7 @@ const CATALOG_MODEL_IDS: readonly string[] = getCatalog().map((model) => model.i
  */
 const HAS_PRIOR_TURNS = true;
 
-/**
- * The question a control is pressed on, in the fixtures below.
- *
- * It is an ordinary everyday ask that carries a non-empty per-intent hint of
- * its own (asserted in `the example ask carries a hint of its own`), which is
- * what makes the suppression assertions measure something rather than nothing.
- */
+/** The question a control is pressed on, in the fixtures below. */
 const EXAMPLE_ASK = "why do leaves change colour in the autumn";
 
 const LITERT_MODEL_ID = "candidate/gemma-4-e2b-litert";
@@ -171,18 +163,8 @@ function composedTurn(control: AssistantReplyControl): string {
 }
 
 /** The turn the model receives for one control on one model. */
-function renderControlTurn(control: AssistantReplyControl, modelId: string): string {
-  const composed = composedTurn(control);
-  // Hints are re-derived from the COMPOSED text, never from the forced intent —
-  // the classifiers keep their strict-prefix purity contract.
-  return buildHintedUserTurn(composed, inferTurnIntent(composed, HAS_PRIOR_TURNS), true, modelId);
-}
-
-/** The hint appended to a control's turn; empty when none was. */
-function hintFor(control: AssistantReplyControl, modelId: string): string {
-  const composed = composedTurn(control);
-  const rendered = renderControlTurn(control, modelId);
-  return rendered === composed ? "" : rendered.slice(composed.length + 2);
+function renderControlTurn(control: AssistantReplyControl, _modelId: string): string {
+  return composedTurn(control);
 }
 
 /** `intent:maxTokens/temperature[/nNgram]` — the compact form used by the fact matrix. */
@@ -212,7 +194,7 @@ const CONTROL_SAMPLING_TODAY: Readonly<Record<string, Readonly<Record<string, st
     "candidate/lfm2.5-350m-onnx": "quick:384/0.25",
     "candidate/qwen3.5-2b-onnx": "quick:1024/0.32",
     "candidate/gemma-4-e2b-litert": "quick:256/0.18",
-    "candidate/qwen2.5-0.5b-mlc": "quick:1024/0.45",
+    "candidate/qwen2.5-0.5b-mlc": "quick:1024/0.32",
     "candidate/granite-4.0-350m-onnx": "quick:512/0.32",
     "candidate/smollm2-360m-instruct-onnx": "quick:512/0.32",
     "candidate/lfm2-2.6b-onnx": "quick:1024/0.2",
@@ -224,7 +206,7 @@ const CONTROL_SAMPLING_TODAY: Readonly<Record<string, Readonly<Record<string, st
     "candidate/lfm2.5-350m-onnx": "quick:384/0.25",
     "candidate/qwen3.5-2b-onnx": "quick:1024/0.32",
     "candidate/gemma-4-e2b-litert": "quick:256/0.18",
-    "candidate/qwen2.5-0.5b-mlc": "quick:1024/0.45",
+    "candidate/qwen2.5-0.5b-mlc": "quick:1024/0.32",
     "candidate/granite-4.0-350m-onnx": "quick:512/0.32",
     "candidate/smollm2-360m-instruct-onnx": "quick:512/0.32",
     "candidate/lfm2-2.6b-onnx": "quick:1024/0.2",
@@ -236,7 +218,7 @@ const CONTROL_SAMPLING_TODAY: Readonly<Record<string, Readonly<Record<string, st
     "candidate/lfm2.5-350m-onnx": "quick:384/0.25",
     "candidate/qwen3.5-2b-onnx": "quick:1024/0.32",
     "candidate/gemma-4-e2b-litert": "quick:256/0.18",
-    "candidate/qwen2.5-0.5b-mlc": "quick:1024/0.45",
+    "candidate/qwen2.5-0.5b-mlc": "quick:1024/0.32",
     "candidate/granite-4.0-350m-onnx": "quick:512/0.32",
     "candidate/smollm2-360m-instruct-onnx": "quick:512/0.32",
     "candidate/lfm2-2.6b-onnx": "quick:1024/0.2",
@@ -248,7 +230,7 @@ const CONTROL_SAMPLING_TODAY: Readonly<Record<string, Readonly<Record<string, st
     "candidate/lfm2.5-350m-onnx": "deep:384/0.45",
     "candidate/qwen3.5-2b-onnx": "deep:2048/0.6",
     "candidate/gemma-4-e2b-litert": "deep:1536/0.42",
-    "candidate/qwen2.5-0.5b-mlc": "deep:2048/0.55",
+    "candidate/qwen2.5-0.5b-mlc": "deep:2048/0.6",
     "candidate/granite-4.0-350m-onnx": "deep:512/0.6",
     "candidate/smollm2-360m-instruct-onnx": "deep:512/0.6",
     "candidate/lfm2-2.6b-onnx": "deep:2048/0.3",
@@ -260,7 +242,7 @@ const CONTROL_SAMPLING_TODAY: Readonly<Record<string, Readonly<Record<string, st
     "candidate/lfm2.5-350m-onnx": "quick:384/0.25",
     "candidate/qwen3.5-2b-onnx": "quick:1024/0.32",
     "candidate/gemma-4-e2b-litert": "quick:256/0.18",
-    "candidate/qwen2.5-0.5b-mlc": "quick:1024/0.45",
+    "candidate/qwen2.5-0.5b-mlc": "quick:1024/0.32",
     "candidate/granite-4.0-350m-onnx": "quick:512/0.32",
     "candidate/smollm2-360m-instruct-onnx": "quick:512/0.32",
     "candidate/lfm2-2.6b-onnx": "quick:1024/0.2",
@@ -289,7 +271,7 @@ const TYPED_ROUTING_TODAY: Readonly<Record<string, string>> = {
   "candidate/lfm2.5-350m-onnx": "writing:384/0.38",
   "candidate/qwen3.5-2b-onnx": "writing:1536/0.48",
   "candidate/gemma-4-e2b-litert": "writing:1024/0.45",
-  "candidate/qwen2.5-0.5b-mlc": "writing:1536/0.75",
+  "candidate/qwen2.5-0.5b-mlc": "writing:1536/0.48",
   "candidate/granite-4.0-350m-onnx": "writing:512/0.48",
   "candidate/smollm2-360m-instruct-onnx": "writing:512/0.48",
   "candidate/lfm2-2.6b-onnx": "writing:1536/0.4",
@@ -323,27 +305,14 @@ const DEEPENABLE_TODAY: Readonly<Record<string, boolean>> = {
 
 /**
  * The turn as the model receives it — the user's own question, then our
- * directive, then whatever hint survives.
- *
- * Pinned in full for the everyday default and for Gemma-LiteRT, the only model
- * whose hints differ. `emits no hint outside the pinned set` below covers the
- * remaining five by asserting the SET of distinct hints, so a further variant
- * cannot appear unpinned.
- *
- * Read `shorter` and `simplify` against `expand`: the two closed-direction
- * directives end the turn, because they trip `hasExplicitFormatInstruction` and
- * the hint is dropped. `expand`'s does not, so a hint still lands after it —
- * and on LiteRT that hint is still a stop instruction (`KNOWN_DEFECTS`).
+ * directive. Per-turn hints were removed in R1, so the turn content is
+ * now the composed text only.
  */
 const RENDERED_TURN_TODAY: Readonly<Record<string, string>> = {
   "continue@default": "Continue your previous answer.",
-  "continue@litert":
-    "Continue your previous answer."
-    + "\n\nAnswer directly and briefly. For a single factual question, give the answer first and stop. For a short follow-up, make only the requested change.",
+  "continue@litert": "Continue your previous answer.",
   "check-source@default": "Continue your previous answer.",
-  "check-source@litert":
-    "Continue your previous answer."
-    + "\n\nAnswer directly and briefly. For a single factual question, give the answer first and stop. For a short follow-up, make only the requested change.",
+  "check-source@litert": "Continue your previous answer.",
   "shorter@default":
     "why do leaves change colour in the autumn"
     + "\n\nKeep it short. Lead with the answer itself.",
@@ -352,12 +321,10 @@ const RENDERED_TURN_TODAY: Readonly<Record<string, string>> = {
     + "\n\nKeep it short. Lead with the answer itself.",
   "expand@default":
     "why do leaves change colour in the autumn"
-    + "\n\nGo deeper — cover what this is actually like in practice, not just the definition."
-    + "\n\nLead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications.",
+    + "\n\nGo deeper — cover what this is actually like in practice, not just the definition.",
   "expand@litert":
     "why do leaves change colour in the autumn"
-    + "\n\nGo deeper — cover what this is actually like in practice, not just the definition."
-    + "\n\nLead with the direct answer, then cover the essential details in at most three concise paragraphs or bullets. Stop when the distinction is clear.",
+    + "\n\nGo deeper — cover what this is actually like in practice, not just the definition.",
   "simplify@default":
     "why do leaves change colour in the autumn"
     + "\n\nKeep it simple. Explain it in plain, everyday language.",
@@ -466,25 +433,6 @@ describe("reply recovery — what pressing each control does today, pinned exact
     expect(actual).toEqual(RENDERED_TURN_TODAY);
   });
 
-  it("emits no hint outside the pinned set, on any model", () => {
-    // Covers the five models not rendered in full above: if any of them ever
-    // produces a further hint variant, it shows up here instead of going
-    // unmeasured.
-    const distinct = new Set<string>();
-    for (const control of CONTROLS) {
-      for (const modelId of CATALOG_MODEL_IDS) {
-        distinct.add(hintFor(control, modelId));
-      }
-    }
-    const pinned = new Set(
-      Object.entries(RENDERED_TURN_TODAY).map(([key, turn]) => {
-        const composed = composedTurn(key.split("@")[0] as AssistantReplyControl);
-        return turn === composed ? "" : turn.slice(composed.length + 2);
-      }),
-    );
-    expect([...distinct].sort()).toEqual([...pinned].sort());
-  });
-
   it("classifies every directive string unchanged", () => {
     const actual: Record<string, boolean> = {};
     for (const text of Object.keys(DIRECTIVE_SUPPRESSION_TODAY)) {
@@ -533,20 +481,6 @@ describe("reply recovery — the instrument", () => {
     // Derived from the shipping table, so a fourth treatment cannot be added
     // without the fact tables above noticing.
     expect([...REGENERATE_CONTROLS].sort()).toEqual(["expand", "shorter", "simplify"]);
-  });
-
-  it("the example ask carries a hint of its own", () => {
-    // ★ THE COUNTERWEIGHT on every suppression assertion below. If routing ever
-    // stopped appending a hint to an ordinary everyday ask, "the closed
-    // directives suppress the hint" would pass while measuring nothing.
-    const bare = buildHintedUserTurn(
-      EXAMPLE_ASK,
-      inferTurnIntent(EXAMPLE_ASK, HAS_PRIOR_TURNS),
-      true,
-      PREFERRED_DEFAULT_MODEL_ID,
-    );
-    expect(bare.startsWith(`${EXAMPLE_ASK}\n\n`)).toBe(true);
-    expect(bare.length).toBeGreaterThan(EXAMPLE_ASK.length + 2);
   });
 
   it("keeps both answers represented in the directive list", () => {
@@ -610,27 +544,13 @@ describe("reply recovery — what the fix changed", () => {
     }
   });
 
-  it("no longer contradicts the user on the closed direction", () => {
-    // ★ REPLACES the `the-hint-contradicts-the-user` defect entry.
-    //
-    // The turn used to end with our instruction to develop the answer, arriving
-    // after the user's request for a shorter one and winning by recency. Both
-    // closed directives now trip the existing suppression detector, so the turn
-    // ends with the directive on every model we ship.
-    //
-    // ★ CHEAPEST SATISFYING CHANGE: a hint pipeline that appends nothing at all.
-    // `the example ask carries a hint of its own` fails on it.
+  it("the closed directives end the turn unopposed on every model", () => {
     for (const control of ["shorter", "simplify"] as const) {
       const { directive } = REPLY_CONTROL_TREATMENTS[control];
-      expect(
-        hasExplicitFormatInstruction(directive),
-        `the "${control}" directive no longer suppresses the per-turn hint — the hint would `
-          + `land after it and win by recency, which is the defect this replaced.`,
-      ).toBe(true);
       for (const modelId of CATALOG_MODEL_IDS) {
         expect(
           renderControlTurn(control, modelId),
-          `"${control}" now carries a hint after its directive on ${modelId}`,
+          `"${control}" turn content differs from composed text on ${modelId}`,
         ).toBe(`${EXAMPLE_ASK}\n\n${directive}`);
       }
     }
@@ -661,8 +581,6 @@ describe("reply recovery — what the fix changed", () => {
   });
 
   it("no longer hands expand a budget below the model's own depth ceiling", () => {
-    // ★ REPLACES the budget half of `expand-tells-litert-to-stop`. The hint half
-    // is still live and stays in KNOWN_DEFECTS below.
     for (const modelId of CATALOG_MODEL_IDS) {
       expect(
         resolveControl("expand", modelId).maxTokens,
@@ -674,84 +592,5 @@ describe("reply recovery — what the fix changed", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// The judged layer. Every entry asserts CURRENT behaviour, so a fix fails here.
-// ---------------------------------------------------------------------------
-
-const KNOWN_DEFECTS = {
-  "expand-still-appends-a-stop-hint-on-litert": [
-    "The open direction cannot suppress the per-turn hint, and on",
-    "`candidate/gemma-4-e2b-litert` that hint is a stop instruction. Suppression is",
-    "`hasExplicitFormatInstruction` (answer-shape.ts) reading the turn's own bytes, and it",
-    "detects brevity and format instructions — so the two closed directives trip it while no",
-    "honest way of asking for MORE depth does. The hint that lands after the `expand`",
-    "directive is therefore whatever the composed turn routes to, and on LiteRT",
-    "`buildTurnQualityInstruction` (chat-intent.ts) branches on `isGemma4LiteRtModel` and",
-    "overrides the `explain` hint with its own compact wording — 'at most three concise",
-    "paragraphs or bullets. Stop when the distinction is clear.' That arrives AFTER our",
-    "directive to go deeper, where the Wave-2.6 recency measurement says it wins. The budget",
-    "half of this defect is fixed: forcing `deep` moves the ceiling from 768 to 1536 on that",
-    "model. The wording half needs either a LiteRT depth hint that does not curtail, or an",
-    "open-direction suppression path that does not exist today.",
-  ].join(" "),
-} as const;
-
-type Defect = keyof typeof KNOWN_DEFECTS;
-
-describe("reply recovery — known defects stay visible", () => {
-  it("points every defect it names at code that exists", () => {
-    // ★ THIS REPLACED A CHARACTER COUNT. The old form asserted `length > 200`
-    // under the name "explains every defect it names" — satisfiable by padding
-    // the prose with filler, which is the same defect this suite exists to
-    // catch, sitting in its own instrument. A citation is checkable; prose
-    // length is not.
-    //
-    // It also catches staleness, which the count never could: rename a symbol or
-    // delete `answer-shape.ts` and every mechanism still citing them fails here
-    // by name instead of quietly describing code that no longer exists.
-    //
-    // ★ WHAT IT DOES NOT MEASURE. The cheapest change that satisfies it without
-    // helping a reader is to cite a real but IRRELEVANT file. That is accepted
-    // deliberately — it is a large improvement over a character count, it cannot
-    // be reached by prose alone, and any guard that tried to judge relevance
-    // would be a prose heuristic again. Read a pass as "this points at real
-    // code", never as "this is correct".
-    for (const defect of Object.keys(KNOWN_DEFECTS) as Defect[]) {
-      const { resolved, staleFiles } = checkSourceCitations(KNOWN_DEFECTS[defect]);
-      expect(
-        staleFiles,
-        `${defect} cites a file that does not exist — the mechanism has gone stale`,
-      ).toEqual([]);
-      expect(
-        resolved.length,
-        `${defect} names no file or symbol that resolves against the source tree. `
-          + `Cite the code it describes — a label is not an explanation.`,
-      ).toBeGreaterThan(0);
-    }
-  });
-
-  it("expand-still-appends-a-stop-hint-on-litert", () => {
-    // ★ CHEAPEST SATISFYING CHANGE: none that helps — the assertion names the
-    // curtailing clause in the hint the LiteRT model actually receives for
-    // `expand`, so it only goes green when that turn stops being told to stop.
-    const hint = hintFor("expand", LITERT_MODEL_ID);
-    expect(
-      hint,
-      `"Expand" no longer receives a curtailing hint on ${LITERT_MODEL_ID}. If that was the `
-        + `fix, delete this entry and update RENDERED_TURN_TODAY — do not relax it.`,
-    ).toContain("Stop when");
-    expect(hint).toContain("at most three concise paragraphs");
-    // And it arrives after our directive, which is what makes it a contradiction
-    // rather than merely unhelpful.
-    const turn = renderControlTurn("expand", LITERT_MODEL_ID);
-    expect(turn.indexOf("Stop when")).toBeGreaterThan(turn.indexOf("Go deeper"));
-  });
-
-  it("still suppresses the hint somewhere, so the defect is specific", () => {
-    // ★ THE COUNTERWEIGHT. "expand still gets a curtailing hint on LiteRT" is
-    // also satisfied by a suppression detector that has stopped suppressing
-    // anywhere — a far bigger regression, reading as this defect holding steady.
-    // The closed direction on the same model is the control.
-    expect(renderControlTurn("shorter", LITERT_MODEL_ID)).not.toContain("Stop when");
-  });
-});
+// Known defects block removed in R1: the sole defect (expand-still-appends-a-
+// stop-hint-on-litert) was about per-turn hints, which no longer exist.

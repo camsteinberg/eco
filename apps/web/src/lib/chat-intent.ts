@@ -6,9 +6,7 @@ import { instructionParagraph, isTextRepairAsk, isTextTransformAsk } from "./ask
 import {
   DEEP_RE,
   LONG_FORM_RE,
-  hasExplicitFormatInstruction,
   inferAnswerShape,
-  isSocialTurn,
   type AnswerShape,
 } from "./answer-shape";
 import {
@@ -38,15 +36,6 @@ export type GenerationProfile = {
 type LocalGenerationProfileOptions = {
   allowValidationModel?: boolean;
 };
-
-const GEMMA4_LITERT_MODEL_IDS = new Set([
-  "candidate/gemma-4-e2b-litert",
-  "candidate/gemma-4-e4b-litert",
-]);
-
-function isGemma4LiteRtModel(modelId: string | undefined): boolean {
-  return modelId != null && GEMMA4_LITERT_MODEL_IDS.has(modelId);
-}
 
 // ─── Model metadata for generation profiles ──────────────────────────────
 //
@@ -211,6 +200,24 @@ const CHAT_INTENT_MODEL_DATA: Record<string, ChatIntentModelSlice> = {
       },
     },
   },
+  // WebKit-mobile pick (Qwen2.5-0.5B via WebLLM/MLC). A small Qwen instruct model,
+  // so it rides the shared generic Qwen slice (same as qwen3-0.6b). Family outside
+  // the LocalModelFamily union, so it casts to ChatIntentModelSlice. The 2048
+  // ceiling matches the default fallback the model had before it was added here.
+  "candidate/qwen2.5-0.5b-mlc": {
+    id: "candidate/qwen2.5-0.5b-mlc",
+    family: "qwen2_5",
+    qualityTier: "fast",
+    maxNewTokens: { webgpu: 2048 },
+    generationDefaults: {
+      topP: 0.95,
+      topK: 20,
+      repetitionPenalty: 1.08,
+      intentOverrides: {
+        writing: { topP: 0.92 },
+      },
+    },
+  } as unknown as ChatIntentModelSlice,
   // Runtime bake-off cell: Qwen3-0.6B on MLC — same qwen3 family / fast tier
   // / sampling as local/qwen3-0.6b so the runtime comparison uses the real
   // generation profile. maxNewTokens set to 512 (webgpu) matching the ONNX sibling.
@@ -452,10 +459,9 @@ const WRITING_RE = new RegExp(
 
 /**
  * Map an answer shape to the depth-family intent that delivers its treatment.
- * teaching → deep (2048 + the strongest scaffold); brief/social → quick (low
- * temp, 1024, no scaffold — social additionally suppresses the per-turn hint
- * in buildHintedUserTurn); focused/uncertain → explain (the developed middle —
- * per the locked asymmetric-cost policy, uncertainty never lectures).
+ * teaching → deep (2048 budget); brief/social → quick (1024);
+ * focused/uncertain → explain (the developed middle — per the locked
+ * asymmetric-cost policy, uncertainty never lectures).
  */
 function mapShapeToDepthIntent(shape: AnswerShape): ChatIntent {
   if (shape === "teaching") return "deep";
@@ -603,40 +609,17 @@ function getInstructionModelWithOptions(
 
 export function getGenerationProfile(
   intent: ChatIntent,
-  isLocal: boolean,
+  _isLocal: boolean,
   modelId?: string,
   options: LocalGenerationProfileOptions = {},
 ): GenerationProfile {
-  const networkMaxTokens = {
-    quick: 700,
-    explain: 1200,
-    deep: 1800,
-    code: 1800,
-    writing: 1400,
-    file: 1800,
-    research: 2200,
-  } satisfies Record<ChatIntent, number>;
-
-  const temperature = {
-    quick: 0.45,
-    explain: 0.55,
-    deep: 0.55,
-    code: 0.25,
-    writing: 0.75,
-    file: 0.4,
-    research: 0.35,
-  } satisfies Record<ChatIntent, number>;
-
-  const profile: GenerationProfile = {
-    temperature: temperature[intent],
-    maxTokens: isLocal ? getLocalMaxTokens(intent, modelId, options) : networkMaxTokens[intent],
-  };
-
-  if (!isLocal) return profile;
+  const maxTokens = getLocalMaxTokens(intent, modelId, options);
+  const modelProfile = getModelGenerationProfileWithOptions(intent, modelId, options);
 
   return {
-    ...profile,
-    ...getModelGenerationProfileWithOptions(intent, modelId, options),
+    temperature: modelProfile.temperature ?? 0.5,
+    maxTokens,
+    ...modelProfile,
   };
 }
 
@@ -669,294 +652,14 @@ function getModelGenerationProfileWithOptions(
 }
 
 /**
- * Returns a tight per-intent style hint. Intentionally minimal — the system
- * prompt is the single source of truth; turn-level scaffolding leaks as content
- * on sub-2B models (see feedback_tiny_model_system_prompts.md).
- */
-export function buildTurnQualityInstruction(
-  intent: ChatIntent,
-  isLocal: boolean,
-  modelId?: string,
-  options: TurnHintOptions = {},
-): string {
-  if (isLocal && isGemma4LiteRtModel(modelId)) {
-    const gemmaLiteRt: Partial<Record<ChatIntent, string>> = {
-      quick:
-        "Answer directly and briefly. For a single factual question, give the answer first and stop. For a short follow-up, make only the requested change.",
-      explain:
-        "Lead with the direct answer, then cover the essential details in at most three concise paragraphs or bullets. Stop when the distinction is clear.",
-      deep:
-        "Use at most three short sections with two bullets each. Give concrete steps and a brief why for each. Finish with one short takeaway.",
-    };
-    const compact = gemmaLiteRt[intent];
-    if (compact) return compact;
-  }
-
-  const perIntent: Record<ChatIntent, string> = {
-    quick: "",
-    // NOTE (chat #7): no brevity clause here — a 1.2B can't scope conditionals
-    // ("single-fact questions stay brief" compressed ALL explain turns in live
-    // probes). The system prompt's depth-matching clause arbitrates brevity.
-    // Deep into a chat the hint is swapped for LONG_CHAT_COMPACT_EXPLAIN_HINT
-    // (unconditional, so the same model can follow it) — see `applyTurnHints`.
-    explain: options.compact
-      ? LONG_CHAT_COMPACT_EXPLAIN_HINT
-      : "Lead with a plain-language explanation, then develop the details that matter — reasons, examples, practical implications.",
-    deep: "Use clear sections; include concrete recommendations and tradeoffs.",
-    code: "Lead with the working code or fix; keep the explanation short.",
-    // ⚠ TWO ADDITIONS WERE TRIED HERE AND BOTH MEASURED WORSE. Left as-is on
-    // evidence, not inertia.
-    //
-    // The failure they were aimed at is real: asked to hand back an email it had
-    // drafted five turns earlier, the shipping 2B answers "I can't resend the
-    // email. I can't send attachments or messages" — while quoting the two dates
-    // from that draft in the same sentence, so the context was never the problem.
-    //
-    // Measured on `candidate/qwen3.5-2b-onnx`, greedy, over the four multi-turn
-    // conversation probes that gate the history-recall dims:
-    //
-    //   "… Put the finished text itself in this reply."
-    //     teacher-email preservesHistoryFacts 0.67 → 0 (told to produce an
-    //     artifact it thought it had no source for, it demanded the source:
-    //     "I don't have the original message. Please send me the exact dates").
-    //   "… Use what the conversation already gives you instead of asking for it
-    //   again."
-    //     teacher-email 0.67 → 0 AND it began inventing ("I already sent it with
-    //     the days spelled out"); budget-list 0.78 → 0.11, the printed list
-    //     replaced by a looping arithmetic fragment.
-    //
-    // Read together: this refusal is a model-level reflex on the word "resend",
-    // not a gap in what the turn is told, and pushing on it from the end of the
-    // user turn — where recency makes a hint strongest — moves the reply further
-    // from the ask rather than closer. Anything tried next needs a different
-    // lever and its own before/after run.
-    //
-    // ⚠ A THIRD LEVER WAS SCOPED AND NOT BUILT, because measuring the thing it
-    // targeted showed the target was mis-described. Recorded so the next attempt
-    // starts from the numbers rather than from the anecdote.
-    //
-    // The brief was: `convo-four-day-budget-list` drops "car tax" from the
-    // printed list in 3 of 3 replications, so surface its monthly equivalent in
-    // context (a context-construction lever, not another hint). The drop is real
-    // and common — but the mechanism and the rate were both wrong, and the fact
-    // worth chasing is a different one.
-    //
-    //   1. THERE IS NOTHING TO SURFACE, AND NO ARITHMETIC TO DO. The converted
-    //      figure is ALREADY in the replayed history — assistant turn 6 says
-    //      "car tax £245/yr = £21 a month" verbatim — and nothing truncates
-    //      history on this path (`getLocalModelContextBudget` caps OUTPUT tokens
-    //      only). When the model gets it right it writes "| Car Tax | £21 |
-    //      Annual payment (£245) |", so the conversion was never the barrier.
-    //      When it gets it wrong it omits the row, or misattaches the unit
-    //      elsewhere ("Council Tax | £142 | Yearly payment, £11.83/month").
-    //   2. IT IS NOT 3-OF-3. Measured over 18 real generations (17 sampled on the
-    //      production profile + 1 greedy; the token cap never bound — longest
-    //      completion 749): the car-tax row is present in 5/18 and carries a
-    //      correct monthly figure in 4/18. The best-powered single config
-    //      (sampled, 1536, n=10) puts it at 2/10, both correct. Two n=3 runs at
-    //      the SAME config split 0/3 and 2/3 — so n=3 cannot resolve this effect
-    //      and no before/after at that size is evidence either way.
-    //
-    // What IS reproducible is a different fact: the income £2,180 — the number
-    // the whole conversation exists to test ("does 4 days a week work?") — is
-    // absent from 18 of 18. Replies instead say "roughly £1,750/month coming in"
-    // (the outgoings relabelled) or "Income Available: £0". The survival pattern
-    // is recall distance, not units: what the probed turn re-names itself
-    // survives (rent £790 18/18) and what only exists in earlier turns does not
-    // (income, turn 1: 0/18; water £31, turn 3: 8/18; car tax, turn 5: 5/18).
-    // So the honest target is earlier-turn recall generally, not one bill's unit
-    // conversion — and anything aimed at it needs n≈10 per arm (a generation
-    // here costs ~20-35s, so that is affordable).
-    //
-    // ⚠ TWO ADDITIONS TO THE `writing` HINT WERE BUILT, MEASURED ON THE REAL
-    // MODEL, AND REVERTED. Left as-is on evidence, not on inertia. Anything
-    // tried next should start from these numbers rather than from the anecdote.
-    //
-    // THE FAILURE THEY WERE AIMED AT IS REAL. Asked part-way through a
-    // conversation to write the message she will paste into a family group
-    // chat — the `convo-birthday-lunch-message` conversation in
-    // `__tests__/fixtures/everyday-conversation-corpus.ts`, probed at turn 6 —
-    // the shipping 2B hands back an invitation with the specifics missing.
-    // Measured over 10 real generations (`candidate/qwen3.5-2b-onnx`, sampled,
-    // maxTokens 1536, production user-turn hints), against a conversation that
-    // has already settled the venue, the date, the price and the back room:
-    //
-    //   venue named at all              1/10   (6/10 wrote "[Restaurant Name]")
-    //   date right (Sunday 8th March)   5/10
-    //   a WRONG weekday or date         5/10   (Saturday x3 — the day the
-    //                                           conversation explicitly moved
-    //                                           OFF, which the corpus names as
-    //                                           its bounce condition)
-    //   £25 a head present              5/10
-    //   everything above, in one reply  1/10
-    //
-    // ★ IT IS NOT A CONTEXT PROBLEM, which is what makes it interesting.
-    // Nothing truncates: the whole conversation is in the prompt, the assistant
-    // turn immediately above restates both the date and the £25, and one sample
-    // in ten does reproduce every specific. What the conversation never does is
-    // give the restaurant a NAME — it is "an italian on bridgford road weve
-    // been to before, not il pescatore thats the fish one, the other one". The
-    // model wants a name for the invitation slot, does not accept the
-    // description as one, and brackets or drops it.
-    //
-    // BOTH ATTEMPTS ADDED A CLAUSE ONLY TO MID-CONVERSATION ASKS FOR
-    // CORRESPONDENCE (an author verb governing message/email/letter/invite,
-    // with prior turns) — deliberately NOT to the hint below, which fires on
-    // every writing turn in the product. The gate was unit-tested to leave the
-    // whole single-turn corpus and the other three multi-turn conversations
-    // byte-identical, and the clause was confirmed present in the production
-    // bundle. Each arm is n=10 at the config above:
-    //
-    //   "Use the specifics this conversation already gave you, in the words
-    //    they were given in — no placeholders in brackets, and nothing invented
-    //    to fill a gap."
-    //     Placeholders 7/10 -> 4/10, but by DELETION rather than recall: replies
-    //     got 24% shorter and £25 fell 5/10 -> 2/10. Clean replies 1/10 -> 0/10.
-    //     ★ And "in the words they were given in" resurrected the SUPERSEDED
-    //     date: the 7th of March, corrected away early in the conversation,
-    //     went 1/10 -> 5/10. Telling a small model to reuse the user's own
-    //     wording makes it likelier to reuse wording that was later corrected.
-    //
-    //   "Write it ready to send as it stands, with the details this
-    //    conversation has settled already in it."
-    //     Worse across the board: venue 0/10, date right 5/10 -> 2/10, back room
-    //     8/10 -> 2/10, placeholders back to 7/10, clean 0/10. One reply was a
-    //     nine-placeholder blank template — the bounce condition verbatim.
-    //
-    // READ TOGETHER: this defect does not respond to an instruction at the end
-    // of the user turn, in either direction. Pushing on form moved which failure
-    // appeared, never the failure rate. The facts are present but not salient,
-    // and two different families of clause both failed to make them salient. The
-    // next lever to try is CONTEXT CONSTRUCTION — restating the settled details
-    // near the ask, the way `lib/figure-recap.ts` does for money-shaped figures,
-    // extended to the facts that are not numbers. That is a bigger build than a
-    // hint and it needs its own before/after run; it is not attempted here.
-    writing: "Match the requested format and tone; avoid filler.",
-    file: "Lead with the conclusion; cite specifics from the file.",
-    research: "Distinguish supported claims from uncertain ones; cite sources only when you can back the claim.",
-  };
-  return perIntent[intent];
-}
-
-/**
- * LEGACY system-front composition: "base system prompt + per-intent hint"
- * joined into the system message. This was production until Wave 2.6 Stage 1;
- * the Stage-0 placement A/B measured it recovering only 9% (LFM) / 29% (Qwen)
- * of the explicit-phrasing delta vs 35% / 68% for the user-turn placement —
- * AND it rewrote the prompt FRONT on every intent change, defeating
- * strict-prefix KV reuse (#151 front-of-prompt variance).
- *
- * Production now places hints at the end of the user turn (see
- * `buildHintedUserTurn` / `applyTurnHints`). This function remains ONLY as
- * the eval harness's `hintPlacement: 'system'` research composition (the
- * counterfactual arm) — do not reintroduce it on the dispatch path.
- */
-export function composeQualitySystemPrompt(
-  baseSystemPrompt: string,
-  intent: ChatIntent,
-  isLocal: boolean,
-  modelId?: string,
-): string {
-  return [baseSystemPrompt, buildTurnQualityInstruction(intent, isLocal, modelId)].join("\n\n");
-}
-
-// ─── User-turn hint placement (Wave 2.6 Stage 1) ──────────────────────────
-//
-// Hints ride the END of the user turn, not the system front. Measured double
-// win (Stage 0): stronger conditioning on both models (the 1.2B produces the
-// sectioned premium structure it ignores in the system front) AND a stable
-// prompt front across intent changes — strict-prefix KV reuse holds (#151).
-//
-// KV CONTRACT: the hint enters the model's cached sequence as part of the
-// user turn, so every later history re-render MUST reproduce it byte-
-// identically or the prefix breaks at that turn (the exact miss class the
-// Qwen think-block asymmetry caused — see PR #151). `applyTurnHints` re-
-// derives each user turn's hint deterministically from that turn's own text
-// and position, so a past turn always re-renders exactly as it was sent.
-
-export type ChatTurnMessage = { role: "user" | "assistant" | "system"; content: string };
-
-export type TurnHintOptions = LocalGenerationProfileOptions & {
-  /** Use the long-chat compact hint where one exists (explain only). */
-  compact?: boolean;
-};
-
-/**
- * Rendered-list index from which `explain` turns get the compact hint (the
- * third user turn onward). Measured on the 1.2B (10-turn trip-planning chat,
- * 4096 ctx, 2026-08-27): every explain reply ran ~2 000 chars, the history
- * budget held about five of them, and the turn-10 "summarize what we decided"
- * was confidently wrong because turns 1–5 had been evicted. Shorter replies in
- * the body of a chat keep more of it in view.
- *
- * Keyed on the turn's position in the RENDERED list, not the full branch: a
- * turn's index only changes when the window start moves, and a moved start
- * already breaks strict-prefix KV reuse, so this costs nothing extra there
- * and keeps every re-render byte-identical between evictions (KV contract).
- */
-export const LONG_CHAT_COMPACT_FROM_INDEX = 4;
-
-export const LONG_CHAT_COMPACT_EXPLAIN_HINT =
-  "Answer the question directly in one short paragraph or a compact list, then stop. No preamble and no closing recap.";
-
-/**
- * Append the per-intent hint to one user turn (no-op for empty hints).
- *
- * SUPPRESSED in two turn-text-only cases (both preserve the KV re-render
- * contract — the decision derives purely from the turn's own bytes):
- *   1. an explicit format/length instruction — the hint sits AFTER the user's
- *      words, so on a small model it wins by recency (measured breaking
- *      "answer in exactly one sentence" into six; wave26-stage1-gates if3/LFM).
- *      The user's instruction is inviolable; the hint always yields.
- *   2. a purely social turn (greeting/thanks/ack/farewell) — no task exists to
- *      apply an instruction to, so any hint is nonsense. On Gemma-LiteRT the
- *      non-empty quick hint made the model parrot the instruction on "Hello"
- *      (root cause #1, prompt-persona-quality-pass-2026-07-03). Suppressed for
- *      EVERY model.
- */
-export function buildHintedUserTurn(
-  content: string,
-  intent: ChatIntent,
-  isLocal: boolean,
-  modelId?: string,
-  options: TurnHintOptions = {},
-): string {
-  if (hasExplicitFormatInstruction(content) || isSocialTurn(content)) return content;
-  const hint = buildTurnQualityInstruction(intent, isLocal, modelId, options);
-  return hint.length > 0 ? `${content}\n\n${hint}` : content;
-}
-
-/**
  * Deterministically re-derive the intent of ONE turn from its own text and
- * position — the single inference rule used at dispatch time AND on every
- * history re-render (KV contract above). `hasFiles` comes from the turn's
- * own content; research mode is retired in web v1.0.
+ * position — the single inference rule used at dispatch time. `hasFiles`
+ * comes from the turn's own content; research mode is retired in web v1.0.
  */
 export function inferTurnIntent(content: string, hasPriorTurns: boolean): ChatIntent {
   return inferChatIntent(content, {
     hasFiles: content.includes("<file"),
     researchMode: false,
     hasPriorTurns,
-  });
-}
-
-/**
- * Map every USER turn in a message list through `buildHintedUserTurn`,
- * re-deriving each turn's intent via `inferTurnIntent`. Assistant/system
- * turns pass through untouched. Pure — shared by useChat (dispatch) and the
- * eval harness (probe history), so the rendered bytes can never drift.
- */
-export function applyTurnHints(
-  messages: readonly ChatTurnMessage[],
-  isLocal: boolean,
-  modelId?: string,
-): ChatTurnMessage[] {
-  return messages.map((message, index) => {
-    if (message.role !== "user") return message;
-    const intent = inferTurnIntent(message.content, index > 0);
-    const hinted = buildHintedUserTurn(message.content, intent, isLocal, modelId, {
-      compact: index >= LONG_CHAT_COMPACT_FROM_INDEX,
-    });
-    return hinted === message.content ? message : { ...message, content: hinted };
   });
 }
