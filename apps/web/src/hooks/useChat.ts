@@ -513,11 +513,29 @@ export function useChat() {
   const effectiveModelContextLength = getContextTokens(resolvedSelectedModel, undefined, {
     allowValidationModel: allowValidationModelMetadata,
   });
-  // The largest generation the model could produce under any intent. Used to
-  // reserve headroom in the context window for the generation phase.
+  // The largest generation the model could produce under any intent. Used as
+  // the conservative fallback when no user turn is available to derive a
+  // per-turn grant (e.g. context divider before the first message).
   const modelMaxNewTokensCeiling = getMaxNewTokensCeiling(resolvedSelectedModel, {
     allowValidationModel: allowValidationModelMetadata,
   });
+
+  /**
+   * Per-turn generation grant for the latest user turn in `msgs`. Reserves
+   * exactly what this turn will be granted (384–2048 by intent) rather than
+   * the model's ceiling, so usable history stays as large as possible. Falls
+   * back to the model's ceiling when no user turn exists yet.
+   */
+  function getPerTurnMaxNewTokens(
+    msgs: ReadonlyArray<{ role: string; content: string }>,
+  ): number {
+    const intent = getLatestTurnIntent(
+      msgs as Array<{ role: "user" | "assistant" | "system"; content: string }>,
+    );
+    return getGenerationProfile(intent, true, resolvedSelectedModel, {
+      allowValidationModel: allowValidationModelMetadata,
+    }).maxTokens;
+  }
 
   useEffect(() => {
     const hasDraft = composerDraft.trim().length > 0;
@@ -1777,12 +1795,14 @@ export function useChat() {
     try {
       const allMsgs = useChatStore.getState().messages;
       const msgsForApi = allMsgs.filter((m) => m.id !== assistantId);
-      // Apply context window: only send messages that fit in the model's context
+      // Apply context window: only send messages that fit in the model's context.
+      // Reserve the per-turn grant (intent-dependent, 384–2048) rather than the
+      // model ceiling, so usable history stays as large as possible.
       const windowedMsgs = selectMessagesForContext(
         msgsForApi,
         effectiveModelContextLength,
         composedSystemPrompt,
-        { maxNewTokens: modelMaxNewTokensCeiling },
+        { maxNewTokens: getPerTurnMaxNewTokens(msgsForApi) },
       );
       const apiMessages = windowedMsgs.map((m) => ({ role: m.role, content: m.content }));
 
@@ -1885,7 +1905,7 @@ export function useChat() {
       fullBranch,
       effectiveModelContextLength,
       composedSystemPrompt,
-      { maxNewTokens: modelMaxNewTokensCeiling },
+      { maxNewTokens: getPerTurnMaxNewTokens(fullBranch) },
     );
     const branchForApi = windowedBranch.map((m) => ({ role: m.role, content: m.content }));
 
@@ -1971,7 +1991,7 @@ export function useChat() {
       ancestors,
       effectiveModelContextLength,
       composedSystemPrompt,
-      { maxNewTokens: modelMaxNewTokensCeiling },
+      { maxNewTokens: getPerTurnMaxNewTokens(ancestors) },
     );
     const apiMessages = windowedAncestors.map((m) => ({ role: m.role, content: m.content }));
 
@@ -2092,7 +2112,7 @@ export function useChat() {
       retryAncestors,
       effectiveModelContextLength,
       composedSystemPrompt,
-      { maxNewTokens: modelMaxNewTokensCeiling },
+      { maxNewTokens: getPerTurnMaxNewTokens(retryAncestors) },
     );
     const retryApiMessages = retryWindowedAncestors.map((m) => ({ role: m.role, content: m.content }));
 
@@ -2220,16 +2240,31 @@ export function useChat() {
 
   // Compute the context divider position for the current message list.
   // Memoized so it only recalculates when messages or context params change.
+  // Reserves the per-turn grant (intent-dependent) for the latest user turn,
+  // falling back to the model's ceiling when no user turn is present yet.
   const contextDividerIndex = useMemo(() => {
     if (messages.length === 0) return -1;
+    const hasUserTurn = messages.some((m) => m.role === "user");
+    let maxNewTokens: number;
+    if (!hasUserTurn) {
+      // No user turn yet — reserve the model ceiling (conservative).
+      maxNewTokens = modelMaxNewTokensCeiling;
+    } else {
+      const intent = getLatestTurnIntent(
+        messages as unknown as Array<{ role: "user" | "assistant" | "system"; content: string }>,
+      );
+      maxNewTokens = getGenerationProfile(intent, true, resolvedSelectedModel, {
+        allowValidationModel: allowValidationModelMetadata,
+      }).maxTokens;
+    }
     const selection = selectContextWindow(
       messages,
       effectiveModelContextLength,
       composedSystemPrompt,
-      { maxNewTokens: modelMaxNewTokensCeiling },
+      { maxNewTokens },
     );
     return findContextDividerIndex(messages, selection);
-  }, [messages, effectiveModelContextLength, composedSystemPrompt, modelMaxNewTokensCeiling]);
+  }, [messages, effectiveModelContextLength, composedSystemPrompt, modelMaxNewTokensCeiling, resolvedSelectedModel, allowValidationModelMetadata]);
 
   // The "Eco can no longer see the first N messages" note.
   //

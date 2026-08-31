@@ -1636,13 +1636,12 @@ describe("useChat — a model bound to eco-smart dispatches (no eco-fast collaps
 
 describe("useChat — the out-of-context note", () => {
   /**
-   * A conversation big enough to overflow the gemma-litert model's context
-   * budget (2048 ctx - 2048 maxNewTokens = 0 history budget) but fit inside
-   * the everyday model (4096 ctx - 2048 maxNewTokens = 2048 history budget).
-   * ~1500 tokens of messages: fits at 2048 budget, does not fit at 0.
+   * A conversation big enough to overflow the gemma-litert model's history
+   * budget (2048 ctx - 1024 quick grant = 1024) but fit inside the everyday
+   * model (4096 ctx - 1024 quick grant = 3072). ~2500 tokens of messages.
    */
   function seedLongConversation(): void {
-    const paragraph = "word ".repeat(300); // ~1500 chars ≈ 375 tokens
+    const paragraph = "word ".repeat(500); // ~2500 chars ≈ 625 tokens
     useChatStore.setState({
       messages: [
         { id: "u1", role: "user", content: paragraph, createdAt: 1, parentId: null },
@@ -1672,8 +1671,8 @@ describe("useChat — the out-of-context note", () => {
     useChatStore.setState({ selectedModel: "eco-fast" });
 
     const { result } = renderHook(() => useChat());
-    // The conversation fits the everyday model's history budget (4096 - 2048 =
-    // 2048): nothing is out of context yet, so there is nothing to say.
+    // The conversation fits the everyday model's history budget (4096 - 1024
+    // quick grant = 3072): nothing is out of context yet.
     expect(result.current.contextDividerIndex).toBe(-1);
     expect(useChatStore.getState().contextWindowNotice).toBe("none");
 
@@ -1681,8 +1680,8 @@ describe("useChat — the out-of-context note", () => {
       useChatStore.setState({ selectedModel: "eco-smart" });
     });
 
-    // The gemma model has zero history budget (2048 - 2048 = 0), so the
-    // divider appears and the note says so by the composer.
+    // The gemma model's history budget (2048 - 1024 = 1024) cannot hold
+    // ~2500 tokens, so the divider appears and the note says so by the composer.
     expect(result.current.contextDividerIndex).toBeGreaterThan(0);
     expect(useChatStore.getState().contextWindowNotice).toBe("visible");
   });
