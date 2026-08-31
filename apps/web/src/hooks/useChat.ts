@@ -31,6 +31,7 @@ import { recommend, NoAssignableModelError } from "../local-ai/selection/recomme
 import { getOnDeviceSystemPrompt } from "../lib/system-prompt";
 import {
   getGenerationProfile,
+  getMaxNewTokensCeiling,
   inferChatIntent,
   inferTurnIntent,
   type ChatIntent,
@@ -510,6 +511,11 @@ export function useChat() {
   // into eval-candidate metadata so validation-selected product transcripts use
   // the same context window the eval harness reports.
   const effectiveModelContextLength = getContextTokens(resolvedSelectedModel, undefined, {
+    allowValidationModel: allowValidationModelMetadata,
+  });
+  // The largest generation the model could produce under any intent. Used to
+  // reserve headroom in the context window for the generation phase.
+  const modelMaxNewTokensCeiling = getMaxNewTokensCeiling(resolvedSelectedModel, {
     allowValidationModel: allowValidationModelMetadata,
   });
 
@@ -1776,7 +1782,7 @@ export function useChat() {
         msgsForApi,
         effectiveModelContextLength,
         composedSystemPrompt,
-        {},
+        { maxNewTokens: modelMaxNewTokensCeiling },
       );
       const apiMessages = windowedMsgs.map((m) => ({ role: m.role, content: m.content }));
 
@@ -1879,7 +1885,7 @@ export function useChat() {
       fullBranch,
       effectiveModelContextLength,
       composedSystemPrompt,
-      {},
+      { maxNewTokens: modelMaxNewTokensCeiling },
     );
     const branchForApi = windowedBranch.map((m) => ({ role: m.role, content: m.content }));
 
@@ -1965,7 +1971,7 @@ export function useChat() {
       ancestors,
       effectiveModelContextLength,
       composedSystemPrompt,
-      {},
+      { maxNewTokens: modelMaxNewTokensCeiling },
     );
     const apiMessages = windowedAncestors.map((m) => ({ role: m.role, content: m.content }));
 
@@ -2086,7 +2092,7 @@ export function useChat() {
       retryAncestors,
       effectiveModelContextLength,
       composedSystemPrompt,
-      {},
+      { maxNewTokens: modelMaxNewTokensCeiling },
     );
     const retryApiMessages = retryWindowedAncestors.map((m) => ({ role: m.role, content: m.content }));
 
@@ -2220,10 +2226,10 @@ export function useChat() {
       messages,
       effectiveModelContextLength,
       composedSystemPrompt,
-      {},
+      { maxNewTokens: modelMaxNewTokensCeiling },
     );
     return findContextDividerIndex(messages, selection);
-  }, [messages, effectiveModelContextLength, composedSystemPrompt]);
+  }, [messages, effectiveModelContextLength, composedSystemPrompt, modelMaxNewTokensCeiling]);
 
   // The "Eco can no longer see the first N messages" note.
   //

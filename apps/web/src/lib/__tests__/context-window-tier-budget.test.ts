@@ -81,7 +81,7 @@ describe('deeper-tier context budget (4096) vs fast-tier (8192)', () => {
     // Both truncate a saturating branch; the 8192 window keeps a longer suffix.
     expect(fast.length).toBeGreaterThan(deeper.length);
     // Concretely ~2x the history budget -> materially more history, not a rounding
-    // difference. (8192-512=7680 vs 4096-512=3584.)
+    // difference. (8192-2048=6144 vs 4096-2048=2048.)
     expect(fast.length).toBeGreaterThan(deeper.length * 1.5);
   });
 
@@ -109,8 +109,8 @@ describe('deeper-tier context budget (4096) vs fast-tier (8192)', () => {
     const fastDiag = getContextSelectionDiagnostics(branch, fast, FAST_TIER_CTX);
     const deeperDiag = getContextSelectionDiagnostics(branch, deeper, DEEPER_TIER_CTX);
     // History budget is roughly halved, so the deeper tier drops strictly more turns.
-    // Budget = ctx - 512 (default maxNewTokens). 8192-512=7680, 4096-512=3584.
-    expect(deeperDiag.totalBudgetTokens).toBe(DEEPER_TIER_CTX - 512);
+    // Budget = ctx - 2048 (default maxNewTokens). 8192-2048=6144, 4096-2048=2048.
+    expect(deeperDiag.totalBudgetTokens).toBe(DEEPER_TIER_CTX - 2048);
     expect(deeperDiag.truncatedCount).toBeGreaterThan(fastDiag.truncatedCount);
   });
 });

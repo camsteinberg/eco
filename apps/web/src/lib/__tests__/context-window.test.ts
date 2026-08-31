@@ -51,15 +51,14 @@ describe("selectMessagesForContext", () => {
   });
 
   it("uses chars/4 heuristic for token estimation", () => {
-    // 100 chars = 25 tokens. With context_length=40, budget = floor(40*0.75) = 30 tokens
+    // 100 chars = 25 tokens. With context_length=40, budget = 40 - 2048 → clamped to 0
     // One message of 100 chars = 25 tokens, fits within 30
     const messages: ChatMessage[] = [
       msg("user", "a".repeat(100)),
       msg("assistant", "b".repeat(100)),
     ];
-    // context_length = 40 => budget = 30 tokens
-    // user: 25 tokens, assistant: 25 tokens = 50 total > 30
-    // Should only keep the last pair (user+assistant still = 50, but min 1 pair guaranteed)
+    // context_length = 40, default maxNewTokens = 2048 → budget clamped to 0
+    // No messages fit the budget, but min 1 pair guaranteed
     const result = selectMessagesForContext(messages, 40);
     // At minimum the last user+assistant pair is returned
     expect(result.length).toBeGreaterThanOrEqual(2);
@@ -99,9 +98,8 @@ describe("selectMessagesForContext", () => {
     // Budget should be tight enough that including A1 would exceed,
     // but the walk back hits A1 as orphaned assistant
     const result = selectMessagesForContext(messages, 40);
-    // budget = floor(40*0.75) = 30
-    // a2 = ceil(2/4) = 1, u2 = ceil(2/4) = 1, a1 = ceil(300/4) = 75 tokens > budget
-    // So A1 alone exceeds remaining. Keep last pair only.
+    // Budget = 40 - 2048 → clamped to 0; no messages fit.
+    // Guaranteed-minimum-pair logic keeps last user+assistant pair.
     expect(result).toHaveLength(2);
     expect(result[0]!.role).toBe("user");
     expect(result[1]!.role).toBe("assistant");
@@ -112,7 +110,7 @@ describe("selectMessagesForContext", () => {
       msg("user", "a".repeat(1000)),
       msg("assistant", "b".repeat(1000)),
     ];
-    // Very small budget: floor(4 * 0.75) = 3 tokens, but messages are 250 tokens each
+    // Very small budget: 4 - 2048 → clamped to 0, but messages are 250 tokens each
     const result = selectMessagesForContext(messages, 4);
     // Must return at least the last pair
     expect(result).toHaveLength(2);
@@ -189,7 +187,7 @@ describe("selectMessagesForContext", () => {
 
   it("keeps the window start stable across appended turns (KV prefix stability)", () => {
     // Turns of 100 tokens (user 100 chars = 25 tok, assistant 300 chars = 75
-    // tok); context 4096 → budget 3072, quantum 384. The minimal walk moves
+    // tok); context 4096, default maxNewTokens 2048 → budget 2048, quantum 256. The minimal walk moves
     // the start on nearly every turn once the budget saturates (~31 turns);
     // the quantized cut may only move once per ~384 tokens of growth.
     const conversation: ChatMessage[] = [];
@@ -202,17 +200,17 @@ describe("selectMessagesForContext", () => {
       starts.push(selected[0]!.id);
     }
     const changes = starts.filter((s, i) => i > 0 && s !== starts[i - 1]).length;
-    // Post-saturation growth ≈ 29 turns × 100 tokens = 2900 tokens; at one
-    // move per 384-token quantum that is ~8 changes. The minimal walk made
-    // ~29. Allow slack, but require the amortization to be real.
-    expect(changes).toBeLessThanOrEqual(10);
+    // Budget 2048, quantum 256. Post-saturation growth ≈ 40 turns × 100 tokens
+    // = 4000 tokens; at one move per 256-token quantum that is ~16 changes.
+    // The minimal walk would make ~40. Require the amortization to be real.
+    expect(changes).toBeLessThanOrEqual(20);
     // And the window itself always fits the budget.
     const finalTokens = selectMessagesForContext(conversation, 4096).reduce(
       (sum, m) => sum + Math.ceil(m.content.length / 4),
       0,
     );
-    // Budget = 4096 - 512 (default maxNewTokens) = 3584
-    expect(finalTokens).toBeLessThanOrEqual(4096 - 512);
+    // Budget = 4096 - 2048 (default maxNewTokens) = 2048
+    expect(finalTokens).toBeLessThanOrEqual(4096 - 2048);
   });
 
   it("quantization never evicts the final user turn", () => {
@@ -224,7 +222,7 @@ describe("selectMessagesForContext", () => {
       msg("user", "short question", "u2"),
       msg("assistant", "short answer", "a2"),
     ];
-    // context 128 → budget 96: only the last pair fits minimally.
+    // context 128 → budget clamped to 0: only the last pair via guaranteed minimum.
     const result = selectMessagesForContext(messages, 128);
     expect(result.map((m) => m.id)).toEqual(["u2", "a2"]);
   });

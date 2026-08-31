@@ -536,6 +536,22 @@ export function inferChatIntent(content: string, options?: InferChatIntentOption
   );
 }
 
+/**
+ * The largest `maxNewTokens` the model could request under ANY intent —
+ * i.e. the model's generation ceiling. Used by context-window selection to
+ * reserve enough headroom for the generation phase without knowing the
+ * specific intent yet (the divider useMemo, for instance, runs before the
+ * intent is computed). Falls back to 2048 (the catalog maximum) when the
+ * model is unknown — conservative, never under-reserves.
+ */
+export function getMaxNewTokensCeiling(
+  modelId?: string,
+  options: LocalGenerationProfileOptions = {},
+): number {
+  const model = getInstructionModelWithOptions(modelId, options);
+  return model?.maxNewTokens.webgpu ?? 2048;
+}
+
 function getLocalMaxTokens(
   intent: ChatIntent,
   modelId?: string,

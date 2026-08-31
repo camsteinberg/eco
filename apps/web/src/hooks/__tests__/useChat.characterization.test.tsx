@@ -1628,16 +1628,21 @@ describe("useChat — a model bound to eco-smart dispatches (no eco-fast collaps
 // The shrunk context window note
 // ═══════════════════════════════════════════════════════════════════════════
 //
-// Models hold different amounts of a conversation (the everyday 1.2B holds
-// 8192 tokens, the LiteRT build 2048). Switching to a model that holds LESS
+// Models hold different amounts of a conversation (the everyday 1.2B has
+// a 4096-token context, the LiteRT build 2048). Switching to a model that holds LESS
 // quietly pushes more of the history out of context: the divider moves and
 // nothing says why. The note says why, ONCE, and only when it is actually
 // true — the window shrank AND this conversation overflows the new one.
 
 describe("useChat — the out-of-context note", () => {
-  /** A conversation big enough to overflow 2048 tokens but fit inside 8192. */
+  /**
+   * A conversation big enough to overflow the gemma-litert model's context
+   * budget (2048 ctx - 2048 maxNewTokens = 0 history budget) but fit inside
+   * the everyday model (4096 ctx - 2048 maxNewTokens = 2048 history budget).
+   * ~1500 tokens of messages: fits at 2048 budget, does not fit at 0.
+   */
   function seedLongConversation(): void {
-    const paragraph = "word ".repeat(500); // ~2500 chars ≈ 625 tokens
+    const paragraph = "word ".repeat(300); // ~1500 chars ≈ 375 tokens
     useChatStore.setState({
       messages: [
         { id: "u1", role: "user", content: paragraph, createdAt: 1, parentId: null },
@@ -1667,8 +1672,8 @@ describe("useChat — the out-of-context note", () => {
     useChatStore.setState({ selectedModel: "eco-fast" });
 
     const { result } = renderHook(() => useChat());
-    // The whole conversation fits the 8192-token model: nothing is out of
-    // context yet, so there is nothing to say.
+    // The conversation fits the everyday model's history budget (4096 - 2048 =
+    // 2048): nothing is out of context yet, so there is nothing to say.
     expect(result.current.contextDividerIndex).toBe(-1);
     expect(useChatStore.getState().contextWindowNotice).toBe("none");
 
@@ -1676,8 +1681,8 @@ describe("useChat — the out-of-context note", () => {
       useChatStore.setState({ selectedModel: "eco-smart" });
     });
 
-    // The 2048-token model cannot hold it, so the divider appears and the
-    // note says so by the composer.
+    // The gemma model has zero history budget (2048 - 2048 = 0), so the
+    // divider appears and the note says so by the composer.
     expect(result.current.contextDividerIndex).toBeGreaterThan(0);
     expect(useChatStore.getState().contextWindowNotice).toBe("visible");
   });
