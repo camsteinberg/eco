@@ -21,7 +21,7 @@ describe('context-stress headroom probes', () => {
 
   it('is long enough to stress an 8192-token window', () => {
     // The harness composes [system, ...history, prompt]; the history + prompt
-    // are what fill the KV cache. estimateTokens ≈ chars / 4 (context-window.ts).
+    // are what fill the KV cache. Token estimate ≈ chars / 4.
     const historyChars = probe!.history!.reduce((sum, turn) => sum + turn.content.length, 0);
     const totalChars = historyChars + probe!.prompt.length;
     const estTokens = Math.ceil(totalChars / 4);

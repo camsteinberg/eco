@@ -109,33 +109,6 @@ export {
 } from "./useChat/generation";
 
 /**
- * Estimate the rendering overhead (hints, recaps, tool note) that the prompt
- * assembly adds on top of the raw message content. Passed to
- * `selectMessagesForContext` as `reservedOverheadTokens` so the selection
- * budget accounts for the tokens that will exist in the rendered prompt but
- * not in the raw conversation, preventing a window that passes selection from
- * failing the 0.90 safety check.
- *
- * Per-turn overhead: recaps and tool notes add a fixed amount.
- * The reserve is capped at 10% of the context length to avoid over-eviction
- * in long conversations where the user-turn count is large.
- *
- * @internal Exported for unit testing.
- */
-export function estimateRenderingOverhead(
-  messages: ReadonlyArray<{ role: string }>,
-  contextLength: number,
-): number {
-  const PER_TURN_HINT_TOKENS = 24;
-  const FIXED_OVERHEAD_TOKENS = 128;
-  const userTurnCount = messages.filter((m) => m.role === "user").length;
-  return Math.min(
-    userTurnCount * PER_TURN_HINT_TOKENS + FIXED_OVERHEAD_TOKENS,
-    Math.floor(contextLength * 0.10),
-  );
-}
-
-/**
  * Build a composed system prompt combining the Eco identity prompt and custom
  * instructions.
  *
@@ -1538,11 +1511,7 @@ export function useChat() {
       // playMessageReceived swallow their own errors) — keep it that way.
       // confidence is always null in v1 (no heuristic confidence score).
       const lastUsage = getLocalAiLastUsage();
-      const possiblyTruncated =
-        lastUsage?.maxTokens != null
-        && lastUsage.maxTokens > 0
-        && lastUsage.completionTokens != null
-        && lastUsage.completionTokens >= Math.floor(lastUsage.maxTokens * 0.95);
+      const possiblyTruncated = lastUsage?.finishReason === 'length';
       updateMessage(assistantId, {
         status: "complete",
         inferenceMethod: "local",
@@ -1807,7 +1776,7 @@ export function useChat() {
         msgsForApi,
         effectiveModelContextLength,
         composedSystemPrompt,
-        { reservedOverheadTokens: estimateRenderingOverhead(msgsForApi, effectiveModelContextLength) },
+        {},
       );
       const apiMessages = windowedMsgs.map((m) => ({ role: m.role, content: m.content }));
 
@@ -1910,7 +1879,7 @@ export function useChat() {
       fullBranch,
       effectiveModelContextLength,
       composedSystemPrompt,
-      { reservedOverheadTokens: estimateRenderingOverhead(fullBranch, effectiveModelContextLength) },
+      {},
     );
     const branchForApi = windowedBranch.map((m) => ({ role: m.role, content: m.content }));
 
@@ -1996,7 +1965,7 @@ export function useChat() {
       ancestors,
       effectiveModelContextLength,
       composedSystemPrompt,
-      { reservedOverheadTokens: estimateRenderingOverhead(ancestors, effectiveModelContextLength) },
+      {},
     );
     const apiMessages = windowedAncestors.map((m) => ({ role: m.role, content: m.content }));
 
@@ -2117,7 +2086,7 @@ export function useChat() {
       retryAncestors,
       effectiveModelContextLength,
       composedSystemPrompt,
-      { reservedOverheadTokens: estimateRenderingOverhead(retryAncestors, effectiveModelContextLength) },
+      {},
     );
     const retryApiMessages = retryWindowedAncestors.map((m) => ({ role: m.role, content: m.content }));
 
@@ -2251,7 +2220,7 @@ export function useChat() {
       messages,
       effectiveModelContextLength,
       composedSystemPrompt,
-      { reservedOverheadTokens: estimateRenderingOverhead(messages, effectiveModelContextLength) },
+      {},
     );
     return findContextDividerIndex(messages, selection);
   }, [messages, effectiveModelContextLength, composedSystemPrompt]);

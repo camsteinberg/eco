@@ -130,6 +130,7 @@ const shared = vi.hoisted(() => {
     }>,
     lastUsage: null as
       | {
+          finishReason?: 'eos' | 'length' | 'abort';
           promptTokens?: number;
           completionTokens?: number;
           maxTokens?: number;
@@ -586,8 +587,8 @@ describe("useChat — normal on-device stream (sendMessage)", () => {
     expect(assistant.possiblyTruncated).toBe(false);
   });
 
-  it("flags possiblyTruncated when completionTokens reaches >= 95% of maxTokens", async () => {
-    setScripts([{ kind: "tokens", tokens: ["x"] }]);    setLastUsage({ promptTokens: 5, completionTokens: 1000, maxTokens: 1024 });
+  it("flags possiblyTruncated when finishReason is 'length'", async () => {
+    setScripts([{ kind: "tokens", tokens: ["x"] }]);    setLastUsage({ promptTokens: 5, completionTokens: 1000, maxTokens: 1024, finishReason: 'length' });
 
     const { result } = renderHook(() => useChat());
     await act(async () => {

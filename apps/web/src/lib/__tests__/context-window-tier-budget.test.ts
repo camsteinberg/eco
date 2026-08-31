@@ -9,7 +9,7 @@
  * the best of the shipped models. But the 2.6B is pinned at contextTokens 4096
  * (catalog-data.json / catalog.test.ts "pins the measured per-model context
  * windows"), while the everyday fast tier (LFM2.5-1.2B) and Qwen3.5-2B are 8192.
- * `selectMessagesForContext` budgets history at floor(ctx * 0.75), so the
+ * `selectMessagesForContext` budgets history at (ctx - maxNewTokens), so the
  * recommended Deeper tier silently gets HALF the multi-turn history budget of
  * the tier it replaces.
  *
@@ -81,7 +81,7 @@ describe('deeper-tier context budget (4096) vs fast-tier (8192)', () => {
     // Both truncate a saturating branch; the 8192 window keeps a longer suffix.
     expect(fast.length).toBeGreaterThan(deeper.length);
     // Concretely ~2x the history budget -> materially more history, not a rounding
-    // difference. (0.75*8192=6144 vs 0.75*4096=3072.)
+    // difference. (8192-512=7680 vs 4096-512=3584.)
     expect(fast.length).toBeGreaterThan(deeper.length * 1.5);
   });
 
@@ -108,8 +108,9 @@ describe('deeper-tier context budget (4096) vs fast-tier (8192)', () => {
     const deeper = selectMessagesForContext(branch, DEEPER_TIER_CTX);
     const fastDiag = getContextSelectionDiagnostics(branch, fast, FAST_TIER_CTX);
     const deeperDiag = getContextSelectionDiagnostics(branch, deeper, DEEPER_TIER_CTX);
-    // History budget is exactly halved, so the deeper tier drops strictly more turns.
-    expect(deeperDiag.totalBudgetTokens).toBe(Math.floor(FAST_TIER_CTX * 0.75) / 2);
+    // History budget is roughly halved, so the deeper tier drops strictly more turns.
+    // Budget = ctx - 512 (default maxNewTokens). 8192-512=7680, 4096-512=3584.
+    expect(deeperDiag.totalBudgetTokens).toBe(DEEPER_TIER_CTX - 512);
     expect(deeperDiag.truncatedCount).toBeGreaterThan(fastDiag.truncatedCount);
   });
 });

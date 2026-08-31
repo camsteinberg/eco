@@ -24,6 +24,8 @@ import type { ConfidenceSummary } from './confidence';
 import type { KvReuseTelemetry } from './kv-cache';
 
 export type LocalAiUsage = {
+  /** Why the generation stopped: EOS, hit token cap, or externally aborted. */
+  finishReason?: 'eos' | 'length' | 'abort';
   promptTokens?: number;
   completionTokens?: number;
   /** Echoes the maxTokens that was requested for this generation. */

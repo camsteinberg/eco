@@ -99,14 +99,16 @@ export type WorkerInbound =
     }
   | { type: 'generate'; generationId: string; messages: ChatMessage[]; options?: WorkerGenerateOptions; systemRoleStrategy?: SystemRoleSupport }
   | { type: 'abort'; generationId: string }
-  | { type: 'unload' };
+  | { type: 'unload' }
+  | { type: 'countTokens'; requestId: string; text: string };
 
 export type WorkerOutbound =
   | { type: 'ready'; backend: RuntimeBackend }
   | { type: 'progress'; loaded: number; total: number }
   | { type: 'token'; generationId: string; text: string; seq: number }
-  | { type: 'done'; generationId: string; promptTokens?: number; completionTokens?: number; tokenizerName?: string; kvReuse?: KvReuseTelemetry; cjkSuppression?: CjkSuppressionTelemetry; confidence?: ConfidenceSummary }
-  | { type: 'error'; generationId?: string; code: ErrorCode; message: string; details?: Record<string, unknown> };
+  | { type: 'done'; generationId: string; finishReason?: 'eos' | 'length' | 'abort'; promptTokens?: number; completionTokens?: number; tokenizerName?: string; kvReuse?: KvReuseTelemetry; cjkSuppression?: CjkSuppressionTelemetry; confidence?: ConfidenceSummary }
+  | { type: 'error'; generationId?: string; code: ErrorCode; message: string; details?: Record<string, unknown> }
+  | { type: 'tokenCount'; requestId: string; count: number };
 
 type ErrorCode = 'webgpu-unavailable' | 'oom' | 'device-lost' | 'init-failed' | 'model-files-missing' | 'generation-failed' | 'timeout' | 'template-missing';
 
@@ -502,6 +504,7 @@ export class TransformersAdapter implements RuntimeAdapter {
         emit?.({ phase: 'generation-complete', at: now() });
         controller.push({
           kind: 'done',
+          finishReason: msg.finishReason,
           promptTokens: msg.promptTokens,
           completionTokens: msg.completionTokens,
           tokenizerName: msg.tokenizerName,
@@ -581,6 +584,27 @@ export class TransformersAdapter implements RuntimeAdapter {
       this.worker?.removeEventListener('messageerror', onWorkerMessageError);
       this.currentGeneration = null;
     }
+  }
+
+  async countTokens(text: string): Promise<number | null> {
+    if (!this.worker) return null;
+    const requestId = `ct-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const worker = this.worker;
+    return new Promise<number | null>((resolve) => {
+      const timeout = setTimeout(() => {
+        worker.removeEventListener('message', handler);
+        resolve(null);
+      }, 5_000);
+      const handler = (event: MessageEvent<WorkerOutbound>): void => {
+        if (event.data.type === 'tokenCount' && event.data.requestId === requestId) {
+          clearTimeout(timeout);
+          worker.removeEventListener('message', handler);
+          resolve(event.data.count);
+        }
+      };
+      worker.addEventListener('message', handler);
+      worker.postMessage({ type: 'countTokens', requestId, text });
+    });
   }
 
   async unload(): Promise<void> {

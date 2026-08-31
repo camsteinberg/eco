@@ -243,6 +243,7 @@ export function createLocalAiLegacyInference(): LocalAiLegacyInference {
                 controller.enqueue(event.text);
               } else if (event.kind === 'done') {
                 setLastUsage({
+                  ...(event.finishReason != null ? { finishReason: event.finishReason } : {}),
                   ...(event.promptTokens != null ? { promptTokens: event.promptTokens } : {}),
                   ...(event.completionTokens != null ? { completionTokens: event.completionTokens } : {}),
                   ...(maxTokens != null ? { maxTokens } : {}),
