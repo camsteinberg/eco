@@ -27,29 +27,16 @@
  * rather than the `useChat` hook (which would pull React transitively into a
  * pure-logic module).
  *
- * Since Wave 2.6 Stage 1, production places per-intent hints at the END of
- * each user turn (`buildHintedUserTurn` / `applyTurnHints` — measured at
- * Stage 0: far stronger conditioning than the system front, and KV-stable).
- * The runner composes through those SAME shared helpers, so the messages are
- * byte-identical to dispatch: system = base prompt only; history user turns
- * re-hinted exactly as production re-renders them; the final user turn
- * carries the spec-intent hint. Hint-comparability eras for stored runs:
- * pre-`wave26-stage0` (no hint anywhere) → `wave26-stage0*` (hint in the
- * system front) → `wave26-stage1*`+ (hint on the user turn).
+ * Per-intent hints were removed in R1. The runner now composes messages
+ * identically to dispatch: system = base prompt only; user turns pass
+ * through unchanged; recaps are appended.
  *
  * One production layer is intentionally NOT reproduced: user custom
  * instructions — user-specific, empty for the default user.
- *
- * Probes may set `hintPlacement: 'system'` (research counterfactual): the
- * pre-Stage-1 composition, kept so the relocation decision stays
- * re-measurable.
  */
 
 import type { ChatIntent } from '../../lib/chat-intent';
 import {
-  applyTurnHints,
-  buildHintedUserTurn,
-  composeQualitySystemPrompt,
   getGenerationProfile,
 } from '../../lib/chat-intent';
 import { appendBranchRecaps, buildBranchRecaps } from '../../lib/detail-recap';
@@ -206,8 +193,8 @@ export type EvalRunConfig = {
    */
   includeResearchArms?: boolean;
   /**
-   * Diagnostics-only run-wide message composition lane. Defaults to production's
-   * user-turn hints; the system-front lane is a controlled counterfactual.
+   * Diagnostics-only run-wide message composition lane. Per-turn hints were
+   * removed (R1); this field now only gates the Gemma-native contract lane.
    */
   messageTopology?: EvalMessageTopology;
   /**
@@ -707,25 +694,13 @@ function buildResult(
 
 /**
  * Compose the full message list for one probe, mirroring production dispatch
- * byte-for-byte (Wave 2.6 Stage 1 placement).
- *
- * Default (= production, also selectable as 'user-turn'): the system message
- * is the BASE prompt only; every history user turn re-renders through the
- * SAME `applyTurnHints` production uses (the KV re-render contract); the
- * final user turn carries the spec-intent hint at its end via
- * `buildHintedUserTurn` (raw prompt when the hint is empty); and each user turn
- * then carries its figure and detail recaps after that, from the same
+ * byte-for-byte. System message is the base prompt only; user turns pass
+ * through unchanged; recaps are appended from the same
  * `buildBranchRecaps`/`appendBranchRecaps` pair dispatch uses.
  *
- * The 'system' counterfactual and the Gemma-native contract below are left
- * WITHOUT recaps on purpose: both exist to hold one variable still while
- * something else is measured, and adding a second difference would confound
- * exactly the comparison they were built for.
- *
- * 'system' placement (research counterfactual — the pre-Stage-1 production
- * composition): hint joined into the system front, raw history, raw user
- * turn. Kept so the relocation decision stays re-measurable; never the
- * default again.
+ * The Gemma-native contract below is left WITHOUT recaps on purpose: it
+ * exists to hold one variable still while something else is measured, and
+ * adding a second difference would confound the comparison.
  */
 type ComposedProbeMessages = {
   messages: ChatMessage[];
@@ -809,7 +784,7 @@ function composeGemmaNativeMessages(spec: EvalPromptSpec): ComposedProbeMessages
 function composeProbeMessages(
   spec: EvalPromptSpec,
   baseSystemPrompt: string,
-  modelId: string,
+  _modelId: string,
   messageTopology: EvalMessageTopology,
 ): ComposedProbeMessages {
   if (messageTopology === 'gemma-native-user-contract') {
@@ -821,34 +796,16 @@ function composeProbeMessages(
     content: turn.content,
   }));
 
-  if (messageTopology === 'system-front-hints' || spec.hintPlacement === 'system') {
-    const messages: ChatMessage[] = [
-      {
-        role: 'system',
-        content: composeQualitySystemPrompt(baseSystemPrompt, spec.intent, true, modelId),
-      },
-      ...history,
-      { role: 'user', content: spec.prompt },
-    ];
-    return {
-      messages,
-      promptTrace: traceForMessages(spec, messages, 'none', 'system-front', 'none'),
-    };
-  }
-
-  // Recaps derive from the RAW branch (history + this turn) and are applied
-  // AFTER the hints, exactly as `useChat.buildPrompt` does it. Composed here
-  // rather than left out because a probe that skips them stops mirroring
-  // dispatch, and a before/after run would then measure nothing — the way a
-  // derived probe set has twice gone unwired from this harness.
+  // Recaps derive from the RAW branch (history + this turn), exactly as
+  // `useChat.buildPrompt` does it.
   const branchRecaps = buildBranchRecaps([...history, { role: 'user', content: spec.prompt }]);
-  const hintedBranch: ChatMessage[] = [
-    ...(applyTurnHints(history, true, modelId) as ChatMessage[]),
-    { role: 'user', content: buildHintedUserTurn(spec.prompt, spec.intent, true, modelId) },
+  const branch: ChatMessage[] = [
+    ...history,
+    { role: 'user', content: spec.prompt },
   ];
   const messages: ChatMessage[] = [
     { role: 'system', content: baseSystemPrompt },
-    ...appendBranchRecaps(hintedBranch, branchRecaps),
+    ...appendBranchRecaps(branch, branchRecaps),
   ];
   return {
     messages,

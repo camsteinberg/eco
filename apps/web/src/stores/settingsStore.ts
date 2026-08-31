@@ -135,7 +135,7 @@ export const useSettingsStore = create<SettingsState & SettingsActions>()(
     soundsEnabled: false,
     autoAcceptTools: true,
     showTechnicalDetails: false,
-    groundingEnabled: true,
+    groundingEnabled: false,
     groundingNoticeSeen: false,
 
     setCustomInstructions(text: string) {
@@ -242,7 +242,7 @@ export const useSettingsStore = create<SettingsState & SettingsActions>()(
           db,
           "grounding-enabled",
           "grounding-enabled",
-          true,
+          false,
           parseStrictBooleanSetting,
           false,
           "false",

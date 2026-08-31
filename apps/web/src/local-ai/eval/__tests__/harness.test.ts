@@ -9,11 +9,6 @@ import type {
   EvalProgress,
   EvalRunnerDeps,
 } from '../harness';
-import {
-  buildHintedUserTurn,
-  buildTurnQualityInstruction,
-  composeQualitySystemPrompt,
-} from '../../../lib/chat-intent';
 import type { ChatMessage, GenerateOptions, TokenEvent } from '../../runtime/types';
 import type { ModelConfig } from '../../types';
 import { EVAL_MESSAGE_TOPOLOGIES } from '../types';
@@ -464,9 +459,7 @@ describe('runEval', () => {
     );
     expect(seen).toHaveLength(1);
     const { messages, options } = seen[0]!;
-    // Production composition (Wave 2.6 Stage 1): the system message is the
-    // BASE prompt only — hints ride user turns. fk1 is a quick probe (empty
-    // hint), so its user turn is the raw prompt.
+    // The system message is the base prompt only; user turns pass through raw.
     expect(messages[0]).toEqual({ role: 'system', content: 'system for m' });
     expect(messages[1]!.role).toBe('user');
     expect(messages[1]!.content).toBe('What is the capital of France?');
@@ -510,17 +503,11 @@ describe('runEval — captured probes', () => {
     );
     expect(seen).toHaveLength(1);
     expect(seen[0]).toEqual([
-      // Stage-1 composition: base-only system; history user turns re-hinted
-      // exactly as production re-renders them ("compare rust and go" routes
-      // deep via DEEP_RE → deep hint appended); the final user turn carries
-      // the spec-intent (explain) hint.
+      // System is the base prompt only; user turns pass through raw.
       { role: 'system', content: 'system for m' },
-      { role: 'user', content: buildHintedUserTurn('compare rust and go', 'deep', true, 'm') },
+      { role: 'user', content: 'compare rust and go' },
       { role: 'assistant', content: 'Rust favors safety; Go favors simplicity.' },
-      {
-        role: 'user',
-        content: buildHintedUserTurn('so which one should i actually use', 'explain', true, 'm'),
-      },
+      { role: 'user', content: 'so which one should i actually use' },
     ]);
     const r = run.results[0]!;
     expect(r.promptId).toBe('cap-t1');
@@ -640,7 +627,7 @@ describe('runEval — answer-shape composition', () => {
     };
   }
 
-  it('places the spec-intent hint at the end of the user turn (production fidelity)', async () => {
+  it('passes user turn content through unchanged (no per-turn hints)', async () => {
     const seen: ChatMessage[][] = [];
     // as1 is a deep-intent (teaching-shaped) probe in the default pool.
     await runEval(
@@ -649,12 +636,9 @@ describe('runEval — answer-shape composition', () => {
     );
     expect(seen).toHaveLength(1);
     const [system, user] = [seen[0]![0]!, seen[0]!.at(-1)!];
-    const deepHint = buildTurnQualityInstruction('deep', true, 'm');
-    // System front is the BASE prompt only — KV-stable across intent changes.
     expect(system).toEqual({ role: 'system', content: 'system for m' });
-    // The hint rides the END of the user turn.
     expect(user.role).toBe('user');
-    expect(user.content).toBe(`please teach me how to invest\n\n${deepHint}`);
+    expect(user.content).toBe('please teach me how to invest');
   });
 
   it('excludes research arms by default and includes them with includeResearchArms', async () => {
@@ -673,47 +657,6 @@ describe('runEval — answer-shape composition', () => {
       baseDeps({ generate: recordingGenerate([]) }),
     );
     expect(armsRun.results.map((r) => r.promptId)).toEqual(armIds);
-  });
-
-  it("hintPlacement 'system' arms reproduce the pre-Stage-1 composition (counterfactual)", async () => {
-    const seen: ChatMessage[][] = [];
-    await runEval(
-      {
-        label: 'shape',
-        modelIds: ['m'],
-        promptIds: ['as4-syshint'],
-        includeResearchArms: true,
-      },
-      baseDeps({ generate: recordingGenerate(seen) }),
-    );
-    expect(seen).toHaveLength(1);
-    const [system, user] = [seen[0]![0]!, seen[0]!.at(-1)!];
-    const deepHint = buildTurnQualityInstruction('deep', true, 'm');
-    // The retired composition: hint joined into the system front…
-    expect(system.content).toBe(composeQualitySystemPrompt('system for m', 'deep', true, 'm'));
-    expect(system.content).toContain(deepHint);
-    // …and the user turn stays raw.
-    expect(user).toEqual({ role: 'user', content: 'give me some tips on negotiating a raise' });
-  });
-
-  it('can run the system-front topology counterfactual without prompt-level arms', async () => {
-    const seen: ChatMessage[][] = [];
-    const run = await runEval(
-      {
-        label: 'shape-system-front',
-        modelIds: ['m'],
-        promptIds: ['as1'],
-        messageTopology: 'system-front-hints',
-      },
-      baseDeps({ generate: recordingGenerate(seen) }),
-    );
-    expect(seen).toHaveLength(1);
-    const [system, user] = [seen[0]![0]!, seen[0]!.at(-1)!];
-    const deepHint = buildTurnQualityInstruction('deep', true, 'm');
-    expect(system.content).toBe(composeQualitySystemPrompt('system for m', 'deep', true, 'm'));
-    expect(system.content).toContain(deepHint);
-    expect(user).toEqual({ role: 'user', content: 'please teach me how to invest' });
-    expect(run.config?.messageTopology).toBe('system-front-hints');
   });
 
   it('can run the Gemma-native user-contract topology without a system role', async () => {
@@ -739,7 +682,6 @@ describe('runEval — answer-shape composition', () => {
     expect(firstUser.content).toContain('You are Eco, a private on-device assistant.');
     expect(firstUser.content).toContain('User task:');
     expect(firstUser.content).toContain('please teach me how to invest');
-    expect(firstUser.content).not.toContain(buildTurnQualityInstruction('deep', true, 'candidate/gemma-4-e2b-litert'));
     expect(run.config?.messageTopology).toBe('gemma-native-user-contract');
   });
 

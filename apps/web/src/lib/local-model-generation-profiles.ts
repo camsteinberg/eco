@@ -22,7 +22,7 @@ type LocalGenerationSamplingDefaults = {
 };
 
 type LocalModelFamily =
-  | 'qwen3' | 'qwen3_5' | 'bonsai' | 'lfm2';
+  | 'qwen2_5' | 'qwen3' | 'qwen3_5' | 'bonsai' | 'lfm2';
 
 type LocalModelIntentFit =
   | 'quick' | 'explain' | 'deep' | 'code' | 'writing' | 'file' | 'research';
@@ -384,6 +384,7 @@ const PROFILE_BY_MODEL_ID: Record<string, GenerationProfileSlice> = {
 };
 
 const FAMILY_FALLBACK: Record<LocalModelFamily, GenerationProfileSlice> = {
+  qwen2_5: QWEN_GEN,
   qwen3: QWEN_GEN,
   qwen3_5: QWEN35_GEN,
   lfm2: LFM25_350M_GEN,

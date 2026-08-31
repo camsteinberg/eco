@@ -515,11 +515,7 @@ describe("useChat — grounding pipeline (citation presentation)", () => {
     ]);
   });
 
-  it("keeps the user-turn quality hint through the grounded (systemNote) rebuild", async () => {
-    // Wave 2.6 Stage 1: hints ride the END of user turns, and the tool path
-    // rebuilds messages from plan.hintedMessages — NOT raw apiMessages. A
-    // refactor that rebuilt from raw messages would silently drop every hint
-    // on grounded/tool turns; this pins the seam (PR #154 review finding).
+  it("preserves the user turn content through the grounded (systemNote) rebuild", async () => {
     groundingMock.wikiResult = {
       found: true,
       title: "Eiffel Tower",
@@ -538,8 +534,6 @@ describe("useChat — grounding pipeline (citation presentation)", () => {
     expect(generateCalls).toHaveLength(1);
     const userMsg = [...generateCalls[0]!.messages].reverse().find((m) => m.role === "user")!;
     expect(userMsg.content).toContain("Tell me about the Eiffel Tower");
-    // The explain hint survived the systemNote rebuild, appended after a blank line.
-    expect(userMsg.content).toContain("\n\nLead with a plain-language explanation");
   });
 
   it("hard-declines an unknown entity: note injected, NO citation, NO ToolCallBlock, still generates", async () => {

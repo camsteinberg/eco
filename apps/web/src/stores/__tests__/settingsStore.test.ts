@@ -63,7 +63,7 @@ function resetStore() {
     soundsEnabled: false,
     autoAcceptTools: true,
     showTechnicalDetails: false,
-    groundingEnabled: true,
+    groundingEnabled: false,
     groundingNoticeSeen: false,
   });
 }
@@ -217,7 +217,7 @@ describe("useSettingsStore.loadFromDB", () => {
     expect(useSettingsStore.getState().showTechnicalDetails).toBe(false);
   });
 
-  it("defaults groundingEnabled to true when no stored value exists", async () => {
+  it("defaults groundingEnabled to false when no stored value exists", async () => {
     const db = makeFakeDb();
     db.get.mockResolvedValue(undefined);
     db.getAll.mockResolvedValue([]);
@@ -225,7 +225,7 @@ describe("useSettingsStore.loadFromDB", () => {
 
     await useSettingsStore.getState().loadFromDB();
 
-    expect(useSettingsStore.getState().groundingEnabled).toBe(true);
+    expect(useSettingsStore.getState().groundingEnabled).toBe(false);
   });
 
   it("rehydrates a persisted groundingEnabled:false (the off switch survives reload)", async () => {
@@ -407,8 +407,8 @@ describe("useSettingsStore writes", () => {
     expect(db.close).toHaveBeenCalledTimes(1);
   });
 
-  it("defaults groundingEnabled to true", () => {
-    expect(useSettingsStore.getState().groundingEnabled).toBe(true);
+  it("defaults groundingEnabled to false", () => {
+    expect(useSettingsStore.getState().groundingEnabled).toBe(false);
   });
 
   it("flips and persists groundingEnabled under a stable key", async () => {

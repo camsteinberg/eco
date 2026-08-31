@@ -25,13 +25,10 @@ import type { LifecyclePhase } from '../runtime/types';
 /**
  * Which inference run inside a turn this receipt describes.
  *
- * One user turn can run TWO generations: the primary, then a hard-constraint
- * repair (`lib/local-generation-constraints`) that rewrites the system prompt
- * and the last user turn and generates again. They have different prompts,
- * sampling and timings, so they get one receipt each — a merged row would
- * attribute one generation's facts to the other, and a repair's KV miss is
- * structural (it changes the front of the prompt) rather than a property of
- * the conversation.
+ * Historically a turn could run two generations (primary + hard-constraint
+ * repair). That repair path was removed in R1; each turn now runs exactly
+ * one generation. The `'repair'` variant is retained for backward
+ * compatibility with persisted receipts.
  */
 export type GenerationRole = 'primary' | 'repair';
 
