@@ -200,24 +200,16 @@ const CHAT_INTENT_MODEL_DATA: Record<string, ChatIntentModelSlice> = {
       },
     },
   },
-  // WebKit-mobile pick (Qwen2.5-0.5B via WebLLM/MLC). A small Qwen instruct model,
-  // so it rides the shared generic Qwen slice (same as qwen3-0.6b). Family outside
-  // the LocalModelFamily union, so it casts to ChatIntentModelSlice. The 2048
-  // ceiling matches the default fallback the model had before it was added here.
+  // WebKit-mobile pick (Qwen2.5-0.5B via WebLLM/MLC). Entry exists so
+  // getInstructionModelWithOptions resolves this model; sampling comes from
+  // PROFILE_BY_MODEL_ID (QWEN_GEN). The 2048 ceiling matches the default
+  // fallback the model had before it was added here.
   "candidate/qwen2.5-0.5b-mlc": {
     id: "candidate/qwen2.5-0.5b-mlc",
     family: "qwen2_5",
     qualityTier: "fast",
     maxNewTokens: { webgpu: 2048 },
-    generationDefaults: {
-      topP: 0.95,
-      topK: 20,
-      repetitionPenalty: 1.08,
-      intentOverrides: {
-        writing: { topP: 0.92 },
-      },
-    },
-  } as unknown as ChatIntentModelSlice,
+  },
   // Runtime bake-off cell: Qwen3-0.6B on MLC — same qwen3 family / fast tier
   // / sampling as local/qwen3-0.6b so the runtime comparison uses the real
   // generation profile. maxNewTokens set to 512 (webgpu) matching the ONNX sibling.
@@ -616,6 +608,17 @@ export function getGenerationProfile(
   const maxTokens = getLocalMaxTokens(intent, modelId, options);
   const modelProfile = getModelGenerationProfileWithOptions(intent, modelId, options);
 
+  // CHOSEN fallback 0.5 — a neutral mid-range temperature. Catalog models
+  // never reach it: every catalog id has a PROFILE_BY_MODEL_ID row
+  // (invariant pinned in local-model-generation-profiles.test.ts
+  // "has a generation profile entry for every v1 catalog model id"), so
+  // modelProfile always carries a publisher-sourced temperature on the
+  // production path. The fallback fires only for non-catalog ids (which
+  // getInstructionModelWithOptions rejects unless allowValidationModel is
+  // set) or lab models without a generationDefaults.temperature.
+  // Falsifier: a catalog model whose profile omits temperature on every
+  // intent — add the model to PROFILE_BY_MODEL_ID, don't change this
+  // constant.
   return {
     temperature: modelProfile.temperature ?? 0.5,
     maxTokens,
