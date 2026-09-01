@@ -31,6 +31,8 @@ import { join } from 'node:path';
 
 import type { SlotState } from '../../local-ai/lifecycle/slots';
 import type { Slot } from '../../local-ai/types';
+import type { TokenStream } from '../../local-ai/runtime/stream';
+import { scriptedTokenStream } from '../helpers/token-stream';
 
 type RecordedCall = {
   messages: Array<{ role: string; content: string }>;
@@ -44,33 +46,46 @@ const shared = vi.hoisted(() => ({
   fastSlotState: undefined as SlotState | undefined,
 }));
 
+/**
+ * The baseline was recorded when the seam took snake_case option names. R4b
+ * deleted that seam: `assemble()` now emits the runtime's own camelCase, which
+ * `stream()` forwards to the adapter unchanged.
+ *
+ * The rename carries no information — the same number reaches the same
+ * GenerationConfig field either way — so the baseline is normalised back to its
+ * recorded spelling rather than rewritten. What makes this NOT a way to hide a
+ * behaviour change: the table renames only, it never drops. A field that stopped
+ * being sent disappears from the record and the cell goes red; a field that
+ * appeared passes through under its own name and the cell goes red. Only the
+ * six spellings below are absorbed, and only one-for-one.
+ */
+const BASELINE_OPTION_NAMES: Record<string, string> = {
+  maxTokens: 'max_new_tokens',
+  topP: 'top_p',
+  topK: 'top_k',
+  repetitionPenalty: 'repetition_penalty',
+  noRepeatNgramSize: 'no_repeat_ngram_size',
+};
+
 /** Strip non-serialisable option values (callbacks, signals) — keep the data. */
 function plainOptions(options: Record<string, unknown> | undefined): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(options ?? {})) {
     if (typeof v === 'function' || v instanceof AbortSignal) continue;
-    out[k] = v;
+    out[BASELINE_OPTION_NAMES[k] ?? k] = v;
   }
   return out;
 }
 
-vi.mock('../../local-ai/adapters/useChatLegacyShim', () => ({
-  createLocalAiLegacyInference: () => ({
-    generate: (
-      messages: Array<{ role: string; content: string }>,
-      modelId: string,
-      options: Record<string, unknown> | undefined,
-    ): ReadableStream<string> => {
-      shared.calls.push({ messages, modelId, options: plainOptions(options) });
-      const tokens = shared.scripts.shift() ?? ['ok'];
-      return new ReadableStream<string>({
-        start(controller) {
-          for (const t of tokens) controller.enqueue(t);
-          controller.close();
-        },
-      });
-    },
-  }),
+vi.mock('../../local-ai/runtime/stream', () => ({
+  stream: (
+    messages: Array<{ role: string; content: string }>,
+    modelId: string,
+    options: Record<string, unknown> | undefined,
+  ): TokenStream => {
+    shared.calls.push({ messages, modelId, options: plainOptions(options) });
+    return scriptedTokenStream({ tokens: shared.scripts.shift() ?? ['ok'] });
+  },
 }));
 
 const EMPTY_SMART: SlotState = { slot: 'eco-smart' as Slot, modelId: null, model: null, status: 'empty' };
@@ -89,14 +104,6 @@ vi.mock('../../local-ai/lifecycle/slots', () => ({
   setSlotStatus: () => {},
   subscribe: () => () => {},
   getDemotedFrom: () => undefined,
-}));
-
-vi.mock('../../local-ai/runtime/usage-store', () => ({
-  getLastUsage: () => null,
-  getLastTemplateName: () => null,
-  setLastUsage: () => {},
-  setLastTemplateName: () => {},
-  ranToCapFromUsage: () => false,
 }));
 
 vi.mock('../../local-ai/lifecycle/generation-receipt', () => ({

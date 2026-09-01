@@ -205,7 +205,7 @@ describe('assemble — the offline-continue partial', () => {
 describe('assemble — options', () => {
   it('resolves a per-model sampling row', () => {
     const plan = base();
-    expect(plan.options.max_new_tokens).toBeGreaterThan(0);
+    expect(plan.options.maxTokens).toBeGreaterThan(0);
     expect(typeof plan.options.temperature).toBe('number');
   });
 

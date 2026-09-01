@@ -27,6 +27,8 @@ import { renderHook, act } from "@testing-library/react";
 
 import type { SlotState } from "../../local-ai/lifecycle/slots";
 import type { Slot } from "../../local-ai/types";
+import type { TokenStream } from "../../local-ai/runtime/stream";
+import { scriptedTokenStream } from "../../__tests__/helpers/token-stream";
 
 type GenerateCall = { modelId: string };
 
@@ -56,21 +58,14 @@ const { SMART_MODEL_ID } = shared;
 
 // ─── Scripted-stream shim seam (mirrors the unbound-selection net) ─────────────
 
-vi.mock("../../local-ai/adapters/useChatLegacyShim", () => ({
-  createLocalAiLegacyInference: () => ({
-    generate: (
-      _messages: Array<{ role: string; content: string }>,
-      modelId: string,
-    ): ReadableStream<string> => {
-      shared.generateCalls.push({ modelId });
-      return new ReadableStream<string>({
-        start(controller) {
-          controller.enqueue("ok");
-          controller.close();
-        },
-      });
-    },
-  }),
+vi.mock("../../local-ai/runtime/stream", () => ({
+  stream: (
+    _messages: Array<{ role: string; content: string }>,
+    modelId: string,
+  ): TokenStream => {
+    shared.generateCalls.push({ modelId });
+    return scriptedTokenStream({ tokens: ["ok"] });
+  },
 }));
 
 vi.mock("../../local-ai/lifecycle/slots", () => ({
@@ -116,14 +111,6 @@ vi.mock("../../local-ai/runtime/lifecycle", async (importOriginal) => {
         : null,
   };
 });
-
-vi.mock("../../local-ai/runtime/usage-store", () => ({
-  getLastUsage: () => null,
-  getLastTemplateName: () => null,
-  setLastUsage: () => {},
-  setLastTemplateName: () => {},
-  ranToCapFromUsage: () => false,
-}));
 
 vi.mock("../../local-ai/lifecycle/generation-receipt", () => ({
   recordGenerationReceipt: () => {},

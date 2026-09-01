@@ -13,12 +13,13 @@
  * Strategy:
  *   - Mock the `slots` seam so a concrete local model reads as "ready" (so the
  *     readiness guards pass without a real runtime / WebGPU).
- *   - Mock the `useChatLegacyShim` seam: `createLocalAiLegacyInference()` returns
- *     a `generate()` that emits a SCRIPTED token stream via a real
- *     `ReadableStream<string>`. This exercises the actual reader/cancel path
- *     that `interruptActiveGeneration` depends on.
- *   - Mock the `usage-store` seam so `getLastUsage` / `getLastTemplateName`
- *     return deterministic values for the completion/usage assertions.
+ *   - Mock the `local-ai/runtime/stream` seam: `stream()` returns a SCRIPTED
+ *     `TokenStream` — a real async iterable with a real `cancel()`. This
+ *     exercises the actual iterate/cancel path that `interruptActiveGeneration`
+ *     depends on, including cancel mid-iteration and an iterator that throws.
+ *   - Usage is NOT a separate seam any more (R4b): `shared.lastUsage` /
+ *     `shared.lastTemplateName` are what the scripted stream reports on its
+ *     terminating `done` event, and useChat reads them off that event.
  *   - Everything else (chat store, system-prompt, chat-intent, constraints,
  *     receipts) runs real.
  *
@@ -34,8 +35,10 @@ import { renderHook, act } from "@testing-library/react";
 import { LocalInferenceStreamError } from "../../local-ai/runtime/errors";
 import type { SlotState } from "../../local-ai/lifecycle/slots";
 import type { Slot } from "../../local-ai/types";
+import type { TokenStream } from "../../local-ai/runtime/stream";
+import { scriptedTokenStream } from "../../__tests__/helpers/token-stream";
 
-// ─── Scripted-stream shim seam ─────────────────────────────────────────────
+// ─── Scripted-stream seam ──────────────────────────────────────────────────
 
 type GenerateCall = {
   messages: Array<{ role: string; content: string }>;
@@ -133,7 +136,6 @@ const shared = vi.hoisted(() => {
           finishReason?: 'eos' | 'length' | 'abort';
           promptTokens?: number;
           completionTokens?: number;
-          maxTokens?: number;
           maxInterTokenGapMs?: number | null;
         }
       | null,
@@ -158,67 +160,48 @@ const makeEmptySmartSlot = shared.makeEmptySmartSlot;
 const generateCalls = shared.generateCalls;
 const recordedReceipts = shared.recordedReceipts;
 
-function buildScriptedStream(script: StreamScript): ReadableStream<string> {
-  if (script.kind === "tokens") {
-    return new ReadableStream<string>({
-      start(controller) {
-        for (const t of script.tokens) controller.enqueue(t);
-        controller.close();
-      },
-    });
-  }
+function buildScriptedStream(script: StreamScript | undefined): TokenStream {
+  // The terminating `done` event is where usage lives since R4b. `maxTokens` is
+  // deliberately absent: the adapter reports what it PRODUCED, and useChat
+  // echoes the budget it REQUESTED (see `usageFromDone`).
+  const done = {
+    ...(shared.lastUsage ?? {}),
+    ...(shared.lastTemplateName != null ? { tokenizerName: shared.lastTemplateName } : {}),
+  };
+  // No script left — an empty stream that ends immediately.
+  if (!script) return scriptedTokenStream({ done });
+  if (script.kind === "tokens") return scriptedTokenStream({ tokens: script.tokens, done });
   if (script.kind === "error") {
-    // Deliver the tokens BEFORE erroring: `controller.error()` discards any
-    // chunks still queued, so erroring in start() would never let the consumer
-    // see the partial words the real runtime delivers before a fault.
-    const pending = [...script.tokens];
-    return new ReadableStream<string>({
-      pull(controller) {
-        const next = pending.shift();
-        if (next !== undefined) controller.enqueue(next);
-        else controller.error(script.error);
-      },
-    });
+    // An async iterator hands each token to the consumer before the generator
+    // resumes, so the partial words a real runtime delivers before a fault are
+    // seen — no special construction needed (the ReadableStream this replaced
+    // discarded anything still queued when `controller.error()` fired).
+    return scriptedTokenStream({ tokens: script.tokens, error: script.error });
   }
-  // hang: emit tokens, then stay open until the consumer cancels the reader.
-  return new ReadableStream<string>({
-    start(controller) {
-      for (const t of script.tokens) controller.enqueue(t);
-      // Intentionally never close — the consumer must cancel().
-    },
-    cancel() {
-      script.onCancel?.();
-    },
+  // hang: emit tokens, then stay open until the consumer cancels.
+  return scriptedTokenStream({
+    tokens: script.tokens,
+    hang: true,
+    ...(script.onCancel ? { onCancel: script.onCancel } : {}),
   });
 }
 
-vi.mock("../../local-ai/adapters/useChatLegacyShim", () => ({
-  createLocalAiLegacyInference: () => ({
-    generate: (
-      messages: Array<{ role: string; content: string }>,
-      modelId: string,
-      options: Record<string, unknown> | undefined,
-    ): ReadableStream<string> => {
-      shared.generateCalls.push({ messages, modelId, options });
-      // Mirror the real adapters: every generation emits its own lifecycle
-      // breadcrumbs. A repair turn runs generate() TWICE, so this is what
-      // proves each receipt's trail belongs to its own generation.
-      const onLifecycleEvent = options?.onLifecycleEvent as
-        | ((event: { phase: string; at: number }) => void)
-        | undefined;
-      onLifecycleEvent?.({ phase: "first-token", at: Date.now() });
-      const script = shared.scripts.shift();
-      if (!script) {
-        // No script left — emit an empty closed stream so the loop completes.
-        return new ReadableStream<string>({
-          start(controller) {
-            controller.close();
-          },
-        });
-      }
-      return buildScriptedStream(script);
-    },
-  }),
+vi.mock("../../local-ai/runtime/stream", () => ({
+  stream: (
+    messages: Array<{ role: string; content: string }>,
+    modelId: string,
+    options: Record<string, unknown> | undefined,
+  ): TokenStream => {
+    shared.generateCalls.push({ messages, modelId, options });
+    // Mirror the real adapters: every generation emits its own lifecycle
+    // breadcrumbs. This is what proves each receipt's trail belongs to its own
+    // generation.
+    const onLifecycleEvent = options?.onLifecycleEvent as
+      | ((event: { phase: string; at: number }) => void)
+      | undefined;
+    onLifecycleEvent?.({ phase: "first-token", at: Date.now() });
+    return buildScriptedStream(shared.scripts.shift());
+  },
 }));
 
 // ─── Slots seam ────────────────────────────────────────────────────────────
@@ -255,26 +238,6 @@ vi.mock("../../local-ai/lifecycle/slots", () => ({
   setSlotStatus: () => {},
   subscribe: () => () => {},
   getDemotedFrom: () => undefined,
-}));
-
-// ─── Usage-store seam ──────────────────────────────────────────────────────
-
-vi.mock("../../local-ai/runtime/usage-store", () => ({
-  getLastUsage: () => shared.lastUsage,
-  getLastTemplateName: () => shared.lastTemplateName,
-  setLastUsage: (u: typeof shared.lastUsage) => {
-    shared.lastUsage = u;
-  },
-  setLastTemplateName: (n: string | null) => {
-    shared.lastTemplateName = n;
-  },
-  // Faithful copy of the real helper (the receipt build calls it; without it the
-  // build closure throws and recordGenerationReceiptAsync silently drops the row).
-  ranToCapFromUsage: (u: { completionTokens?: number; maxTokens?: number } | null | undefined) =>
-    u?.completionTokens != null
-    && u.maxTokens != null
-    && u.maxTokens > 0
-    && u.completionTokens >= u.maxTokens,
 }));
 
 // ─── Receipt seam ──────────────────────────────────────────────────────────
@@ -392,7 +355,7 @@ function lastAssistant() {
   return [...messages].reverse().find((m) => m.role === "assistant");
 }
 
-/** Queue the FIFO stream scripts the mocked shim will replay, one per generate(). */
+/** Queue the FIFO stream scripts the mocked seam will replay, one per stream(). */
 function setScripts(next: StreamScript[]): void {
   shared.scripts = next;
 }
@@ -454,7 +417,7 @@ describe("useChat — 'auto' selection dispatches to the ready slot", () => {
   it("sends through the ready eco-fast model when selectedModel is 'auto'", async () => {
     useChatStore.setState({ selectedModel: "auto" });
     setScripts([{ kind: "tokens", tokens: ["Hi", "!"] }]);
-    setLastUsage({ promptTokens: 4, completionTokens: 2, maxTokens: 1024 });
+    setLastUsage({ promptTokens: 4, completionTokens: 2 });
 
     const { result } = renderHook(() => useChat());
     await act(async () => {
@@ -484,7 +447,7 @@ describe("useChat — 'auto' selection dispatches to the ready slot", () => {
       status: "ready",
     };
     setScripts([{ kind: "tokens", tokens: ["From ", "smart"] }]);
-    setLastUsage({ promptTokens: 4, completionTokens: 2, maxTokens: 1024 });
+    setLastUsage({ promptTokens: 4, completionTokens: 2 });
 
     const { result } = renderHook(() => useChat());
     await act(async () => {
@@ -515,7 +478,7 @@ describe("useChat — 'auto' selection dispatches to the ready slot", () => {
       status: "ready",
     };
     setScripts([{ kind: "tokens", tokens: ["Deep ", "reply"] }]);
-    setLastUsage({ promptTokens: 4, completionTokens: 2, maxTokens: 1024 });
+    setLastUsage({ promptTokens: 4, completionTokens: 2 });
 
     const { result } = renderHook(() => useChat());
     await act(async () => {
@@ -555,7 +518,8 @@ describe("useChat — 'auto' selection dispatches to the ready slot", () => {
 
 describe("useChat — normal on-device stream (sendMessage)", () => {
   it("accumulates scripted tokens into the assistant message and marks it complete", async () => {
-    setScripts([{ kind: "tokens", tokens: ["Hel", "lo ", "world"] }]);    setLastUsage({ promptTokens: 12, completionTokens: 3, maxTokens: 1024 });
+    setScripts([{ kind: "tokens", tokens: ["Hel", "lo ", "world"] }]);
+    setLastUsage({ promptTokens: 12, completionTokens: 3 });
     setLastTemplateName("chatml");
 
     const { result } = renderHook(() => useChat());
@@ -573,8 +537,8 @@ describe("useChat — normal on-device stream (sendMessage)", () => {
   });
 
   it("threads usage fields (localCompletionTokens / localMaxTokens / possiblyTruncated) onto the message", async () => {
-    setScripts([{ kind: "tokens", tokens: ["short"] }]);    // completionTokens (3) is well under 95% of maxTokens (1024) → not truncated.
-    setLastUsage({ promptTokens: 5, completionTokens: 3, maxTokens: 1024 });
+    setScripts([{ kind: "tokens", tokens: ["short"] }]);
+    setLastUsage({ promptTokens: 5, completionTokens: 3 });
 
     const { result } = renderHook(() => useChat());
     await act(async () => {
@@ -582,13 +546,19 @@ describe("useChat — normal on-device stream (sendMessage)", () => {
     });
 
     const assistant = lastAssistant()!;
+    // completionTokens comes off the adapter's `done` event...
     expect(assistant.localCompletionTokens).toBe(3);
-    expect(assistant.localMaxTokens).toBe(1024);
+    // ...and localMaxTokens echoes the budget this turn actually REQUESTED, so
+    // the pair a reader compares is the produced count against the real grant.
+    expect(assistant.localMaxTokens).toBe(generateCalls[0]!.options?.maxTokens);
+    expect(typeof assistant.localMaxTokens).toBe("number");
+    // The generation stopped on EOS, not the cap.
     expect(assistant.possiblyTruncated).toBe(false);
   });
 
   it("flags possiblyTruncated when finishReason is 'length'", async () => {
-    setScripts([{ kind: "tokens", tokens: ["x"] }]);    setLastUsage({ promptTokens: 5, completionTokens: 1000, maxTokens: 1024, finishReason: 'length' });
+    setScripts([{ kind: "tokens", tokens: ["x"] }]);
+    setLastUsage({ promptTokens: 5, completionTokens: 1000, finishReason: 'length' });
 
     const { result } = renderHook(() => useChat());
     await act(async () => {
@@ -624,7 +594,7 @@ describe("useChat — normal on-device stream (sendMessage)", () => {
     expect(useChatStore.getState().isStreaming).toBe(false);
   });
 
-  it("prepends a system message and forwards sampling options to the shim generate() call", async () => {
+  it("prepends a system message and forwards sampling options to the stream() call", async () => {
     setScripts([{ kind: "tokens", tokens: ["ok"] }]);
     const { result } = renderHook(() => useChat());
     await act(async () => {
@@ -638,8 +608,8 @@ describe("useChat — normal on-device stream (sendMessage)", () => {
     expect(call.messages[call.messages.length - 1]!.content).toBe(
       "Explain quantum tunneling",
     );
-    // Sampling profile must reach the shim (Phase-1 invariant).
-    expect(typeof call.options?.max_new_tokens).toBe("number");
+    // Sampling profile must reach the runtime (Phase-1 invariant).
+    expect(typeof call.options?.maxTokens).toBe("number");
     expect(typeof call.options?.temperature).toBe("number");
   });
 
@@ -657,13 +627,13 @@ describe("useChat — normal on-device stream (sendMessage)", () => {
     const call = generateCalls[0]!;
     expect(call.modelId).toBe(GEMMA_LITERT_MODEL_ID);
     expect(call.options).toMatchObject({
-      max_new_tokens: 256,
+      maxTokens: 256,
       temperature: 0.18,
-      top_p: 0.72,
-      top_k: 64,
+      topP: 0.72,
+      topK: 64,
     });
-    expect(call.options).not.toHaveProperty("repetition_penalty");
-    expect(call.options).not.toHaveProperty("no_repeat_ngram_size");
+    expect(call.options).not.toHaveProperty("repetitionPenalty");
+    expect(call.options).not.toHaveProperty("noRepeatNgramSize");
     expect(shared.contextSafetyCalls[0]).toMatchObject({
       modelContextLength: 2048,
       requestedNewTokens: 256,
@@ -672,7 +642,8 @@ describe("useChat — normal on-device stream (sendMessage)", () => {
   });
 
   it("records a 'complete' generation receipt with the full requested sampling profile", async () => {
-    setScripts([{ kind: "tokens", tokens: ["a", "b"] }]);    setLastUsage({ promptTokens: 7, completionTokens: 2, maxTokens: 512 });
+    setScripts([{ kind: "tokens", tokens: ["a", "b"] }]);
+    setLastUsage({ promptTokens: 7, completionTokens: 2 });
 
     const { result } = renderHook(() => useChat());
     await act(async () => {
@@ -697,10 +668,11 @@ describe("useChat — normal on-device stream (sendMessage)", () => {
   });
 
   it("records the #28 stall signals (ranToCap + maxInterTokenGapMs) on the completion receipt", async () => {
-    // Usage says the generation exhausted its budget (completionTokens >= maxTokens)
-    // and the adapter measured a large inter-token gap — the stall fingerprint.
+    // Usage says the generation exhausted its budget (completionTokens >= the
+    // REQUESTED maxTokens, whatever this turn's intent grants) and the adapter
+    // measured a large inter-token gap — the stall fingerprint.
     setScripts([{ kind: "tokens", tokens: ["a", "b"] }]);
-    setLastUsage({ promptTokens: 7, completionTokens: 512, maxTokens: 512, maxInterTokenGapMs: 1800 });
+    setLastUsage({ promptTokens: 7, completionTokens: 100_000, maxInterTokenGapMs: 1800 });
 
     const { result } = renderHook(() => useChat());
     await act(async () => {
@@ -715,7 +687,7 @@ describe("useChat — normal on-device stream (sendMessage)", () => {
 
   it("records ranToCap false and no gap when the generation stopped naturally", async () => {
     setScripts([{ kind: "tokens", tokens: ["a", "b"] }]);
-    setLastUsage({ promptTokens: 7, completionTokens: 2, maxTokens: 512 });
+    setLastUsage({ promptTokens: 7, completionTokens: 2 });
 
     const { result } = renderHook(() => useChat());
     await act(async () => {
@@ -731,7 +703,7 @@ describe("useChat — normal on-device stream (sendMessage)", () => {
 
   it("records exactly one receipt, roled 'primary', when no repair runs", async () => {
     setScripts([{ kind: "tokens", tokens: ["a", "b"] }]);
-    setLastUsage({ promptTokens: 7, completionTokens: 2, maxTokens: 512 });
+    setLastUsage({ promptTokens: 7, completionTokens: 2 });
 
     const { result } = renderHook(() => useChat());
     await act(async () => {
@@ -792,7 +764,7 @@ describe("useChat — user stop / abort (stopGeneration)", () => {
     });
 
     // Now stop. interruptActiveGeneration flushes pending tokens, cancels the
-    // reader, aborts, and marks the streaming message interrupted.
+    // stream, aborts, and marks the streaming message interrupted.
     await act(async () => {
       result.current.stopGeneration();
       await sendPromise;
@@ -1036,7 +1008,7 @@ describe("useChat — runtime error handling", () => {
 
     // A clean completion in between resets the streak.
     setScripts([{ kind: "tokens", tokens: ["all", " good"] }]);
-    setLastUsage({ promptTokens: 4, completionTokens: 2, maxTokens: 1024 });
+    setLastUsage({ promptTokens: 4, completionTokens: 2 });
     await act(async () => {
       await result.current.sendMessage("this one works");
     });
@@ -1559,7 +1531,7 @@ describe("useChat — generation lease (slice 2a)", () => {
 
   it("releases the lease after a completed reply (a switch may start again)", async () => {
     setScripts([{ kind: "tokens", tokens: ["Hi", "!"] }]);
-    setLastUsage({ promptTokens: 4, completionTokens: 2, maxTokens: 1024 });
+    setLastUsage({ promptTokens: 4, completionTokens: 2 });
 
     const { result } = renderHook(() => useChat());
     await act(async () => {
@@ -1609,7 +1581,7 @@ describe("useChat — a model bound to eco-smart dispatches (no eco-fast collaps
     };
     useChatStore.setState({ selectedModel: GEMMA_LITERT_MODEL_ID });
     setScripts([{ kind: "tokens", tokens: ["From ", "smart"] }]);
-    setLastUsage({ promptTokens: 4, completionTokens: 2, maxTokens: 1024 });
+    setLastUsage({ promptTokens: 4, completionTokens: 2 });
 
     const { result } = renderHook(() => useChat());
     await act(async () => {

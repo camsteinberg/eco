@@ -23,6 +23,8 @@ import { renderHook, act, waitFor } from "@testing-library/react";
 
 import type { SlotState } from "../../local-ai/lifecycle/slots";
 import type { Slot } from "../../local-ai/types";
+import type { TokenStream } from "../../local-ai/runtime/stream";
+import { scriptedTokenStream } from "../../__tests__/helpers/token-stream";
 
 // ─── Scripted-stream shim seam (mirrors the recovery-seam suite) ───────────
 
@@ -55,9 +57,7 @@ const shared = vi.hoisted(() => {
     }),
     generateCalls: [] as GenerateCall[],
     scripts: [] as string[][],
-    lastUsage: null as
-      | { promptTokens?: number; completionTokens?: number; maxTokens?: number }
-      | null,
+    lastUsage: null as { promptTokens?: number; completionTokens?: number } | null,
     lastTemplateName: null as string | null,
     fastSlotState: undefined as SlotState | undefined,
     smartSlotState: undefined as SlotState | undefined,
@@ -67,23 +67,22 @@ const shared = vi.hoisted(() => {
 const TEST_MODEL_ID = shared.TEST_MODEL_ID;
 const generateCalls = shared.generateCalls;
 
-vi.mock("../../local-ai/adapters/useChatLegacyShim", () => ({
-  createLocalAiLegacyInference: () => ({
-    generate: (
-      messages: Array<{ role: string; content: string }>,
-      modelId: string,
-      options: Record<string, unknown> | undefined,
-    ): ReadableStream<string> => {
-      shared.generateCalls.push({ messages, modelId, options });
-      const tokens = shared.scripts.shift() ?? [];
-      return new ReadableStream<string>({
-        start(controller) {
-          for (const t of tokens) controller.enqueue(t);
-          controller.close();
-        },
-      });
-    },
-  }),
+vi.mock("../../local-ai/runtime/stream", () => ({
+  stream: (
+    messages: Array<{ role: string; content: string }>,
+    modelId: string,
+    options: Record<string, unknown> | undefined,
+  ): TokenStream => {
+    shared.generateCalls.push({ messages, modelId, options });
+    return scriptedTokenStream({
+      tokens: shared.scripts.shift() ?? [],
+      // Usage rides the terminating `done` event since R4b.
+      done: {
+        ...(shared.lastUsage ?? {}),
+        ...(shared.lastTemplateName != null ? { tokenizerName: shared.lastTemplateName } : {}),
+      },
+    });
+  },
 }));
 
 vi.mock("../../local-ai/lifecycle/slots", () => ({
@@ -104,22 +103,6 @@ vi.mock("../../local-ai/lifecycle/slots", () => ({
   setSlotStatus: () => {},
   subscribe: () => () => {},
   getDemotedFrom: () => undefined,
-}));
-
-vi.mock("../../local-ai/runtime/usage-store", () => ({
-  getLastUsage: () => shared.lastUsage,
-  getLastTemplateName: () => shared.lastTemplateName,
-  setLastUsage: (u: typeof shared.lastUsage) => {
-    shared.lastUsage = u;
-  },
-  setLastTemplateName: (n: string | null) => {
-    shared.lastTemplateName = n;
-  },
-  ranToCapFromUsage: (u: { completionTokens?: number; maxTokens?: number } | null | undefined) =>
-    u?.completionTokens != null
-    && u.maxTokens != null
-    && u.maxTokens > 0
-    && u.completionTokens >= u.maxTokens,
 }));
 
 vi.mock("../../local-ai/lifecycle/generation-receipt", () => ({
@@ -502,7 +485,7 @@ describe("reply controls — through the real chat hook", () => {
     expect(finalUserTurn.content).toBe(`${ASK}\n\n${SHIPPED_DIRECTIVES.shorter}`);
     // ...with the closed-direction sampling the forced intent resolves to.
     const quick = getGenerationProfile("quick", true, TEST_MODEL_ID);
-    expect(regenerated.options?.max_new_tokens).toBe(quick.maxTokens);
+    expect(regenerated.options?.maxTokens).toBe(quick.maxTokens);
     expect(regenerated.options?.temperature).toBe(quick.temperature);
 
     // Nothing about the directive is written back to the conversation.

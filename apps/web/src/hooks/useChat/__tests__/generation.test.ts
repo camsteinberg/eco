@@ -30,6 +30,7 @@ import {
 } from "../generation";
 import { useChatStore } from "../../../stores/chatStore";
 import { useConversationStore } from "../../../stores/conversationStore";
+import { scriptedTokenStream } from "../../../__tests__/helpers/token-stream";
 
 function makeGeneration(append = vi.fn()): Generation {
   return createGeneration(append);
@@ -102,8 +103,8 @@ describe("createGeneration", () => {
     expect(generation.conversationId).toBe("conv-42");
   });
 
-  it("starts with no current reader", () => {
-    expect(makeGeneration().currentReader).toBeNull();
+  it("starts with no current stream", () => {
+    expect(makeGeneration().currentStream).toBeNull();
   });
 });
 
@@ -257,24 +258,20 @@ describe("interruptActiveGeneration", () => {
     });
 
     let cancelled = false;
-    const stream = new ReadableStream<string>({
-      start(controller) {
-        controller.enqueue("x");
-      },
-      cancel() {
+    generation.currentStream = scriptedTokenStream({
+      tokens: ["x"],
+      hang: true,
+      onCancel: () => {
         cancelled = true;
       },
     });
-    generation.currentReader = stream.getReader();
 
     interruptActiveGeneration();
-    // cancel() is fire-and-forget inside interrupt; let its microtask settle.
-    await Promise.resolve();
-    await Promise.resolve();
 
+    // TokenStream.cancel() is synchronous — no microtask to settle.
     expect(cancelled).toBe(true);
-    // The reader slot is nulled out.
-    expect(generation.currentReader).toBeNull();
+    // The stream slot is nulled out.
+    expect(generation.currentStream).toBeNull();
   });
 
   it("does not throw when nothing is active", () => {

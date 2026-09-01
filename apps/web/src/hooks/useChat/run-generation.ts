@@ -2,28 +2,32 @@
 // Copyright (C) 2026 Bos Computing LLC
 
 /**
- * `runGeneration` — the single read → batch → flush loop shared by every
+ * `runGeneration` — the single iterate → batch → flush loop shared by every
  * on-device stream in `useChat`.
  *
  * #4 Phase 3 Task 2. Before this, `streamResponse` carried three near-identical
  * loops (primary, hard-constraint repair, and offline continue-interrupted),
  * each with its own abort/seq handling. They are now one primitive.
  *
- * The primitive owns the loop and the reader registration; it returns a
- * STRUCTURED result (final text + status + the caught error) rather than
- * mutating the store with completion semantics. Callers keep their store writes
- * (complete/usage/receipt/error mapping) — `runGeneration` just hands back what
- * happened. That return value is the cheap seam that keeps a future
- * `UIMessage.parts` adoption (Phase 4) localized to the callers.
+ * The primitive owns the loop and the stream registration; it returns a
+ * STRUCTURED result (final text + status + the terminating `done` event + the
+ * caught error) rather than mutating the store with completion semantics.
+ * Callers keep their store writes (complete/usage/receipt/error mapping) —
+ * `runGeneration` just hands back what happened.
  *
- * Abort stays entirely on the main-thread reader/cancel path (the v1 shim's
- * `ReadableStream.cancel()` forwards to its own AbortController). No
+ * R4b: the stream is an `AsyncIterable<TokenEvent>` from
+ * `local-ai/runtime/stream`, not a `ReadableStream<string>`. Usage arrives on
+ * the terminating `done` event and is returned to the caller, replacing the
+ * module-level usage side channel. Abort stays entirely on the main thread
+ * (`TokenStream.cancel()` → the stream's own AbortController); no
  * `AbortSignal` is ever passed across a Worker boundary.
  */
 
 import type { Generation } from "./generation";
 import type { StreamPhase } from "../../stores/chatStore";
 import { LocalInferenceStreamError } from "../../local-ai/runtime/errors";
+import type { DoneEvent, TokenStream } from "../../local-ai/runtime/stream";
+import type { TokenEvent } from "../../local-ai/runtime/types";
 
 /**
  * Time-to-first-token deadline. A generation that streams no first token within
@@ -41,15 +45,15 @@ const TTFT_DEADLINE_MS = 90_000;
  * back to decide on a repair or completion.
  */
 export type RunGenerationResult =
-  | { status: "completed"; finalText: string }
-  | { status: "aborted"; finalText: string }
-  | { status: "error"; finalText: string; error: unknown };
+  | { status: "completed"; finalText: string; done: DoneEvent | null }
+  | { status: "aborted"; finalText: string; done: DoneEvent | null }
+  | { status: "error"; finalText: string; error: unknown; done: DoneEvent | null };
 
 export type RunGenerationParams = {
   /** The generation that owns the abort controller + batcher + reader slot. */
   generation: Generation;
   /** The stream to drain. */
-  stream: ReadableStream<string>;
+  stream: TokenStream;
   /** Assistant message id the tokens accumulate into. */
   assistantId: string;
   /** Flip the stream phase to "generating" on the first token of this stream. */
@@ -66,24 +70,25 @@ export type RunGenerationParams = {
 };
 
 /**
- * Await the next chunk, but bound the wait for the FIRST token by `deadlineMs`.
+ * Await the next event, but bound the wait for the FIRST token by `deadlineMs`.
  *
  * The deadline must WIN the race, not merely signal — a bare `setTimeout →
- * cancel()` can silently never take effect if the underlying read never settles
- * against a non-cooperating runtime. So on expiry we BOTH cancel the reader —
- * releasing the runtime cooperatively (`reader.cancel()` → shim `cancel()` →
- * adapter abort → WebLLM `interruptGenerate`), never abandoning the stream — AND
- * reject, so the loop unwinds even if the vendor stream never responds.
+ * cancel()` can silently never take effect if the underlying iterator never
+ * settles against a non-cooperating runtime. So on expiry we BOTH cancel the
+ * stream — releasing the runtime cooperatively (`TokenStream.cancel()` → adapter
+ * abort → WebLLM `interruptGenerate`), never abandoning it — AND reject, so the
+ * loop unwinds even if the vendor stream never responds.
  */
-async function readFirstTokenWithDeadline(
-  reader: ReadableStreamDefaultReader<string>,
+async function readFirstEventWithDeadline(
+  iterator: AsyncIterator<TokenEvent>,
+  stream: TokenStream,
   deadlineMs: number,
-): Promise<ReadableStreamReadResult<string>> {
+): Promise<IteratorResult<TokenEvent>> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
-      // Reject FIRST so the race settles as a timeout, THEN cancel the reader to
-      // release the runtime. Cancelling first would resolve the pending read()
+      // Reject FIRST so the race settles as a timeout, THEN cancel the stream to
+      // release the runtime. Cancelling first would resolve the pending next()
       // as `done` and win the race, silently masking the timeout as a clean end.
       reject(
         new LocalInferenceStreamError(
@@ -92,11 +97,11 @@ async function readFirstTokenWithDeadline(
           true,
         ),
       );
-      void reader.cancel().catch(() => undefined);
+      stream.cancel();
     }, deadlineMs);
   });
   try {
-    return await Promise.race([reader.read(), deadline]);
+    return await Promise.race([iterator.next(), deadline]);
   } finally {
     if (timer !== undefined) clearTimeout(timer);
   }
@@ -123,40 +128,50 @@ export async function runGeneration(
   } = params;
   const ttftDeadlineMs = params.ttftDeadlineMs ?? TTFT_DEADLINE_MS;
 
-  const reader = stream.getReader();
-  generation.currentReader = reader;
+  const iterator = stream[Symbol.asyncIterator]();
+  generation.currentStream = stream;
   let sawFirstToken = false;
+  let done: DoneEvent | null = null;
 
   try {
     while (true) {
       // Only the wait for the first token is bounded — once tokens flow the read
       // is unbounded again (a slow tail is not a wedge).
-      const { done, value } = sawFirstToken
-        ? await reader.read()
-        : await readFirstTokenWithDeadline(reader, ttftDeadlineMs);
-      if (done) break;
+      const step = sawFirstToken
+        ? await iterator.next()
+        : await readFirstEventWithDeadline(iterator, stream, ttftDeadlineMs);
+      if (step.done) break;
+      const event = step.value;
+      if (event.kind === "done") {
+        // Usage + tokenizer name for the caller's completion write and receipt.
+        done = event;
+        continue;
+      }
+      // `error` events never reach here: `stream()` throws the translated
+      // LocalInferenceStreamError instead, so the taxonomy lives in one place.
+      if (event.kind !== "token") continue;
       sawFirstToken = true;
       // Transition to generating on the first token (no-op if already there).
       if (getStreamPhase() !== "generating") {
         setStreamPhase("generating");
       }
-      generation.batcher.append(assistantId, value);
+      generation.batcher.append(assistantId, event.text);
     }
     generation.batcher.flushSync();
-    return { status: "completed", finalText: getMessageContent(assistantId) };
+    return { status: "completed", finalText: getMessageContent(assistantId), done };
   } catch (error) {
     generation.batcher.flushSync();
     // The abort signal distinguishes a user-stop / load-time abort (the message
     // is already finalized by interruptActiveGeneration) from a genuine runtime
     // failure that the caller must surface via applyLocalGenerationError.
     if (generation.abortController.signal.aborted) {
-      return { status: "aborted", finalText: getMessageContent(assistantId) };
+      return { status: "aborted", finalText: getMessageContent(assistantId), done };
     }
-    return { status: "error", finalText: getMessageContent(assistantId), error };
+    return { status: "error", finalText: getMessageContent(assistantId), error, done };
   } finally {
-    // Release this generation's reader slot if it still points at our reader.
-    if (generation.currentReader === reader) {
-      generation.currentReader = null;
+    // Release this generation's stream slot if it still points at our stream.
+    if (generation.currentStream === stream) {
+      generation.currentStream = null;
     }
   }
 }

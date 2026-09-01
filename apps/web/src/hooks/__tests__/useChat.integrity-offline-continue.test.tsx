@@ -20,6 +20,8 @@ import { renderHook, act } from "@testing-library/react";
 
 import type { SlotState } from "../../local-ai/lifecycle/slots";
 import type { Slot } from "../../local-ai/types";
+import type { TokenStream } from "../../local-ai/runtime/stream";
+import { scriptedTokenStream } from "../../__tests__/helpers/token-stream";
 
 type StreamScript = { tokens: string[] };
 
@@ -47,18 +49,9 @@ const shared = vi.hoisted(() => {
 
 const TEST_MODEL_ID = shared.TEST_MODEL_ID;
 
-vi.mock("../../local-ai/adapters/useChatLegacyShim", () => ({
-  createLocalAiLegacyInference: () => ({
-    generate: (): ReadableStream<string> => {
-      const tokens = shared.scripts.shift()?.tokens ?? [];
-      return new ReadableStream<string>({
-        start(controller) {
-          for (const t of tokens) controller.enqueue(t);
-          controller.close();
-        },
-      });
-    },
-  }),
+vi.mock("../../local-ai/runtime/stream", () => ({
+  stream: (): TokenStream =>
+    scriptedTokenStream({ tokens: shared.scripts.shift()?.tokens ?? [] }),
 }));
 
 vi.mock("../../local-ai/lifecycle/slots", () => ({
@@ -79,14 +72,6 @@ vi.mock("../../local-ai/lifecycle/slots", () => ({
   setSlotStatus: () => {},
   subscribe: () => () => {},
   getDemotedFrom: () => undefined,
-}));
-
-vi.mock("../../local-ai/runtime/usage-store", () => ({
-  getLastUsage: () => null,
-  getLastTemplateName: () => null,
-  setLastUsage: () => {},
-  setLastTemplateName: () => {},
-  ranToCapFromUsage: () => false,
 }));
 
 vi.mock("../../local-ai/lifecycle/generation-receipt", () => ({

@@ -24,6 +24,8 @@ import { renderHook, act } from "@testing-library/react";
 
 import type { SlotState } from "../../local-ai/lifecycle/slots";
 import type { Slot } from "../../local-ai/types";
+import type { TokenStream } from "../../local-ai/runtime/stream";
+import { scriptedTokenStream } from "../../__tests__/helpers/token-stream";
 
 // ─── Scripted-stream shim seam (mirrors the characterization net) ──────────
 
@@ -66,9 +68,7 @@ const shared = vi.hoisted(() => {
     makeEmptySmartSlot,
     generateCalls: [] as GenerateCall[],
     scripts: [] as StreamScript[],
-    lastUsage: null as
-      | { promptTokens?: number; completionTokens?: number; maxTokens?: number }
-      | null,
+    lastUsage: null as { promptTokens?: number; completionTokens?: number } | null,
     lastTemplateName: null as string | null,
     fastSlotState: undefined as SlotState | undefined,
     smartSlotState: undefined as SlotState | undefined,
@@ -80,24 +80,24 @@ const makeReadyFastSlot = shared.makeReadyFastSlot;
 const makeEmptySmartSlot = shared.makeEmptySmartSlot;
 const generateCalls = shared.generateCalls;
 
-vi.mock("../../local-ai/adapters/useChatLegacyShim", () => ({
-  createLocalAiLegacyInference: () => ({
-    generate: (
-      messages: Array<{ role: string; content: string }>,
-      modelId: string,
-      options: Record<string, unknown> | undefined,
-    ): ReadableStream<string> => {
-      shared.generateCalls.push({ messages, modelId, options });
-      const script = shared.scripts.shift();
-      const tokens = script?.tokens ?? [];
-      return new ReadableStream<string>({
-        start(controller) {
-          for (const t of tokens) controller.enqueue(t);
-          controller.close();
-        },
-      });
-    },
-  }),
+vi.mock("../../local-ai/runtime/stream", () => ({
+  stream: (
+    messages: Array<{ role: string; content: string }>,
+    modelId: string,
+    options: Record<string, unknown> | undefined,
+  ): TokenStream => {
+    shared.generateCalls.push({ messages, modelId, options });
+    return scriptedTokenStream({
+      tokens: shared.scripts.shift()?.tokens ?? [],
+      // Usage rides the terminating `done` event since R4b; `shared.lastUsage`
+      // is what this generation reports. `maxTokens` is NOT part of it — the
+      // adapter reports what it produced, and useChat echoes the budget it
+      // requested.
+      done: { ...(shared.lastUsage ?? {}), ...(shared.lastTemplateName != null
+        ? { tokenizerName: shared.lastTemplateName }
+        : {}) },
+    });
+  },
 }));
 
 vi.mock("../../local-ai/lifecycle/slots", () => ({
@@ -118,22 +118,6 @@ vi.mock("../../local-ai/lifecycle/slots", () => ({
   setSlotStatus: () => {},
   subscribe: () => () => {},
   getDemotedFrom: () => undefined,
-}));
-
-vi.mock("../../local-ai/runtime/usage-store", () => ({
-  getLastUsage: () => shared.lastUsage,
-  getLastTemplateName: () => shared.lastTemplateName,
-  setLastUsage: (u: typeof shared.lastUsage) => {
-    shared.lastUsage = u;
-  },
-  setLastTemplateName: (n: string | null) => {
-    shared.lastTemplateName = n;
-  },
-  ranToCapFromUsage: (u: { completionTokens?: number; maxTokens?: number } | null | undefined) =>
-    u?.completionTokens != null
-    && u.maxTokens != null
-    && u.maxTokens > 0
-    && u.completionTokens >= u.maxTokens,
 }));
 
 vi.mock("../../local-ai/lifecycle/generation-receipt", () => ({
@@ -201,18 +185,18 @@ function finalUserTurn(index: number): string {
 
 /**
  * What the REAL per-model profile machinery resolves for an intent, in the
- * option shape `buildLocalGenerationOptions` emits. Computed here rather than
+ * option shape `assemble()` emits. Computed here rather than
  * transcribed so a profile change moves the expectation with it.
  */
 function expectedOptionsFor(intent: ChatIntent): Record<string, unknown> {
   const profile = getGenerationProfile(intent, true, TEST_MODEL_ID);
   return {
-    max_new_tokens: profile.maxTokens,
+    maxTokens: profile.maxTokens,
     temperature: profile.temperature,
-    ...(profile.topP != null && { top_p: profile.topP }),
-    ...(profile.topK != null && { top_k: profile.topK }),
-    ...(profile.repetitionPenalty != null && { repetition_penalty: profile.repetitionPenalty }),
-    ...(profile.noRepeatNgramSize != null && { no_repeat_ngram_size: profile.noRepeatNgramSize }),
+    ...(profile.topP != null && { topP: profile.topP }),
+    ...(profile.topK != null && { topK: profile.topK }),
+    ...(profile.repetitionPenalty != null && { repetitionPenalty: profile.repetitionPenalty }),
+    ...(profile.noRepeatNgramSize != null && { noRepeatNgramSize: profile.noRepeatNgramSize }),
   };
 }
 

@@ -1,27 +1,52 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Bos Computing LLC
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
-import {
-  _resetUsageStoreForTesting,
-  getLastUsage,
-  ranToCapFromUsage,
-  setLastUsage,
-} from '../usage-store';
+import { ranToCapFromUsage, usageFromDone } from '../usage';
 
-afterEach(() => {
-  _resetUsageStoreForTesting();
-});
-
-describe('usage-store', () => {
-  it('round-trips the last usage, including maxInterTokenGapMs', () => {
-    setLastUsage({ promptTokens: 10, completionTokens: 20, maxTokens: 512, maxInterTokenGapMs: 333 });
-    expect(getLastUsage()).toEqual({
+describe('usageFromDone', () => {
+  it('carries every field the done event reports, plus the REQUESTED budget', () => {
+    expect(
+      usageFromDone(
+        {
+          kind: 'done',
+          finishReason: 'length',
+          promptTokens: 10,
+          completionTokens: 20,
+          maxInterTokenGapMs: 333,
+        },
+        512,
+      ),
+    ).toEqual({
+      finishReason: 'length',
       promptTokens: 10,
       completionTokens: 20,
       maxTokens: 512,
       maxInterTokenGapMs: 333,
+    });
+  });
+
+  it('keeps a null maxInterTokenGapMs (fewer than two tokens streamed) distinct from absent', () => {
+    expect(usageFromDone({ kind: 'done', maxInterTokenGapMs: null }, 64).maxInterTokenGapMs)
+      .toBeNull();
+    expect('maxInterTokenGapMs' in usageFromDone({ kind: 'done' }, 64)).toBe(false);
+  });
+
+  it('still records the requested budget when the adapter emitted no done event', () => {
+    // The pre-R4b shim's `!lastUsageRecorded` branch: downstream truncation and
+    // ran-to-cap logic needs the cap even when the counts never arrived.
+    expect(usageFromDone(null, 512)).toEqual({ maxTokens: 512 });
+  });
+
+  it('is empty when neither a done event nor a requested budget exists', () => {
+    expect(usageFromDone(null, undefined)).toEqual({});
+  });
+
+  it('omits absent counts rather than defaulting them to zero', () => {
+    expect(usageFromDone({ kind: 'done', completionTokens: 3 }, 128)).toEqual({
+      completionTokens: 3,
+      maxTokens: 128,
     });
   });
 });

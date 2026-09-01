@@ -4,7 +4,7 @@
 /**
  * Shared user-facing error messages for the local-AI adapter layer.
  *
- * Centralised here so that `useChat.ts` and `useChatLegacyShim.ts` reference
+ * Centralised here so that `useChat.ts` and `runtime/stream.ts` reference
  * the same string — preventing drift between the two call sites.
  */
 

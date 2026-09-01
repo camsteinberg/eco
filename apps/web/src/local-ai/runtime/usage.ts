@@ -2,26 +2,25 @@
 // Copyright (C) 2026 Bos Computing LLC
 
 /**
- * Usage store — last-generation token counts for the v1.0 local-AI path.
+ * Token usage for one on-device generation — the shape, and the two pure
+ * functions that read it.
  *
- * `runtime/lifecycle.generate()` emits a `done` event carrying
- * `promptTokens` and `completionTokens`. The legacy-shim adapter
- * captures the values here so `useChat` can read them after the stream
- * closes.
+ * Until R4b this module was a `lastUsage` SINGLETON: the legacy stream shim
+ * wrapped tokens in a `ReadableStream<string>`, which had nowhere to put usage,
+ * so it wrote the terminating `done` event's counts here and `useChat` read
+ * them back after the stream closed. That was correct only because exactly one
+ * local generation can run at a time, and it was documented as needing to
+ * become "usage threaded through the `done` event" the moment that changed.
  *
- * SINGLETON CONSTRAINT: This module holds a single module-level
- * `lastUsage` value. It is correct for v1.0 because only one local
- * generation can run at a time (lifecycle singleton + lock + cooldown
- * enforce serial generation). If a future milestone adds parallel
- * browser-local chats, this becomes incorrect — the second generation
- * would overwrite the first's usage before useChat reads it. The
- * migration path is to thread usage through the `done` event as an
- * awaited value rather than a side-channel store.
+ * R4b made `useChat` consume `AsyncIterable<TokenEvent>` directly, so the
+ * `done` event reaches the caller. The singleton is gone; what remains is the
+ * type, the mapping off the event, and the ran-to-cap predicate.
  */
 
 import type { CjkSuppressionTelemetry } from './cjk-suppression';
 import type { ConfidenceSummary } from './confidence';
 import type { KvReuseTelemetry } from './kv-cache';
+import type { DoneEvent } from './stream';
 
 export type LocalAiUsage = {
   /** Why the generation stopped: EOS, hit token cap, or externally aborted. */
@@ -58,21 +57,32 @@ export type LocalAiUsage = {
   confidence?: ConfidenceSummary;
 };
 
-let lastUsage: LocalAiUsage | null = null;
-
 /**
- * The tokenizer/chat-template name reported by the adapter on the `done`
- * event. Stored alongside usage so `useChat` can thread it into the
- * generation receipt's `templateName` field for diagnostics.
+ * Build the usage record for a finished generation.
+ *
+ * `maxTokens` is the budget the caller REQUESTED — the adapter reports what it
+ * produced, not what it was allowed, so the echo has to come from the request
+ * side. Everything else is the terminating `done` event verbatim. A generation
+ * that ended without a `done` event (adapter stopped early) still records the
+ * requested budget, so the downstream "possibly truncated" and ran-to-cap logic
+ * has something to work with.
  */
-let lastTemplateName: string | null = null;
-
-export function setLastUsage(usage: LocalAiUsage | null): void {
-  lastUsage = usage;
-}
-
-export function getLastUsage(): LocalAiUsage | null {
-  return lastUsage;
+export function usageFromDone(
+  done: DoneEvent | null | undefined,
+  maxTokens: number | undefined,
+): LocalAiUsage {
+  return {
+    ...(done?.finishReason != null ? { finishReason: done.finishReason } : {}),
+    ...(done?.promptTokens != null ? { promptTokens: done.promptTokens } : {}),
+    ...(done?.completionTokens != null ? { completionTokens: done.completionTokens } : {}),
+    ...(maxTokens != null ? { maxTokens } : {}),
+    ...(done?.kvReuse != null ? { kvReuse: done.kvReuse } : {}),
+    ...(done?.cjkSuppression != null ? { cjkSuppression: done.cjkSuppression } : {}),
+    ...(done?.maxInterTokenGapMs !== undefined
+      ? { maxInterTokenGapMs: done.maxInterTokenGapMs }
+      : {}),
+    ...(done?.confidence != null ? { confidence: done.confidence } : {}),
+  };
 }
 
 /**
@@ -90,18 +100,4 @@ export function ranToCapFromUsage(usage: LocalAiUsage | null | undefined): boole
     && usage.maxTokens > 0
     && usage.completionTokens >= usage.maxTokens
   );
-}
-
-export function setLastTemplateName(name: string | null): void {
-  lastTemplateName = name;
-}
-
-export function getLastTemplateName(): string | null {
-  return lastTemplateName;
-}
-
-/** Test-only: reset between tests. */
-export function _resetUsageStoreForTesting(): void {
-  lastUsage = null;
-  lastTemplateName = null;
 }
