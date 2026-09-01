@@ -229,7 +229,10 @@ const CONTROL_SAMPLING_TODAY: Readonly<Record<string, Readonly<Record<string, st
     "candidate/lfm2.5-1.2b-instruct-q4-onnx": "deep:2048/0.3",
     "candidate/lfm2.5-350m-onnx": "deep:384/0.45",
     "candidate/qwen3.5-2b-onnx": "deep:2048/0.6",
-    "candidate/gemma-4-e2b-litert": "deep:1536/0.42",
+    // R3a lowered this model's generation ceiling from 2048 to 1024: at 2048
+    // against its 2048 contextTokens there was no room left for the system
+    // prompt or history. deep 1536 -> 1024; the sampling is untouched.
+    "candidate/gemma-4-e2b-litert": "deep:1024/0.42",
     "candidate/qwen2.5-0.5b-mlc": "deep:2048/0.6",
     "candidate/granite-4.0-350m-onnx": "deep:512/0.6",
     "candidate/smollm2-360m-instruct-onnx": "deep:512/0.6",
@@ -587,8 +590,11 @@ describe("reply recovery — what the fix changed", () => {
         `"expand" is below the depth ceiling on ${modelId}`,
       ).toBe(getGenerationProfile("deep", true, modelId).maxTokens);
     }
-    // On LiteRT specifically, that is 1536 where the control used to get 768.
-    expect(resolveControl("expand", LITERT_MODEL_ID).maxTokens).toBe(1536);
+    // On LiteRT specifically, that is 1024 where the control used to get 768.
+    // It was 1536 until R3a lowered this model's generation ceiling to 1024 —
+    // the depth ceiling moved, and "expand" tracks it, which is the property
+    // this test guards.
+    expect(resolveControl("expand", LITERT_MODEL_ID).maxTokens).toBe(1024);
   });
 });
 

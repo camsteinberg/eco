@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Bos Computing LLC
 
-import { getCatalog } from "../local-ai/catalog/catalog";
+import { getModel } from "../local-ai/catalog/catalog";
 import { instructionParagraph, isTextRepairAsk, isTextTransformAsk } from "./ask-text";
 import {
   DEEP_RE,
@@ -37,124 +37,22 @@ type LocalGenerationProfileOptions = {
   allowValidationModel?: boolean;
 };
 
-// ─── Model metadata for generation profiles ──────────────────────────────
+// ─── Eval-lane model metadata for generation profiles ───────────────────
 //
-// The generation-profile path needs family, qualityTier, maxNewTokens, and
-// generationDefaults — fields that live on the legacy LocalModelConfig but
-// not on the v1 ModelConfig. This inline map provides the exact values that
-// the legacy catalog carried for each v1 model.
+// SHIPPING CATALOG MODELS ARE NOT HERE. Their family, budget and sampling live
+// in `local-ai/catalog/catalog-data.json` and resolve through
+// `getInstructionModelWithOptions` below — adding a shipping model is a
+// one-file change.
+//
+// What remains is the eval lane: benchmark and validation-harness candidates
+// that `allowValidationModel: true` opts into. They are not in the shipping
+// catalog and not in the user bundle. Their sampling resolves through the
+// eval-lane maps in `local-model-generation-profiles.ts`; entries with no
+// profile row and no fallback family (smollm3, bitnet) fall through to the
+// quality-tier baseline budgets, which is the intended behavior.
 
 const CHAT_INTENT_MODEL_DATA: Record<string, ChatIntentModelSlice> = {
-  "local/qwen3-0.6b": {
-    id: "local/qwen3-0.6b",
-    family: "qwen3",
-    qualityTier: "fast",
-    maxNewTokens: { webgpu: 512 },
-    generationDefaults: {
-      topP: 0.95,
-      topK: 20,
-      repetitionPenalty: 1.08,
-      intentOverrides: {
-        writing: { topP: 0.92 },
-      },
-    },
-  },
-  // No-GPU (WASM/CPU-EP) floor models: the deeper q4 Granite and the lightest int8
-  // SmolLM2. Small instruct models that ride the generic Qwen slice (QWEN_GEN via
-  // PROFILE_BY_MODEL_ID). maxNewTokens caps at 512 like the retired qwen3-0.6b floor:
-  // these run on the slow CPU EP (~3-8 words/s), so a 1024/2048 budget would make a
-  // "deep"/"expand" answer take minutes on a phone. EOS ends normal replies well before
-  // the cap. Granite is a different family (outside the v1 LocalModelFamily union), so it
-  // casts to ChatIntentModelSlice — its profile still resolves through the explicit
-  // PROFILE_BY_MODEL_ID (QWEN_GEN) row, not family fallback.
-  "candidate/granite-4.0-350m-onnx": {
-    id: "candidate/granite-4.0-350m-onnx",
-    family: "granite",
-    qualityTier: "fast",
-    maxNewTokens: { webgpu: 512 },
-    generationDefaults: {
-      topP: 0.95,
-      topK: 20,
-      repetitionPenalty: 1.08,
-      intentOverrides: {
-        writing: { topP: 0.92 },
-      },
-    },
-  } as unknown as ChatIntentModelSlice,
-  // SmolLM2 is a different family (outside the v1 LocalModelFamily union), so it casts
-  // to ChatIntentModelSlice — same pattern as smollm3/gemma4 below. Its profile still
-  // resolves through the explicit PROFILE_BY_MODEL_ID (QWEN_GEN) row, not family fallback.
-  "candidate/smollm2-360m-instruct-onnx": {
-    id: "candidate/smollm2-360m-instruct-onnx",
-    family: "smollm2",
-    qualityTier: "fast",
-    maxNewTokens: { webgpu: 512 },
-    generationDefaults: {
-      topP: 0.95,
-      topK: 20,
-      repetitionPenalty: 1.08,
-      intentOverrides: {
-        writing: { topP: 0.92 },
-      },
-    },
-  } as unknown as ChatIntentModelSlice,
-  "candidate/lfm2.5-1.2b-instruct-onnx": {
-    id: "candidate/lfm2.5-1.2b-instruct-onnx",
-    family: "lfm2",
-    qualityTier: "fast",
-    // Default model. 2048 (chat #7) so explain/deep/code get their designed
-    // per-intent budgets instead of being flattened to 1024; the headroom
-    // clamp in useChat keeps long conversations from tripping the
-    // context-safety refusal. EOS ends normal replies well before the cap.
-    maxNewTokens: { webgpu: 2048 },
-  },
-  // The f16-less plain-int4 build of the same 1.2B (PR #137) — same family, tier, and
-  // 2048 budget as its q4f16 sibling above. (Was missing here, falling through to the
-  // default budget; pinned to match the sibling so the two builds route identically.)
-  "candidate/lfm2.5-1.2b-instruct-q4-onnx": {
-    id: "candidate/lfm2.5-1.2b-instruct-q4-onnx",
-    family: "lfm2",
-    qualityTier: "fast",
-    maxNewTokens: { webgpu: 2048 },
-  },
-  "candidate/lfm2.5-350m-onnx": {
-    id: "candidate/lfm2.5-350m-onnx",
-    family: "lfm2",
-    qualityTier: "fast",
-    maxNewTokens: { webgpu: 384 },
-  },
-  // Shipping smart pick (chat #7, graduated 2026-06-11). 2048 webgpu ceiling
-  // — depth is what this model graduated FOR (339-word open-ask floor in the
-  // bake-off); clamping to the legacy smart-tier 1024 would flatten the
-  // designed deep/code budgets exactly like the pre-Wave-1 default did. The
-  // per-intent contextBudget still shapes quick/explain below the ceiling,
-  // and useChat's context-headroom clamp guards long conversations.
-  "candidate/qwen3.5-2b-onnx": {
-    id: "candidate/qwen3.5-2b-onnx",
-    family: "qwen3_5",
-    qualityTier: "smart",
-    maxNewTokens: { webgpu: 2048 },
-  },
-  // Shipping deeper/eco-smart pick (LFM2-2.6B, graduated 2026-08-10 — beats the 2B
-  // on reasoning/history/code at equal speed). 2048 webgpu ceiling to match the
-  // deeper tier it replaces: depth is what it graduated FOR, and the legacy
-  // smart-tier 1024 would flatten the designed deep/code budgets and make "Expand"
-  // (canDeepen) a no-op. The lfm2 family is in the union.
-  "candidate/lfm2-2.6b-onnx": {
-    id: "candidate/lfm2-2.6b-onnx",
-    family: "lfm2",
-    qualityTier: "smart",
-    maxNewTokens: { webgpu: 2048 },
-  },
-  // ─── Lab / validation-harness models (not in v1 catalog) ─────────────
-  // These entries exist so allowValidationModel: true resolves generation
-  // profiles during benchmark and eval harness runs. Their family strings
-  // (smollm3, bitnet) are outside the v1 LocalModelFamily union,
-  // so they cast to ChatIntentModelSlice — runtime profile lookup falls
-  // through to the baseline budgets, which is the intended behavior.
-  //
-  // The remaining Phase-2 eval candidate (qwen3 family) IS in the
-  // LocalModelFamily union, so it is a plain typed entry (no cast).
+  // Phase-2 eval candidate.
   "candidate/qwen3-1.7b-onnx": {
     id: "candidate/qwen3-1.7b-onnx",
     family: "qwen3",
@@ -200,16 +98,6 @@ const CHAT_INTENT_MODEL_DATA: Record<string, ChatIntentModelSlice> = {
       },
     },
   },
-  // WebKit-mobile pick (Qwen2.5-0.5B via WebLLM/MLC). Entry exists so
-  // getInstructionModelWithOptions resolves this model; sampling comes from
-  // PROFILE_BY_MODEL_ID (QWEN_GEN). The 2048 ceiling matches the default
-  // fallback the model had before it was added here.
-  "candidate/qwen2.5-0.5b-mlc": {
-    id: "candidate/qwen2.5-0.5b-mlc",
-    family: "qwen2_5",
-    qualityTier: "fast",
-    maxNewTokens: { webgpu: 2048 },
-  },
   // Runtime bake-off cell: Qwen3-0.6B on MLC — same qwen3 family / fast tier
   // / sampling as local/qwen3-0.6b so the runtime comparison uses the real
   // generation profile. maxNewTokens set to 512 (webgpu) matching the ONNX sibling.
@@ -228,12 +116,11 @@ const CHAT_INTENT_MODEL_DATA: Record<string, ChatIntentModelSlice> = {
     },
   },
   // ─── Chat #7 M2 bake-off candidates (2026-06-10, dev-only lane) ───────
-  // The gemma4 family is outside the v1 LocalModelFamily union, so that entry
-  // casts to ChatIntentModelSlice (same pattern as smollm3/bitnet above);
-  // sampling resolves via id-keyed PROFILE_BY_MODEL_ID entries in
-  // local-model-generation-profiles.ts, never the family fallback.
-  // (qwen3_5 joined the union when Qwen3.5-2B graduated, so the 4B is a
-  // plain typed entry.)
+  // The gemma4 entries carry no `family`: it is optional on the slice and
+  // exists only to reach the eval-lane family fallback, which they never use —
+  // their sampling resolves from an id-keyed row in
+  // local-model-generation-profiles.ts. Omitting it retires the
+  // `as unknown as ChatIntentModelSlice` casts these entries used to need.
   "candidate/qwen3.5-4b-onnx": {
     id: "candidate/qwen3.5-4b-onnx",
     family: "qwen3_5",
@@ -246,37 +133,30 @@ const CHAT_INTENT_MODEL_DATA: Record<string, ChatIntentModelSlice> = {
   // answers below the incumbent's).
   "candidate/gemma-4-e2b-onnx": {
     id: "candidate/gemma-4-e2b-onnx",
-    family: "gemma4",
     qualityTier: "smart",
     maxNewTokens: { webgpu: 2048 },
-  } as unknown as ChatIntentModelSlice,
+  },
   "candidate/gemma-4-e2b-qat-q4-onnx": {
     id: "candidate/gemma-4-e2b-qat-q4-onnx",
-    family: "gemma4",
     qualityTier: "smart",
     maxNewTokens: { webgpu: 2048 },
-  } as unknown as ChatIntentModelSlice,
-  // Gemma 4 via LiteRT-LM Web — same 2048 ceiling as the smart-tier
-  // incumbent Qwen3.5-2B for a fair depth/richness comparison. Eval-only;
-  // not shipping catalog/default entries.
-  "candidate/gemma-4-e2b-litert": {
-    id: "candidate/gemma-4-e2b-litert",
-    family: "gemma4",
-    qualityTier: "smart",
-    maxNewTokens: { webgpu: 2048 },
-  } as unknown as ChatIntentModelSlice,
+  },
+  // Gemma 4 E4B via LiteRT-LM Web — the eval-only sibling of the shipping E2B
+  // LiteRT entry, on the same runtime-specific slice. Same 2048 ceiling as the
+  // smart-tier incumbent for a fair comparison.
   "candidate/gemma-4-e4b-litert": {
     id: "candidate/gemma-4-e4b-litert",
-    family: "gemma4",
     qualityTier: "smart",
     maxNewTokens: { webgpu: 2048 },
-  } as unknown as ChatIntentModelSlice,
+  },
+  // ─── Lab / validation-harness models ─────────────────────────────────
+  // No profile row and no fallback family, so runtime profile lookup falls
+  // through to the baseline budgets — the intended behavior.
   "local/smollm3-3b": {
     id: "local/smollm3-3b",
-    family: "smollm3",
     qualityTier: "smart",
     maxNewTokens: { webgpu: 1024 },
-  } as unknown as ChatIntentModelSlice,
+  },
   "local/bonsai-1.7b-q1": {
     id: "local/bonsai-1.7b-q1",
     family: "bonsai",
@@ -321,24 +201,13 @@ const CHAT_INTENT_MODEL_DATA: Record<string, ChatIntentModelSlice> = {
   },
   "candidate/bitnet-b158": {
     id: "candidate/bitnet-b158",
-    family: "bitnet",
     qualityTier: "experimental",
     maxNewTokens: { webgpu: 1024 },
-  } as unknown as ChatIntentModelSlice,
+  },
 };
 
 function getChatIntentModel(modelId: string): ChatIntentModelSlice | undefined {
   return CHAT_INTENT_MODEL_DATA[modelId];
-}
-
-// ─── v1 catalog model ID set (replaces getRoutableLocalModels) ───────────
-
-let _catalogIds: Set<string> | null = null;
-function getCatalogIds(): Set<string> {
-  if (!_catalogIds) {
-    _catalogIds = new Set(getCatalog().map((m) => m.id));
-  }
-  return _catalogIds;
 }
 
 // ─── Intent inference ────────────────────────────────────────────────────
@@ -591,25 +460,24 @@ function getLocalMaxTokens(
 }
 
 /**
- * Check whether a model is in the v1 catalog (replaces the legacy
- * getRoutableLocalModels + getSettingsOptInDownloadableLocalModels check).
+ * Resolve the model slice the generation path works from.
+ *
+ * Shipping catalog models come straight from catalog-data.json — the catalog
+ * is the source for their generation ceiling, and `getGenerationProfileSlice`
+ * reads their sampling and per-intent budgets from the same entry. Non-catalog
+ * models fail closed to the baseline profile unless a benchmark or validation
+ * harness opts into the eval lane.
  */
-function isCatalogModel(modelId: string): boolean {
-  return getCatalogIds().has(modelId);
-}
-
 function getInstructionModelWithOptions(
   modelId: string | undefined,
   options: LocalGenerationProfileOptions = {},
 ): ChatIntentModelSlice | undefined {
   if (!modelId) return undefined;
-  // Benchmark/validation harnesses opt in to all known models.
-  if (options.allowValidationModel) {
-    return getChatIntentModel(modelId);
+  const catalogModel = getModel(modelId);
+  if (catalogModel) {
+    return { id: catalogModel.id, maxNewTokens: { webgpu: catalogModel.maxNewTokens.ceiling } };
   }
-  // Production path: only v1 catalog models get model-specific generation
-  // profiles. Non-catalog models fail closed to the baseline profile.
-  if (isCatalogModel(modelId)) {
+  if (options.allowValidationModel) {
     return getChatIntentModel(modelId);
   }
   return undefined;

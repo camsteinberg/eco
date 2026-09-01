@@ -115,6 +115,60 @@ export type ModelLicense = {
   artifactLicenseFile: string | null;
 };
 
+/** The seven chat intents a turn can route to. Mirrors `lib/chat-intent.ts`. */
+export type ModelIntent =
+  | 'quick' | 'explain' | 'deep' | 'code' | 'writing' | 'file' | 'research';
+
+/** The sampling knobs the runtimes can actually honor. */
+export type ModelSampling = {
+  temperature: number;
+  topP?: number;
+  topK?: number;
+  repetitionPenalty?: number;
+  /**
+   * Prompt-inclusive n-gram ban. Transformers.js applies it across the FULL
+   * sequence, prompt included, so it forbids handing the user their own words
+   * back — no shipping catalog entry sets it. Kept on the type because the
+   * eval-lane Bonsai profiles still do.
+   */
+  noRepeatNgramSize?: number;
+};
+
+/**
+ * A model's complete sampling description: the base row plus its per-intent
+ * overrides. Resolution is a single spread —
+ * `{ ...base, ...intentOverrides[intent] }` — so the values written here are
+ * the values the runtime receives.
+ *
+ * An override may restate a base value; that is deliberate, not redundancy.
+ * The per-intent rows are recorded as authored so a future retune of the base
+ * does not silently move an intent that was tuned to its own number.
+ */
+export type ModelGeneration = ModelSampling & {
+  /**
+   * Opt into deterministic CJK-token suppression on non-CJK conversations
+   * (runtime/cjk-suppression.ts). Set ONLY on models with a measured CJK-leak
+   * class — each one is a live surface needing a real-WebGPU verification run.
+   */
+  suppressCjkTokens?: boolean;
+  intentOverrides: Partial<Record<ModelIntent, Partial<ModelSampling>>>;
+};
+
+/**
+ * A model's length budget. The resolved cap for an intent is
+ * `min(intentTokens[intent] ?? default, max, ceiling)`.
+ *
+ * `ceiling` is the model's own generation ceiling — the largest number of new
+ * tokens it may be asked for under ANY intent. Context-window selection
+ * reserves against it before the turn's intent is known.
+ */
+export type ModelMaxNewTokens = {
+  ceiling: number;
+  default: number;
+  max: number;
+  intentTokens: Partial<Record<ModelIntent, number>>;
+};
+
 export type ModelConfig = {
   id: string;
   friendlyName: string;
@@ -145,6 +199,15 @@ export type ModelConfig = {
    * and eval-lane candidates don't have to carry it.
    */
   license?: ModelLicense;
+  /**
+   * Sampling and length budget. Required for every shipping catalog entry
+   * (`CatalogModel` makes them non-optional and catalog.ts validates them at
+   * load); optional on the type so non-catalog fixtures and eval-lane
+   * candidates, whose profiles still live in
+   * `lib/local-model-generation-profiles.ts`, don't have to carry them.
+   */
+  generation?: ModelGeneration;
+  maxNewTokens?: ModelMaxNewTokens;
 };
 
 // ─── Below-floor ───────────────────────────────────────────────────────────

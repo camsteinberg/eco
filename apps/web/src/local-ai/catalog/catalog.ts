@@ -31,17 +31,98 @@
  * not in the user bundle. See `docs/design/2026-05-16/vision-and-architecture.md` §2.4.
  */
 
-import type { ModelConfig, ModelLicense } from '../types';
+import type {
+  ModelConfig,
+  ModelGeneration,
+  ModelIntent,
+  ModelLicense,
+  ModelMaxNewTokens,
+} from '../types';
 import catalogData from './catalog-data.json';
 
 /**
- * A shipping catalog entry. Narrower than `ModelConfig`: `license` is optional
- * on the shared type (test fixtures and eval-lane candidates don't carry one),
- * but every entry in catalog-data.json MUST have one — we redistribute the
- * weights, so the license travels with them. catalog.test.ts pins the
- * invariant at runtime; this type gives catalog consumers it at compile time.
+ * A shipping catalog entry. Narrower than `ModelConfig`: `license`,
+ * `generation` and `maxNewTokens` are optional on the shared type (test
+ * fixtures and eval-lane candidates don't carry them), but every entry in
+ * catalog-data.json MUST have all three — we redistribute the weights, so the
+ * license travels with them, and the catalog is the single description of how
+ * a model is sampled and how long it may generate. `assertCatalogEntry` below
+ * pins that at load; this type gives catalog consumers it at compile time.
  */
-export type CatalogModel = ModelConfig & { license: ModelLicense };
+export type CatalogModel = ModelConfig & {
+  license: ModelLicense;
+  generation: ModelGeneration;
+  maxNewTokens: ModelMaxNewTokens;
+};
+
+const INTENTS: readonly ModelIntent[] = [
+  'quick', 'explain', 'deep', 'code', 'writing', 'file', 'research',
+];
+
+const SAMPLING_KEYS = [
+  'temperature', 'topP', 'topK', 'repetitionPenalty', 'noRepeatNgramSize',
+] as const;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function bad(id: string, what: string): never {
+  throw new Error(`catalog-data.json: model "${id}" ${what}`);
+}
+
+function assertFiniteNumber(value: unknown, id: string, path: string): void {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    bad(id, `has no finite \`${path}\` (got ${JSON.stringify(value)})`);
+  }
+}
+
+function assertSampling(value: unknown, id: string, path: string, needsTemperature: boolean): void {
+  if (!isRecord(value)) bad(id, `has no \`${path}\` object`);
+  if (needsTemperature) assertFiniteNumber(value.temperature, id, `${path}.temperature`);
+  for (const key of SAMPLING_KEYS) {
+    if (value[key] !== undefined) assertFiniteNumber(value[key], id, `${path}.${key}`);
+  }
+}
+
+/**
+ * Fail loudly, at module load, on a catalog entry missing the data the serving
+ * path needs. Deliberately NOT a silent fallback to a house default: an entry
+ * that resolves to someone else's sampling is the drift class this fold exists
+ * to end.
+ */
+function assertCatalogEntry(raw: unknown): void {
+  if (!isRecord(raw) || typeof raw.id !== 'string') {
+    throw new Error('catalog-data.json: entry has no string `id`');
+  }
+  const id = raw.id;
+  if (!isRecord(raw.license)) bad(id, 'has no `license` block');
+
+  assertSampling(raw.generation, id, 'generation', true);
+  const generation = raw.generation as Record<string, unknown>;
+  if (!isRecord(generation.intentOverrides)) bad(id, 'has no `generation.intentOverrides` object');
+  for (const [intent, override] of Object.entries(generation.intentOverrides)) {
+    if (!INTENTS.includes(intent as ModelIntent)) {
+      bad(id, `has an unknown intent "${intent}" in \`generation.intentOverrides\``);
+    }
+    assertSampling(override, id, `generation.intentOverrides.${intent}`, false);
+  }
+
+  if (!isRecord(raw.maxNewTokens)) bad(id, 'has no `maxNewTokens` object');
+  const budget = raw.maxNewTokens;
+  for (const key of ['ceiling', 'default', 'max'] as const) {
+    assertFiniteNumber(budget[key], id, `maxNewTokens.${key}`);
+  }
+  if (!isRecord(budget.intentTokens)) bad(id, 'has no `maxNewTokens.intentTokens` object');
+  for (const [intent, tokens] of Object.entries(budget.intentTokens)) {
+    if (!INTENTS.includes(intent as ModelIntent)) {
+      bad(id, `has an unknown intent "${intent}" in \`maxNewTokens.intentTokens\``);
+    }
+    assertFiniteNumber(tokens, id, `maxNewTokens.intentTokens.${intent}`);
+  }
+}
+
+for (const entry of catalogData.models as readonly unknown[]) assertCatalogEntry(entry);
 
 const MODELS: readonly CatalogModel[] = Object.freeze(
   (catalogData.models as CatalogModel[]).map((model) => Object.freeze(model)),

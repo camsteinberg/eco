@@ -463,8 +463,12 @@ const MODEL_MATRIX_TODAY: Readonly<Record<string, string>> = {
     "quick:384 explain:384 deep:384 code:384 writing:384 file:384 research:384",
   "candidate/qwen3.5-2b-onnx":
     "quick:1024 explain:1536 deep:2048 code:2048 writing:1536 file:2048 research:2048",
+  // deep/file/research were 1536 until R3a lowered this model's generation
+  // ceiling from 2048 to 1024. Its per-intent budget table is unchanged; the
+  // ceiling now binds, because 2048 generation against 2048 contextTokens left
+  // nothing for the system prompt or history.
   "candidate/gemma-4-e2b-litert":
-    "quick:256 explain:768 deep:1536 code:1024 writing:1024 file:1536 research:1536",
+    "quick:256 explain:768 deep:1024 code:1024 writing:1024 file:1024 research:1024",
   "candidate/qwen2.5-0.5b-mlc":
     "quick:1024 explain:1536 deep:2048 code:2048 writing:1536 file:2048 research:2048",
   "candidate/granite-4.0-350m-onnx":
