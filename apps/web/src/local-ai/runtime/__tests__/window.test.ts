@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { selectWindow, EVICTION_QUANTUM_FRACTION } from '../window';
+import { selectWindow } from '../window';
 import type { ChatMessage } from '../types';
 
 /**
@@ -250,26 +250,36 @@ describe('selectWindow — the counter', () => {
   });
 });
 
-describe('selectWindow — the eviction quantum', () => {
-  it('holds the window start still across turns that would otherwise slide it', async () => {
-    // The KV-reuse gate is a strict-prefix check: a start that moves every turn
-    // reprefills every turn. Quantized eviction is what buys the stability.
+describe('selectWindow — minimal whole-message eviction', () => {
+  it('keeps the oldest message that still fits and evicts nothing more', async () => {
+    const budget = { contextTokens: 1024, maxNewTokens: 128, countTokens: wordCounter };
+    const messages = [SYSTEM, ...conversation(24)];
+    const selection = await selectWindow(messages, budget);
+    const start = selection.windowStartIndex;
+    expect(start).toBeGreaterThan(1);
+
+    const count = async (from: number): Promise<number> => {
+      let total = 0;
+      for (const m of messages.slice(from)) total += (await wordCounter(m.content)) ?? 0;
+      return total;
+    };
+    // The kept window fits the budget, and the fit is minimal: two messages
+    // earlier always overflows (one earlier may be an assistant reply skipped
+    // only so the window opens on a user turn).
+    expect(await count(start)).toBeLessThanOrEqual(selection.historyBudgetTokens);
+    expect(await count(start - 2)).toBeGreaterThan(selection.historyBudgetTokens);
+  });
+
+  it('never moves the start backward as a chat grows', async () => {
     const budget = { contextTokens: 1024, maxNewTokens: 128, countTokens: wordCounter };
     const starts: number[] = [];
     for (let pairs = 22; pairs <= 27; pairs++) {
       const selection = await selectWindow([SYSTEM, ...conversation(pairs)], budget);
       starts.push(selection.windowStartIndex);
     }
-
-    // Some turns share a start; the start never moves backward.
-    expect(new Set(starts).size).toBeLessThan(starts.length);
     for (let i = 1; i < starts.length; i++) {
       expect(starts[i]!).toBeGreaterThanOrEqual(starts[i - 1]!);
     }
-  });
-
-  it('is an eighth of the history budget', () => {
-    expect(EVICTION_QUANTUM_FRACTION).toBe(1 / 8);
   });
 });
 
