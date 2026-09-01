@@ -41,6 +41,24 @@
         "max": 4096,
         "intentTokens": { "quick": 1024, "explain": 1536, "deep": 2048, "code": 2048, "writing": 1536, "file": 2048, "research": 2048 }
       },
+      "compat": {
+        "requireWebgpu": false,
+        "minDeviceMemoryGB": 4,
+        "allowedBrowsers": [
+          "chromium",
+          "safari",
+          "firefox",
+          "mobile",
+          "unknown"
+        ],
+        "warnIfMobile": false,
+        "_rationale": "'unknown' is included: a user-agent we cannot classify gets the same unvalidated-browser tier as safari/firefox rather than a categorical rejection. The capability probes (WebGPU/WASM, memory floor, CPU-EP) plus the first-use smoke gate are the real gate — the UA class was the only thing wholesale-declining these users. Premium models stay engine-validated (chromium-only), so this only opens the conservative floor tier."
+      },
+      "display": {
+        "friendlyName": "Eco Compact (Qwen)",
+        "qualityPhrase": "Small + capable · good for limited devices",
+        "provider": "Alibaba"
+      },
       "bestFor": "Quick chat, short explanations, lightweight writing — works across devices.",
       "knownLimitation": "Conservative default for fast private answers; larger or constraint-heavy tasks need a stronger model.",
       "evidenceTier": "proven",
@@ -102,6 +120,26 @@
         "max": 4096,
         "intentTokens": { "quick": 1024, "explain": 1536, "deep": 2048, "code": 2048, "writing": 1536, "file": 2048, "research": 2048 }
       },
+      "compat": {
+        "requireWebgpu": true,
+        "minDeviceMemoryGB": 4,
+        "allowedBrowsers": [
+          "chromium"
+        ],
+        "warnIfMobile": true,
+        "_rationale": "4GB floor (device-coverage audit, 2026-08-17): the browser's reported device-memory value caps at 8 and rounds DOWN to {..,2,4,8}, so every real 5-7GB laptop reports 4. An 8 floor is therefore a binary 'reports exactly 8' gate that demoted the entire 4-7GB band to the weak qwen3-0.6b / 350m floor — for a model whose download is only 0.76GB. The 4GB floor recovers that band to the good 1.2B; the first-use smoke gate + the >=2-download-fail demotion backstop the rarer genuine-4GB device. (The 8GB floor was inherited from the heavier Bonsai/2B precedent, never measured for this build.)"
+      },
+      "display": {
+        "friendlyName": "Eco Fast (Liquid)",
+        "qualityPhrase": "The everyday pick · quick, clear answers",
+        "provider": "Liquid AI",
+        "welcome": {
+          "name": "Eco Fast",
+          "tagline": "Smaller and faster. Good for everyday questions.",
+          "speed": 4,
+          "depth": 2
+        }
+      },
       "bestFor": "The fastest, lightest local model — quick instruction-tuned replies for chat, writing, reasoning, and light code, and the everyday pick on low-memory devices and other browsers.",
       "knownLimitation": "Validated on high-memory Chromium WebGPU; broader device classes (Safari/Firefox/mobile/low-memory) not yet proven. Shallower answers than the everyday pick, and open-world factual answers can be wrong without grounding.",
       "evidenceTier": "proven",
@@ -161,6 +199,29 @@
         "max": 4096,
         "intentTokens": { "quick": 1024, "explain": 1536, "deep": 2048, "code": 2048, "writing": 1536, "file": 2048, "research": 2048 }
       },
+      "compat": {
+        "requireWebgpu": false,
+        "minDeviceMemoryGB": 4,
+        "allowedBrowsers": [
+          "chromium"
+        ],
+        "warnIfMobile": true,
+        "cpuEpIncompatible": true,
+        "requireNoShaderF16": true,
+        "_rationale": "LFM2.5-1.2B (onnx-q4) — the f16-less-but-WebGPU everyday pick. Same model as the q4f16 default, but the plain-int4 build that needs no shader-f16, so it stays ASSIGNABLE on older-Intel-desktop / Adreno-Android adapters where every q4f16 build is filtered out — giving those devices the good 1.2B as the first impression instead of the weak 350M starter. requireNoShaderF16 scopes it to f16-LESS adapters (the q4f16 sibling wins on f16-capable ones, so the two never surface as duplicate rows). cpuEpIncompatible: its block-quantized embeddings emit GatherBlockQuantized, which runs on the WebGPU EP but not the CPU/WASM EP — so it declines on wasm-only (qwen3-0.6b stays that floor), just like the 350M. 4GB floor: same rationale as the q4f16 sibling — it recovers the good f16-less 1.2B for the 4-7GB f16-less-WebGPU band (older-Intel iGPU / Adreno), which previously saw only the 350m extraction-type model."
+      },
+      "display": {
+        "friendlyName": "Eco Fast (Liquid)",
+        "qualityPhrase": "The everyday pick · quick, clear answers",
+        "provider": "Liquid AI",
+        "welcome": {
+          "name": "Eco Fast",
+          "tagline": "Smaller and faster. Good for everyday questions.",
+          "speed": 4,
+          "depth": 2
+        },
+        "_rationale": "The plain-int4 build of the same 1.2B, for older graphics hardware — same model, so same 'Eco Fast' branding and card copy (f16-less users get the same experience). dedupeByDisplayName collapses it against its q4f16 sibling on purpose."
+      },
       "bestFor": "The fast, light everyday model — quick instruction-tuned replies for chat, writing, reasoning, and light code, and the automatic pick on older graphics hardware that can't run the standard build.",
       "knownLimitation": "A slightly larger download than the standard build of the same model, and open-world factual answers can be wrong without grounding.",
       "evidenceTier": "predicted",
@@ -217,6 +278,31 @@
         "default": 1024,
         "max": 4096,
         "intentTokens": { "quick": 1024, "explain": 1536, "deep": 2048, "code": 2048, "writing": 1536, "file": 2048, "research": 2048 }
+      },
+      "compat": {
+        "requireWebgpu": false,
+        "minDeviceMemoryGB": 3,
+        "allowedBrowsers": [
+          "chromium",
+          "safari",
+          "firefox",
+          "mobile",
+          "unknown"
+        ],
+        "warnIfMobile": false,
+        "cpuEpIncompatible": true,
+        "_rationale": "LFM2.5-350M (onnx-q4). Runs on the WebGPU EP (incl. f16-less adapters — it's the light onnx-q4 rung there), but its block-quantized embeddings emit GatherBlockQuantized, which ort-web's CPU/WASM EP does NOT implement — so it hard-fails 'Kernel not found' on any wasm-only device. cpuEpIncompatible keeps it out of the WASM setup cascade (Finding E), leaving qwen3-0.6b as the sole WASM floor. requireWebgpu stays false so it remains offerable on the f16-less-but-WebGPU tier where it genuinely loads. 'unknown' included for the same policy as qwen3-0.6b: an unclassifiable UA gets the floor tier, not a wholesale decline."
+      },
+      "display": {
+        "friendlyName": "Eco Light (Liquid)",
+        "qualityPhrase": "Smallest footprint · best for older devices",
+        "provider": "Liquid AI",
+        "welcome": {
+          "name": "Eco Light",
+          "tagline": "Smallest and quickest. Best for older devices.",
+          "speed": 4,
+          "depth": 1
+        }
       },
       "bestFor": "Compact, fast quick-chat on lower-memory and mobile devices.",
       "knownLimitation": "Smaller model with narrower quality envelope; not a universal Smart-slot pick.",
@@ -276,6 +362,20 @@
         "default": 1024,
         "max": 4096,
         "intentTokens": { "quick": 1024, "explain": 1536, "deep": 2048, "code": 2048, "writing": 1536, "file": 2048, "research": 2048 }
+      },
+      "compat": {
+        "requireWebgpu": true,
+        "minDeviceMemoryGB": 8,
+        "allowedBrowsers": [
+          "chromium"
+        ],
+        "warnIfMobile": true,
+        "_rationale": "Smart pick (chat #7 graduation). 1.40GB q4f16 weights + near-constant DeltaNet recurrent state sits between Bonsai (1.15GB, 8GB floor) and Phi-3 (2.14GB, 16GB floor); measured only on high-memory hardware, but the Bonsai precedent + the first-use smoke gate make 8GB the honest floor."
+      },
+      "display": {
+        "friendlyName": "Eco (Qwen)",
+        "qualityPhrase": "A larger model · longer, slower answers",
+        "provider": "Alibaba"
       },
       "bestFor": "Deeper, careful answers that follow instructions faithfully and admit uncertainty.",
       "knownLimitation": "Validated on high-memory Chromium WebGPU; slower first token than the lighter Eco Fast model, and other browsers and low-memory devices are not yet proven.",
@@ -341,6 +441,20 @@
         "capabilities.contextTokens": "INHERITED — provenance unknown; 2048 may be our own guess rather than the model's real limit. Falsifier: a measured contextTokens from a context-stress probe, or the publisher's model card stating a larger real context.",
         "maxNewTokens.intentTokens": "INERT AS WRITTEN — `deep`, `file` and `research` are authored at 1536 but the 1024 `ceiling` clamps all three, so each currently resolves to 1024. The authored numbers are kept, not lowered: they are the intended budgets for when the context question is settled, and they become live again the moment a stress probe justifies raising the ceiling. Read the resolved value as `min(intentTokens[intent] ?? default, max, ceiling)`, not as this table alone."
       },
+      "compat": {
+        "requireWebgpu": true,
+        "minDeviceMemoryGB": 8,
+        "allowedBrowsers": [
+          "chromium"
+        ],
+        "warnIfMobile": true,
+        "_rationale": "Gemma 4 E2B via LiteRT (the f16-less C2/C3 answer — model-offering overhaul 2026-06-29). LiteRT is WebGPU-only and Chromium-only by construction (runtime/litert-adapter.ts), so requireWebgpu + chromium. Crucially its `litertlm` format does NOT need shader-f16 (formatRequiresShaderF16 -> false), so the f16 gate keeps it ASSIGNABLE on f16-less adapters where every q4f16 model is filtered out — exactly the desktop-Intel / Adreno-Android hole it fills. 8GB floor matches Bonsai/Qwen (mmap keeps resident weights ~0.8GB of the ~1.9GB download). warnIfMobile: real Android per-tab memory is unvalidated (Track C C3 is provisional) — offered with a caveat, smoke-gated."
+      },
+      "display": {
+        "friendlyName": "Eco Capable (Gemma)",
+        "qualityPhrase": "Strong all-round answers · runs on more devices",
+        "provider": "Google"
+      },
       "bestFor": "Well-rounded answers for chat, writing, reasoning, and code — and it runs on a wide range of devices.",
       "knownLimitation": "A larger download than the lighter models, so the first setup takes a little longer.",
       "evidenceTier": "predicted",
@@ -389,6 +503,25 @@
         "default": 1024,
         "max": 4096,
         "intentTokens": { "quick": 1024, "explain": 1536, "deep": 2048, "code": 2048, "writing": 1536, "file": 2048, "research": 2048 }
+      },
+      "compat": {
+        "requireWebgpu": true,
+        "minDeviceMemoryGB": 0,
+        "allowedBrowsers": [
+          "safari"
+        ],
+        "warnIfMobile": false,
+        "requireWebKitMobile": true,
+        "webkitMobileValidated": true,
+        "_rationale": "Qwen2.5-0.5B served through the WebLLM/MLC runtime — the rung-1 WebKit-mobile pick, and the FIRST model to clear the WebKit-mobile load gate: a real iPhone loads and generates coherent prose within iOS's per-tab memory envelope (whereas every ONNX build crash-loops the tab on load). The MLC engine is WebGPU-only, so requireWebgpu holds — iOS Safari without WebGPU declines to the handoff surface. requireWebKitMobile scopes it to iOS/WebKit mobile ALONE: desktop Safari also classifies 'safari' but is deliberately NOT served here (its envelope is unmeasured for this build) — a desktop-Safari expansion is a later, envelope-gated decision. No memory floor: iOS does not expose a device-memory reading (the profile reports it as 0), and the resident working set is small. `webkitMobileValidated` is what actually lifts the pre-load WebKit-mobile decline for it, earned by that real-device pass."
+      },
+      "display": {
+        "friendlyName": "Eco Mobile (Qwen)",
+        "qualityPhrase": "Made for iPhone · quick private chat on the go",
+        "provider": "Alibaba"
+      },
+      "quirks": {
+        "webllmModelLibFile": "Qwen2-0.5B-Instruct-q4f16_1_cs1k-webgpu.wasm"
       },
       "bestFor": "A tiny, fast model built for iPhone and other Safari mobile browsers — quick private chat and light writing that runs on a phone.",
       "knownLimitation": "Validated on recent iPhone hardware. A small model with a narrower quality envelope: answers are briefer than the everyday pick, and open-world facts can be wrong without grounding.",
@@ -460,6 +593,26 @@
         "max": 4096,
         "intentTokens": { "quick": 1024, "explain": 1536, "deep": 2048, "code": 2048, "writing": 1536, "file": 2048, "research": 2048 }
       },
+      "compat": {
+        "requireWebgpu": false,
+        "requireWasmOnly": true,
+        "minDeviceMemoryGB": 4,
+        "allowedBrowsers": [
+          "chromium",
+          "safari",
+          "firefox",
+          "mobile",
+          "unknown"
+        ],
+        "warnIfMobile": false,
+        "_rationale": "Granite-4.0-350M (onnx-q4) — the no-GPU/WASM DEEPER pick (device-coverage audit, 2026-08-17: replaced Qwen2.5-0.5B in this slot after a headed WASM-EP smoke test proved it loads + generates coherently on ort-web's CPU EP). A class-leading 350M instruction-tuned model — granitemoehybrid config but a DENSE all-attention export (layer_types all 'attention', num_local_experts 0, mamba_* keys inert). Its q4 (MatMulNBits) build runs on the CPU/WASM EP and emits no GatherBlockQuantized, so it is NOT cpuEpIncompatible — unlike the LFM2.5 q4 builds. Universal WASM-floor tier: requireWebgpu false, requireWasmOnly true (a WebGPU-native build is better on any GPU device), all browser classes, 4GB floor."
+      },
+      "display": {
+        "friendlyName": "Eco Basic (Granite)",
+        "qualityPhrase": "Runs on almost any computer · a more capable private chat",
+        "provider": "IBM",
+        "_rationale": "One of the two CPU-EP floor models the weakest / no-GPU devices actually run. Without a branded entry it leaks its raw catalog name ('Granite 4.0 350M') into primary UI (MC-4). The name avoids collisions with 'Eco Light' (350M) and 'Eco Mobile' (the distinct WebGPU/iPhone 0.5B build)."
+      },
       "bestFor": "The no-GPU deeper pick: a class-leading 350M instruction-tuned model that runs on the CPU (WASM) execution provider where GPU builds can't — a more capable everyday chat and writing option than the lightest floor, for older or GPU-less devices.",
       "knownLimitation": "Runs on the CPU so replies are slow (tens of seconds), and open-world factual answers can be wrong without grounding.",
       "evidenceTier": "predicted",
@@ -526,6 +679,25 @@
         "max": 4096,
         "intentTokens": { "quick": 1024, "explain": 1536, "deep": 2048, "code": 2048, "writing": 1536, "file": 2048, "research": 2048 }
       },
+      "compat": {
+        "requireWebgpu": false,
+        "requireWasmOnly": true,
+        "minDeviceMemoryGB": 3,
+        "allowedBrowsers": [
+          "chromium",
+          "safari",
+          "firefox",
+          "mobile",
+          "unknown"
+        ],
+        "warnIfMobile": false,
+        "_rationale": "SmolLM2-360M-Instruct (onnx-int8) — the lightest no-GPU floor for the weakest CPU-only devices. Same int8 CPU-EP-safe rationale as Granite; 3GB floor since the resident set is tiny (~0.36GB weights)."
+      },
+      "display": {
+        "friendlyName": "Eco Tiny (SmolLM)",
+        "qualityPhrase": "The lightest option · for the most limited devices",
+        "provider": "Hugging Face"
+      },
       "bestFor": "The lightest no-GPU floor: a tiny DPO-tuned chat model for the weakest CPU-only devices, where a larger model is too slow to load or run.",
       "knownLimitation": "Very small, so world knowledge is thin and open-ended answers can be shallow; CPU-only generation is slow.",
       "evidenceTier": "predicted",
@@ -583,6 +755,26 @@
         "default": 1024,
         "max": 4096,
         "intentTokens": { "quick": 1024, "explain": 1536, "deep": 2048, "code": 2048, "writing": 1536, "file": 2048, "research": 2048 }
+      },
+      "compat": {
+        "requireWebgpu": true,
+        "minDeviceMemoryGB": 8,
+        "allowedBrowsers": [
+          "chromium"
+        ],
+        "warnIfMobile": true,
+        "_rationale": "LFM2-2.6B — the graduated deeper/smart pick (model-ladder by-eye read 2026-08-10; beats the 2B on reasoning/history/code at equal speed). Same q4f16 shape and floor as the 1.2B/2B: WebGPU + shader-f16 (formatRequiresShaderF16 -> true, so it declines on f16-less adapters), an 8GB floor, Chromium-validated, with-warning on mobile."
+      },
+      "display": {
+        "friendlyName": "Eco Deeper (Liquid)",
+        "qualityPhrase": "A deeper model · stronger reasoning and code",
+        "provider": "Liquid AI",
+        "welcome": {
+          "name": "Eco Deeper",
+          "tagline": "Bigger and slower. Better at reasoning, math, and detail.",
+          "speed": 2,
+          "depth": 4
+        }
       },
       "bestFor": "Deeper reasoning, writing, and code on capable laptops — a larger model for a more careful, thorough answer than the lighter everyday pick.",
       "knownLimitation": "Validated on high-memory Chromium WebGPU; a larger, slower download than the lighter Eco Fast model, and other browsers, low-memory devices, and a second machine are not yet proven.",

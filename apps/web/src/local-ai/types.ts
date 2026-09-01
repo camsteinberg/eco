@@ -169,6 +169,123 @@ export type ModelMaxNewTokens = {
   intentTokens: Partial<Record<ModelIntent, number>>;
 };
 
+/**
+ * A model's device rules — the hardware floor `device/compatibility.ts`
+ * evaluates a `DeviceProfile` against. Every clause a compatibility verdict can
+ * turn on lives here, so a model's device story reads in one place next to the
+ * weights it describes.
+ *
+ * `_rationale` carries the measurement or decision the numbers came from. It is
+ * data, not decoration: a floor with no recorded provenance is exactly what this
+ * fold exists to make visible.
+ */
+export type ModelCompat = {
+  /** Requires WebGPU (cannot run in WASM-only). */
+  requireWebgpu: boolean;
+  /**
+   * Restricts the model to NO-WebGPU (`webgpuSupport === 'wasm-only'`) devices —
+   * the inverse of `requireWebgpu`. Set for the CPU-EP floor models: they clear
+   * the GatherBlockQuantized wall and run on the CPU EP, but decode far slower on
+   * the WebGPU EP than a WebGPU-native build, so on any device WITH WebGPU (full
+   * or f16-less) a WebGPU model is the better pick and these are not offered.
+   * Absent means "no wasm-only restriction."
+   */
+  requireWasmOnly?: boolean;
+  /** Minimum reported device memory in GB. 0 means "no floor". */
+  minDeviceMemoryGB: number;
+  /** Browser engines that have been measured or are confidently predicted. */
+  allowedBrowsers: readonly BrowserClass[];
+  /** If true, the verdict is `'with-warning'` on a mobile form factor. */
+  warnIfMobile: boolean;
+  /**
+   * Restricts the model to iOS/WebKit-mobile devices: any other profile —
+   * desktop (Chromium/Safari/Firefox), Android, or the UA-stripped `'mobile'`
+   * class — is `'unsupported'`. Absent means "no form-factor restriction."
+   */
+  requireWebKitMobile?: boolean;
+  /**
+   * Proven to LOAD and run inside the WebKit-mobile memory envelope by a real
+   * iOS device pass. Until an entry sets this, WebKit-mobile declines it to the
+   * designed handoff surface BEFORE any download — every ONNX build still
+   * crash-loops the tab there (onnxruntime-web fully materializes the weights
+   * into the WASM heap, a multiple of the working set).
+   */
+  webkitMobileValidated?: boolean;
+  /**
+   * The build emits an op onnxruntime-web's WebGPU EP supports but its CPU/WASM
+   * EP does NOT (the proven case: GatherBlockQuantized, from block-quantized
+   * embeddings), so it can never load on a `wasm-only` device. Absent means
+   * "runs on the CPU EP."
+   */
+  cpuEpIncompatible?: boolean;
+  /**
+   * Minimum WebGPU `maxBufferSize` (bytes) the adapter must report. Tightening-only
+   * and dormant: it bites only when BOTH the profile carries a probed
+   * `webgpuMaxBufferBytes` AND the entry declares a floor. No catalog entry
+   * declares one today, so it changes no recommendation.
+   */
+  minMaxBufferBytes?: number;
+  /**
+   * The inverse of the shader-f16 gate: this build is a plain-int4 variant
+   * published SPECIFICALLY for f16-less-but-WebGPU adapters, so it is declined on
+   * an adapter that DOES expose shader-f16 — there its q4f16 sibling is the
+   * better pick, and both would otherwise surface as duplicate rows.
+   */
+  requireNoShaderF16?: boolean;
+  /** Provenance for the rules above — the measurement or decision behind them. */
+  _rationale?: string;
+};
+
+/** Plain-language card copy for the first-run welcome surface. */
+export type ModelWelcomePresentation = {
+  /** Short product name for the card, no vendor suffix, e.g. "Eco Fast". */
+  name: string;
+  /** One plain sentence a casual user understands. */
+  tagline: string;
+  /** 1–4 filled dots: relative snappiness of replies. */
+  speed: number;
+  /** 1–4 filled dots: relative depth / thoroughness. */
+  depth: number;
+};
+
+/**
+ * A model's presentation copy — the benefit-oriented, brand-safe wording a
+ * person actually reads (DESIGN-REFERENCE.md:84, "Never expose model names,
+ * VRAM, or token counts in primary UI"). The raw catalog metadata still appears
+ * behind "Show technical details".
+ *
+ * `friendlyName` is deliberately NOT unique: several entries are the SAME model
+ * in different builds (the f16 and plain-int4 1.2B) and brand identically on
+ * purpose, so `dedupeByDisplayName` collapses them into a single row.
+ */
+export type ModelDisplay = {
+  /** Branded friendly name: "Eco Fast (Liquid)". */
+  friendlyName: string;
+  /** One-line quality phrase: "Quickest replies · small footprint". */
+  qualityPhrase: string;
+  /** Attribution for the provenance line: "Liquid AI". */
+  provider: string;
+  /** Curated welcome-card copy. Absent falls back to a size-scaled heuristic. */
+  welcome?: ModelWelcomePresentation;
+  /** Why this copy reads the way it does, where that is not self-evident. */
+  _rationale?: string;
+};
+
+/**
+ * Per-model runtime facts only one adapter cares about. Named behaviours only —
+ * a quirk field exists because exactly one code path reads it, never as a place
+ * to park a model id.
+ */
+export type ModelQuirks = {
+  /**
+   * Filename of the vendored WebLLM `model_lib` wasm for this model, resolved
+   * under `WEBLLM_MODEL_LIB_BASE_PATH`. Each MLC model architecture needs its
+   * own library, compiled per (model arch, quantization, prefill-chunk, web-llm
+   * release). Required for every `runtime: 'webllm'` catalog entry.
+   */
+  webllmModelLibFile?: string;
+};
+
 export type ModelConfig = {
   id: string;
   friendlyName: string;
@@ -208,6 +325,17 @@ export type ModelConfig = {
    */
   generation?: ModelGeneration;
   maxNewTokens?: ModelMaxNewTokens;
+  /**
+   * Device rules and presentation copy. Required for every shipping catalog
+   * entry (`CatalogModel` makes them non-optional and catalog.ts validates them
+   * at load); optional on the type so non-catalog fixtures and eval-lane
+   * candidates — which are never offered to a device or rendered in primary UI —
+   * don't have to carry them.
+   */
+  compat?: ModelCompat;
+  display?: ModelDisplay;
+  /** Adapter-specific facts, present only where an adapter reads one. */
+  quirks?: ModelQuirks;
 };
 
 // ─── Below-floor ───────────────────────────────────────────────────────────

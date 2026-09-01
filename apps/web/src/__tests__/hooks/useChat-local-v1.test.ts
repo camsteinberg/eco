@@ -32,12 +32,11 @@ vi.mock('../../local-ai/bootstrap', () => ({
   bootstrapLocalAi: vi.fn(async () => undefined),
 }));
 
-vi.mock('../../local-ai/catalog/catalog', () => ({
-  getModel: (id: string): ModelConfig | null =>
-    id === 'local/qwen3-0.6b'
-      ? ({ id, friendlyName: 'Qwen3' } as unknown as ModelConfig)
-      : null,
-}));
+// The REAL catalog: the branded name under test is the catalog entry's own
+// `display` block, so mocking it out would make the assertion tautological.
+vi.mock('../../local-ai/catalog/catalog', async () =>
+  vi.importActual('../../local-ai/catalog/catalog'),
+);
 
 vi.mock('../../local-ai/runtime/lifecycle', () => ({
   loadModel: vi.fn(async () => ({})),
