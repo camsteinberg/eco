@@ -30,6 +30,12 @@ export type LocalAiUsage = {
   /** Echoes the maxTokens that was requested for this generation. */
   maxTokens?: number;
   /**
+   * Where the history window the runtime sent starts, as an index into the
+   * message array handed to `stream()`. The chat's context divider is drawn
+   * from this — see `runtime/window.ts`.
+   */
+  windowStartIndex?: number;
+  /**
    * KV-cache reuse telemetry from the transformers worker (absent on the
    * WebLLM path, which manages its own cache internally). Threaded into the
    * generation receipt so "did this turn reprefill, and why?" is answerable
@@ -75,6 +81,7 @@ export function usageFromDone(
     ...(done?.finishReason != null ? { finishReason: done.finishReason } : {}),
     ...(done?.promptTokens != null ? { promptTokens: done.promptTokens } : {}),
     ...(done?.completionTokens != null ? { completionTokens: done.completionTokens } : {}),
+    ...(done?.windowStartIndex != null ? { windowStartIndex: done.windowStartIndex } : {}),
     ...(maxTokens != null ? { maxTokens } : {}),
     ...(done?.kvReuse != null ? { kvReuse: done.kvReuse } : {}),
     ...(done?.cjkSuppression != null ? { cjkSuppression: done.cjkSuppression } : {}),

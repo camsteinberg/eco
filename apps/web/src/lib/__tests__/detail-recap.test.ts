@@ -7,7 +7,6 @@ import { hasExplicitFormatInstruction } from "../answer-shape";
 import { inferTurnIntent } from "../chat-intent";
 
 type ChatTurnMessage = { role: "user" | "assistant" | "system"; content: string };
-import { selectMessagesForContext } from "../context-window";
 import {
   appendBranchRecaps,
   applyDetailRecaps,
@@ -51,6 +50,17 @@ function priorUserTurns(id: string): string[] {
     .slice(0, probed)
     .filter((turn) => turn.role === "user")
     .map((turn) => turn.text);
+}
+
+/**
+ * A window with early turns evicted. R5a moved real window selection into the
+ * runtime (`local-ai/runtime/window.ts`), so these tests — whose subject is the
+ * RECAP machinery, not selection — cut the branch directly. What they pin is
+ * unchanged: recaps derive from the full branch, so an evicted window still
+ * carries the facts the dropped turns stated.
+ */
+function evictedWindow<T>(branch: T[]): T[] {
+  return branch.slice(6);
 }
 
 describe("extractStatedDetails — dates", () => {
@@ -320,7 +330,7 @@ describe("appendDetailRecaps — surviving context eviction", () => {
     const recaps = buildBranchRecaps(branch);
     const full = appendBranchRecaps(branch, recaps);
 
-    const windowed = selectMessagesForContext(branch, 700);
+    const windowed = evictedWindow(branch);
     expect(windowed.length).toBeGreaterThan(0);
     expect(windowed.length).toBeLessThan(branch.length);
 
@@ -332,7 +342,7 @@ describe("appendDetailRecaps — surviving context eviction", () => {
   it("still carries the venue after the turn that stated it is evicted", () => {
     const branch = asChatMessages();
     const recaps = buildBranchRecaps(branch);
-    const windowed = selectMessagesForContext(branch, 700);
+    const windowed = evictedWindow(branch);
     expect(windowed.some((m) => m.content.includes("bridgford road weve been"))).toBe(false);
 
     const rendered = appendBranchRecaps(windowed, recaps)

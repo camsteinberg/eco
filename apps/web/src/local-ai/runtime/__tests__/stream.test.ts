@@ -35,6 +35,8 @@ const FAKE_MODEL: ModelConfig = {
   sizeGB: 2.1,
   runtime: 'transformers',
   context: 4096,
+  // R5a windows inside `stream()`, so the context window is now load-bearing here.
+  capabilities: { contextTokens: 4096 },
   intent: ['snappy', 'balanced'],
   evidenceTier: 'proven',
   // Other required fields filled by spread for parity with catalog-data.json.
@@ -47,6 +49,7 @@ const FAKE_EVAL_MODEL: ModelConfig = {
   sizeGB: 1.87,
   runtime: 'litert',
   context: 2048,
+  capabilities: { contextTokens: 2048 },
   intent: ['balanced', 'quality'],
   evidenceTier: 'predicted',
 } as unknown as ModelConfig;
@@ -124,7 +127,10 @@ beforeEach(() => {
   mockGenerate.mockReset();
   mockBootstrap.mockReset();
   mockBootstrap.mockResolvedValue(undefined);
-  mockLoad.mockResolvedValue({} as unknown);
+  // `stream()` reads `countTokens` off the adapter the lifecycle returns.
+  mockLoad.mockResolvedValue({
+    countTokens: async (text: string) => text.trim().split(/\s+/).length,
+  } as unknown);
   mockGetValidationLocalGenerationFixture.mockReturnValue(null);
   mockIsValidationHarnessEnabled.mockReturnValue(false);
 });
@@ -167,7 +173,12 @@ describe('stream()', () => {
     expect(mockBootstrap).not.toHaveBeenCalled();
     expect(mockLoad).not.toHaveBeenCalled();
     expect(mockGenerate).not.toHaveBeenCalled();
-    expect(doneOf(events)).toEqual({ kind: 'done', promptTokens: 0, completionTokens: 2 });
+    expect(doneOf(events)).toEqual({
+      kind: 'done',
+      promptTokens: 0,
+      completionTokens: 2,
+      windowStartIndex: 0,
+    });
   });
 
   it('carries usage on the terminating done event', async () => {
@@ -182,7 +193,14 @@ describe('stream()', () => {
       stream([{ role: 'user', content: 'x' }], FAKE_MODEL.id, { maxTokens: 16 }),
     );
 
-    expect(doneOf(events)).toEqual({ kind: 'done', promptTokens: 4, completionTokens: 1 });
+    // `windowStartIndex` is added by `stream()` itself (R5a) — the adapter's
+    // done event knows nothing about the window.
+    expect(doneOf(events)).toEqual({
+      kind: 'done',
+      promptTokens: 4,
+      completionTokens: 1,
+      windowStartIndex: 0,
+    });
   });
 
   it('carries kvReuse telemetry through on the done event', async () => {
@@ -369,6 +387,62 @@ describe('stream()', () => {
     await expect(pending).resolves.toEqual({ done: true, value: undefined });
     // And it stays done — a second read does not hang either.
     await expect(iterator.next()).resolves.toEqual({ done: true, value: undefined });
+  });
+
+  it('windows the history with the adapter tokenizer and reports where it starts', async () => {
+    let sent: Array<{ role: string; content: string }> = [];
+    mockGenerate.mockImplementation((messages: Array<{ role: string; content: string }>) => {
+      sent = messages;
+      return asyncIterable([{ kind: 'done', promptTokens: 1, completionTokens: 1 }]);
+    });
+
+    const long: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+      { role: 'system', content: 'system prompt' },
+    ];
+    for (let i = 0; i < 60; i++) {
+      long.push({
+        role: i % 2 === 0 ? 'user' : 'assistant',
+        content: `turn ${i} ${'word '.repeat(120).trim()}`,
+      });
+    }
+
+    const events = await readAll(stream(long, FAKE_MODEL.id, { maxTokens: 512 }));
+
+    expect(sent.length).toBeLessThan(long.length);
+    expect(sent[0]).toEqual(long[0]); // system pinned
+    expect(sent[sent.length - 1]).toEqual(long[long.length - 1]); // ends at newest
+    const start = doneOf(events)!.windowStartIndex!;
+    expect(start).toBeGreaterThan(1);
+    expect(long[start]).toEqual(sent[1]);
+  });
+
+  it('refuses when even the final user turn does not fit the window', async () => {
+    mockGenerate.mockReturnValueOnce(asyncIterable([{ kind: 'done' }]));
+
+    const huge = [
+      { role: 'system' as const, content: 'system prompt' },
+      { role: 'user' as const, content: 'word '.repeat(9000).trim() },
+    ];
+
+    await expect(firstEvent(stream(huge, FAKE_MODEL.id, { maxTokens: 512 }))).rejects.toMatchObject(
+      { code: 'CONTEXT_WINDOW_EXCEEDED' },
+    );
+    expect(mockGenerate).not.toHaveBeenCalled();
+  });
+
+  it('does not refuse when the adapter cannot count (the bound over-counts)', async () => {
+    mockLoad.mockResolvedValue({ countTokens: async () => null } as unknown);
+    mockGenerate.mockReturnValueOnce(asyncIterable([{ kind: 'done' }]));
+
+    const messages = [
+      { role: 'system' as const, content: 'system prompt' },
+      { role: 'user' as const, content: 'a fairly ordinary question of some length' },
+    ];
+
+    await expect(readAll(stream(messages, FAKE_MODEL.id, { maxTokens: 512 }))).resolves.toHaveLength(
+      1,
+    );
+    expect(mockGenerate).toHaveBeenCalled();
   });
 
   it('passes maxTokens and temperature through to lifecycle.generate', async () => {

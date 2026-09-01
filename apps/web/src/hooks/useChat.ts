@@ -14,24 +14,18 @@ import {
 } from "../stores/settingsStore";
 import { toDbMessage } from "../lib/db";
 import {
-  assessLocalContextSafety,
-  clampRequestedNewTokensForContext,
-  selectMessagesForContext,
-  selectContextWindow,
+  prepareBranchForPrompt,
   findContextDividerIndex,
 } from "../lib/context-window";
 import { playMessageSent, playMessageReceived } from "../lib/sounds";
-import { isLocalAiModel, getContextTokens, isLocalAiSlot, inferTaskIntent, resolveSelectedModelId } from "../local-ai/util";
+import { isLocalAiModel, isLocalAiSlot, inferTaskIntent, resolveSelectedModelId } from "../local-ai/util";
 import { resolveReadyLocalRecoveryModelId } from "../local-ai/lifecycle/recovery";
 import { diagnoseUnsupportedProfile } from "../local-ai/device/diagnosis";
 import { getDeviceProfile } from "../local-ai/device/profile";
 import { isBelowFloor } from "../local-ai/device/below-floor";
 import { getModel as getLocalAiCatalogModel } from "../local-ai/catalog/catalog";
 import { recommend, NoAssignableModelError } from "../local-ai/selection/recommend";
-import {
-  getMaxNewTokensCeiling,
-  type ChatIntent,
-} from "../lib/chat-intent";
+import type { ChatIntent } from "../lib/chat-intent";
 import {
   buildBranchRecaps,
   type BranchRecaps,
@@ -39,7 +33,6 @@ import {
 import {
   assemble,
   buildSystemPrompt,
-  resolveOptions,
   type AssembledPrompt,
   type PromptMessage,
 } from "../local-ai/prompt/assemble";
@@ -359,6 +352,7 @@ const DEDICATED_LOCAL_ERROR_CODES: ReadonlySet<string> = new Set([
   "TEMPLATE_MISSING",
   "GPU_BUSY_OTHER_TAB",
   "MODEL_FILES_MISSING",
+  "CONTEXT_WINDOW_EXCEEDED",
 ]);
 
 function errorHasDedicatedLocalMessage(err: unknown): boolean {
@@ -436,50 +430,7 @@ export function useChat() {
   // so they always point at the live store.
   const { addToolCall, updateToolCall, clearToolState } = useChatStore.getState();
 
-  // Read custom instructions for system prompt composition.
-  const customInstructions = useSettingsStore((s) => s.customInstructions);
-
-  // v1: resolve slot name to concrete model id via the slot store.
-  const resolvedSelectedModel = resolveSelectedModelId(selectedModel);
   const allowValidationModelMetadata = isValidationHarnessEnabled();
-  // Single base-system-prompt derivation. Both consumers — context-window
-  // sizing (this memo + contextDividerIndex) and the per-turn dispatch prompt
-  // (`assemble()`) — flow through `buildSystemPrompt`. There is no second
-  // prompt path: `buildSystemPrompt` resolves slot names internally, so passing
-  // a slot name or its bound model id yields the same base prompt.
-  const composedSystemPrompt = useMemo(
-    () => buildSystemPrompt(selectedModel, customInstructions),
-    [selectedModel, customInstructions],
-  );
-  // Shipping context length resolves from the catalog only. Diagnostics may opt
-  // into eval-candidate metadata so validation-selected product transcripts use
-  // the same context window the eval harness reports.
-  const effectiveModelContextLength = getContextTokens(resolvedSelectedModel, undefined, {
-    allowValidationModel: allowValidationModelMetadata,
-  });
-  // The largest generation the model could produce under any intent. Used as
-  // the conservative fallback when no user turn is available to derive a
-  // per-turn grant (e.g. context divider before the first message).
-  const modelMaxNewTokensCeiling = getMaxNewTokensCeiling(resolvedSelectedModel, {
-    allowValidationModel: allowValidationModelMetadata,
-  });
-
-  /**
-   * Per-turn generation grant for the latest user turn in `msgs`. Reserves
-   * exactly what this turn will be granted (384–2048 by intent) rather than
-   * the model's ceiling, so usable history stays as large as possible. Falls
-   * back to the model's ceiling when no user turn exists yet.
-   */
-  function getPerTurnMaxNewTokens(
-    msgs: ReadonlyArray<{ role: string; content: string }>,
-  ): number {
-    return resolveOptions({
-      modelId: resolvedSelectedModel,
-      messages: msgs,
-      allowValidationModel: allowValidationModelMetadata,
-    }).maxTokens;
-  }
-
   useEffect(() => {
     const hasDraft = composerDraft.trim().length > 0;
     const hasFiles = fileAttachments.length > 0;
@@ -508,44 +459,26 @@ export function useChat() {
       useChatStore.getState().messages.find((m) => m.id === id)?.content ?? "",
   };
 
-  function stopForUnsafeLocalContext(
-    assistantId: string,
-    messages: Array<{ role: "user" | "assistant" | "system"; content: string }>,
-    systemPrompt: string,
-    modelId: string,
-    requestedNewTokens: number,
-  ): { stopped: boolean; grantedNewTokens: number } {
-    const contextLength = getContextTokens(modelId, undefined, {
-      allowValidationModel: allowValidationModelMetadata,
-    });
-    // Degrade before refusing: clamp the new-token request to the context
-    // headroom (floor MIN_LOCAL_NEW_TOKENS) so long conversations get a
-    // shorter reply instead of an error. The safety check below still refuses
-    // when even the floored grant doesn't fit.
-    const grantedNewTokens = clampRequestedNewTokensForContext(
-      messages,
-      systemPrompt,
-      contextLength,
-      requestedNewTokens,
-    );
-    const decision = assessLocalContextSafety(
-      messages,
-      systemPrompt,
-      contextLength,
-      grantedNewTokens,
-    );
-
-    if (decision.ok) {
-      return { stopped: false, grantedNewTokens };
-    }
-
-    updateMessage(assistantId, {
-      status: "error",
-      errorMessage: decision.reason,
-      inferenceMethod: "local",
-    });
-    setError(decision.reason);
-    return { stopped: true, grantedNewTokens };
+  /**
+   * Turn the runtime's reported `windowStartIndex` into the transcript message
+   * the context divider sits above.
+   *
+   * The index is into the list handed to `stream()` — `[system, ...conversation]`
+   * — and `conversation` is index-parallel to the `apiMessages` that produced
+   * `windowSourceIds`. A window that starts at the first conversation message
+   * evicted nothing, so the divider is cleared.
+   */
+  function recordContextWindowStart(
+    windowStartIndex: number | undefined,
+    sentMessages: ReadonlyArray<{ role: string }>,
+    windowSourceIds: ReadonlyArray<string>,
+  ): void {
+    if (windowStartIndex == null) return;
+    const head = sentMessages[0]?.role === "system" ? 1 : 0;
+    const conversationIndex = windowStartIndex - head;
+    const startId =
+      conversationIndex > 0 ? windowSourceIds[conversationIndex] ?? null : null;
+    useChatStore.getState().setContextWindowStartId(startId);
   }
 
   function applyLocalGenerationError(
@@ -685,6 +618,19 @@ export function useChat() {
           inferenceMethod: "local",
         });
         setError(message);
+        return;
+      }
+
+      if (err.code === "CONTEXT_WINDOW_EXCEEDED") {
+        // Even the final user turn alone does not fit this model's window. Not
+        // a device fault and not a streak event — the message is simply too
+        // long for this model, which is what the copy says.
+        updateMessage(assistantId, {
+          status: "error",
+          errorMessage: err.message,
+          inferenceMethod: "local",
+        });
+        setError(err.message);
         return;
       }
 
@@ -948,11 +894,18 @@ export function useChat() {
     assistantId: string,
     apiMessages: Array<{ role: "user" | "assistant" | "system"; content: string }>,
     /**
-     * Recaps for the FULL branch, by user-turn ordinal — `apiMessages` is
-     * already windowed, and deriving recaps from a window would let an eviction
-     * rewrite an earlier turn's recap and break the KV prefix.
+     * Recaps for the FULL branch, by user-turn ordinal. Since R5a `apiMessages`
+     * IS the full branch (the runtime windows it), but the contract stands:
+     * deriving recaps from a window would let an eviction rewrite an earlier
+     * turn's recap and break the KV prefix.
      */
     branchRecaps: BranchRecaps,
+    /**
+     * Stored-message ids parallel to `apiMessages` (see `prepareBranchForPrompt`).
+     * The runtime reports the window it chose as an INDEX; this is what turns
+     * that index back into a message in the transcript for the divider.
+     */
+    windowSourceIds: ReadonlyArray<string>,
     /**
      * `model` / `systemPrompt` are still unused by all callers. If a caller ever
      * sets `model`, `resolveInitialStreamPhase` at the call site must be passed
@@ -1198,24 +1151,6 @@ export function useChat() {
       updateMessageVerification(assistantId, toolStep.verification);
     }
 
-    // ── Context-safety guard (oversized prompt) ───────────────────────────
-    // Runs BEFORE the receipt snapshot so receipts record the GRANTED budget
-    // (the clamp may shrink the request to fit context headroom). Uses the
-    // ASSEMBLED conversation — recap tokens live in the user turns, and the
-    // accounting must see the bytes the model will.
-    const contextGuard = stopForUnsafeLocalContext(
-      assistantId,
-      plan.conversation,
-      systemPrompt,
-      model,
-      localGenerationOptions.maxTokens,
-    );
-    if (contextGuard.stopped) {
-      clearActiveGeneration(generation);
-      return;
-    }
-    localGenerationOptions.maxTokens = contextGuard.grantedNewTokens;
-
     // ── Runtime lease ──────────────────────────────────────────────────────
     // Hold the 'generation' lease for the whole reply (primary + repair) so a
     // model switch can never unload the runtime mid-generation. Waits out a
@@ -1384,6 +1319,9 @@ export function useChat() {
       // Usage rides the terminating `done` event now (R4b) — no side channel.
       templateName = primaryResult.done?.tokenizerName ?? null;
       const lastUsage = usageFromDone(primaryResult.done, localGenerationOptions.maxTokens);
+      // The context divider is a record of what the runtime SENT, reported on
+      // the done event — not a client-side recomputation of it (R5a).
+      recordContextWindowStart(lastUsage.windowStartIndex, messagesWithSystem, windowSourceIds);
       const possiblyTruncated = lastUsage.finishReason === 'length';
       updateMessage(assistantId, {
         status: "complete",
@@ -1471,6 +1409,8 @@ export function useChat() {
     assistantId: string,
     apiMessages: Array<{ role: "user" | "assistant" | "system"; content: string }>,
     localModelId: string,
+    /** Stored ids parallel to `apiMessages` — see `recordContextWindowStart`. */
+    windowSourceIds: ReadonlyArray<string>,
   ) {
     const partialAssistantContent =
       useChatStore.getState().messages.find((message) => message.id === assistantId)?.content ?? "";
@@ -1487,7 +1427,6 @@ export function useChat() {
       allowValidationModel: allowValidationModelMetadata,
       partialAssistantContent,
     });
-    const localSystemPrompt = plan.systemPrompt;
     const localFallbackMessages = plan.messages;
 
     // Per-generation object (own abort + batcher + reader slot), same primitive
@@ -1508,19 +1447,6 @@ export function useChat() {
     setStreamPhase("generating");
 
     const localGenerationOptions = { ...plan.options };
-    const contextGuard = stopForUnsafeLocalContext(
-      assistantId,
-      localFallbackMessages,
-      localSystemPrompt,
-      localModelId,
-      localGenerationOptions.maxTokens,
-    );
-    if (contextGuard.stopped) {
-      clearActiveGeneration(generation);
-      return;
-    }
-    localGenerationOptions.maxTokens = contextGuard.grantedNewTokens;
-
     // Same runtime-lease contract as streamResponse: never continue a reply
     // while a switch owns the runtime; wait out transient readiness/warmup.
     const leaseAcquisition = await acquireGenerationLease({
@@ -1560,6 +1486,11 @@ export function useChat() {
         );
         return;
       }
+      recordContextWindowStart(
+        result.done?.windowStartIndex,
+        localFallbackMessages,
+        windowSourceIds,
+      );
       // v1: confidence is always null; the pipeline computes no heuristic score.
       updateMessage(assistantId, {
         status: "complete",
@@ -1640,19 +1571,18 @@ export function useChat() {
     try {
       const allMsgs = useChatStore.getState().messages;
       const msgsForApi = allMsgs.filter((m) => m.id !== assistantId);
-      // Apply context window: only send messages that fit in the model's context.
-      // Reserve the per-turn grant (intent-dependent, 384–2048) rather than the
-      // model ceiling, so usable history stays as large as possible.
-      const windowedMsgs = selectMessagesForContext(
-        msgsForApi,
-        effectiveModelContextLength,
-        composedSystemPrompt,
-        { maxNewTokens: getPerTurnMaxNewTokens(msgsForApi) },
-      );
-      const apiMessages = windowedMsgs.map((m) => ({ role: m.role, content: m.content }));
+      // Branch hygiene only — the WINDOW is picked by the runtime with the real
+      // tokenizer (`local-ai/runtime/window.ts`), not here.
+      const prepared = prepareBranchForPrompt(msgsForApi);
+      const apiMessages = prepared.messages.map((m) => ({ role: m.role, content: m.content }));
 
       // Derived from the FULL branch, never the window — see `streamResponse`.
-      await streamResponse(assistantId, apiMessages, buildBranchRecaps(msgsForApi));
+      await streamResponse(
+        assistantId,
+        apiMessages,
+        buildBranchRecaps(msgsForApi),
+        prepared.sourceIds,
+      );
     } catch (err) {
       // Don't treat a user-stop abort as an error.
       if (!isActiveGenerationAborted()) {
@@ -1745,14 +1675,8 @@ export function useChat() {
     const newUserMsg = allMsgs.find((m) => m.id === newUserId);
     const fullBranch = [...ancestors, ...(newUserMsg ? [newUserMsg] : [])];
 
-    // Apply context window to the branch
-    const windowedBranch = selectMessagesForContext(
-      fullBranch,
-      effectiveModelContextLength,
-      composedSystemPrompt,
-      { maxNewTokens: getPerTurnMaxNewTokens(fullBranch) },
-    );
-    const branchForApi = windowedBranch.map((m) => ({ role: m.role, content: m.content }));
+    const preparedBranch = prepareBranchForPrompt(fullBranch);
+    const branchForApi = preparedBranch.messages.map((m) => ({ role: m.role, content: m.content }));
 
     // Update displayed messages to show the new branch
     const newBranch = [...ancestors, ...allMsgs.filter((m) => m.id === newUserId || m.id === newAssistantId)];
@@ -1767,7 +1691,12 @@ export function useChat() {
       );
 
     try {
-      await streamResponse(newAssistantId, branchForApi, buildBranchRecaps(fullBranch));
+      await streamResponse(
+        newAssistantId,
+        branchForApi,
+        buildBranchRecaps(fullBranch),
+        preparedBranch.sourceIds,
+      );
     } catch (err) {
       if (!isActiveGenerationAborted()) {
         handleStreamError(err, newAssistantId);
@@ -1831,14 +1760,8 @@ export function useChat() {
       currentId = msg.parentId ?? null;
     }
     ancestors.reverse();
-    // Apply context window to ancestors before sending
-    const windowedAncestors = selectMessagesForContext(
-      ancestors,
-      effectiveModelContextLength,
-      composedSystemPrompt,
-      { maxNewTokens: getPerTurnMaxNewTokens(ancestors) },
-    );
-    const apiMessages = windowedAncestors.map((m) => ({ role: m.role, content: m.content }));
+    const preparedAncestors = prepareBranchForPrompt(ancestors);
+    const apiMessages = preparedAncestors.messages.map((m) => ({ role: m.role, content: m.content }));
 
     // Update displayed messages: show ancestors + new assistant (replacing old one)
     const newBranch = [...ancestors, ...allMsgs.filter((m) => m.id === newAssistantId)];
@@ -1856,6 +1779,7 @@ export function useChat() {
         newAssistantId,
         apiMessages,
         buildBranchRecaps(ancestors),
+        preparedAncestors.sourceIds,
         overrides,
       );
     } catch (err) {
@@ -1899,13 +1823,22 @@ export function useChat() {
       });
 
       if (localModelId) {
-        const apiMessages = allMessages
+        const continueBranch = allMessages
           .slice(0, failedIdx)
-          .filter((message) => message.role === "user" || message.role === "assistant")
-          .map((message) => ({ role: message.role, content: message.content }));
+          .filter((message) => message.role === "user" || message.role === "assistant");
+        const apiMessages = continueBranch.map((message) => ({
+          role: message.role,
+          content: message.content,
+        }));
+        const continueSourceIds = continueBranch.map((message) => message.id);
 
         try {
-          await continueInterruptedMessageLocally(messageId, apiMessages, localModelId);
+          await continueInterruptedMessageLocally(
+            messageId,
+            apiMessages,
+            localModelId,
+            continueSourceIds,
+          );
         } finally {
           setStreamPhase("idle");
         }
@@ -1952,14 +1885,11 @@ export function useChat() {
     }
     retryAncestors.reverse();
 
-    // Apply context window to ancestors
-    const retryWindowedAncestors = selectMessagesForContext(
-      retryAncestors,
-      effectiveModelContextLength,
-      composedSystemPrompt,
-      { maxNewTokens: getPerTurnMaxNewTokens(retryAncestors) },
-    );
-    const retryApiMessages = retryWindowedAncestors.map((m) => ({ role: m.role, content: m.content }));
+    const preparedRetryAncestors = prepareBranchForPrompt(retryAncestors);
+    const retryApiMessages = preparedRetryAncestors.messages.map((m) => ({
+      role: m.role,
+      content: m.content,
+    }));
 
     // Update displayed messages: ancestors + new assistant (old failed stays as hidden sibling)
     const retryBranch = [...retryAncestors, ...retryAllMsgs.filter((m) => m.id === retryAssistantId)];
@@ -1972,7 +1902,12 @@ export function useChat() {
       );
 
     try {
-      await streamResponse(retryAssistantId, retryApiMessages, buildBranchRecaps(retryAncestors));
+      await streamResponse(
+        retryAssistantId,
+        retryApiMessages,
+        buildBranchRecaps(retryAncestors),
+        preparedRetryAncestors.sourceIds,
+      );
     } catch (err) {
       if (!isActiveGenerationAborted()) {
         handleStreamError(err, retryAssistantId);
@@ -2083,31 +2018,18 @@ export function useChat() {
     interruptActiveGeneration();
   }
 
-  // Compute the context divider position for the current message list.
-  // Memoized so it only recalculates when messages or context params change.
-  // Reserves the per-turn grant (intent-dependent) for the latest user turn,
-  // falling back to the model's ceiling when no user turn is present yet.
-  const contextDividerIndex = useMemo(() => {
-    if (messages.length === 0) return -1;
-    const hasUserTurn = messages.some((m) => m.role === "user");
-    let maxNewTokens: number;
-    if (!hasUserTurn) {
-      // No user turn yet — reserve the model ceiling (conservative).
-      maxNewTokens = modelMaxNewTokensCeiling;
-    } else {
-      // The same budget `assemble()` will request for this turn, so the divider
-      // the user sees is drawn against the real grant rather than a second
-      // recomputation of it.
-      maxNewTokens = getPerTurnMaxNewTokens(messages);
-    }
-    const selection = selectContextWindow(
-      messages,
-      effectiveModelContextLength,
-      composedSystemPrompt,
-      { maxNewTokens },
-    );
-    return findContextDividerIndex(messages, selection);
-  }, [messages, effectiveModelContextLength, composedSystemPrompt, modelMaxNewTokensCeiling, resolvedSelectedModel, allowValidationModelMetadata]);
+  // Where the context divider sits, from the LAST COMPLETED generation's
+  // reported window (`runtime/window.ts` → the stream's done event → the
+  // store). Selection is async and inside the worker now, so this is
+  // after-the-fact by construction: a branch that has not run yet shows no
+  // divider. Chrome's Prompt API does the same thing with its `contextoverflow`
+  // event, and Jan with a banner. Re-deriving it synchronously here is exactly
+  // the chars/4 estimate R5a deleted.
+  const contextWindowStartId = useChatStore((s) => s.contextWindowStartId);
+  const contextDividerIndex = useMemo(
+    () => findContextDividerIndex(messages, contextWindowStartId),
+    [messages, contextWindowStartId],
+  );
 
   // The "Eco can no longer see the first N messages" note.
   //

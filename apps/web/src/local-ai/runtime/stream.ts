@@ -54,6 +54,7 @@ import {
   type ChatMessage,
   type LoadOptions,
   type OnLifecycleEvent,
+  type RuntimeAdapter,
   type TokenEvent,
 } from './types';
 import type { ModelConfig } from '../types';
@@ -64,9 +65,23 @@ import {
   isValidationHarnessEnabled,
 } from '../../lib/validation-harness';
 import { logger } from '../../lib/logger';
+import { CONTEXT_WINDOW_REFUSAL_MESSAGE } from '../../lib/context-window';
+import { selectWindow } from './window';
 
 const NOT_IN_CATALOG_MESSAGE =
   "That model isn't available on this device. Choose an available model in Settings → Eco.";
+
+/**
+ * The reply reserve assumed when a caller names no budget. Mirrors the default
+ * every adapter's `generate()` already applies to `options.maxTokens`, so the
+ * window reserves exactly what the generation may produce.
+ *
+ * PROVENANCE: INHERITED from the adapters (`options?.maxTokens ?? 512`).
+ * FALSIFIER: an adapter default that is not 512 makes this an under-reserve.
+ * In practice every dispatch path passes an explicit budget from
+ * `resolveOptions`, so this is the empty-options case only.
+ */
+const DEFAULT_MAX_TOKENS = 512;
 
 /**
  * What `useChat` consumes. An `AsyncIterable<TokenEvent>` plus a synchronous
@@ -143,16 +158,20 @@ export function stream(
           kind: 'done',
           promptTokens: 0,
           completionTokens: validationFixture.chunks.length,
+          // The fixture path never loads an adapter, so no window was picked:
+          // report the natural start (nothing evicted).
+          windowStartIndex: messages[0]?.role === 'system' ? 1 : 0,
         };
         return;
       }
 
+      let adapter: RuntimeAdapter;
       try {
         // Both are safe to call repeatedly: bootstrap is idempotent, and
         // lifecycle.loadModel returns the active adapter without re-loading
         // when the same model id is already active.
         await bootstrapLocalAi();
-        await lifecycleLoadModel(model, loadOptions);
+        adapter = await lifecycleLoadModel(model, loadOptions);
       } catch (err) {
         // A load-phase OOM means the model doesn't fit this device right now —
         // a different problem (and different advice) from a mid-reply OOM,
@@ -164,7 +183,27 @@ export function stream(
       }
       if (abortController.signal.aborted) return;
 
-      const iter = lifecycleGenerate(messages, {
+      // ── History window ────────────────────────────────────────────────────
+      // Picked HERE, with the loaded adapter's real tokenizer, rather than in
+      // `useChat` with a chars/4 estimate (R5a). The refusal fires only when
+      // even the final user turn alone does not fit — the same terminal
+      // condition WebLLM and Chrome's Prompt API raise.
+      const countTokens = adapter.countTokens?.bind(adapter);
+      const selection = await selectWindow(messages, {
+        contextTokens: model.capabilities.contextTokens,
+        maxNewTokens: options.maxTokens ?? DEFAULT_MAX_TOKENS,
+        ...(countTokens ? { countTokens } : {}),
+      });
+      if (!selection.fits) {
+        throw new LocalInferenceStreamError(
+          'CONTEXT_WINDOW_EXCEEDED',
+          CONTEXT_WINDOW_REFUSAL_MESSAGE,
+          true,
+        );
+      }
+      if (abortController.signal.aborted) return;
+
+      const iter = lifecycleGenerate(selection.messages, {
         signal: abortController.signal,
         ...(options.maxTokens != null ? { maxTokens: options.maxTokens } : {}),
         ...(options.temperature != null ? { temperature: options.temperature } : {}),
@@ -184,7 +223,13 @@ export function stream(
         if (event.kind === 'error') {
           throw translateAdapterError(event.code, event.reason);
         }
-        if (event.kind === 'done') logDoneTelemetry(event);
+        if (event.kind === 'done') {
+          logDoneTelemetry(event);
+          // The window is this layer's decision, so this layer reports it —
+          // adapters know nothing about it.
+          yield { ...event, windowStartIndex: selection.windowStartIndex };
+          continue;
+        }
         yield event;
       }
     } catch (err) {

@@ -137,13 +137,10 @@ const shared = vi.hoisted(() => {
           promptTokens?: number;
           completionTokens?: number;
           maxInterTokenGapMs?: number | null;
+          windowStartIndex?: number;
         }
       | null,
     lastTemplateName: null as string | null,
-    contextSafetyCalls: [] as Array<{
-      modelContextLength: number;
-      requestedNewTokens: number;
-    }>,
     fastSlotState: undefined as SlotState | undefined,
     smartSlotState: undefined as SlotState | undefined,
   };
@@ -284,36 +281,6 @@ vi.mock("../../local-ai/lifecycle/generation-receipt", () => ({
       : "primary-hash",
 }));
 
-vi.mock("../../lib/context-window", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../lib/context-window")>();
-  return {
-    ...actual,
-    assessLocalContextSafety: (
-      ...args: Parameters<typeof actual.assessLocalContextSafety>
-    ) => {
-      const [messages, systemPrompt, modelContextLength, requestedNewTokens] = args;
-      shared.contextSafetyCalls.push({ modelContextLength, requestedNewTokens });
-      if (
-        systemPrompt.includes("Previous local draft missed an exact line-count constraint")
-        && messages.some((message) =>
-          message.content.includes("REPAIR_CONTEXT_OVERFLOW_SENTINEL"),
-        )
-      ) {
-        return {
-          ok: false,
-          reason:
-            "This local model needs a shorter context before it can answer safely.",
-          promptTokens: 9999,
-          requestedNewTokens: 80,
-          totalTokens: 10079,
-          safeBudgetTokens: 1000,
-        };
-      }
-      return actual.assessLocalContextSafety(...args);
-    },
-  };
-});
-
 // Imports AFTER the mocks so the hook picks up the mocked seams.
 import { useChat, buildSystemPrompt, createTokenBatcher } from "../useChat";
 import { useChatStore } from "../../stores/chatStore";
@@ -387,7 +354,6 @@ beforeEach(() => {
   shared.generateCalls.length = 0;
   shared.scripts = [];
   shared.recordedReceipts.length = 0;
-  shared.contextSafetyCalls.length = 0;
   shared.lastUsage = null;
   shared.lastTemplateName = null;
   shared.fastSlotState = makeReadyFastSlot();
@@ -634,10 +600,6 @@ describe("useChat — normal on-device stream (sendMessage)", () => {
     });
     expect(call.options).not.toHaveProperty("repetitionPenalty");
     expect(call.options).not.toHaveProperty("noRepeatNgramSize");
-    expect(shared.contextSafetyCalls[0]).toMatchObject({
-      modelContextLength: 2048,
-      requestedNewTokens: 256,
-    });
     expect(lastAssistant()!.content).toBe("OK");
   });
 
@@ -1237,30 +1199,6 @@ describe("useChat — dispatch readiness guards", () => {
     expect(useChatStore.getState().error).toBeNull();
   });
 
-  // ── stopForUnsafeLocalContext (oversized-context early-return guard) ────────
-  // #4 Phase 3 Task 3: the context-safety guard inside streamResponse moves
-  // during the refactor; pin that an oversized prompt errors WITHOUT a
-  // generate() call (the guard short-circuits dispatch).
-  it("errors without a generate() call when the prompt overflows the model context budget", async () => {
-    setScripts([{ kind: "tokens", tokens: ["should not be reached"] }]);
-    // A prompt far larger than any catalog context window (~250k estimated
-    // tokens), so assessLocalContextSafety fails deterministically against
-    // the catalog-resolved context length.
-    const oversized = "word ".repeat(200_000);
-
-    const { result } = renderHook(() => useChat());
-    await act(async () => {
-      await result.current.sendMessage(oversized);
-    });
-
-    expect(generateCalls).toHaveLength(0);
-    const assistant = lastAssistant()!;
-    expect(assistant.status).toBe("error");
-    expect(assistant.inferenceMethod).toBe("local");
-    // The user-facing safety reason is surfaced both on the message and globally.
-    expect(assistant.errorMessage).toContain("grown past");
-    expect(useChatStore.getState().error).toContain("grown past");
-  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1600,90 +1538,76 @@ describe("useChat — a model bound to eco-smart dispatches (no eco-fast collaps
 // The shrunk context window note
 // ═══════════════════════════════════════════════════════════════════════════
 //
-// Models hold different amounts of a conversation (the everyday 1.2B has
-// a 4096-token context, the LiteRT build 2048). Switching to a model that holds LESS
-// quietly pushes more of the history out of context: the divider moves and
-// nothing says why. The note says why, ONCE, and only when it is actually
-// true — the window shrank AND this conversation overflows the new one.
+// Models hold different amounts of a conversation (the everyday 1.2B has a
+// 4096-token context, the LiteRT build 2048), so a conversation can outgrow the
+// window and nothing says why. The note says why, ONCE.
+//
+// R5a moved the SOURCE of that signal: the window is picked by the runtime with
+// the real tokenizer and reported back on the done event, so the divider — and
+// the note above it — describe the LAST COMPLETED turn rather than a synchronous
+// client-side estimate. A branch that has not run yet shows neither.
 
 describe("useChat — the out-of-context note", () => {
-  /**
-   * A conversation big enough to overflow the gemma-litert model's history
-   * budget (2048 ctx - 1024 quick grant = 1024) but fit inside the everyday
-   * model (4096 ctx - 1024 quick grant = 3072). ~2500 tokens of messages.
-   */
-  function seedLongConversation(): void {
-    const paragraph = "word ".repeat(500); // ~2500 chars ≈ 625 tokens
+  function seedConversation(): void {
     useChatStore.setState({
       messages: [
-        { id: "u1", role: "user", content: paragraph, createdAt: 1, parentId: null },
-        { id: "a1", role: "assistant", content: paragraph, createdAt: 2, parentId: "u1" },
-        { id: "u2", role: "user", content: paragraph, createdAt: 3, parentId: "a1" },
-        { id: "a2", role: "assistant", content: paragraph, createdAt: 4, parentId: "u2" },
-        { id: "u3", role: "user", content: "and finally?", createdAt: 5, parentId: "a2" },
+        { id: "u1", role: "user", content: "first question", createdAt: 1, parentId: null },
+        { id: "a1", role: "assistant", content: "first answer", createdAt: 2, parentId: "u1" },
+        { id: "u2", role: "user", content: "second question", createdAt: 3, parentId: "a1" },
+        { id: "a2", role: "assistant", content: "second answer", createdAt: 4, parentId: "u2" },
       ],
     });
   }
 
-  function bindSmallerModelToSmartSlot(): void {
-    shared.smartSlotState = {
-      slot: "eco-smart" as Slot,
-      modelId: GEMMA_LITERT_MODEL_ID,
-      model: {
-        id: GEMMA_LITERT_MODEL_ID,
-        friendlyName: "Gemma E2B LiteRT (test)",
-      } as unknown as SlotState["model"],
-      status: "ready",
-    };
-  }
-
-  it("raises the note as soon as the chat overflows the model's window", async () => {
-    seedLongConversation();
-    bindSmallerModelToSmartSlot();
-    useChatStore.setState({ selectedModel: "eco-fast" });
+  it("raises the note when a completed turn reports an evicted window", async () => {
+    seedConversation();
+    setScripts([{ kind: "tokens", tokens: ["ok"] }]);
+    // The runtime kept the window from conversation index 2 onward (the system
+    // turn is index 0), so the first pair fell out of context.
+    setLastUsage({ promptTokens: 4, completionTokens: 1, windowStartIndex: 3 });
 
     const { result } = renderHook(() => useChat());
-    // The conversation fits the everyday model's history budget (4096 - 1024
-    // quick grant = 3072): nothing is out of context yet.
     expect(result.current.contextDividerIndex).toBe(-1);
     expect(useChatStore.getState().contextWindowNotice).toBe("none");
 
     await act(async () => {
-      useChatStore.setState({ selectedModel: "eco-smart" });
+      await result.current.sendMessage("and finally?");
     });
 
-    // The gemma model's history budget (2048 - 1024 = 1024) cannot hold
-    // ~2500 tokens, so the divider appears and the note says so by the composer.
     expect(result.current.contextDividerIndex).toBeGreaterThan(0);
     expect(useChatStore.getState().contextWindowNotice).toBe("visible");
   });
 
-  it("stays quiet while the chat fits the window", async () => {
-    bindSmallerModelToSmartSlot();
-    useChatStore.setState({
-      selectedModel: "eco-smart",
-      messages: [
-        { id: "u1", role: "user", content: "hi", createdAt: 1, parentId: null },
-        { id: "a1", role: "assistant", content: "hello", createdAt: 2, parentId: "u1" },
-      ],
-    });
+  it("stays quiet when the completed turn held the whole chat", async () => {
+    seedConversation();
+    setScripts([{ kind: "tokens", tokens: ["ok"] }]);
+    setLastUsage({ promptTokens: 4, completionTokens: 1, windowStartIndex: 1 });
 
     const { result } = renderHook(() => useChat());
+    await act(async () => {
+      await result.current.sendMessage("and finally?");
+    });
 
     expect(result.current.contextDividerIndex).toBe(-1);
     expect(useChatStore.getState().contextWindowNotice).toBe("none");
   });
 
-  it("withdraws when a larger window holds the whole chat again", async () => {
-    seedLongConversation();
-    bindSmallerModelToSmartSlot();
-    useChatStore.setState({ selectedModel: "eco-smart" });
+  it("withdraws when a later turn holds the whole chat again", async () => {
+    seedConversation();
+    setScripts([{ kind: "tokens", tokens: ["ok"] }]);
+    setLastUsage({ promptTokens: 4, completionTokens: 1, windowStartIndex: 3 });
 
     const { result } = renderHook(() => useChat());
+    await act(async () => {
+      await result.current.sendMessage("and finally?");
+    });
     expect(useChatStore.getState().contextWindowNotice).toBe("visible");
 
+    // A larger model runs the next turn and holds everything.
+    setScripts([{ kind: "tokens", tokens: ["ok"] }]);
+    setLastUsage({ promptTokens: 4, completionTokens: 1, windowStartIndex: 1 });
     await act(async () => {
-      useChatStore.setState({ selectedModel: "eco-fast" });
+      await result.current.sendMessage("one more");
     });
 
     expect(result.current.contextDividerIndex).toBe(-1);
@@ -1691,17 +1615,21 @@ describe("useChat — the out-of-context note", () => {
   });
 
   it("a dismissal holds for the conversation even as more falls out of context", async () => {
-    seedLongConversation();
-    bindSmallerModelToSmartSlot();
-    useChatStore.setState({ selectedModel: "eco-smart" });
+    seedConversation();
+    setScripts([{ kind: "tokens", tokens: ["ok"] }]);
+    setLastUsage({ promptTokens: 4, completionTokens: 1, windowStartIndex: 3 });
 
-    renderHook(() => useChat());
+    const { result } = renderHook(() => useChat());
+    await act(async () => {
+      await result.current.sendMessage("and finally?");
+    });
     expect(useChatStore.getState().contextWindowNotice).toBe("visible");
     useChatStore.getState().dismissContextWindowNotice();
 
-    const paragraph = "word ".repeat(500);
+    setScripts([{ kind: "tokens", tokens: ["ok"] }]);
+    setLastUsage({ promptTokens: 4, completionTokens: 1, windowStartIndex: 5 });
     await act(async () => {
-      useChatStore.getState().addMessage({ role: "user", content: paragraph, parentId: "a2" });
+      await result.current.sendMessage("and more");
     });
 
     expect(useChatStore.getState().contextWindowNotice).toBe("dismissed");
