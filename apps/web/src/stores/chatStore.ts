@@ -166,6 +166,16 @@ interface ChatState {
    * and never back. Reset wherever the conversation itself changes.
    */
   contextWindowNotice: ContextWindowNoticeState;
+  /**
+   * Id of the first message the LAST COMPLETED generation actually held in
+   * context, or null when the whole branch fit (or nothing has run yet).
+   *
+   * After R5a the window is picked by the runtime with the real tokenizer and
+   * reported on the stream's `done` event, so the context divider is a record
+   * of what was sent rather than a synchronous re-derivation of it. Cleared
+   * wherever the conversation itself changes.
+   */
+  contextWindowStartId: string | null;
   routeRecommendationSnapshot: ChatRouteRecommendationSnapshot | null;
 }
 
@@ -211,6 +221,8 @@ interface ChatActions {
   updateToolCall: (id: string, updates: Partial<ToolCallDisplay>) => void;
   clearToolState: () => void;
   setLocalToolNoticeShown: () => void;
+  /** Record where the last completed generation's context window started. */
+  setContextWindowStartId: (id: string | null) => void;
   /** Raise the out-of-context note, unless this conversation already dismissed it. */
   showContextWindowNotice: () => void;
   /** The whole chat fits again (a larger model was chosen): a visible note withdraws. */
@@ -369,6 +381,7 @@ export const useChatStore = create<ChatState & ChatActions>()((set) => ({
   activeToolCalls: [],
   localToolNoticeShown: false,
   contextWindowNotice: initialContextWindowNotice(),
+  contextWindowStartId: null,
   routeRecommendationSnapshot: null,
 
   addMessage(msg) {
@@ -480,6 +493,7 @@ export const useChatStore = create<ChatState & ChatActions>()((set) => ({
       activeToolCalls: [],
       localToolNoticeShown: false,
       contextWindowNotice: initialContextWindowNotice(),
+  contextWindowStartId: null,
       routeRecommendationSnapshot: null,
     }));
   },
@@ -496,12 +510,13 @@ export const useChatStore = create<ChatState & ChatActions>()((set) => ({
       activeToolCalls: [],
       localToolNoticeShown: false,
       contextWindowNotice: initialContextWindowNotice(),
+  contextWindowStartId: null,
       routeRecommendationSnapshot: null,
     });
   },
 
   setMessages(messages) {
-    set({ messages, streamPhase: "idle" as StreamPhase, loadAlmostReady: false, isStreaming: false, error: null, approvedTools: [], activeToolCalls: [], localToolNoticeShown: false, contextWindowNotice: initialContextWindowNotice() });
+    set({ messages, streamPhase: "idle" as StreamPhase, loadAlmostReady: false, isStreaming: false, error: null, approvedTools: [], activeToolCalls: [], localToolNoticeShown: false, contextWindowNotice: initialContextWindowNotice(), contextWindowStartId: null });
   },
 
   setSelectedModel(model, options) {
@@ -594,6 +609,10 @@ export const useChatStore = create<ChatState & ChatActions>()((set) => ({
 
   setLocalToolNoticeShown() {
     set({ localToolNoticeShown: true });
+  },
+
+  setContextWindowStartId(id) {
+    set({ contextWindowStartId: id });
   },
 
   showContextWindowNotice() {

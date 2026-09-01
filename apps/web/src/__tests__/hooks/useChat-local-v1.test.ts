@@ -130,6 +130,8 @@ describe('Stage 5a wiring — stream composition', () => {
       promptTokens: 4,
       completionTokens: 2,
       maxTokens: 64,
+      // Where the runtime's window started (R5a) — nothing was evicted here.
+      windowStartIndex: 0,
     });
   });
 });

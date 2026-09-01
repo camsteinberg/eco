@@ -95,7 +95,25 @@ export type GenerateOptions = {
 
 export type TokenEvent =
   | { kind: 'token'; text: string; seq?: number }
-  | { kind: 'done'; finishReason?: 'eos' | 'length' | 'abort'; promptTokens?: number; completionTokens?: number; tokenizerName?: string; kvReuse?: KvReuseTelemetry; cjkSuppression?: CjkSuppressionTelemetry; maxInterTokenGapMs?: number | null; confidence?: ConfidenceSummary }
+  | {
+      kind: 'done';
+      finishReason?: 'eos' | 'length' | 'abort';
+      promptTokens?: number;
+      completionTokens?: number;
+      /**
+       * Where the history window the runtime ACTUALLY sent starts, as an index
+       * into the message array handed to `stream()` (the pinned system turn is
+       * index 0 and is never evicted). Set by `runtime/window.ts`; the chat's
+       * context divider is drawn from this rather than re-derived on the
+       * client, which is what R5a deleted. Absent when no windowing ran.
+       */
+      windowStartIndex?: number;
+      tokenizerName?: string;
+      kvReuse?: KvReuseTelemetry;
+      cjkSuppression?: CjkSuppressionTelemetry;
+      maxInterTokenGapMs?: number | null;
+      confidence?: ConfidenceSummary;
+    }
   | { kind: 'error'; reason: string; code?: AdapterErrorCode };
 
 export type AdapterErrorCode =

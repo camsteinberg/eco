@@ -15,7 +15,6 @@ import {
   buildFigureRecap,
   extractStatedFigures,
 } from "../figure-recap";
-import { selectMessagesForContext } from "../context-window";
 import type { ChatMessage } from "../../stores/chatStore";
 import { EVERYDAY_CONVERSATION_CORPUS } from "../../__tests__/fixtures/everyday-conversation-corpus";
 
@@ -36,6 +35,17 @@ function recapAt(messages: readonly ChatTurnMessage[], index: number): string {
   const original = messages[index]!.content;
   const applied = applyFigureRecaps(messages)[index]!.content;
   return applied === original ? "" : applied.slice(original.length).trim();
+}
+
+/**
+ * A window with early turns evicted. R5a moved real window selection into the
+ * runtime (`local-ai/runtime/window.ts`), so these tests — whose subject is the
+ * RECAP machinery, not selection — cut the branch directly. What they pin is
+ * unchanged: recaps derive from the full branch, so an evicted window still
+ * carries the facts the dropped turns stated.
+ */
+function evictedWindow<T>(branch: T[]): T[] {
+  return branch.slice(6);
 }
 
 describe("extractStatedFigures — number+noun pairs only", () => {
@@ -281,7 +291,7 @@ describe("appendFigureRecaps — surviving context eviction", () => {
     const full = appendFigureRecaps(branch, recaps);
 
     // A context small enough to force real eviction.
-    const windowed = selectMessagesForContext(branch, 700);
+    const windowed = evictedWindow(branch);
     expect(windowed.length).toBeGreaterThan(0);
     expect(windowed.length).toBeLessThan(branch.length);
 
@@ -295,7 +305,7 @@ describe("appendFigureRecaps — surviving context eviction", () => {
   it("still carries the take-home figure after the turn that stated it is evicted", () => {
     const branch = asChatMessages();
     const recaps = buildBranchFigureRecaps(branch);
-    const windowed = selectMessagesForContext(branch, 700);
+    const windowed = evictedWindow(branch);
     expect(windowed.some((m) => m.content.includes("take home was 2690"))).toBe(false);
 
     const rendered = appendFigureRecaps(windowed, recaps)
