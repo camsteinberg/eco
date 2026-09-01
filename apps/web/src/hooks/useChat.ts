@@ -28,25 +28,26 @@ import { getDeviceProfile } from "../local-ai/device/profile";
 import { isBelowFloor } from "../local-ai/device/below-floor";
 import { getModel as getLocalAiCatalogModel } from "../local-ai/catalog/catalog";
 import { recommend, NoAssignableModelError } from "../local-ai/selection/recommend";
-import { getOnDeviceSystemPrompt } from "../lib/system-prompt";
 import {
-  getGenerationProfile,
   getMaxNewTokensCeiling,
-  inferChatIntent,
-  inferTurnIntent,
   type ChatIntent,
 } from "../lib/chat-intent";
 import {
-  appendBranchRecaps,
   buildBranchRecaps,
   type BranchRecaps,
 } from "../lib/detail-recap";
-import { inferAnswerShape, type AnswerShape } from "../lib/answer-shape";
+import {
+  assemble,
+  buildSystemPrompt,
+  resolveOptions,
+  type AssembledPrompt,
+  type PromptMessage,
+} from "../local-ai/prompt/assemble";
 import {
   redactReplyForIntegrity,
 } from "../lib/conversation-integrity-guard";
 import { LocalInferenceStreamError } from "../local-ai/runtime/errors";
-import { buildLocalFallbackMessages, getLocalRuntimeCrashRecovery } from "../lib/chat-recovery";
+import { getLocalRuntimeCrashRecovery } from "../lib/chat-recovery";
 import { buildLocalReadinessFailureV2, findAutoRetryTarget } from "../lib/chat-turns";
 import { isValidationHarnessEnabled } from "../lib/validation-harness";
 import {
@@ -109,34 +110,9 @@ export {
   type Generation,
 } from "./useChat/generation";
 
-/**
- * Build a composed system prompt combining the Eco identity prompt and custom
- * instructions.
- *
- * v1.0 web is on-device-only, so the prompt is kept minimal: identity + custom
- * instructions only. User memories are intentionally not injected — that path
- * was network-only and small on-device models can't follow it reliably.
- */
-/** @internal Exported for unit testing */
-export function buildSystemPrompt(
-  selectedModel: string,
-  customInstructions: string,
-  _localProfile?: import("../local-ai/types").DeviceProfile,
-): string {
-  const parts: string[] = [];
-  // v1: selectedModel is either a concrete model id (local/...) or a slot name
-  // (eco-fast / eco-smart). Resolve slots to their bound model id; everything
-  // else passes through unchanged.
-  const effectiveSelectedModel = resolveSelectedModelId(selectedModel);
-
-  parts.push(getOnDeviceSystemPrompt(effectiveSelectedModel));
-
-  if (customInstructions.trim()) {
-    parts.push(customInstructions.trim());
-  }
-
-  return parts.join("\n\n");
-}
+// The base system prompt lives with the rest of prompt assembly now. Kept as a
+// re-export because the hook's test suites import it from this barrel.
+export { buildSystemPrompt };
 
 /**
  * Normalize an assistant message's final body so the persisted text matches what
@@ -419,15 +395,15 @@ export type RegenerateOverrides = {
   /**
    * Intent to resolve generation options with, in place of the one classified
    * from the turn text. Substituted at the OPTIONS-RESOLUTION layer only — the
-   * classifiers (`inferChatIntent` / `inferAnswerShape`) keep their strict-prefix
+   * classifiers (`inferTurnIntent` / `inferAnswerShape`) keep their strict-prefix
    * purity contract: pure functions of (turn text, hasPriorTurns), never handed
    * a caller's preference.
    */
   intent?: ChatIntent;
   /**
    * Model-facing directive appended to the END of the final user turn for THIS
-   * generation. See `appendTurnDirective` for why the END placement is the
-   * design and not an implementation detail.
+   * generation. See `appendTurnDirective` in `local-ai/prompt/assemble.ts` for
+   * why the END placement is the design and not an implementation detail.
    */
   turnDirective?: string;
   /**
@@ -443,38 +419,6 @@ export type StreamResponseOverrides = RegenerateOverrides & {
   model?: string;
   systemPrompt?: string;
 };
-
-/**
- * Append a model-facing directive to the END of the final user turn.
- *
- * Returns a NEW array carrying the directive on a COPY of the last user
- * message — the input list is never mutated, which is what keeps the directive
- * out of the stored conversation.
- *
- * The END placement keeps the directive visible to the model as the last
- * instruction in the user turn.
- *
- * No-op for an absent/blank directive, or a list with no user turn.
- */
-function appendTurnDirective(
-  messages: Array<{ role: "user" | "assistant" | "system"; content: string }>,
-  directive: string | undefined,
-): Array<{ role: "user" | "assistant" | "system"; content: string }> {
-  const trimmed = directive?.trim() ?? "";
-  if (trimmed.length === 0) return messages;
-  let lastUserIndex = -1;
-  for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i]!.role === "user") {
-      lastUserIndex = i;
-      break;
-    }
-  }
-  const target = lastUserIndex >= 0 ? messages[lastUserIndex] : undefined;
-  if (!target) return messages;
-  const next = [...messages];
-  next[lastUserIndex] = { ...target, content: `${target.content}\n\n${trimmed}` };
-  return next;
-}
 
 export function useChat() {
   const messages = useChatStore((s) => s.messages);
@@ -500,9 +444,9 @@ export function useChat() {
   const allowValidationModelMetadata = isValidationHarnessEnabled();
   // Single base-system-prompt derivation. Both consumers — context-window
   // sizing (this memo + contextDividerIndex) and the per-turn dispatch prompt
-  // (`buildQualitySystemPrompt`) — flow through `buildSystemPrompt`. There is
-  // no second prompt path: `buildSystemPrompt` resolves slot names internally,
-  // so passing a slot name or its bound model id yields the same base prompt.
+  // (`assemble()`) — flow through `buildSystemPrompt`. There is no second
+  // prompt path: `buildSystemPrompt` resolves slot names internally, so passing
+  // a slot name or its bound model id yields the same base prompt.
   const composedSystemPrompt = useMemo(
     () => buildSystemPrompt(selectedModel, customInstructions),
     [selectedModel, customInstructions],
@@ -529,12 +473,11 @@ export function useChat() {
   function getPerTurnMaxNewTokens(
     msgs: ReadonlyArray<{ role: string; content: string }>,
   ): number {
-    const intent = getLatestTurnIntent(
-      msgs as Array<{ role: "user" | "assistant" | "system"; content: string }>,
-    );
-    return getGenerationProfile(intent, true, resolvedSelectedModel, {
+    return resolveOptions({
+      modelId: resolvedSelectedModel,
+      messages: msgs,
       allowValidationModel: allowValidationModelMetadata,
-    }).maxTokens;
+    }).max_new_tokens;
   }
 
   useEffect(() => {
@@ -555,17 +498,6 @@ export function useChat() {
     );
   }, [composerDraft, fileAttachments, selectedModel]);
 
-  // Base system prompt for the current turn, read from live store/settings
-  // state (not the reactive snapshot) so a model override or a mid-session
-  // custom-instructions change is honored. Same single path as the sizing memo.
-  function composeBaseSystemPrompt(modelOverride?: string): string {
-    const rawModel = modelOverride ?? useChatStore.getState().selectedModel;
-    return buildSystemPrompt(
-      rawModel,
-      useSettingsStore.getState().customInstructions,
-    );
-  }
-
   // v1.0 local-AI: per-instance shim that bridges the new runtime/lifecycle
   // generate() into the legacy ReadableStream<string> contract this hook
   // was written against. All local generation routes through this shim.
@@ -580,44 +512,6 @@ export function useChat() {
     getMessageContent: (id: string) =>
       useChatStore.getState().messages.find((m) => m.id === id)?.content ?? "",
   };
-
-  function getLatestTurnIntent(
-    apiMessages: Array<{ role: "user" | "assistant" | "system"; content: string }>,
-  ) {
-    // hasPriorTurns = any message precedes the latest user turn in the list.
-    let lastUserIndex = -1;
-    for (let i = apiMessages.length - 1; i >= 0; i--) {
-      if (apiMessages[i]!.role === "user") {
-        lastUserIndex = i;
-        break;
-      }
-    }
-    const latestUserMessage = lastUserIndex >= 0 ? apiMessages[lastUserIndex]!.content : "";
-    return inferTurnIntent(latestUserMessage, lastUserIndex > 0);
-  }
-
-  function buildLocalGenerationOptions(
-    intent: ReturnType<typeof inferChatIntent>,
-    modelId: string,
-    continueFinalMessage = false,
-  ) {
-    const profile = getGenerationProfile(intent, true, modelId, {
-      allowValidationModel: allowValidationModelMetadata,
-    });
-    return {
-      max_new_tokens: profile.maxTokens,
-      temperature: profile.temperature,
-      ...(profile.topP != null && { top_p: profile.topP }),
-      ...(profile.topK != null && { top_k: profile.topK }),
-      ...(profile.repetitionPenalty != null && {
-        repetition_penalty: profile.repetitionPenalty,
-      }),
-      ...(profile.noRepeatNgramSize != null && {
-        no_repeat_ngram_size: profile.noRepeatNgramSize,
-      }),
-      ...(continueFinalMessage ? { continueFinalMessage: true } : {}),
-    };
-  }
 
   function stopForUnsafeLocalContext(
     assistantId: string,
@@ -657,15 +551,6 @@ export function useChat() {
     });
     setError(decision.reason);
     return { stopped: true, grantedNewTokens };
-  }
-
-  // The system message is the base prompt only (plus any per-turn tool note
-  // appended downstream).
-  function buildQualitySystemPrompt(
-    model: string,
-    baseSystemPrompt?: string,
-  ): string {
-    return baseSystemPrompt ?? composeBaseSystemPrompt(model);
   }
 
   function applyLocalGenerationError(
@@ -1023,25 +908,14 @@ export function useChat() {
     return { ok: true, model };
   }
 
-  // ── Prompt + generation-options assembly ───────────────────────────────
-  type LocalDispatchPlan = {
-    turnIntent: ReturnType<typeof inferChatIntent>;
-    /** Shape of the latest turn (receipt observability; ⊥ task class). */
-    turnShape: AnswerShape;
-    systemPrompt: string;
-    /**
-     * apiMessages as the model will actually see them: directives composed,
-     * then each user turn's recaps appended. Every rebuild path reads THIS,
-     * never raw apiMessages, so a re-render can never drift from what was sent.
-     */
-    hintedMessages: Array<{ role: "user" | "assistant" | "system"; content: string }>;
-    messagesWithSystem: Array<{ role: "user" | "assistant" | "system"; content: string }>;
-    localGenerationOptions: ReturnType<typeof buildLocalGenerationOptions>;
-  };
-
-  function buildPrompt(
+  /**
+   * Snapshot everything `assemble()` needs for this dispatch, read from the
+   * live store BEFORE the awaited tool step so a mid-flight settings change
+   * can't rewrite the prompt underneath a turn already in progress.
+   */
+  function promptInputFor(
     model: string,
-    apiMessages: Array<{ role: "user" | "assistant" | "system"; content: string }>,
+    apiMessages: Array<PromptMessage>,
     /**
      * Each user turn's figure and detail recaps, by user-turn ordinal, derived
      * by the caller from the FULL branch. Required rather than optional on
@@ -1050,40 +924,16 @@ export function useChat() {
      */
     branchRecaps: BranchRecaps,
     overrides?: StreamResponseOverrides,
-  ): LocalDispatchPlan {
-    // Compose the directive onto the final user turn FIRST, so everything below
-    // — classification and the shape receipt — sees the turn exactly as the
-    // model will.
-    const composedMessages = appendTurnDirective(apiMessages, overrides?.turnDirective);
-    // A forced intent substitutes for the classified one HERE, at the options
-    // layer — the classifiers themselves are never told about it. Receipts
-    // report this same value, so diagnostics describe the sampling actually run.
-    const turnIntent = overrides?.intent ?? getLatestTurnIntent(composedMessages);
-    // Receipt observability only.
-    let lastUserIndex = -1;
-    for (let i = composedMessages.length - 1; i >= 0; i--) {
-      if (composedMessages[i]!.role === "user") {
-        lastUserIndex = i;
-        break;
-      }
-    }
-    const turnShape = inferAnswerShape(
-      (lastUserIndex >= 0 ? composedMessages[lastUserIndex]!.content : "").trim(),
-      { hasPriorTurns: lastUserIndex > 0 },
-    );
-    const systemPrompt = buildQualitySystemPrompt(model, overrides?.systemPrompt);
-    // Recaps go on LAST, after every decision the turn's own text makes.
-    // Measured: classifying recapped text flips this corpus's budget turn from
-    // `explain` to `deep`, which would resolve different sampling options —
-    // so nothing above this line may ever see a recap.
-    const recappedMessages = appendBranchRecaps(composedMessages, branchRecaps);
+  ) {
     return {
-      turnIntent,
-      turnShape,
-      systemPrompt,
-      hintedMessages: recappedMessages,
-      messagesWithSystem: [{ role: 'system' as const, content: systemPrompt }, ...recappedMessages],
-      localGenerationOptions: buildLocalGenerationOptions(turnIntent, model),
+      modelId: model,
+      messages: apiMessages,
+      branchRecaps,
+      customInstructions: useSettingsStore.getState().customInstructions,
+      allowValidationModel: allowValidationModelMetadata,
+      ...(overrides?.systemPrompt !== undefined ? { systemPrompt: overrides.systemPrompt } : {}),
+      ...(overrides?.turnDirective !== undefined ? { turnDirective: overrides.turnDirective } : {}),
+      ...(overrides?.intent !== undefined ? { intent: overrides.intent } : {}),
     };
   }
 
@@ -1157,9 +1007,12 @@ export function useChat() {
       }
     }
 
-    // ── Build prompt + generation options ──────────────────────────────────
-    const plan = buildPrompt(model, apiMessages, branchRecaps, overrides);
-    const { turnIntent, localGenerationOptions } = plan;
+    // ── Snapshot the prompt inputs ─────────────────────────────────────────
+    // `assemble()` itself runs AFTER the tool step below, because the tool note
+    // joins onto the system prompt and there is exactly one composition. The
+    // store reads happen here, before the await, so the prompt is composed from
+    // the settings that were live when the turn was dispatched.
+    const promptInput = promptInputFor(model, apiMessages, branchRecaps, overrides);
 
     // ── Create the per-generation object (BEFORE the tool step) ─────────────
     // Owns its own AbortController + batcher (id + seq) + reader slot. The
@@ -1168,7 +1021,7 @@ export function useChat() {
     // Created HERE — above the tool step — so a network-backed tool (grounding,
     // #5 S3) can be tied to this generation's AbortController: pressing Stop during
     // the lookup aborts the fetch via the same path as a mid-stream stop. Nothing
-    // between buildPrompt and here depends on the tool step.
+    // between the prompt-input snapshot and here depends on the tool step.
     const generation = createGeneration(appendToMessage);
     setActiveGeneration(generation);
     updateMessage(assistantId, { currentGenerationId: generation.id });
@@ -1309,17 +1162,19 @@ export function useChat() {
       return;
     }
 
-    // Inject the tool note into the system prompt for this single generation. The
+    // ── Assemble the prompt (the ONE composition site) ─────────────────────
+    // The tool note joins onto the system prompt for this single generation; the
     // displayed ToolCallBlock result stays authoritative regardless of the prose.
-    // The rebuild reuses plan.hintedMessages — NOT raw apiMessages — so the
-    // per-turn hints survive the tool path (raw messages here would silently
-    // drop every hint on grounded/tool turns).
-    const systemPrompt = toolStep.systemNote
-      ? [plan.systemPrompt, toolStep.systemNote].join("\n\n")
-      : plan.systemPrompt;
-    const messagesWithSystem = toolStep.systemNote
-      ? [{ role: "system" as const, content: systemPrompt }, ...plan.hintedMessages]
-      : plan.messagesWithSystem;
+    // Composing here rather than rebuilding a second message list is what makes
+    // the tool path structurally unable to drop anything the plain path carries
+    // — before R4a this was a second, hand-maintained composition, and its
+    // predecessor silently dropped every per-turn hint on grounded/tool turns.
+    const plan: AssembledPrompt = assemble({
+      ...promptInput,
+      ...(toolStep.systemNote ? { toolSystemNote: toolStep.systemNote } : {}),
+    });
+    const { turnIntent, systemPrompt, messages: messagesWithSystem } = plan;
+    const localGenerationOptions = { ...plan.options };
 
     // Carry a grounding citation (found case only) onto the assistant message so
     // the citation chip renders. Decline/degraded carry none. (#5 S4 styles it.)
@@ -1351,11 +1206,11 @@ export function useChat() {
     // ── Context-safety guard (oversized prompt) ───────────────────────────
     // Runs BEFORE the receipt snapshot so receipts record the GRANTED budget
     // (the clamp may shrink the request to fit context headroom). Uses the
-    // HINTED messages — hint tokens now live in the user turns, and the
+    // ASSEMBLED conversation — recap tokens live in the user turns, and the
     // accounting must see the bytes the model will.
     const contextGuard = stopForUnsafeLocalContext(
       assistantId,
-      plan.hintedMessages,
+      plan.conversation,
       systemPrompt,
       model,
       localGenerationOptions.max_new_tokens,
@@ -1623,23 +1478,23 @@ export function useChat() {
     apiMessages: Array<{ role: "user" | "assistant" | "system"; content: string }>,
     localModelId: string,
   ) {
-    const localIntent = getLatestTurnIntent(apiMessages);
-    const localSystemPrompt = buildQualitySystemPrompt(localModelId);
     const partialAssistantContent =
       useChatStore.getState().messages.find((message) => message.id === assistantId)?.content ?? "";
-    // Same per-turn hint placement AND recaps as the primary dispatch path, in
-    // the same order (KV contract: history must re-render byte-identically to
-    // how it was sent). `apiMessages` is the whole branch here, unwindowed, so
-    // the recaps derive from it directly.
-    const localFallbackMessages = buildLocalFallbackMessages({
-      systemPrompt: localSystemPrompt,
-      messages: appendBranchRecaps(
-        apiMessages,
-        buildBranchRecaps(apiMessages),
-      ),
+    // The SAME `assemble()` as the primary dispatch path — this was a duplicate
+    // composition until R4a, and duplicating it is how the two could drift.
+    // (KV contract: history must re-render byte-identically to how it was sent.)
+    // `apiMessages` is the whole branch here, unwindowed, so the recaps derive
+    // from it directly.
+    const plan = assemble({
+      modelId: localModelId,
+      messages: apiMessages,
+      branchRecaps: buildBranchRecaps(apiMessages),
+      customInstructions: useSettingsStore.getState().customInstructions,
+      allowValidationModel: allowValidationModelMetadata,
       partialAssistantContent,
     });
-    const continueFinalMessage = partialAssistantContent.trim().length > 0;
+    const localSystemPrompt = plan.systemPrompt;
+    const localFallbackMessages = plan.messages;
 
     // Per-generation object (own abort + batcher + reader slot), same primitive
     // as streamResponse — this is the third former duplicated read loop.
@@ -1658,11 +1513,7 @@ export function useChat() {
     setError(null);
     setStreamPhase("generating");
 
-    const localGenerationOptions = buildLocalGenerationOptions(
-      localIntent,
-      localModelId,
-      continueFinalMessage,
-    );
+    const localGenerationOptions = { ...plan.options };
     const contextGuard = stopForUnsafeLocalContext(
       assistantId,
       localFallbackMessages,
@@ -2250,12 +2101,10 @@ export function useChat() {
       // No user turn yet — reserve the model ceiling (conservative).
       maxNewTokens = modelMaxNewTokensCeiling;
     } else {
-      const intent = getLatestTurnIntent(
-        messages as unknown as Array<{ role: "user" | "assistant" | "system"; content: string }>,
-      );
-      maxNewTokens = getGenerationProfile(intent, true, resolvedSelectedModel, {
-        allowValidationModel: allowValidationModelMetadata,
-      }).maxTokens;
+      // The same budget `assemble()` will request for this turn, so the divider
+      // the user sees is drawn against the real grant rather than a second
+      // recomputation of it.
+      maxNewTokens = getPerTurnMaxNewTokens(messages);
     }
     const selection = selectContextWindow(
       messages,

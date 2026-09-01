@@ -17,30 +17,38 @@
  * local-AI stack, loads the model, and streams through the runtime lifecycle)
  * is the only browser-coupled path; tests inject `generate` and never touch it.
  *
- * ── System-prompt fidelity ──────────────────────────────────────────────────
- * The harness measures with the REAL production on-device system prompt so its
- * numbers reflect what users actually get. The default `buildSystemPrompt`
- * delegates to `getOnDeviceSystemPrompt(modelId)` (lib/system-prompt.ts) — the
- * exact base prompt `useChat.buildSystemPrompt` feeds the model: the lean Eco
- * identity prompt plus the model's catalog `systemDirective` suffix. We
- * deliberately import the small, React-free `lib/system-prompt` assembler
- * rather than the `useChat` hook (which would pull React transitively into a
- * pure-logic module).
+ * ── Prompt fidelity ─────────────────────────────────────────────────────────
+ * Since R4a the runner composes its messages through the SAME pure
+ * `assemble()` production dispatch uses (`local-ai/prompt/assemble.ts`), so
+ * "the harness measures what users get" is enforced by the call graph rather
+ * than by two hand-maintained compositions agreeing. The default
+ * `buildSystemPrompt` delegates to `getOnDeviceSystemPrompt(modelId)` — the
+ * lean Eco identity prompt, which is the base prompt production feeds the
+ * model. We import the small, React-free assembler rather than the `useChat`
+ * hook (which would pull React transitively into a pure-logic module).
  *
- * Per-intent hints were removed in R1. The runner now composes messages
- * identically to dispatch: system = base prompt only; user turns pass
- * through unchanged; recaps are appended.
+ * One production layer is DELIBERATELY not reproduced: user custom
+ * instructions. It is now a single explicit `customInstructions: ''` argument
+ * at the `assemble()` call in `composeProbeMessages`, not an omission. The
+ * reason is comparability — custom instructions are per-user free text, so a
+ * run that included them would measure that user's prompt rather than the
+ * shipped default, and two runs would stop being comparable. Measuring the
+ * effect of custom instructions is a separate arm, not the baseline.
  *
- * One production layer is intentionally NOT reproduced: user custom
- * instructions — user-specific, empty for the default user.
+ * Options are NOT assembled here: `assemble()` returns the snake_case shape the
+ * legacy chat seam takes, while the harness needs `GenerateOptions` and layers
+ * its own arms and per-run cap on top. Both resolve the same sampling row from
+ * the same `getGenerationProfile`, so there is no second source of truth —
+ * only a second wire shape, which R4b's `TokenEvent` seam removes.
  */
 
 import type { ChatIntent } from '../../lib/chat-intent';
 import {
   getGenerationProfile,
 } from '../../lib/chat-intent';
-import { appendBranchRecaps, buildBranchRecaps } from '../../lib/detail-recap';
+import { buildBranchRecaps } from '../../lib/detail-recap';
 import { getOnDeviceSystemPrompt } from '../../lib/system-prompt';
+import { assemble } from '../prompt/assemble';
 import { getModel } from '../catalog/catalog';
 import { getDeviceProfile } from '../device/profile';
 import { classifyDeviceClass } from '../evidence/seed';
@@ -103,6 +111,9 @@ const MAX_SAMPLES_PER_PROBE = 10;
  * decode mode.
  */
 const HARNESS_VERSION = 1;
+// NAME RETAINED DELIBERATELY (R4a): per-intent hints were deleted in R1, so this
+// era no longer places any. The string is written into persisted runs and is the
+// key two runs are compared on, so renaming it would silently split the history.
 const COMPOSITION_ERA = 'wave2.6-stage1-user-turn-hints';
 const GEMMA_NATIVE_ECO_CONTRACT = [
   'You are Eco, a private on-device assistant.',
@@ -784,29 +795,36 @@ function composeGemmaNativeMessages(spec: EvalPromptSpec): ComposedProbeMessages
 function composeProbeMessages(
   spec: EvalPromptSpec,
   baseSystemPrompt: string,
-  _modelId: string,
+  modelId: string,
   messageTopology: EvalMessageTopology,
 ): ComposedProbeMessages {
   if (messageTopology === 'gemma-native-user-contract') {
     return composeGemmaNativeMessages(spec);
   }
 
-  const history = (spec.history ?? []).map((turn): ChatMessage => ({
-    role: turn.role,
-    content: turn.content,
-  }));
-
-  // Recaps derive from the RAW branch (history + this turn), exactly as
-  // `useChat.buildPrompt` does it.
-  const branchRecaps = buildBranchRecaps([...history, { role: 'user', content: spec.prompt }]);
   const branch: ChatMessage[] = [
-    ...history,
+    ...(spec.history ?? []).map((turn): ChatMessage => ({
+      role: turn.role,
+      content: turn.content,
+    })),
     { role: 'user', content: spec.prompt },
   ];
-  const messages: ChatMessage[] = [
-    { role: 'system', content: baseSystemPrompt },
-    ...appendBranchRecaps(branch, branchRecaps),
-  ];
+
+  // The SAME `assemble()` production dispatch uses, so "the harness measures
+  // what users get" is a fact about the call graph rather than a claim in a
+  // comment. Recaps derive from the RAW branch (history + this turn), which is
+  // what `assemble` expects. `systemPrompt` is passed pre-composed because the
+  // caller has already applied the prompt arms and any grounding note.
+  const messages = assemble({
+    modelId,
+    messages: branch,
+    branchRecaps: buildBranchRecaps(branch),
+    // The eval lane deliberately measures with NO custom instructions — see the
+    // fidelity note in this file's header.
+    customInstructions: '',
+    systemPrompt: baseSystemPrompt,
+    allowValidationModel: true,
+  }).messages;
   return {
     messages,
     promptTrace: traceForMessages(spec, messages, 'none', 'user-turn', 'none'),

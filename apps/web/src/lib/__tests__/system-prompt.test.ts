@@ -115,12 +115,11 @@ describe('getOnDeviceSystemPrompt', () => {
     expect(prompt).not.toContain('/no_think');
   });
 
-  // getOnDeviceSystemPrompt appends a model's catalog systemDirective when present
-  // (`${PROMPT}\n${suffix}`). Phi-3 (retired 2026-08-15, MC-2) was the last catalog
-  // model carrying a directive, so no live id exercises the append today. The
-  // directive-return mechanism itself stays covered by getLocalModelSystemPromptSuffix
-  // in runtime/system-prompt.test.ts; when a shipping model next carries a
-  // systemDirective, restore an append assertion here.
+  // The per-model `systemDirective` suffix was deleted in R4a: no catalog entry
+  // ever carried one (all 18 were null), so `getOnDeviceSystemPrompt` returns the
+  // same prompt for every id. The assertions below now pin exactly that — the
+  // model id changes nothing. Phi-3 (retired 2026-08-15, MC-2) was the last
+  // catalog model that carried a directive.
 
   it('returns base prompt only for non-catalog models (no legacy suffix lookup)', () => {
     const prompt = getOnDeviceSystemPrompt('local/smollm3-3b');
