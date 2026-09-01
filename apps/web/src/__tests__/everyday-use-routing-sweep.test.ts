@@ -73,7 +73,7 @@ import {
 } from "../lib/chat-intent";
 import { inferAnswerShape, type AnswerShape } from "../lib/answer-shape";
 import { getCatalog } from "../local-ai/catalog/catalog";
-import { PREFERRED_DEFAULT_MODEL_ID } from "../local-ai/selection/recommend";
+import { tierDefaultModelId } from "../local-ai/selection/recommend";
 import { getOnDeviceSystemPrompt } from "../lib/system-prompt";
 import {
   EVERYDAY_USE_CORPUS,
@@ -109,7 +109,7 @@ const INTENT_ORDER: readonly ChatIntent[] = [
  * 384 on every intent, so there the model's own ceiling settles the budget
  * question and it says nothing about routing.
  */
-const BUDGET_MODEL = PREFERRED_DEFAULT_MODEL_ID;
+const BUDGET_MODEL = tierDefaultModelId("eco-fast", "capable")!;
 
 /** The top of the direct band — `quick`, the only budget below the middle. */
 const DIRECT_BAND_MAX_TOKENS = 1024;

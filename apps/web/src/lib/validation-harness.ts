@@ -14,7 +14,7 @@
 // import this harness at runtime, so naming their types here would re-form the
 // type-only import cycle that `scripts/check-circular-deps.mjs` rejects.
 import type { InferenceCapability } from './inference-capability-types';
-import { getModel } from '../local-ai/catalog/catalog';
+import { getCatalog, getModel } from '../local-ai/catalog/catalog';
 import { getEvalCandidateModel } from '../local-ai/eval/eval-candidates';
 import type { Slot } from '../local-ai/types';
 import { getGenerationProfile, type ChatIntent } from './chat-intent';
@@ -414,6 +414,21 @@ export function getValidationConversationHistoryFixture(): ValidationConversatio
   return normalizeConversationHistoryFixture(readHarnessParam('eco-history-fixture'));
 }
 
+/**
+ * Model the local-generation fixture stands in for when the URL names none.
+ * Read off the catalog (the everyday `eco-fast` pick) rather than pinned to an
+ * id: this used to name `local/bonsai-1.7b-q1`, which retired from the catalog
+ * in 2026-07, so `getModel()` returned null and the fixture rendered its raw id
+ * instead of a friendly name. Dev-only surface — the harness is off in
+ * production.
+ */
+function defaultLocalGenerationFixtureModelId(): string {
+  const catalog = getCatalog();
+  return catalog.find((model) => model.tier['eco-fast'] === 'capable')?.id
+    ?? catalog[0]?.id
+    ?? '';
+}
+
 export function getValidationLocalGenerationFixture(
   modelId?: string | null,
 ): ValidationLocalGenerationFixture | null {
@@ -429,7 +444,7 @@ export function getValidationLocalGenerationFixture(
   }
 
   const fixtureModelId =
-    readHarnessParam('eco-local-generation-model') ?? 'local/bonsai-1.7b-q1';
+    readHarnessParam('eco-local-generation-model') ?? defaultLocalGenerationFixtureModelId();
   if (modelId && modelId !== fixtureModelId) {
     return null;
   }

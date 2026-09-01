@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Bos Computing LLC
 
 import { describe, expect, it } from "vitest";
-import catalog from "../../local-ai/catalog/catalog-data.json";
+import { getCatalog } from "../../local-ai/catalog/catalog";
 import {
   __profileModelIds,
   getLocalModelContextBudget,
@@ -26,22 +26,6 @@ function modelSlice(
     maxNewTokens: { webgpu: 512 },
   };
 }
-
-// ─── Bonsai q4 ───────────────────────────────────────────────────────────
-
-describe("Bonsai 1.7B q4 generation profile", () => {
-  const bonsai = modelSlice("local/bonsai-1.7b-q1", "bonsai");
-
-  it("has noRepeatNgramSize guard at base level", () => {
-    const defaults = getLocalModelGenerationDefaults(bonsai);
-    expect(defaults.noRepeatNgramSize).toBeGreaterThanOrEqual(3);
-  });
-
-  it("has repetitionPenalty >= 1.06 at base level", () => {
-    const defaults = getLocalModelGenerationDefaults(bonsai);
-    expect(defaults.repetitionPenalty).toBeGreaterThanOrEqual(1.06);
-  });
-});
 
 // ─── LFM2.5 350M ────────────────────────────────────────────────────────
 
@@ -284,10 +268,13 @@ describe("generation profile edge cases", () => {
 // intent. A model that silently fell through to a family fallback or a house
 // default would fail here — that fallback is what this fold removed.
 
-type CatalogEntry = { id: string };
-
 describe("catalog coverage invariant", () => {
-  const catalogIds = (catalog as { models: CatalogEntry[] }).models.map((m) => m.id);
+  // getCatalog(), NOT the raw catalog-data.json models array: that file also holds
+  // the dev-only eval lane, whose sampling resolves through the eval-lane maps
+  // (id-keyed rows or a chat-intent `family`) rather than from a catalog block.
+  // This invariant is about SHIPPING models — every one must resolve complete
+  // generation data from its own entry.
+  const catalogIds = getCatalog().map((m) => m.id);
 
   it.each(catalogIds)("resolves complete generation data for %s at every intent", (id) => {
     const model: ChatIntentModelSlice = { id, maxNewTokens: { webgpu: 4096 } };
@@ -334,7 +321,6 @@ describe("isCjkSuppressionEnabled", () => {
   it.each([
     "candidate/lfm2.5-1.2b-instruct-onnx", // fast / low-memory fallback — must never pay the scan
     "candidate/lfm2.5-350m-onnx",
-    "local/bonsai-1.7b-q1",
     "local/qwen3-0.6b", // qwen3 gen: shared vocab risk but NO measured leak — needs its own gated run
     "candidate/qwen3-1.7b-onnx",
     "candidate/lfm2-2.6b-onnx",

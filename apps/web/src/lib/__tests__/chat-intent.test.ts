@@ -44,11 +44,10 @@ describe("chat intent quality helpers", () => {
   });
 
   it("applies intent overrides from local model quality profiles", () => {
-    // smollm3-3b is a lab/validation-harness model — its dedicated profile was
-    // removed when PROFILE_BY_MODEL_ID trimmed to the v1 catalog. It now falls
-    // through to the baseline path (no per-model overrides).
+    // An id in neither lane falls through to the baseline path (no per-model
+    // overrides).
     expect(
-      getGenerationProfile("writing", true, "local/smollm3-3b", {
+      getGenerationProfile("writing", true, "local/not-a-real-model", {
         allowValidationModel: true,
       }),
     ).toMatchObject({
@@ -90,13 +89,13 @@ describe("chat intent quality helpers", () => {
   });
 
   it("gives local models enough budget for complete recipes and drafts", () => {
-    // smollm3-3b lost its per-model profile when PROFILE_BY_MODEL_ID was trimmed
-    // to the v1 catalog — it now falls back to the baseline writing budget.
+    // An id in neither lane resolves nothing per-model and falls back to the
+    // baseline writing budget — the intended behaviour for an unknown model.
     expect(
-      getGenerationProfile("writing", true, "local/smollm3-3b", {
+      getGenerationProfile("writing", true, "local/not-a-real-model", {
         allowValidationModel: true,
       }).maxTokens,
-    ).toBe(1024);
+    ).toBe(1536);
     expect(getGenerationProfile("writing", true, "local/qwen3-0.6b").maxTokens).toBe(512);
   });
 
@@ -113,28 +112,25 @@ describe("chat intent quality helpers", () => {
     expect(profile).not.toHaveProperty("noRepeatNgramSize");
   });
 
-  it("can use lab-only local model profiles inside validation harnesses", () => {
+  it("can use eval-lane model profiles inside validation harnesses", () => {
+    // The eval lane resolves per-model sampling of its own — an id-keyed row in
+    // local-model-generation-profiles.ts, or the chat-intent `family` fallback.
     expect(
-      getGenerationProfile("writing", true, "local/bonsai-1.7b-q1", {
+      getGenerationProfile("quick", true, "candidate/qwen3-1.7b-onnx", {
         allowValidationModel: true,
       }),
     ).toMatchObject({
-      maxTokens: 512,
-      temperature: 0.35,
-      topP: 0.8,
+      // From the qwen3 family slice, not the baseline (which carries no topK).
       topK: 20,
-      repetitionPenalty: 1.07,
-      noRepeatNgramSize: 4,
+      maxTokens: 512,
     });
   });
 
-  it("can use lab-only candidate model profiles inside benchmark harnesses", () => {
-    // candidate/bitnet-b158 lost its per-model profile when PROFILE_BY_MODEL_ID
-    // was trimmed to the v1 catalog. The bitnet family is also out of the v1
-    // LocalModelFamily union, so lookup falls through to the baseline path —
-    // the harness still resolves a usable profile, just without per-model overrides.
+  it("falls through to the baseline path for an id in neither lane", () => {
+    // No per-model row and no recognized family, so the harness still resolves a
+    // usable profile — just without per-model overrides.
     expect(
-      getGenerationProfile("quick", true, "candidate/bitnet-b158", {
+      getGenerationProfile("quick", true, "candidate/not-a-real-model", {
         allowValidationModel: true,
       }),
     ).toMatchObject({
@@ -144,7 +140,7 @@ describe("chat intent quality helpers", () => {
   });
 
   it("fails closed for hidden direct local model IDs before prompt-profile generation", () => {
-    const hiddenProfile = getGenerationProfile("deep", true, "local/smollm3-3b");
+    const hiddenProfile = getGenerationProfile("deep", true, "local/not-a-real-model");
     expect(hiddenProfile).toMatchObject({
       temperature: 0.5,
       maxTokens: 2048,

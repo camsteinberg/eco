@@ -35,6 +35,10 @@ vi.mock("../../../../../src/local-ai/catalog/catalog", () => ({
     return undefined;
   },
   getCatalog: () => [],
+  // The route pulls in validation-harness -> eval-candidates, which reads the
+  // eval lane at module load. Empty here: this suite is about the manifest
+  // route's defensive 404 branches, not the lane.
+  getEvalLaneModels: () => [],
 }));
 
 vi.mock("../../../../../src/lib/local-model-registry", () => ({

@@ -26,9 +26,11 @@
  * SmolLM2 (WebLLM/MLC) was retired 2026-07-10 and Bonsai 2026-07-11 — see the
  * retirement migrations in lifecycle/self-heal.ts and CHANGES.md.
  *
- * Non-shipping evaluation candidates live in
- * `apps/web/src/local-ai/eval/eval-candidates.ts` (the eval-only lane) and are
- * not in the user bundle. See `docs/design/2026-05-16/vision-and-architecture.md` §2.4.
+ * Non-shipping evaluation candidates live in the SAME file, flagged
+ * `shipping: false`. `getCatalog()` filters them out; `getEvalLaneModels()` (and
+ * the `eval/eval-candidates.ts` view over it) is the only way to reach them, and
+ * the proxy serves them solely behind the loopback validation gate. See
+ * `docs/design/2026-05-16/vision-and-architecture.md` §2.4.
  */
 
 import type {
@@ -40,18 +42,22 @@ import type {
   ModelIntent,
   ModelLicense,
   ModelMaxNewTokens,
+  ModelTier,
+  ModelTierAssignment,
+  Slot,
 } from '../types';
 import catalogData from './catalog-data.json';
 
 /**
- * A shipping catalog entry. Narrower than `ModelConfig`: `license`,
- * `generation` and `maxNewTokens` are optional on the shared type (test
- * fixtures and eval-lane candidates don't carry them), but every entry in
- * catalog-data.json MUST have all five — we redistribute the weights, so the
- * license travels with them, and the catalog is the single description of how a
- * model is sampled, how long it may generate, which devices may run it, and how
- * it is named to a person. `assertCatalogEntry` below pins that at load; this
- * type gives catalog consumers it at compile time.
+ * A SHIPPING catalog entry. Narrower than `ModelConfig`: `license`,
+ * `generation`, `maxNewTokens`, `compat`, `display` and `tier` are all optional
+ * on the shared type (test fixtures and eval-lane entries don't carry them), but
+ * every entry in catalog-data.json with `shipping: true` MUST have all of them —
+ * we redistribute the weights, so the license travels with them, and the catalog
+ * is the single description of how a model is sampled, how long it may generate,
+ * which devices may run it, which device tier it is the default for, and how it
+ * is named to a person. `assertCatalogEntry` below pins that at load; this type
+ * gives catalog consumers it at compile time.
  */
 export type CatalogModel = ModelConfig & {
   license: ModelLicense;
@@ -59,6 +65,8 @@ export type CatalogModel = ModelConfig & {
   maxNewTokens: ModelMaxNewTokens;
   compat: ModelCompat;
   display: ModelDisplay;
+  shipping: true;
+  tier: ModelTierAssignment;
 };
 
 const INTENTS: readonly ModelIntent[] = [
@@ -72,6 +80,14 @@ const SAMPLING_KEYS = [
 const BROWSER_CLASSES: readonly BrowserClass[] = [
   'chromium', 'safari', 'firefox', 'mobile', 'unknown',
 ];
+
+const SLOTS: readonly Slot[] = ['eco-fast', 'eco-smart'];
+
+/**
+ * The tier ladder, best rung first. `selection/recommend.ts` walks it in this
+ * order, so the array IS the fallback order — see {@link ModelTierAssignment}.
+ */
+export const TIER_ORDER: readonly ModelTier[] = ['capable', 'laptop', 'phone', 'floor'];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -118,6 +134,29 @@ function assertCatalogEntry(raw: unknown): void {
     throw new Error('catalog-data.json: entry has no string `id`');
   }
   const id = raw.id;
+  assertBoolean(raw.shipping, id, 'shipping');
+
+  // A WebLLM entry with no vendored `model_lib` wasm cannot load at all — the
+  // engine fails after a full download. Catch it here, at the point of origin.
+  // Applies to BOTH lanes: an eval candidate is loaded by the same adapter.
+  if (raw.runtime === 'webllm') {
+    if (!isRecord(raw.quirks)) bad(id, 'is a webllm model with no `quirks` object');
+    assertNonEmptyString(raw.quirks.webllmModelLibFile, id, 'quirks.webllmModelLibFile');
+  }
+
+  // The eval lane stops here. Those entries are never recommended, rendered in
+  // primary UI, or served to a device — they are downloaded by id through the
+  // loopback-gated validation proxy and handed straight to `loadModel`. Demanding
+  // sampling, device rules, presentation copy and a redistribution license of them
+  // would mean inventing all four, so the fields they genuinely need (id, runtime,
+  // format, artifact) are what is checked. `shipping: true` is what turns the
+  // full contract below on.
+  if (raw.shipping !== true) {
+    if (!isRecord(raw.artifact)) bad(id, 'is an eval-lane entry with no `artifact` block');
+    return;
+  }
+
+  assertTier(raw.tier, id);
   if (!isRecord(raw.license)) bad(id, 'has no `license` block');
 
   assertSampling(raw.generation, id, 'generation', true);
@@ -145,12 +184,46 @@ function assertCatalogEntry(raw: unknown): void {
 
   assertCompat(raw.compat, id);
   assertDisplay(raw.display, id);
+}
 
-  // A WebLLM entry with no vendored `model_lib` wasm cannot load at all — the
-  // engine fails after a full download. Catch it here, at the point of origin.
-  if (raw.runtime === 'webllm') {
-    if (!isRecord(raw.quirks)) bad(id, 'is a webllm model with no `quirks` object');
-    assertNonEmptyString(raw.quirks.webllmModelLibFile, id, 'quirks.webllmModelLibFile');
+/**
+ * A shipping entry must declare which device tier it is the default for, even if
+ * the answer is "none" (`{}`). Silence is not an acceptable answer: an entry that
+ * simply omitted the block would join the catalog as nobody's default and be
+ * reachable only by fit score, which is exactly the drift this fold ends.
+ */
+function assertTier(value: unknown, id: string): void {
+  if (!isRecord(value)) bad(id, 'has no `tier` object (use `{}` for "not a default")');
+  for (const [slot, tier] of Object.entries(value)) {
+    if (!SLOTS.includes(slot as Slot)) {
+      bad(id, `has an unknown slot "${slot}" in \`tier\``);
+    }
+    if (!TIER_ORDER.includes(tier as ModelTier)) {
+      bad(id, `has an unknown tier ${JSON.stringify(tier)} in \`tier.${slot}\``);
+    }
+  }
+}
+
+/**
+ * Exactly one model may hold a given (slot, tier) rung. Two claimants would make
+ * the ladder's lookup order depend on array position in catalog-data.json — a
+ * silent tie-break nobody wrote down.
+ */
+function assertTierRungsAreUnique(models: readonly CatalogModel[]): void {
+  const claimed = new Map<string, string>();
+  for (const model of models) {
+    for (const slot of SLOTS) {
+      const tier = model.tier[slot];
+      if (tier === undefined) continue;
+      const rung = `${slot}/${tier}`;
+      const holder = claimed.get(rung);
+      if (holder !== undefined) {
+        throw new Error(
+          `catalog-data.json: models "${holder}" and "${model.id}" both claim tier rung ${rung}`,
+        );
+      }
+      claimed.set(rung, model.id);
+    }
   }
 }
 
@@ -193,8 +266,32 @@ function assertDisplay(value: unknown, id: string): void {
 
 for (const entry of catalogData.models as readonly unknown[]) assertCatalogEntry(entry);
 
-const MODELS: readonly CatalogModel[] = Object.freeze(
-  (catalogData.models as CatalogModel[]).map((model) => Object.freeze(model)),
+const ALL_ENTRIES: readonly ModelConfig[] = Object.freeze(
+  (catalogData.models as ModelConfig[]).map((model) => Object.freeze(model)),
+);
+
+/**
+ * True for a shipping entry. The cast is sound because `assertCatalogEntry` has
+ * already thrown, at module load, for any entry with `shipping: true` that is
+ * missing one of the blocks `CatalogModel` adds — so past this predicate the
+ * fields really are present, not merely assumed.
+ */
+function isShipping(model: ModelConfig): model is CatalogModel {
+  return model.shipping === true;
+}
+
+const MODELS: readonly CatalogModel[] = Object.freeze(ALL_ENTRIES.filter(isShipping));
+
+assertTierRungsAreUnique(MODELS);
+
+/**
+ * The dev-only eval lane: every entry with `shipping: false`. Downloadable only
+ * through the loopback-gated validation proxy, and — because `getCatalog()`
+ * below returns `MODELS`, which this set is disjoint from — never reachable from
+ * the recommendation engine, the ModelSelector, or any user-facing surface.
+ */
+const EVAL_LANE: readonly ModelConfig[] = Object.freeze(
+  ALL_ENTRIES.filter((model) => !isShipping(model)),
 );
 
 const MODELS_BY_ID: ReadonlyMap<string, CatalogModel> = new Map(
@@ -202,20 +299,31 @@ const MODELS_BY_ID: ReadonlyMap<string, CatalogModel> = new Map(
 );
 
 /**
- * Return the full shipping catalog. Order matches catalog-data.json,
- * which is the canonical source of truth.
+ * Return the shipping catalog — entries with `shipping: true`, and ONLY those.
+ * catalog-data.json also holds the dev-only eval lane (`shipping: false`); this
+ * filter is what keeps it out of every user-facing surface, since essentially
+ * every consumer in `local-ai/` reads the catalog through this function.
+ * Order matches catalog-data.json, which is the canonical source of truth.
  */
 export function getCatalog(): CatalogModel[] {
   return [...MODELS];
 }
 
 /**
+ * Return the non-shipping eval-lane entries. Consumers MUST gate on
+ * `isValidationHarnessRequestAllowed` before serving anything derived from these
+ * — in production the lane must stay invisible (403/404).
+ */
+export function getEvalLaneModels(): ModelConfig[] {
+  return [...EVAL_LANE];
+}
+
+/**
  * Return a single model by id, or null if the id is not in the v1.0 catalog.
  * Use this for model-id lookups (e.g., resolving a stored slot assignment).
  *
- * NOTE: this only returns v1.0 catalog models. Non-shipping evaluation
- * candidates are not reachable through this function — they live in
- * `apps/web/src/local-ai/eval/eval-candidates.ts`.
+ * NOTE: this only returns SHIPPING catalog models. The non-shipping eval lane
+ * is not reachable through this function — `getEvalLaneModels()` is.
  */
 export function getModel(id: string): CatalogModel | null {
   return MODELS_BY_ID.get(id) ?? null;

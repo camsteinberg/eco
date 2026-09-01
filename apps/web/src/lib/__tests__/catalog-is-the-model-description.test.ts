@@ -32,6 +32,10 @@ const FIXTURE_ID = "fixture/one-file-model";
  */
 const FIXTURE_ENTRY = {
   id: FIXTURE_ID,
+  shipping: true,
+  // The eco-fast `capable` rung: this entry alone decides it is the everyday
+  // default, with no id literal in selection/recommend.ts.
+  tier: { "eco-fast": "capable" },
   friendlyName: "One File",
   vendor: "Fixture",
   sizeGB: 0.1,
@@ -195,6 +199,108 @@ describe("a catalog entry is the whole description of a model", () => {
     );
   });
 
+  it("resolves the recommendation ladder from the catalog entry alone", async () => {
+    const { recommend, starterModelForSlot, tierDefaultModelId } = await import(
+      "../../local-ai/selection/recommend"
+    );
+
+    const firefox: DeviceProfile = {
+      browserClass: "firefox",
+      webgpuSupport: "webgpu",
+      deviceMemoryGB: 8,
+      isMobile: false,
+      override: "auto",
+    };
+
+    // tier: { "eco-fast": "capable" } — the entry claims the top rung, and it is
+    // the only thing that puts it there.
+    expect(tierDefaultModelId("eco-fast", "capable")).toBe(FIXTURE_ID);
+    expect(tierDefaultModelId("eco-smart", "capable")).toBeNull();
+    expect(recommend("eco-fast", firefox).id).toBe(FIXTURE_ID);
+    expect(starterModelForSlot("eco-fast", firefox)?.id).toBe(FIXTURE_ID);
+  });
+
+  it("keeps a shipping:false entry out of the catalog and in the eval lane", async () => {
+    const EVAL_ID = "fixture/eval-lane-only";
+    vi.doMock("../../local-ai/catalog/catalog-data.json", () => ({
+      default: {
+        models: [
+          FIXTURE_ENTRY,
+          {
+            id: EVAL_ID,
+            shipping: false,
+            friendlyName: "Eval Lane Only",
+            vendor: "Fixture",
+            sizeGB: 0.1,
+            runtime: "transformers",
+            format: "onnx-q4",
+            capabilities: { intent: ["snappy"], tasks: ["chat"], contextTokens: 8192 },
+            bestFor: "Fixture",
+            knownLimitation: "Fixture",
+            evidenceTier: "predicted",
+            artifact: { hfId: "fixture/eval", revision: "a".repeat(40), files: ["config.json"] },
+          },
+        ],
+      },
+    }));
+
+    const { getCatalog, getModel, getEvalLaneModels } = await import(
+      "../../local-ai/catalog/catalog"
+    );
+    const { recommend, listCatalog, canServe } = await import(
+      "../../local-ai/selection/recommend"
+    );
+
+    // The filter is what keeps the lane invisible — assert on the surfaces a
+    // user actually reaches, not just on getCatalog().
+    expect(getCatalog().map((m) => m.id)).toEqual([FIXTURE_ID]);
+    expect(getModel(EVAL_ID)).toBeNull();
+    expect(getEvalLaneModels().map((m) => m.id)).toEqual([EVAL_ID]);
+
+    const firefox: DeviceProfile = {
+      browserClass: "firefox",
+      webgpuSupport: "webgpu",
+      deviceMemoryGB: 8,
+      isMobile: false,
+      override: "auto",
+    };
+    expect(canServe(firefox)).toBe(true);
+    expect(recommend("eco-fast", firefox).id).toBe(FIXTURE_ID);
+    expect(listCatalog(firefox).available.map((a) => a.model.id)).toEqual([FIXTURE_ID]);
+  });
+
+  it("rejects an entry that does not say which lane it is in", async () => {
+    vi.doMock("../../local-ai/catalog/catalog-data.json", () => ({
+      default: { models: [{ ...FIXTURE_ENTRY, id: "fixture/no-lane", shipping: undefined }] },
+    }));
+
+    await expect(import("../../local-ai/catalog/catalog")).rejects.toThrow(
+      /fixture\/no-lane.*shipping/s,
+    );
+  });
+
+  it("rejects a shipping entry missing its tier block instead of defaulting", async () => {
+    vi.doMock("../../local-ai/catalog/catalog-data.json", () => ({
+      default: { models: [{ ...FIXTURE_ENTRY, id: "fixture/no-tier", tier: undefined }] },
+    }));
+
+    await expect(import("../../local-ai/catalog/catalog")).rejects.toThrow(
+      /fixture\/no-tier.*tier/s,
+    );
+  });
+
+  it("rejects two entries claiming the same tier rung", async () => {
+    vi.doMock("../../local-ai/catalog/catalog-data.json", () => ({
+      default: {
+        models: [FIXTURE_ENTRY, { ...FIXTURE_ENTRY, id: "fixture/rung-thief" }],
+      },
+    }));
+
+    await expect(import("../../local-ai/catalog/catalog")).rejects.toThrow(
+      /both claim tier rung eco-fast\/capable/s,
+    );
+  });
+
   it("rejects an entry missing its compat block instead of defaulting", async () => {
     vi.doMock("../../local-ai/catalog/catalog-data.json", () => ({
       default: { models: [{ ...FIXTURE_ENTRY, id: "fixture/no-compat", compat: undefined }] },
@@ -227,7 +333,7 @@ describe("a catalog entry is the whole description of a model", () => {
 
   it("rejects an entry missing its generation block instead of defaulting", async () => {
     vi.doMock("../../local-ai/catalog/catalog-data.json", () => ({
-      default: { models: [{ id: "fixture/no-generation", license: {} }] },
+      default: { models: [{ id: "fixture/no-generation", shipping: true, tier: {}, license: {} }] },
     }));
 
     await expect(import("../../local-ai/catalog/catalog")).rejects.toThrow(

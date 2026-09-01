@@ -9,9 +9,11 @@
  *
  * NOTE: the admission gate has no experimental branch. It used to claim the
  * catalog filtered `evidenceTier: 'experimental'` out of `getCatalog()` —
- * verified FALSE on 2026-08-31: catalog/catalog.ts applies no tier filter and
- * returns every entry in catalog-data.json. Nothing gates on the experimental
- * tier today; it is descriptive metadata the UI surfaces, not a filter.
+ * verified FALSE on 2026-08-31: catalog/catalog.ts applies no EVIDENCE-TIER
+ * filter, so nothing gates on the experimental tier today; it is descriptive
+ * metadata the UI surfaces. `getCatalog()` does apply exactly one filter, added
+ * in the same session: `shipping === true`, which keeps the dev-only eval lane
+ * (also in catalog-data.json) out of every user-facing surface.
  *
  * Decision order (the only thing downstream consumers care about):
  *
