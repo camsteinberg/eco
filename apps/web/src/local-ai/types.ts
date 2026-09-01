@@ -323,8 +323,6 @@ export type ModelConfig = {
   bestFor: string;
   knownLimitation: string;
   evidenceTier: 'proven' | 'predicted' | 'experimental';
-  /** Optional system-prompt suffix (e.g. thinking-control directive). */
-  systemDirective?: string;
   /**
    * How this model's chat template handles `role: "system"` messages.
    * Defaults to `"native"` when absent (backward-compatible with existing

@@ -1,10 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Bos Computing LLC
 
-import { getModel } from "../local-ai/catalog/catalog";
-import { getLocalModelSystemPromptSuffix } from "../local-ai/runtime/system-prompt";
-import { isLocalAiModel } from "../local-ai/util";
-
 /**
  * System prompt builder for Eco's on-device AI.
  *
@@ -37,11 +33,15 @@ const ON_DEVICE_PROMPT = `You are Eco, a private AI — a compact open model run
 /**
  * Get the system prompt for on-device models (~140 tokens).
  * Lean and abstract to prevent sub-2B models from echoing examples as content.
+ *
+ * The same for every model. A per-model `systemDirective` suffix used to be
+ * appended here; no catalog entry ever carried one (all 18 were null), so the
+ * branch, `runtime/system-prompt.ts`, and the `systemDirective` field were
+ * deleted in R4a. `_modelId` is kept so the function still satisfies the
+ * `(modelId: string) => string` seam the eval harness injects; if a real
+ * per-model directive is ever needed, it belongs in the catalog entry and
+ * should be read here from `entry.quirks`, not resurrected as a second module.
  */
-export function getOnDeviceSystemPrompt(modelId?: string): string {
-  if (!modelId || !isLocalAiModel(modelId)) return ON_DEVICE_PROMPT;
-  // Try the v1 catalog first; if the model isn't in the catalog, skip the suffix.
-  const catalogModel = getModel(modelId);
-  const suffix = catalogModel ? getLocalModelSystemPromptSuffix(modelId) : null;
-  return suffix ? `${ON_DEVICE_PROMPT}\n${suffix}` : ON_DEVICE_PROMPT;
+export function getOnDeviceSystemPrompt(_modelId?: string): string {
+  return ON_DEVICE_PROMPT;
 }

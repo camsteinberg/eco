@@ -271,6 +271,14 @@ export type EvalPromptSpec = {
    * (measured stronger conditioning + KV-stable, see Stage-0 findings).
    * 'system' is the pre-Stage-1 composition, kept as the research
    * counterfactual so the relocation decision stays re-measurable.
+   *
+   * NAME RETAINED DELIBERATELY (R4a): per-intent turn hints were deleted in R1,
+   * so nothing places a hint any more. The name stays because this field feeds
+   * `hashPromptSet` (harness.ts) — the non-content comparability hash stamped on
+   * every stored run — so renaming it re-keys the entire run history and two
+   * runs either side of the rename stop being comparable. The field now only
+   * selects a research arm's composition; it is eval-lane only and never
+   * reaches dispatch.
    */
   hintPlacement?: 'system' | 'user-turn';
   /**
