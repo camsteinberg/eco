@@ -21,27 +21,6 @@
 import type { ChatMessage } from './types';
 
 /**
- * Eviction quantum, as a fraction of the history budget. When the window must
- * shrink, the start advances to the next quantum boundary rather than
- * minimally. A minimal slide moves the start on nearly every turn once a
- * conversation saturates its budget — and any start movement breaks the
- * strict-prefix KV-reuse gate (`runtime/kv-cache.ts`), forcing a full-context
- * reprefill (the worst TTFT) on every remaining turn. Quantized eviction keeps
- * the start fixed until the conversation outgrows the current quantum, so KV
- * reuse survives every turn between evictions, at the cost of up to ~one
- * quantum of unused history budget. The boundary is a pure function of stable
- * prefix sums, so consecutive turns recompute the same start with no state.
- *
- * PROVENANCE: **CHOSEN**, not measured — no run establishes 1/8 specifically.
- * The rationale (our worker really does have a strict-prefix KV-reuse gate,
- * which most reference systems do not) is real; the value is not earned.
- * FALSIFIER: a real-browser measurement showing TTFT under MINIMAL eviction is
- * within noise of TTFT under quantized eviction would make the quantum dead
- * weight, and this whole block should then be deleted rather than retuned.
- */
-export const EVICTION_QUANTUM_FRACTION = 1 / 8;
-
-/**
  * Counts the tokens in `text` with the model's real tokenizer, or `null` when
  * this adapter has no tokenizer to ask (`RuntimeAdapter.countTokens`).
  */
@@ -188,20 +167,18 @@ export async function selectWindow<T extends ChatMessage>(
 
   const lastUser = lastUserIndex(conversation);
 
-  // Quantize the eviction point: round the evicted-token count up to the next
-  // quantum boundary and advance the start there (see
-  // EVICTION_QUANTUM_FRACTION). Never advances past the final user turn.
-  if (startIndex > 0 && startIndex < conversation.length) {
-    const quantum = Math.max(1, Math.floor(historyBudget * EVICTION_QUANTUM_FRACTION));
-    let evictedTokens = 0;
-    for (let i = 0; i < startIndex; i++) evictedTokens += turnTokens[i]!;
-    const targetEvicted = Math.ceil(evictedTokens / quantum) * quantum;
-    const limit = lastUser >= 0 ? lastUser : 0;
-    while (startIndex < limit && evictedTokens < targetEvicted) {
-      evictedTokens += turnTokens[startIndex]!;
-      startIndex++;
-    }
-  }
+  // Eviction is minimal and whole-message: the start is the oldest message
+  // that still fits, nothing more is evicted. An earlier version rounded the
+  // eviction point up to a "quantum" (an eighth of the budget) on the theory
+  // that a minimally sliding start would break the strict-prefix KV-reuse gate
+  // on nearly every turn once a chat saturates. Measured on the production
+  // path (2026-09-01, Apple Silicon, LFM2.5-1.2B, a sixty-turn chat at a
+  // 4,096 window, ten further turns per arm): the minimal arm missed the cache
+  // once in nine post-warm turns, the quantized arm twice, first-token latency
+  // on hits identical (~0.46–0.49 s). A message is far larger than a short
+  // turn's growth, so whole-message eviction already holds the start still
+  // for many turns; the quantum bought nothing and cost up to an eighth of
+  // the history budget in unused window.
 
   let windowStart = startIndex;
   // Open the window on a user turn: a leading assistant reply with no question
