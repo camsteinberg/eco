@@ -2,11 +2,12 @@
 // Copyright (C) 2026 Bos Computing LLC
 
 /**
- * Fine-grained unit tests for `runGeneration` — the single read → batch → flush
- * loop shared by every on-device stream in `useChat`. #4 Phase 3 Task 3.
+ * Fine-grained unit tests for `runGeneration` — the single iterate → batch →
+ * flush loop shared by every on-device stream in `useChat`. #4 Phase 3 Task 3.
  *
  * These drive `runGeneration` DIRECTLY (no hook render) with:
- *   - a hand-built `ReadableStream<string>` as the source,
+ *   - a scripted `TokenStream` as the source (R4b: an async iterable of
+ *     `TokenEvent`, not a `ReadableStream<string>`),
  *   - a real `Generation` from `createGeneration` (its own AbortController +
  *     batcher pre-tagged with a unique id + reset seq),
  *   - the real chat store as the content sink, so `getMessageContent` reads back
@@ -24,6 +25,9 @@ import { createGeneration, type Generation } from "../generation";
 import { runGeneration } from "../run-generation";
 import { LocalInferenceStreamError } from "../../../local-ai/runtime/errors";
 import { useChatStore, type StreamPhase } from "../../../stores/chatStore";
+import { scriptedTokenStream } from "../../../__tests__/helpers/token-stream";
+import type { TokenStream } from "../../../local-ai/runtime/stream";
+import type { TokenEvent } from "../../../local-ai/runtime/types";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -47,72 +51,88 @@ function makeGeneration(): Generation {
   });
 }
 
-/** A closed stream that yields the given tokens then completes. */
-function tokensStream(tokens: string[]): ReadableStream<string> {
-  return new ReadableStream<string>({
-    start(controller) {
-      for (const t of tokens) controller.enqueue(t);
-      controller.close();
-    },
-  });
+/**
+ * A stream that yields the given tokens then ends. `done: null` — these tests
+ * are about the loop, not usage, and it keeps the whole result object
+ * comparable with `toEqual`. The `done` event's own handling has its own test.
+ */
+function tokensStream(tokens: string[]): TokenStream {
+  return scriptedTokenStream({ tokens, done: null });
 }
 
 /**
- * A stream that DELIVERS its tokens one at a time, then errors.
+ * A stream that DELIVERS its tokens one at a time, then throws.
  *
- * Note: calling `controller.error()` in the same tick as `enqueue()` discards
- * the queued tokens before the reader can drain them. To faithfully model "the
- * model streamed some tokens, then the runtime failed", we feed exactly one
- * token per `pull()` (so each is read before the next is produced) and error on
- * the pull AFTER the last token has been delivered.
+ * An async iterator yields each token to the consumer before the generator
+ * resumes, so — unlike the `ReadableStream` this replaced, where
+ * `controller.error()` discarded anything still queued — "streamed some tokens,
+ * then the runtime failed" needs no special construction.
  */
-function errorStream(tokens: string[], error: unknown): ReadableStream<string> {
-  let i = 0;
-  return new ReadableStream<string>({
-    pull(controller) {
-      const token = tokens[i];
-      if (token !== undefined) {
-        controller.enqueue(token);
-        i += 1;
-      } else {
-        controller.error(error);
-      }
-    },
-  });
+function errorStream(tokens: string[], error: unknown): TokenStream {
+  return scriptedTokenStream({ tokens, error });
 }
 
 /**
  * A stream that yields tokens then BLOCKS forever until the consumer cancels.
- * `onCancel` fires when `runGeneration`'s reader is cancelled.
+ * `onCancel` fires when `runGeneration`'s stream is cancelled.
  */
-function hangingStream(
-  tokens: string[],
-  onCancel?: () => void,
-): ReadableStream<string> {
-  return new ReadableStream<string>({
-    start(controller) {
-      for (const t of tokens) controller.enqueue(t);
-      // Never close — the consumer must cancel().
-    },
-    cancel() {
-      onCancel?.();
-    },
-  });
+function hangingStream(tokens: string[], onCancel?: () => void): TokenStream {
+  return scriptedTokenStream({ tokens, hang: true, ...(onCancel ? { onCancel } : {}) });
 }
 
 /**
- * A stream that yields NOTHING and never closes — the first read() parks
- * forever. `onCancel` fires when the consumer cancels (the TTFT watchdog path).
+ * A stream that yields NOTHING and never ends — the first read parks forever.
+ * `onCancel` fires when the consumer cancels (the TTFT watchdog path).
  */
-function silentStream(onCancel?: () => void): ReadableStream<string> {
-  return new ReadableStream<string>({
-    start() {
-      // Never enqueue, never close — models a runtime wedged before first token.
+function silentStream(onCancel?: () => void): TokenStream {
+  return scriptedTokenStream({ hang: true, ...(onCancel ? { onCancel } : {}) });
+}
+
+/**
+ * A stream the test paces by hand: `push()` releases one token, `close()` ends
+ * it. Used where a rAF callback has to fire BETWEEN two tokens, which a
+ * pre-scripted stream can't express.
+ */
+function pushableTokenStream(): {
+  stream: TokenStream;
+  push: (text: string) => void;
+  close: () => void;
+} {
+  const queue: TokenEvent[] = [];
+  let notify: (() => void) | null = null;
+  let ended = false;
+  const wake = (): void => {
+    const resolve = notify;
+    notify = null;
+    resolve?.();
+  };
+  const stream: TokenStream = {
+    [Symbol.asyncIterator]: () => ({
+      async next(): Promise<IteratorResult<TokenEvent>> {
+        for (;;) {
+          const event = queue.shift();
+          if (event) return { done: false, value: event };
+          if (ended) return { done: true, value: undefined };
+          await new Promise<void>((resolve) => (notify = resolve));
+        }
+      },
+    }),
+    cancel: () => {
+      ended = true;
+      wake();
     },
-    cancel() {
-      onCancel?.();
+  };
+  return {
+    stream,
+    push: (text: string) => {
+      queue.push({ kind: "token", text });
+      wake();
     },
-  });
+    close: () => {
+      ended = true;
+      wake();
+    },
+  };
 }
 
 /** Phase shim backed by the real store's phase, with a settable spy. */
@@ -146,7 +166,7 @@ afterEach(() => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 1. Completed result + finalText + first-token phase flip + reader release
+// 1. Completed result + finalText + first-token phase flip + stream release
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("runGeneration — completed path", () => {
@@ -164,7 +184,7 @@ describe("runGeneration — completed path", () => {
       getMessageContent,
     });
 
-    expect(result).toEqual({ status: "completed", finalText: "Hello world" });
+    expect(result).toEqual({ status: "completed", finalText: "Hello world", done: null });
     expect(getMessageContent(assistantId)).toBe("Hello world");
   });
 
@@ -221,7 +241,7 @@ describe("runGeneration — completed path", () => {
     });
 
     expect(phase.setStreamPhase).not.toHaveBeenCalled();
-    expect(result).toEqual({ status: "completed", finalText: "" });
+    expect(result).toEqual({ status: "completed", finalText: "", done: null });
   });
 
   it("releases the generation's reader slot in finally on the completed path", async () => {
@@ -238,7 +258,59 @@ describe("runGeneration — completed path", () => {
       getMessageContent,
     });
 
-    expect(generation.currentReader).toBeNull();
+    expect(generation.currentStream).toBeNull();
+  });
+  it("returns the terminating done event, so usage never needs a side channel", async () => {
+    // R4b: usage used to be written to a module-level store by the stream shim
+    // and read back by useChat after the loop. It rides the event now.
+    const generation = makeGeneration();
+    const assistantId = seedAssistant(generation.id);
+    const phase = makePhaseShim();
+
+    const result = await runGeneration({
+      generation,
+      stream: scriptedTokenStream({
+        tokens: ["hi"],
+        done: {
+          finishReason: "length",
+          promptTokens: 9,
+          completionTokens: 1,
+          tokenizerName: "LlamaTokenizer",
+        },
+      }),
+      assistantId,
+      setStreamPhase: phase.setStreamPhase,
+      getStreamPhase: phase.getStreamPhase,
+      getMessageContent,
+    });
+
+    expect(result.status).toBe("completed");
+    expect(result.done).toEqual({
+      kind: "done",
+      finishReason: "length",
+      promptTokens: 9,
+      completionTokens: 1,
+      tokenizerName: "LlamaTokenizer",
+    });
+    // The done event is NOT appended as text.
+    expect(result.finalText).toBe("hi");
+  });
+
+  it("returns done: null when the adapter ended without a done event", async () => {
+    const generation = makeGeneration();
+    const assistantId = seedAssistant(generation.id);
+    const phase = makePhaseShim();
+
+    const result = await runGeneration({
+      generation,
+      stream: tokensStream(["a"]),
+      assistantId,
+      setStreamPhase: phase.setStreamPhase,
+      getStreamPhase: phase.getStreamPhase,
+      getMessageContent,
+    });
+
+    expect(result.done).toBeNull();
   });
 });
 
@@ -294,15 +366,15 @@ describe("runGeneration — aborted path", () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    // The teardown path: abort the gen, then cancel the current reader. A
-    // cancelled read resolves `{done:true}`, so the loop exits cleanly. The
+    // The teardown path: abort the gen, then cancel the current stream. A
+    // cancelled stream resolves `done`, so the loop exits cleanly. The
     // status is "completed" here because the read resolves done (not throws) —
     // this pins that cancel-after-abort is a graceful close, not an error.
     generation.abortController.abort();
-    await generation.currentReader?.cancel();
+    generation.currentStream?.cancel();
 
     const result = await runPromise;
-    // A cancelled reader's read() resolves done → loop breaks → completed.
+    // A cancelled stream's next() resolves done → loop breaks → completed.
     expect(result.status).toBe("completed");
     expect(result.finalText).toBe("so far");
   });
@@ -385,16 +457,16 @@ describe("runGeneration — error path", () => {
       getMessageContent,
     });
 
-    expect(generation.currentReader).toBeNull();
+    expect(generation.currentStream).toBeNull();
   });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 4. Reader swap (the repair pattern: same generation, second runGeneration)
+// 4. Stream swap (the repair pattern: same generation, second runGeneration)
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe("runGeneration — reader swap within one generation (repair loop)", () => {
-  it("a second runGeneration on the same generation swaps currentReader", async () => {
+describe("runGeneration — stream swap within one generation (repair loop)", () => {
+  it("a second runGeneration on the same generation swaps currentStream", async () => {
     const generation = makeGeneration();
     const assistantId = seedAssistant(generation.id);
     const phase = makePhaseShim();
@@ -408,10 +480,10 @@ describe("runGeneration — reader swap within one generation (repair loop)", ()
       getStreamPhase: phase.getStreamPhase,
       getMessageContent,
     });
-    expect(generation.currentReader).toBeNull();
+    expect(generation.currentStream).toBeNull();
 
     // The repair loop resets the message content and re-streams into the SAME
-    // generation — proving the reader slot is reusable.
+    // generation — proving the stream slot is reusable.
     useChatStore.getState().updateMessage(assistantId, { content: "" });
     const second = await runGeneration({
       generation,
@@ -422,18 +494,18 @@ describe("runGeneration — reader swap within one generation (repair loop)", ()
       getMessageContent,
     });
 
-    expect(second).toEqual({ status: "completed", finalText: "repaired" });
+    expect(second).toEqual({ status: "completed", finalText: "repaired", done: null });
     expect(getMessageContent(assistantId)).toBe("repaired");
   });
 
-  it("registers the new reader as currentReader while the second stream is in flight", async () => {
+  it("registers the new stream as currentStream while the second stream is in flight", async () => {
     const generation = makeGeneration();
     const assistantId = seedAssistant(generation.id);
     const phase = makePhaseShim();
 
-    let firstReaderCancelled = false;
+    let firstStreamCancelled = false;
     const firstStream = hangingStream(["a"], () => {
-      firstReaderCancelled = true;
+      firstStreamCancelled = true;
     });
 
     const firstRun = runGeneration({
@@ -447,15 +519,15 @@ describe("runGeneration — reader swap within one generation (repair loop)", ()
     await Promise.resolve();
     await Promise.resolve();
 
-    const firstReader = generation.currentReader;
-    expect(firstReader).not.toBeNull();
+    const firstStreamSlot = generation.currentStream;
+    expect(firstStreamSlot).not.toBeNull();
 
-    // Cancel the first reader (gracefully closes it → first run completes).
-    await generation.currentReader?.cancel();
+    // Cancel the first stream (gracefully ends it → first run completes).
+    generation.currentStream?.cancel();
     await firstRun;
-    expect(firstReaderCancelled).toBe(true);
+    expect(firstStreamCancelled).toBe(true);
 
-    // Second stream: currentReader is swapped to the new reader.
+    // Second stream: currentStream is swapped to the new stream.
     const secondRun = runGeneration({
       generation,
       stream: hangingStream(["b"]),
@@ -467,11 +539,11 @@ describe("runGeneration — reader swap within one generation (repair loop)", ()
     await Promise.resolve();
     await Promise.resolve();
 
-    const secondReader = generation.currentReader;
-    expect(secondReader).not.toBeNull();
-    expect(secondReader).not.toBe(firstReader);
+    const secondStreamSlot = generation.currentStream;
+    expect(secondStreamSlot).not.toBeNull();
+    expect(secondStreamSlot).not.toBe(firstStreamSlot);
 
-    await generation.currentReader?.cancel();
+    generation.currentStream?.cancel();
     await secondRun;
   });
 });
@@ -515,14 +587,10 @@ describe("runGeneration — intra-stream rAF flush + monotonic seq", () => {
     const phase = makePhaseShim();
 
     // A stream where the consumer can be paused between tokens so a queued rAF
-    // callback can fire mid-stream. We hand-roll the pacing with a controller.
-    let controllerRef!: ReadableStreamDefaultController<string>;
-    const stream = new ReadableStream<string>({
-      start(controller) {
-        controllerRef = controller;
-        controller.enqueue("alpha ");
-      },
-    });
+    // callback can fire mid-stream. We hand-roll the pacing.
+    const paced = pushableTokenStream();
+    paced.push("alpha ");
+    const stream = paced.stream;
 
     const runPromise = runGeneration({
       generation,
@@ -546,7 +614,7 @@ describe("runGeneration — intra-stream rAF flush + monotonic seq", () => {
 
     // Enqueue the next token. Post-first-paint tokens are metered, so this one
     // queues a rAF tick.
-    controllerRef.enqueue("beta");
+    paced.push("beta");
     await Promise.resolve();
     await Promise.resolve();
     expect(rafQueue).toHaveLength(1);
@@ -556,7 +624,7 @@ describe("runGeneration — intra-stream rAF flush + monotonic seq", () => {
     // on completion's flushSync below.
     rafQueue.shift()!(0);
 
-    controllerRef.close();
+    paced.close();
     const result = await runPromise;
 
     expect(result.status).toBe("completed");
@@ -601,12 +669,12 @@ describe("runGeneration — time-to-first-token watchdog", () => {
       expect(result.error).toBeInstanceOf(LocalInferenceStreamError);
       expect((result.error as LocalInferenceStreamError).code).toBe("TIMEOUT");
     }
-    // The watchdog cancels the reader (→ shim cancel → adapter abort → WebLLM
-    // interruptGenerate) rather than abandoning the stream mid-protocol.
+    // The watchdog cancels the stream (→ adapter abort → WebLLM
+    // interruptGenerate) rather than abandoning it mid-protocol.
     expect(cancelled).toBe(true);
     // No token ever arrived, so the phase never flipped to "generating".
     expect(phase.setStreamPhase).not.toHaveBeenCalled();
-    expect(generation.currentReader).toBeNull();
+    expect(generation.currentStream).toBeNull();
   });
 
   it("does not fire once the first token has streamed — only TTFT is bounded", async () => {
@@ -627,6 +695,6 @@ describe("runGeneration — time-to-first-token watchdog", () => {
       ttftDeadlineMs: 20,
     });
 
-    expect(result).toEqual({ status: "completed", finalText: "hello world" });
+    expect(result).toEqual({ status: "completed", finalText: "hello world", done: null });
   });
 });

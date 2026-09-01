@@ -22,6 +22,7 @@ import { useChatStore } from "../../stores/chatStore";
 import { useConversationStore } from "../../stores/conversationStore";
 import { persistConversationMessagesSnapshot } from "../../lib/chat-persistence";
 import { createTokenBatcher, type TokenBatcher } from "./token-batcher";
+import type { TokenStream } from "../../local-ai/runtime/stream";
 
 /** Append signature the batcher writes through (the chat store's appendToMessage). */
 type AppendToMessage = (
@@ -35,9 +36,9 @@ type AppendToMessage = (
 /**
  * Owns every piece of mutable state for a single on-device generation.
  *
- * The reader is mutable because a generation can re-stream within itself (the
- * hard-constraint repair loop swaps the primary reader for the repair reader).
- * `interruptActiveGeneration` always cancels whichever reader is current.
+ * The stream is mutable because a generation can re-stream within itself (the
+ * hard-constraint repair loop swapped the primary stream for the repair one).
+ * `interruptActiveGeneration` always cancels whichever stream is current.
  */
 export type Generation = {
   /** Unique id; tags token batches so the store can drop stale/duplicate frames. */
@@ -48,8 +49,8 @@ export type Generation = {
   readonly conversationId: string | null;
   /** This generation's token batcher (id + monotonic seq already set). */
   readonly batcher: TokenBatcher;
-  /** The reader currently being drained. Swapped during the repair loop. */
-  currentReader: ReadableStreamDefaultReader<string> | null;
+  /** The stream currently being drained. Swapped during the repair loop. */
+  currentStream: TokenStream | null;
 };
 
 function newGenerationId(): string {
@@ -70,7 +71,7 @@ export function createGeneration(append: AppendToMessage): Generation {
     abortController: new AbortController(),
     conversationId: useConversationStore.getState().activeConversationId,
     batcher,
-    currentReader: null,
+    currentStream: null,
   };
 }
 
@@ -125,7 +126,7 @@ function persistConversationSnapshot(conversationId: string | null): void {
 
 /**
  * Stop the currently-active generation: flush its pending tokens, abort it,
- * cancel its reader, mark the streaming message interrupted, persist a
+ * cancel its stream, mark the streaming message interrupted, persist a
  * snapshot, and return the stream phase to idle.
  *
  * This is the load-bearing user-stop path. It writes `{status:"complete",
@@ -147,16 +148,14 @@ export function interruptActiveGeneration(options?: {
   // Abort the in-flight generation, if any.
   generation?.abortController.abort();
 
-  // Cancel the current reader to stop local token delivery.
-  const currentReader = generation?.currentReader ?? null;
+  // Cancel the current stream to stop local token delivery. Synchronous and
+  // idempotent, and a cancelled TokenStream resolves `done` immediately, so the
+  // read loop unwinds without waiting for the runtime to notice its abort.
+  const currentStream = generation?.currentStream ?? null;
   if (generation) {
-    generation.currentReader = null;
+    generation.currentStream = null;
   }
-  if (currentReader) {
-    void currentReader.cancel().catch(() => {
-      // Reader was already closed or canceled.
-    });
-  }
+  currentStream?.cancel();
 
   const chatState = useChatStore.getState();
   const streamingMessage = [...chatState.messages]

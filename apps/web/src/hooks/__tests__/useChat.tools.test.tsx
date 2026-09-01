@@ -29,8 +29,10 @@ import { renderHook, act } from "@testing-library/react";
 
 import type { SlotState } from "../../local-ai/lifecycle/slots";
 import type { Slot } from "../../local-ai/types";
+import type { TokenStream } from "../../local-ai/runtime/stream";
+import { scriptedTokenStream } from "../../__tests__/helpers/token-stream";
 
-// ─── Scripted-stream shim seam (mirrors the characterization net) ──────────────
+// ─── Scripted-stream seam (mirrors the characterization net) ─────────────────
 
 type GenerateCall = {
   messages: Array<{ role: string; content: string }>;
@@ -72,9 +74,7 @@ const shared = vi.hoisted(() => {
     makeEmptySmartSlot,
     generateCalls: [] as GenerateCall[],
     scripts: [] as StreamScript[],
-    lastUsage: null as
-      | { promptTokens?: number; completionTokens?: number; maxTokens?: number }
-      | null,
+    lastUsage: null as { promptTokens?: number; completionTokens?: number } | null,
     lastTemplateName: null as string | null,
     fastSlotState: undefined as SlotState | undefined,
     smartSlotState: undefined as SlotState | undefined,
@@ -86,34 +86,22 @@ const makeReadyFastSlot = shared.makeReadyFastSlot;
 const makeEmptySmartSlot = shared.makeEmptySmartSlot;
 const generateCalls = shared.generateCalls;
 
-function buildScriptedStream(script: StreamScript): ReadableStream<string> {
-  return new ReadableStream<string>({
-    start(controller) {
-      for (const t of script.tokens) controller.enqueue(t);
-      controller.close();
-    },
-  });
-}
-
-vi.mock("../../local-ai/adapters/useChatLegacyShim", () => ({
-  createLocalAiLegacyInference: () => ({
-    generate: (
-      messages: Array<{ role: string; content: string }>,
-      modelId: string,
-      options: Record<string, unknown> | undefined,
-    ): ReadableStream<string> => {
-      shared.generateCalls.push({ messages, modelId, options });
-      const script = shared.scripts.shift();
-      if (!script) {
-        return new ReadableStream<string>({
-          start(controller) {
-            controller.close();
-          },
-        });
-      }
-      return buildScriptedStream(script);
-    },
-  }),
+vi.mock("../../local-ai/runtime/stream", () => ({
+  stream: (
+    messages: Array<{ role: string; content: string }>,
+    modelId: string,
+    options: Record<string, unknown> | undefined,
+  ): TokenStream => {
+    shared.generateCalls.push({ messages, modelId, options });
+    return scriptedTokenStream({
+      tokens: shared.scripts.shift()?.tokens ?? [],
+      // Usage rides the terminating `done` event since R4b.
+      done: {
+        ...(shared.lastUsage ?? {}),
+        ...(shared.lastTemplateName != null ? { tokenizerName: shared.lastTemplateName } : {}),
+      },
+    });
+  },
 }));
 
 vi.mock("../../local-ai/lifecycle/slots", () => ({
@@ -136,22 +124,6 @@ vi.mock("../../local-ai/lifecycle/slots", () => ({
   // these at module eval; nothing in this suite exercises slot writes.
   setSlot: () => {},
   setSlotStatus: () => {},
-}));
-
-vi.mock("../../local-ai/runtime/usage-store", () => ({
-  getLastUsage: () => shared.lastUsage,
-  getLastTemplateName: () => shared.lastTemplateName,
-  setLastUsage: (u: typeof shared.lastUsage) => {
-    shared.lastUsage = u;
-  },
-  setLastTemplateName: (n: string | null) => {
-    shared.lastTemplateName = n;
-  },
-  ranToCapFromUsage: (u: { completionTokens?: number; maxTokens?: number } | null | undefined) =>
-    u?.completionTokens != null
-    && u.maxTokens != null
-    && u.maxTokens > 0
-    && u.completionTokens >= u.maxTokens,
 }));
 
 vi.mock("../../local-ai/lifecycle/generation-receipt", () => ({
@@ -247,7 +219,7 @@ function systemMessageOf(call: GenerateCall): string {
 beforeEach(() => {
   shared.generateCalls.length = 0;
   shared.scripts = [];
-  shared.lastUsage = { promptTokens: 8, completionTokens: 4, maxTokens: 1024 };
+  shared.lastUsage = { promptTokens: 8, completionTokens: 4 };
   shared.lastTemplateName = "chatml";
   shared.fastSlotState = makeReadyFastSlot();
   shared.smartSlotState = makeEmptySmartSlot();

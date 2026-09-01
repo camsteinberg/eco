@@ -5,7 +5,7 @@
  * Typed error class for local inference stream failures.
  *
  * Extracted from the legacy `lib/local-inference-runtime.ts` so that the
- * active path (`useChat`, `useChatLegacyShim`) has a stable, v1-surface
+ * active path (`useChat`, `runtime/stream`) has a stable, v1-surface
  * import location. The class is intentionally kept identical to the
  * original so that existing `instanceof` checks continue to work.
  */

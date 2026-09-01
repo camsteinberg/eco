@@ -60,8 +60,8 @@ import { isUpgradeInFlightForSlot } from "../local-ai/lifecycle/upgrade";
 import { getDisplayInfo } from "../local-ai/display";
 import { MODEL_PREPARING_BUSY_MESSAGE, getActiveLocalHeavyWorkLease } from "../lib/local-heavy-work-owner";
 import { getActiveModel } from "../local-ai/runtime/lifecycle";
-import { createLocalAiLegacyInference } from "../local-ai/adapters/useChatLegacyShim";
-import { getLastUsage as getLocalAiLastUsage, getLastTemplateName as getLocalAiLastTemplateName, ranToCapFromUsage } from "../local-ai/runtime/usage-store";
+import { stream as streamLocalTokens } from "../local-ai/runtime/stream";
+import { ranToCapFromUsage, usageFromDone } from "../local-ai/runtime/usage";
 import {
   TEMPLATE_MISSING_USER_MESSAGE,
   LOCAL_GENERATION_FALLBACK_MESSAGE,
@@ -477,7 +477,7 @@ export function useChat() {
       modelId: resolvedSelectedModel,
       messages: msgs,
       allowValidationModel: allowValidationModelMetadata,
-    }).max_new_tokens;
+    }).maxTokens;
   }
 
   useEffect(() => {
@@ -498,13 +498,8 @@ export function useChat() {
     );
   }, [composerDraft, fileAttachments, selectedModel]);
 
-  // v1.0 local-AI: per-instance shim that bridges the new runtime/lifecycle
-  // generate() into the legacy ReadableStream<string> contract this hook
-  // was written against. All local generation routes through this shim.
-  const v1LocalShim = useMemo(() => createLocalAiLegacyInference(), []);
-
-  // Stable store-access hooks injected into every runGeneration call (primary,
-  // repair, and the offline continue path). Defined once so the three call
+  // Stable store-access hooks injected into every runGeneration call (the
+  // primary path and the offline continue path). Defined once so both call
   // sites share one definition and can't drift.
   const streamIO = {
     setStreamPhase,
@@ -1213,13 +1208,13 @@ export function useChat() {
       plan.conversation,
       systemPrompt,
       model,
-      localGenerationOptions.max_new_tokens,
+      localGenerationOptions.maxTokens,
     );
     if (contextGuard.stopped) {
       clearActiveGeneration(generation);
       return;
     }
-    localGenerationOptions.max_new_tokens = contextGuard.grantedNewTokens;
+    localGenerationOptions.maxTokens = contextGuard.grantedNewTokens;
 
     // ── Runtime lease ──────────────────────────────────────────────────────
     // Hold the 'generation' lease for the whole reply (primary + repair) so a
@@ -1250,8 +1245,15 @@ export function useChat() {
     // ── Per-GENERATION receipt scope ───────────────────────────────────────
     const generationRole: GenerationRole = 'primary';
     const receiptStreamStartMs = Date.now();
+    // The request as sent, minus the mode flag — `continueFinalMessage` is not
+    // sampling and has no place on the receipt. Read at snapshot time, so it
+    // reflects the context guard's clamp above.
+    const { continueFinalMessage: _continueMode, ...samplingOptions } = localGenerationOptions;
+    // The tokenizer/chat-template the adapter reported on the `done` event.
+    // Null until the generation completes (error/aborted turns never learn it).
+    let templateName: string | null = null;
     // Breadcrumb trail for THIS generation. The runtime adapters emit lifecycle
-    // events during load and generation; the shim forwards them to this
+    // events during load and generation; `stream()` forwards them to this
     // callback. We stamp each with ms-from-stream-start off our own clock
     // (event.at is a different time base) so the trail is self-consistent, and
     // derive first-token latency from the first `first-token`. Timings and
@@ -1288,22 +1290,12 @@ export function useChat() {
         generationRole,
         modelId: model,
         timestamp: Date.now(),
-        templateName: getLocalAiLastTemplateName(),
+        templateName,
         samplingProfile: {
-          ...(localGenerationOptions.temperature != null && {
-            temperature: localGenerationOptions.temperature,
-          }),
-          ...(localGenerationOptions.max_new_tokens != null && {
-            maxTokens: localGenerationOptions.max_new_tokens,
-          }),
-          ...(localGenerationOptions.top_p != null && { topP: localGenerationOptions.top_p }),
-          ...(localGenerationOptions.top_k != null && { topK: localGenerationOptions.top_k }),
-          ...(localGenerationOptions.repetition_penalty != null && {
-            repetitionPenalty: localGenerationOptions.repetition_penalty,
-          }),
-          ...(localGenerationOptions.no_repeat_ngram_size != null && {
-            noRepeatNgramSize: localGenerationOptions.no_repeat_ngram_size,
-          }),
+          // `PromptOptions` IS the runtime's sampling shape since R4b, so the
+          // receipt records the request verbatim — no second transcription that
+          // could drop a knob. `continueFinalMessage` is a mode, not sampling.
+          ...samplingOptions,
           intent: turnIntent,
           answerShape: plan.turnShape,
         },
@@ -1365,7 +1357,7 @@ export function useChat() {
       // ── Primary generation ────────────────────────────────────────────────
       const primaryResult = await runGeneration({
         generation,
-        stream: v1LocalShim.generate(messagesWithSystem, model, {
+        stream: streamLocalTokens(messagesWithSystem, model, {
           ...localGenerationOptions,
           onLifecycleEvent: recordLifecycleBreadcrumb,
         }),
@@ -1389,16 +1381,18 @@ export function useChat() {
       // throw-safe today (pure store reads/writes; recordReceiptAsync and
       // playMessageReceived swallow their own errors) — keep it that way.
       // confidence is always null in v1 (no heuristic confidence score).
-      const lastUsage = getLocalAiLastUsage();
-      const possiblyTruncated = lastUsage?.finishReason === 'length';
+      // Usage rides the terminating `done` event now (R4b) — no side channel.
+      templateName = primaryResult.done?.tokenizerName ?? null;
+      const lastUsage = usageFromDone(primaryResult.done, localGenerationOptions.maxTokens);
+      const possiblyTruncated = lastUsage.finishReason === 'length';
       updateMessage(assistantId, {
         status: "complete",
         inferenceMethod: "local",
         confidence: null,
         resolvedModel: model,
         possiblyTruncated,
-        ...(lastUsage?.completionTokens != null && { localCompletionTokens: lastUsage.completionTokens }),
-        ...(lastUsage?.maxTokens != null && { localMaxTokens: lastUsage.maxTokens }),
+        ...(lastUsage.completionTokens != null && { localCompletionTokens: lastUsage.completionTokens }),
+        ...(lastUsage.maxTokens != null && { localMaxTokens: lastUsage.maxTokens }),
       });
       // A clean completion breaks any prior generic-failure streak.
       resetLocalGenerationFailureStreak();
@@ -1425,11 +1419,11 @@ export function useChat() {
         ...base,
         systemPromptHash: sph,
         status: 'complete' as const,
-        promptTokens: lastUsage?.promptTokens ?? 0,
-        completionTokens: lastUsage?.completionTokens ?? 0,
-        ...(lastUsage?.kvReuse != null ? { kvReuse: lastUsage.kvReuse } : {}),
-        ...(lastUsage?.cjkSuppression != null ? { cjkSuppression: lastUsage.cjkSuppression } : {}),
-        ...(lastUsage?.maxInterTokenGapMs !== undefined
+        promptTokens: lastUsage.promptTokens ?? 0,
+        completionTokens: lastUsage.completionTokens ?? 0,
+        ...(lastUsage.kvReuse != null ? { kvReuse: lastUsage.kvReuse } : {}),
+        ...(lastUsage.cjkSuppression != null ? { cjkSuppression: lastUsage.cjkSuppression } : {}),
+        ...(lastUsage.maxInterTokenGapMs !== undefined
           ? { maxInterTokenGapMs: lastUsage.maxInterTokenGapMs }
           : {}),
         ranToCap: ranToCapFromUsage(lastUsage),
@@ -1519,13 +1513,13 @@ export function useChat() {
       localFallbackMessages,
       localSystemPrompt,
       localModelId,
-      localGenerationOptions.max_new_tokens,
+      localGenerationOptions.maxTokens,
     );
     if (contextGuard.stopped) {
       clearActiveGeneration(generation);
       return;
     }
-    localGenerationOptions.max_new_tokens = contextGuard.grantedNewTokens;
+    localGenerationOptions.maxTokens = contextGuard.grantedNewTokens;
 
     // Same runtime-lease contract as streamResponse: never continue a reply
     // while a switch owns the runtime; wait out transient readiness/warmup.
@@ -1543,7 +1537,7 @@ export function useChat() {
     try {
       const result = await runGeneration({
         generation,
-        stream: v1LocalShim.generate(localFallbackMessages, localModelId, {
+        stream: streamLocalTokens(localFallbackMessages, localModelId, {
           ...localGenerationOptions,
           // Same cold-load "almost ready" signal as the primary path (above).
           onLifecycleEvent: (event) => {
@@ -2083,9 +2077,9 @@ export function useChat() {
   function stopGeneration() {
     // Flush pending tokens first so explicit stop preserves the latest visible
     // partial reply before transitioning into the interrupted state.
-    // interruptActiveGeneration() aborts the active generation's controller; the
-    // v1 shim's ReadableStream cancel() callback forwards that abort to the
-    // lifecycle's AbortController, so no separate abort call is needed.
+    // interruptActiveGeneration() aborts the active generation's controller and
+    // cancels its TokenStream, which forwards the abort to the lifecycle's own
+    // AbortController — so no separate abort call is needed.
     interruptActiveGeneration();
   }
 

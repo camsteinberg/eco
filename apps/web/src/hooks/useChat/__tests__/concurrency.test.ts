@@ -32,6 +32,9 @@ import {
 import { runGeneration } from "../run-generation";
 import { useChatStore, type StreamPhase } from "../../../stores/chatStore";
 import { useConversationStore } from "../../../stores/conversationStore";
+import { scriptedTokenStream } from "../../../__tests__/helpers/token-stream";
+import type { TokenStream } from "../../../local-ai/runtime/stream";
+import type { TokenEvent } from "../../../local-ai/runtime/types";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -41,19 +44,63 @@ function makeGeneration(): Generation {
   });
 }
 
-/** A reader that records whether it was cancelled, attached to a hanging stream. */
-function attachLiveReader(generation: Generation): { cancelled: () => boolean } {
+/** A hanging stream in the generation's slot that records its own cancellation. */
+function attachLiveStream(generation: Generation): { cancelled: () => boolean } {
   let cancelled = false;
-  const stream = new ReadableStream<string>({
-    start(controller) {
-      controller.enqueue("token");
-    },
-    cancel() {
+  generation.currentStream = scriptedTokenStream({
+    tokens: ["token"],
+    hang: true,
+    onCancel: () => {
       cancelled = true;
     },
   });
-  generation.currentReader = stream.getReader();
   return { cancelled: () => cancelled };
+}
+
+/**
+ * A stream the test paces by hand — `push()` releases one token, `close()` ends
+ * it. Needed where tokens must land between explicit teardown steps.
+ */
+function pushableTokenStream(): {
+  stream: TokenStream;
+  push: (text: string) => void;
+  close: () => void;
+} {
+  const queue: TokenEvent[] = [];
+  let notify: (() => void) | null = null;
+  let ended = false;
+  const wake = (): void => {
+    const resolve = notify;
+    notify = null;
+    resolve?.();
+  };
+  const stream: TokenStream = {
+    [Symbol.asyncIterator]: () => ({
+      async next(): Promise<IteratorResult<TokenEvent>> {
+        for (;;) {
+          const event = queue.shift();
+          if (event) return { done: false, value: event };
+          if (ended) return { done: true, value: undefined };
+          await new Promise<void>((resolve) => (notify = resolve));
+        }
+      },
+    }),
+    cancel: () => {
+      ended = true;
+      wake();
+    },
+  };
+  return {
+    stream,
+    push: (text: string) => {
+      queue.push({ kind: "token", text });
+      wake();
+    },
+    close: () => {
+      ended = true;
+      wake();
+    },
+  };
 }
 
 function makePhaseShim() {
@@ -97,9 +144,9 @@ describe("two overlapping generations do not clobber each other", () => {
     const genA = makeGeneration();
     const genB = makeGeneration();
 
-    // Both generations hold a live reader.
-    const aReader = attachLiveReader(genA);
-    const bReader = attachLiveReader(genB);
+    // Both generations hold a live stream.
+    const aStreamSlot = attachLiveStream(genA);
+    const bStreamSlot = attachLiveStream(genB);
 
     // A starts active; then B takes over while A is still 'in flight'.
     setActiveGeneration(genA);
@@ -107,41 +154,41 @@ describe("two overlapping generations do not clobber each other", () => {
     expect(getActiveGeneration()).toBe(genB);
 
     // === A tears itself down. With the OLD module-scoped refs this would have
-    // cancelled B's reader / aborted B's controller / nulled the active pointer.
+    // cancelled B's stream / aborted B's controller / nulled the active pointer.
     // With the per-generation object it can only touch its OWN state. ===
     genA.abortController.abort();
-    await genA.currentReader?.cancel();
+    genA.currentStream?.cancel();
     clearActiveGeneration(genA);
 
     // --- Key assertions: B is completely intact. ---
     expect(getActiveGeneration()).toBe(genB); // pointer still B
     expect(genB.abortController.signal.aborted).toBe(false); // B not aborted
-    expect(bReader.cancelled()).toBe(false); // B's reader live
+    expect(bStreamSlot.cancelled()).toBe(false); // B's stream live
     expect(isActiveGenerationAborted()).toBe(false); // active (B) not aborted
 
     // A's own state DID tear down (proving the teardown ran, just scoped to A).
     expect(genA.abortController.signal.aborted).toBe(true);
-    expect(aReader.cancelled()).toBe(true);
+    expect(aStreamSlot.cancelled()).toBe(true);
   });
 
   it("symmetric: B tearing down cannot touch an earlier-active A", async () => {
     const genA = makeGeneration();
     const genB = makeGeneration();
-    const aReader = attachLiveReader(genA);
-    const bReader = attachLiveReader(genB);
+    const aStreamSlot = attachLiveStream(genA);
+    const bStreamSlot = attachLiveStream(genB);
 
     // Pretend A is the active one (the older, still-active generation).
     setActiveGeneration(genA);
 
     // B tears down on its own (e.g. it errored or was abandoned).
     genB.abortController.abort();
-    await genB.currentReader?.cancel();
+    genB.currentStream?.cancel();
     clearActiveGeneration(genB); // identity guard: must NOT null A's pointer
 
     expect(getActiveGeneration()).toBe(genA);
     expect(genA.abortController.signal.aborted).toBe(false);
-    expect(aReader.cancelled()).toBe(false);
-    expect(bReader.cancelled()).toBe(true);
+    expect(aStreamSlot.cancelled()).toBe(false);
+    expect(bStreamSlot.cancelled()).toBe(true);
   });
 
   it("interruptActiveGeneration only aborts the ACTIVE generation, never the other", () => {
@@ -174,7 +221,7 @@ describe("rapid stop -> resend", () => {
   it("interrupting gen A then immediately creating + activating gen B leaves B unaffected", () => {
     // Gen A is mid-stream.
     const genA = makeGeneration();
-    const aReader = attachLiveReader(genA);
+    const aStreamSlot = attachLiveStream(genA);
     setActiveGeneration(genA);
 
     const aMsgId = useChatStore.getState().addMessage({
@@ -193,18 +240,18 @@ describe("rapid stop -> resend", () => {
 
     // RESEND: immediately create + activate gen B for a new message.
     const genB = makeGeneration();
-    const bReader = attachLiveReader(genB);
+    const bStreamSlot = attachLiveStream(genB);
     setActiveGeneration(genB);
 
     // B is the fresh generation — A's interrupt did not touch it.
     expect(genB.abortController.signal.aborted).toBe(false);
     expect(isActiveGenerationAborted()).toBe(false);
-    expect(bReader.cancelled()).toBe(false);
+    expect(bStreamSlot.cancelled()).toBe(false);
     expect(getActiveGeneration()).toBe(genB);
 
-    // A's interrupt cancelled A's reader (its own state), not B's.
-    expect(aReader.cancelled()).toBe(true);
-    void aReader; // keep referenced
+    // A's interrupt cancelled A's stream (its own state), not B's.
+    expect(aStreamSlot.cancelled()).toBe(true);
+    void aStreamSlot; // keep referenced
   });
 
   it("a late clearActiveGeneration(A) after B is active does not strand B", () => {
@@ -281,13 +328,9 @@ describe("stale-token rejection across generations", () => {
     useChatStore.getState().updateMessage(id, { currentGenerationId: genA.id });
 
     // Gen A: a stream we can pump and then strand.
-    let aController!: ReadableStreamDefaultController<string>;
-    const aStream = new ReadableStream<string>({
-      start(controller) {
-        aController = controller;
-        controller.enqueue("A1 ");
-      },
-    });
+    const aPaced = pushableTokenStream();
+    aPaced.push("A1 ");
+    const aStream = aPaced.stream;
     const phase = makePhaseShim();
     const aRun = runGeneration({
       generation: genA,
@@ -304,11 +347,11 @@ describe("stale-token rejection across generations", () => {
     genA.batcher.flushSync(); // land "A1 "
     expect(getMessageContent(id)).toBe("A1 ");
 
-    // STOP A: abort + cancel its reader. Switch the message to gen B.
+    // STOP A: abort + cancel its stream. Switch the message to gen B.
     genA.abortController.abort();
-    await genA.currentReader?.cancel();
+    genA.currentStream?.cancel();
     await aRun;
-    void aController; // its remaining enqueues are now irrelevant
+    aPaced.push("A-STRANDED "); // pushes after the cancel are irrelevant
 
     // Switching the message to gen B resets BOTH the message's currentGenerationId
     // and its lastSeq to 0 — the exact production pattern (useChat.ts:792-798),
@@ -330,12 +373,7 @@ describe("stale-token rejection across generations", () => {
     // Gen B streams successfully into the same message.
     const bRun = await runGeneration({
       generation: genB,
-      stream: new ReadableStream<string>({
-        start(controller) {
-          controller.enqueue("B-ok");
-          controller.close();
-        },
-      }),
+      stream: scriptedTokenStream({ tokens: ["B-ok"], done: null }),
       assistantId: id,
       setStreamPhase: phase.setStreamPhase,
       getStreamPhase: phase.getStreamPhase,

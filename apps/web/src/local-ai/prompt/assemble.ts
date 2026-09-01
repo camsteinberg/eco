@@ -44,17 +44,18 @@ export type PromptRole = 'user' | 'assistant' | 'system';
 export type PromptMessage = { role: PromptRole; content: string };
 
 /**
- * Generation options in the shape the legacy inference seam takes. R4b moves
- * the seam to `AsyncIterable<TokenEvent>`; the wire names stay snake_case until
- * then so this slice changes no bytes.
+ * Generation options in the runtime's own shape — a `GenerateOptions` subset.
+ * R4a produced snake_case because the legacy stream shim took snake_case; R4b
+ * deleted that shim, so there is no rename left anywhere on this path: what
+ * `assemble()` returns is what `stream()` forwards to the adapter.
  */
 export type PromptOptions = {
-  max_new_tokens: number;
+  maxTokens: number;
   temperature: number;
-  top_p?: number;
-  top_k?: number;
-  repetition_penalty?: number;
-  no_repeat_ngram_size?: number;
+  topP?: number;
+  topK?: number;
+  repetitionPenalty?: number;
+  noRepeatNgramSize?: number;
   continueFinalMessage?: true;
 };
 
@@ -210,13 +211,13 @@ export function resolveOptions(input: ResolveOptionsInput): PromptOptions {
     allowValidationModel: input.allowValidationModel ?? false,
   });
   return {
-    max_new_tokens: profile.maxTokens,
+    maxTokens: profile.maxTokens,
     temperature: profile.temperature,
-    ...(profile.topP != null && { top_p: profile.topP }),
-    ...(profile.topK != null && { top_k: profile.topK }),
-    ...(profile.repetitionPenalty != null && { repetition_penalty: profile.repetitionPenalty }),
+    ...(profile.topP != null && { topP: profile.topP }),
+    ...(profile.topK != null && { topK: profile.topK }),
+    ...(profile.repetitionPenalty != null && { repetitionPenalty: profile.repetitionPenalty }),
     ...(profile.noRepeatNgramSize != null && {
-      no_repeat_ngram_size: profile.noRepeatNgramSize,
+      noRepeatNgramSize: profile.noRepeatNgramSize,
     }),
     ...(input.continueFinalMessage ? { continueFinalMessage: true as const } : {}),
   };
