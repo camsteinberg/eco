@@ -27,7 +27,7 @@ import type { ModelIntent, ModelSampling } from '../local-ai/types';
 type LocalGenerationSamplingDefaults = Partial<ModelSampling>;
 
 type LocalModelFamily =
-  | 'qwen2_5' | 'qwen3' | 'qwen3_5' | 'bonsai' | 'lfm2';
+  | 'qwen2_5' | 'qwen3' | 'qwen3_5' | 'lfm2';
 
 type LocalModelIntentFit = ModelIntent;
 
@@ -117,9 +117,8 @@ function getCatalogProfileSlice(modelId: string): GenerationProfileSlice | undef
 // tokens of the user's own text before the fourth is hard-banned, at every
 // position — and `writing` is the intent that fires when someone pastes their
 // own words and asks for them back changed. `repetitionPenalty` is the loop
-// guard instead. Bonsai still bans: it is not instruction-tuned, and it is an
-// eval-lane seam rather than a catalog model. The same hazard note for the
-// shipping models now lives in catalog-data.json `_documentation.sampling_note`.
+// guard instead. The same hazard note for the shipping models lives in
+// catalog-data.json `_documentation.sampling_note`.
 
 const DEFAULT_CONTEXT_BUDGET: ContextBudget = {
   default: 1024,
@@ -179,57 +178,6 @@ const QWEN35_GEN: GenerationProfileSlice = {
   // own copy of this flag lives in the catalog.
   suppressCjkTokens: true,
 };
-
-function bonsaiGenerationProfile(quantization: "q1" | "q2" | "q4" | "q8"): GenerationProfileSlice {
-  const q1 = quantization === "q1";
-  const q8 = quantization === "q8";
-  const intentTokens = q8
-    ? {
-      quick: 256,
-      explain: 384,
-      deep: 512,
-      code: 512,
-      writing: 512,
-      file: 512,
-      research: 512,
-    }
-    : {
-      quick: 256,
-      explain: 512,
-      deep: 768,
-      code: 512,
-      writing: 512,
-      file: 768,
-      research: 768,
-    };
-  return {
-    generationDefaults: {
-      // Bonsai generation_config.json: temp 0.5, topP 0.85, topK 20, rep_penalty 1.0.
-      // Not instruction-tuned — very loop-prone at small quant levels.
-      // Added base noRepeatNgramSize: 3 for all quants to guard against repetition loops.
-      temperature: q1 ? 0.45 : q8 ? 0.42 : 0.5,
-      topP: q1 ? 0.82 : q8 ? 0.78 : 0.85,
-      topK: 20,
-      repetitionPenalty: q1 ? 1.06 : q8 ? 1.08 : 1.06,
-      noRepeatNgramSize: q8 ? 4 : 3,
-      intentOverrides: {
-        quick: { temperature: 0.3, topP: 0.78, topK: 20 },
-        explain: q8
-          ? { temperature: 0.32, topP: 0.72, topK: 20, repetitionPenalty: 1.12, noRepeatNgramSize: 4 }
-          : { temperature: 0.38, topP: 0.8, topK: 20 },
-        writing: q8
-          ? { temperature: 0.28, topP: 0.7, topK: 20, repetitionPenalty: 1.12, noRepeatNgramSize: 4 }
-          : { temperature: 0.35, topP: 0.8, topK: 20, repetitionPenalty: 1.07, noRepeatNgramSize: 4 },
-        code: { temperature: 0.2, topP: 0.8, topK: 20 },
-      },
-    },
-    contextBudget: {
-      default: 768,
-      max: 4096,
-      intentTokens,
-    },
-  };
-}
 
 const GEMMA4_GEN: GenerationProfileSlice = {
   generationDefaults: {
@@ -314,7 +262,6 @@ const PROFILE_BY_MODEL_ID: Record<string, GenerationProfileSlice> = {
 const FAMILY_FALLBACK: Partial<Record<LocalModelFamily, GenerationProfileSlice>> = {
   qwen3: QWEN_GEN,
   qwen3_5: QWEN35_GEN,
-  bonsai: bonsaiGenerationProfile("q4"),
 };
 
 // ─── Profile lookup ───────────────────────────────────────────────────────

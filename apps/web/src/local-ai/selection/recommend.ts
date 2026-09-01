@@ -40,9 +40,9 @@
  * asserts the result either passes `isAssignable` or correctly throws.
  */
 
-import type { DeviceProfile, Intent, ModelConfig, Slot } from '../types';
-import { getCatalog } from '../catalog/catalog';
-import { isAssignable, isWebKitMobile, WEBKIT_MOBILE_VALIDATED_MODEL_IDS } from '../device/compatibility';
+import type { DeviceProfile, Intent, ModelConfig, ModelTier, Slot } from '../types';
+import { getCatalog, getModel, TIER_ORDER, type CatalogModel } from '../catalog/catalog';
+import { isAssignable, isWebKitMobile } from '../device/compatibility';
 import {
   admit,
   type AdmissionDecision,
@@ -54,250 +54,79 @@ import { scoreFit, type FitScore } from './fit-scoring';
 import { getMetrics, modelMatchesSlot, slotDefaultIntent } from './predicted-fit';
 
 /**
- * Everyday default (model-ladder read, 2026-08-09): LFM2.5-1.2B-instruct is the
- * default recommendation on any device that can run it. This REVERSES the
- * 2026-06-13 everyday-swap to Qwen3.5-2B. That swap graduated on a rubric-scored
- * bake-off; a by-eye read on real WebGPU (the rubric cannot see answer quality —
- * it scored reader-rejected output 1.00) found the 2B buys no clear everyday-quality
- * gain over the 1.2B while costing ~2–4× the speed, AND it hallucinates on
- * open-knowledge asks (fabricated Roman history) and mangles simple reasoning
- * (bat-and-ball headlined "$0.10"). The 1.2B is the fast, accurate everyday
- * workhorse: ~300ms first token / ~51 tok/s / ~4s per answer vs the 2B's
- * ~567ms / ~23 tok/s / ~15.5s. Evidence: m2-evidence/model-ladder-by-eye-2026-08-09.md
- * and deeper-tier-read-by-eye-2026-08-09.md.
- *
- * The 2B is NOT removed — it stays selectable via Settings ("Choose your own").
- * A genuinely-stronger DEEPER tier (LFM2-2.6B, which beats the 2B on reasoning/
- * knowledge at equal speed) graduated into the catalog on 2026-08-10 and is now
- * the eco-smart pick (see PREFERRED_SMART_MODEL_ID below).
- *
- * If the 1.2B is incompatible with the current device, the device-appropriate
- * default applies (see `preferredModelIdForSlot`): on f16-less-but-WebGPU adapters
- * (older-Intel desktop / Adreno Android) that is Gemma 4 (LiteRT) — see
- * PREFERRED_F16LESS_DEFAULT_MODEL_ID. On low-memory / WASM-only / non-Chromium
- * devices the natural fit-score ranking applies and the smaller compatible models
- * win (Qwen3-0.6B).
- *
- * Wired here (not in catalog data) to keep the change surface small for v1.0.
- * Future revisions may move this to a `defaultPreference` field on ModelConfig.
- */
-export const PREFERRED_DEFAULT_MODEL_ID = 'candidate/lfm2.5-1.2b-instruct-onnx';
-
-/**
- * Smart-slot pick — the graduated deeper tier. LFM2-2.6B graduated into the
- * shipping catalog on 2026-08-10 (a by-eye read on real WebGPU found it beats the
- * 2B on reasoning/history/code at equal speed; the rubric that had ranked the 2B
- * higher cannot see answer quality). Pointing this constant at it re-splits the
- * slots that the 2026-08-09 read had collapsed onto the 1.2B: eco-fast stays the
- * fast everyday default (LFM2.5-1.2B) and eco-smart is the deeper opt-in, which the
- * model selector's pair (`deriveFirstRunChoices`, which asks for
- * `recommend('eco-smart')`) surfaces as a genuine "deeper" download.
- *
- * The pair only ever offers a device a step UP: the size guard in
- * `deriveFirstRunChoices`
- * never offers a deeper tile that isn't a genuine step up in size, and the 1.2B everyday
- * default (0.76GB) → the 2.6B (1.65GB) is a real up-size. A fresh device still
- * chats on the 1.2B first; the deeper model is opt-in, never auto-pushed. Existing
- * 2B users keep their 2B (it stays selectable via Settings). Where the 2.6B is not
- * assignable (no shader-f16, low memory, non-Chromium), the slot falls back to the
- * f16-less default or the natural fit-score ranking.
- */
-export const PREFERRED_SMART_MODEL_ID = 'candidate/lfm2-2.6b-onnx';
-
-/**
  * Models that were once the everyday default and should yield to the CURRENT
  * device-appropriate default. Boot self-heal migrates an eco-fast slot still
  * bound to one of these — but device-aware: it rebinds to `recommend('eco-fast',
- * profile)`, not a fixed constant. Profiles primed before a graduation otherwise
- * keep the old model forever.
+ * profile)`, not a fixed id. Profiles primed before a graduation otherwise keep
+ * the old model forever.
  *
- * Empty as of the 2026-08-09 model-ladder read. LFM2.5-1.2B was here (superseded
- * by the 2026-06-13 everyday-swap to Qwen3.5-2B) but that swap is now reversed —
- * the 1.2B is the CURRENT default, so it must not be migrated away from. The
- * outgoing Qwen3.5-2B is deliberately NOT added: the former-default rebind exists
- * to move auto-primed devices UP to a better default, not to force a working
- * bigger model DOWN to a smaller one. Auto-2B devices keep their 2B; only fresh
- * devices get the 1.2B. (An explicit user choice is exempt from this rebind
- * regardless — see hasExplicitModelChoice in self-heal.ts.)
+ * Derived from the catalog: an entry declares itself outgoing with
+ * `formerEverydayDefault: true`. Empty today — the current default must never
+ * appear here (it would be migrated away from), and the outgoing Qwen3.5-2B is
+ * deliberately absent: this rebind exists to move auto-primed devices UP to a
+ * better default, not to force a working bigger model DOWN to a smaller one. An
+ * explicit user choice is exempt regardless (hasExplicitModelChoice in
+ * self-heal.ts). Bonsai, the dev-era former default, retired 2026-07-11 and is
+ * handled by RETIRED_MODEL_MIGRATIONS, which runs before this rebind.
  *
- * Bonsai used to sit here too (the dev-era former default) but retired 2026-07-11
- * — a bonsai-bound slot is handled by RETIRED_MODEL_MIGRATIONS in
- * lifecycle/self-heal.ts, which runs before this rebind.
- *
- * There is no eco-smart counterpart: no shipped code path has ever auto-bound the
- * eco-smart slot (setup and Settings both bind eco-fast), so there is no
- * system-written stale-smart-binding population to migrate.
+ * There is no eco-smart counterpart: no shipped code path has ever auto-bound
+ * the eco-smart slot, so there is no stale-smart-binding population to migrate.
  */
-export const FORMER_EVERYDAY_DEFAULT_IDS: ReadonlyArray<string> = [];
-
-/**
- * f16-less-but-WebGPU default (Track E Slice 4, 2026-06-30). On devices that run
- * WebGPU but lack the `shader-f16` feature — older-Intel desktops (C2) and ~all
- * Adreno Android (C3) — every q4f16 ONNX/MLC build is unassignable, but Gemma 4
- * (LiteRT, non-f16 `.litertlm`) loads fine. It is therefore the device-appropriate
- * default there — the f16-free floor role Bonsai used to share before it retired
- * (2026-07-11); LFM2.5-350M (onnx-q4) remains the light non-f16 fallback.
- * Empirically confirmed runnable on a shimmed-f16-less WebGPU device (#191: 51/51
- * generations, 0 errors). Where Gemma is ALSO unassignable (low-memory / WASM-only
- * / non-Chromium) it never enters the ranked list, so preferring it is a safe
- * no-op and natural fit-score ranking applies unchanged.
- */
-export const PREFERRED_F16LESS_DEFAULT_MODEL_ID = 'candidate/gemma-4-e2b-litert';
-
-/**
- * The f16-less-but-WebGPU eco-FAST pick (device-coverage, 2026-08-10). On adapters
- * that run WebGPU but lack `shader-f16`, the everyday q4f16 1.2B default is
- * unassignable, and the old fallback (Gemma 4) is 1.87GB — over the instant-start
- * budget — so `starterModelForSlot` stepped the first download DOWN to the weak
- * 350M. The plain-int4 build of the SAME 1.2B
- * (`candidate/lfm2.5-1.2b-instruct-q4-onnx`, onnx-q4, 0.85GB) needs no shader-f16,
- * loads on the f16-less WebGPU EP, and — being ≤ STARTER_MAX_SIZE_GB — is its OWN
- * starter. So f16-less eco-fast gets the good 1.2B as its first impression,
- * converging starter==recommend exactly as the 2026-08-09 fix did for f16-capable
- * devices. Gemma 4 stays the f16-less eco-SMART (deeper) pick.
- */
-export const PREFERRED_F16LESS_FAST_MODEL_ID = 'candidate/lfm2.5-1.2b-instruct-q4-onnx';
-
-/**
- * Per-slot f16-less-but-WebGPU fallback: the best model such an adapter can run
- * for each slot. eco-fast → the plain-int4 1.2B (its own instant-start rung);
- * eco-smart → Gemma 4 (the deeper LiteRT pick). Layered in by
- * `preferredModelIdForSlot` only when the slot's primary q4f16 pick can't run.
- * Where the per-slot pick is ALSO unassignable (low-memory / WASM-only /
- * non-Chromium) it never enters the ranked list, so preferring it is a safe no-op
- * and natural fit-score ranking applies unchanged.
- */
-const PREFERRED_F16LESS_MODEL_ID_BY_SLOT: Readonly<Record<Slot, string>> = {
-  'eco-fast': PREFERRED_F16LESS_FAST_MODEL_ID,
-  'eco-smart': PREFERRED_F16LESS_DEFAULT_MODEL_ID,
-};
-
-/**
- * The default instant-start floor: the smallest, f16-free starter rung most
- * devices fall back to. It is EXEMPT from the download-fail auto-demotion
- * (slice 3) — demoting the floor would leave a device with nothing offerable
- * and break instant-start. Repeated download failures of even this model are an
- * environmental dead-end the demotion can't fix, so we never remove it.
- *
- * NOT literally universal: on a `wasm-only` device this build is unassignable
- * (its block-quantized embeddings emit GatherBlockQuantized, unimplemented on
- * the CPU EP — see compatibility `cpuEpIncompatible`), so PREFERRED_WASM_FLOOR_MODEL_ID
- * is the effective floor there. The exemption therefore cannot be keyed to this one
- * id alone; {@link isDemotionExemptFloor} also exempts the wasm-only floor on a
- * wasm-only device, so a runnable low-end device whose sole assignable model has a
- * couple of transient download failures is never declined below its floor for the
- * 7-day window (device-coverage audit, finding COV-3 — fixed).
- */
-export const STARTER_FLOOR_MODEL_ID = 'candidate/lfm2.5-350m-onnx';
+export const FORMER_EVERYDAY_DEFAULT_IDS: ReadonlyArray<string> =
+  getCatalog().filter((model) => model.formerEverydayDefault === true).map((model) => model.id);
 
 /** ≥ this many genuine download failures in 7 days demotes a model from auto-offer. */
 export const DOWNLOAD_FAIL_DEMOTION_THRESHOLD = 2;
 
 /**
- * Per-slot deliberate pick, promoted to the top of that slot's ranking when
- * assignable. eco-fast carries the everyday default; eco-smart carries the
- * bake-off-graduated smart pick. Resolved through `preferredModelIdForSlot`,
- * which layers in the f16-less default where the primary pick can't run.
+ * The model a slot defaults to at a given device tier, or null if that rung is
+ * empty. The rung is declared on the catalog entry (`tier`), so a graduation is
+ * a catalog edit — not an id literal in this file, which is what the ladder used
+ * to be. Exported for tests that need to name a rung's occupant without
+ * re-hardcoding it.
  */
-const PREFERRED_MODEL_ID_BY_SLOT: Readonly<Record<Slot, string>> = {
-  'eco-fast': PREFERRED_DEFAULT_MODEL_ID,
-  'eco-smart': PREFERRED_SMART_MODEL_ID,
-};
+export function tierDefaultModelId(slot: Slot, tier: ModelTier): string | null {
+  return getCatalog().find((model) => model.tier[slot] === tier)?.id ?? null;
+}
 
 /**
- * No-WebGPU (WASM/CPU-EP) floor preference. On a `wasm-only` device the f16 primary
- * (requireWebgpu) and its f16-less int4 sibling BOTH can never load: the int4 LFM2.5
- * builds block-quantize embeddings → emit GatherBlockQuantized, which ort-web 1.26's
- * CPU/WASM EP does not implement (verified on-device 2026-08-10, three LFM2.5 builds).
- * So a no-GPU device needs its own preferred pick. SmolLM2-360M (onnx-int8) is the fast
- * floor — ~2.7× the retired qwen3-0.6b's CPU-EP throughput (8.1 vs 2.98 words/s on-device),
- * coherent + WebGPU/WASM-consistent, and small enough (0.37GB, 3GB memory floor) to reach
- * devices below the 4GB rung that previously got nothing. Qwen2.5-0.5B (int8, 4GB floor)
- * stays offerable as a higher-world-knowledge alternative on 4GB+ devices; qwen3-0.6b stays
- * in the catalog but is no longer the preferred floor. int8 has no block-quantized embeddings,
- * so it clears the wall — but it decodes far slower on the WebGPU EP than a WebGPU-native
- * build, so this preference is consulted ONLY on `webgpuSupport === 'wasm-only'`.
+ * This slot's ladder, best rung first, skipping empty rungs.
+ *
+ * Read off the catalog rather than kept here: each entry names the device tier
+ * it is the default for (`tier`), and TIER_ORDER fixes the fallback order.
  */
-export const PREFERRED_WASM_FLOOR_MODEL_ID = 'candidate/smollm2-360m-instruct-onnx';
-
-/**
- * No-WebGPU (WASM/CPU-EP) SMART-slot preference — the "a bit deeper" step-up for
- * CPU-only devices. Granite-4.0-350M (onnx-q4) is the most capable CPU-safe model in the
- * catalog (class-leading 350M IFEval) — a genuine quality step up over the 360M SmolLM2
- * fast floor. Its q4 build clears the CPU EP (headed WASM-EP smoke test, 2026-08-17d:
- * loads + generates coherently, no GatherBlockQuantized, so not cpuEpIncompatible) and is
- * assignable on wasm-only devices with >=4GB. Pointing eco-smart at it (instead of
- * collapsing BOTH slots onto the 360M floor) gives a CPU-only device a genuine two-model
- * first-run CHOICE — a light fast floor plus a more capable deeper pick — where before it
- * saw one option. This is the HONEST ceiling for no-WebGPU hardware: a real WebGPU-class
- * "smart" model (a 2B) decodes under a word per second on the CPU EP, so it is deliberately
- * never offered here; a ~350M step-up is the most a CPU device can meaningfully carry. Where
- * it is unassignable (a wasm-only device below the 4GB floor) this is a safe no-op and the
- * slot falls through to natural ranking (device-coverage audit, 2026-08-17; Granite replaced
- * Qwen2.5-0.5B in this slot 2026-08-17d — a strictly more capable CPU deeper pick).
- */
-export const PREFERRED_WASM_SMART_MODEL_ID = 'candidate/granite-4.0-350m-onnx';
-
-const PREFERRED_WASM_FLOOR_MODEL_ID_BY_SLOT: Readonly<Record<Slot, string>> = {
-  'eco-fast': PREFERRED_WASM_FLOOR_MODEL_ID,
-  'eco-smart': PREFERRED_WASM_SMART_MODEL_ID,
-};
-
-/**
- * WebGPU floor preference. On a WebGPU device that can't run the 8GB-floor 1.2B
- * family (sub-8GB memory) yet isn't wasm-only, natural fit-ranking otherwise
- * surfaces LFM2.5-350M — a 0.35GB extraction-type model wrong for chat — as the
- * "Recommended" pick by a ~0.004 margin over the PROVEN qwen3-0.6b. Prefer the
- * proven 0.6B chat floor instead (FR-2). Where qwen3-0.6b is itself unassignable
- * (e.g. a shader-f16-less adapter, where only the 350M's onnx-q4 loads) this is a
- * safe no-op and natural ranking applies — the 350M stays the honest only option.
- */
-export const PREFERRED_WEBGPU_FLOOR_MODEL_ID = 'local/qwen3-0.6b';
-
-const PREFERRED_WEBGPU_FLOOR_MODEL_ID_BY_SLOT: Readonly<Record<Slot, string>> = {
-  'eco-fast': PREFERRED_WEBGPU_FLOOR_MODEL_ID,
-  'eco-smart': PREFERRED_WEBGPU_FLOOR_MODEL_ID,
-};
+function tierLadderForSlot(slot: Slot): CatalogModel[] {
+  const catalog = getCatalog();
+  return TIER_ORDER.flatMap((tier) => {
+    const model = catalog.find((entry) => entry.tier[slot] === tier);
+    return model === undefined ? [] : [model];
+  });
+}
 
 /**
  * The device-appropriate preferred pick for a slot: the best-tier model THIS
- * device can actually run. The primary is the slot's f16 pick (LFM2.5-1.2B for
- * eco-fast, LFM2-2.6B for eco-smart today); when the device can't run it (no
- * shader-f16, low memory, …)
- * we fall back to the slot's f16-less pick where assignable — the plain-int4 1.2B
- * for eco-fast, Gemma 4 for eco-smart (PREFERRED_F16LESS_MODEL_ID_BY_SLOT). The
- * returned id is fed to `promotePreferred`, which lifts it only if it survived the
- * assignable + admitted + slot + floor filters — so an unassignable fallback is a
- * safe no-op that yields to natural fit-score ranking (LFM2.5 / Qwen3-0.6B on
- * smaller devices). Layering here (not in fit scoring) keeps the preference
- * explicit and unit-testable rather than emergent from snappy-vs-balanced weighting.
+ * device can actually run. Walk the slot's ladder best-first and take the first
+ * assignable rung — the `capable` q4f16 pick, else the `laptop` f16-less build,
+ * else the `phone` CPU-EP pick, else the universal `floor`.
+ *
+ * The rungs are NOT device-gated here. Each rung's own `compat` block does that
+ * work: the `phone` picks carry `requireWasmOnly`, so they are unassignable on
+ * any device with a WebGPU adapter and the ladder walks past them on its own.
+ *
+ * The returned id is fed to `promotePreferred`, which lifts it only if it
+ * survived the assignable + admitted + slot + floor filters — so an unassignable
+ * rung is a safe no-op that yields to natural fit-score ranking. Layering here
+ * (not in fit scoring) keeps the preference explicit and unit-testable rather
+ * than emergent from snappy-vs-balanced weighting.
  */
 function preferredModelIdForSlot(slot: Slot, profile: DeviceProfile): string {
-  const primary = PREFERRED_MODEL_ID_BY_SLOT[slot];
-  if (isCatalogModelAssignable(primary, profile)) return primary;
-  const f16lessFallback = PREFERRED_F16LESS_MODEL_ID_BY_SLOT[slot];
-  if (isCatalogModelAssignable(f16lessFallback, profile)) {
-    return f16lessFallback;
+  const ladder = tierLadderForSlot(slot);
+  for (const model of ladder) {
+    if (isAssignable(model, profile)) return model.id;
   }
-  // No-WebGPU floor: neither the f16 primary nor its f16-less int4 sibling can load
-  // on the CPU EP, so prefer the fast int8 floor (SmolLM2-360M where assignable, down
-  // to 3GB). Gated to wasm-only so int8 never wins on a (low-memory) WebGPU device,
-  // where it decodes far slower than a WebGPU-native build. Unassignable → safe no-op.
-  if (profile.webgpuSupport === 'wasm-only') {
-    const wasmFloor = PREFERRED_WASM_FLOOR_MODEL_ID_BY_SLOT[slot];
-    if (isCatalogModelAssignable(wasmFloor, profile)) return wasmFloor;
-  }
-  // WebGPU floor (FR-2): a WebGPU (non-wasm) device that can't run the 1.2B family
-  // — prefer the proven qwen3-0.6b over the weak 350M that fit-ranking would
-  // otherwise surface as "Recommended". Unassignable → safe no-op.
-  const webgpuFloor = PREFERRED_WEBGPU_FLOOR_MODEL_ID_BY_SLOT[slot];
-  if (isCatalogModelAssignable(webgpuFloor, profile)) return webgpuFloor;
-  return primary;
-}
-
-function isCatalogModelAssignable(modelId: string, profile: DeviceProfile): boolean {
-  const model = getCatalog().find((m) => m.id === modelId);
-  return model != null && isAssignable(model, profile);
+  // Nothing on the ladder runs here. Naming the top rung anyway is a no-op —
+  // promotePreferred cannot lift a model that never entered the ranked list.
+  return ladder[0]?.id ?? '';
 }
 
 function promotePreferred<T extends { model: { id: string } }>(
@@ -603,26 +432,24 @@ type FloorOutcome =
 /**
  * Whether a model is EXEMPT from download-fail auto-demotion because it is the
  * DEVICE's effective instant-start floor — demoting it would leave the device with
- * nothing offerable (COV-3). The universal starter floor covers most WebGPU devices
- * (its onnx-q4 build loads on the WebGPU EP). Two device classes have a DIFFERENT
- * effective floor and need their own exemption:
- *   - `wasm-only`: the starter build is `cpuEpIncompatible` and never assignable, so
- *     the floor is {@link PREFERRED_WASM_FLOOR_MODEL_ID}.
+ * nothing offerable (COV-3). Every clause reads the model's own catalog entry:
+ *   - `starterFloor`: the universal instant-start rung, which covers most WebGPU
+ *     devices (its onnx-q4 build loads on the WebGPU EP).
+ *   - `wasm-only`: the starter build is `cpuEpIncompatible` and never assignable
+ *     there, so the effective floor is that slot's `phone` tier occupant.
  *   - iOS/WebKit-mobile: every ONNX build (incl. the starter) is declined by the
- *     WebKit-mobile gate before any capability check, so the sole assignable floor is
- *     the WebLLM/MLC pick in {@link WEBKIT_MOBILE_VALIDATED_MODEL_IDS} — a WebGPU
- *     model, so the wasm-only branch never covers it.
+ *     WebKit-mobile gate before any capability check, so the sole assignable floor
+ *     is the `compat.webkitMobileValidated` entry — a WebGPU model, so the
+ *     wasm-only branch never covers it.
  * Without these, two transient download failures of a device's sole assignable model
  * would over-decline a runnable device to below-floor for the 7-day window.
  */
 function isDemotionExemptFloor(modelId: string, profile: DeviceProfile): boolean {
-  if (modelId === STARTER_FLOOR_MODEL_ID) return true;
-  if (profile.webgpuSupport === 'wasm-only' && modelId === PREFERRED_WASM_FLOOR_MODEL_ID) {
-    return true;
-  }
-  if (isWebKitMobile(profile) && WEBKIT_MOBILE_VALIDATED_MODEL_IDS.includes(modelId)) {
-    return true;
-  }
+  const model = getModel(modelId);
+  if (model === null) return false;
+  if (model.starterFloor === true) return true;
+  if (profile.webgpuSupport === 'wasm-only' && model.tier['eco-fast'] === 'phone') return true;
+  if (isWebKitMobile(profile) && model.compat.webkitMobileValidated === true) return true;
   return false;
 }
 

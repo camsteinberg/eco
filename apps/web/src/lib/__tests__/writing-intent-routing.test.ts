@@ -37,7 +37,7 @@ import {
 } from "../chat-intent";
 import { DEEP_RE, LONG_FORM_RE, inferAnswerShape } from "../answer-shape";
 import { isTextRepairAsk, isTextTransformAsk } from "../ask-text";
-import { PREFERRED_DEFAULT_MODEL_ID } from "../../local-ai/selection/recommend";
+import { tierDefaultModelId } from "../../local-ai/selection/recommend";
 import { REALISTIC_INPUTS } from "../../__tests__/fixtures/realistic-inputs";
 import { EVERYDAY_USE_CORPUS } from "../../__tests__/fixtures/everyday-use-corpus";
 import {
@@ -285,7 +285,7 @@ describe("writing intent — the apology regression, half recovered", () => {
     const intent = inferChatIntent(text);
     expect({
       intent,
-      maxTokens: getGenerationProfile(intent, true, PREFERRED_DEFAULT_MODEL_ID).maxTokens,
+      maxTokens: getGenerationProfile(intent, true, tierDefaultModelId("eco-fast", "capable")!).maxTokens,
     }).toEqual({
       intent: "explain",
       maxTokens: 1536,

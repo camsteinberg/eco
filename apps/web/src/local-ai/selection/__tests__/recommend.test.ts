@@ -19,7 +19,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getCatalog, getModel } from '../../catalog/catalog';
 import { isAssignable } from '../../device/compatibility';
 import { CURRENT_LEDGER_VERSION, FAILURE_EVIDENCE_VALID_FROM, profileKey } from '../../evidence/ledger';
-import { canServe, listCandidates, listCatalog, NoAssignableModelError, PREFERRED_WASM_FLOOR_MODEL_ID, recommend, starterModelForSlot } from '../recommend';
+import { canServe, listCandidates, listCatalog, NoAssignableModelError, recommend, starterModelForSlot, tierDefaultModelId } from '../recommend';
 import { isBelowFloor } from '../../device/below-floor';
 import { deriveFirstRunChoices } from '../first-run-choices';
 import type { DeviceProfile } from '../../types';
@@ -806,7 +806,7 @@ describe('recommend — confidence floor', () => {
         isMobile: false,
         override: 'auto',
       };
-      const floorId = PREFERRED_WASM_FLOOR_MODEL_ID;
+      const floorId = tierDefaultModelId('eco-fast', 'phone')!;
       // Sanity: it is the offered floor here (and not the universal starter floor).
       expect(floorId).not.toBe(STARTER_ID);
       expect(

@@ -48,8 +48,8 @@ type LocalGenerationProfileOptions = {
 // that `allowValidationModel: true` opts into. They are not in the shipping
 // catalog and not in the user bundle. Their sampling resolves through the
 // eval-lane maps in `local-model-generation-profiles.ts`; entries with no
-// profile row and no fallback family (smollm3, bitnet) fall through to the
-// quality-tier baseline budgets, which is the intended behavior.
+// profile row and no fallback family fall through to the quality-tier
+// baseline budgets, which is the intended behavior.
 
 const CHAT_INTENT_MODEL_DATA: Record<string, ChatIntentModelSlice> = {
   // Phase-2 eval candidate.
@@ -148,61 +148,6 @@ const CHAT_INTENT_MODEL_DATA: Record<string, ChatIntentModelSlice> = {
     id: "candidate/gemma-4-e4b-litert",
     qualityTier: "smart",
     maxNewTokens: { webgpu: 2048 },
-  },
-  // ─── Lab / validation-harness models ─────────────────────────────────
-  // No profile row and no fallback family, so runtime profile lookup falls
-  // through to the baseline budgets — the intended behavior.
-  "local/smollm3-3b": {
-    id: "local/smollm3-3b",
-    qualityTier: "smart",
-    maxNewTokens: { webgpu: 1024 },
-  },
-  "local/bonsai-1.7b-q1": {
-    id: "local/bonsai-1.7b-q1",
-    family: "bonsai",
-    qualityTier: "fast",
-    maxNewTokens: { webgpu: 1024 },
-    generationDefaults: {
-      topP: 0.92,
-      topK: 40,
-      repetitionPenalty: 1.05,
-      intentOverrides: {
-        writing: { topP: 0.92 },
-      },
-    },
-  },
-  "local/bonsai-1.7b-q2": {
-    id: "local/bonsai-1.7b-q2",
-    family: "bonsai",
-    qualityTier: "fast",
-    maxNewTokens: { webgpu: 1024 },
-    generationDefaults: {
-      topP: 0.92,
-      topK: 40,
-      repetitionPenalty: 1.05,
-      intentOverrides: {
-        writing: { topP: 0.92 },
-      },
-    },
-  },
-  "local/bonsai-1.7b-q8": {
-    id: "local/bonsai-1.7b-q8",
-    family: "bonsai",
-    qualityTier: "fast",
-    maxNewTokens: { webgpu: 1024 },
-    generationDefaults: {
-      topP: 0.92,
-      topK: 40,
-      repetitionPenalty: 1.05,
-      intentOverrides: {
-        writing: { topP: 0.92 },
-      },
-    },
-  },
-  "candidate/bitnet-b158": {
-    id: "candidate/bitnet-b158",
-    qualityTier: "experimental",
-    maxNewTokens: { webgpu: 1024 },
   },
 };
 

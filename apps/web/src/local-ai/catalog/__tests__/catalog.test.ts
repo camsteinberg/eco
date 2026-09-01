@@ -17,7 +17,8 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { getCatalog, getModel } from '../catalog';
+import { getCatalog, getEvalLaneModels, getModel } from '../catalog';
+import catalogData from '../catalog-data.json';
 import { getCapabilities } from '../capabilities';
 import artifactMetadata from '../artifact-metadata.json';
 import { isUsableSeedRecord, type RawReconciliationRecord } from '../../evidence/seed';
@@ -43,6 +44,96 @@ const TECHNICAL_ID_PATTERN =/q4f16|q4f|q4_1|webllm|onnx|fp16|q8|q4\b|q2f16|bnb4|
 describe('local-ai catalog (Phase C)', () => {
   it('ships exactly 10 models', () => {
     expect(getCatalog()).toHaveLength(10);
+  });
+
+  // catalog-data.json holds BOTH lanes. `shipping` is the only thing separating
+  // them, so the filter in getCatalog() is load-bearing for real: without it the
+  // dev-only eval candidates would be recommendable, selectable and — through the
+  // registry — publicly proxy-downloadable. Asserted on the REAL data, not a
+  // fixture, and on the surfaces a user actually reaches.
+  it('keeps every shipping:false entry out of the shipping catalog', () => {
+    const raw = catalogData.models as ReadonlyArray<{ id: string; shipping: boolean }>;
+    const evalLaneIds = raw.filter((m) => !m.shipping).map((m) => m.id);
+
+    // Non-vacuous: the lane is genuinely in the same file.
+    expect(evalLaneIds.length).toBeGreaterThan(0);
+    expect(raw.length).toBe(getCatalog().length + evalLaneIds.length);
+
+    const catalogIds = new Set(getCatalog().map((m) => m.id));
+    for (const id of evalLaneIds) {
+      expect(catalogIds.has(id), `${id} must not be in the shipping catalog`).toBe(false);
+      expect(getModel(id), `getModel must not resolve ${id}`).toBeNull();
+    }
+    // ...and the lane accessor returns exactly those, so nothing is simply lost.
+    expect(getEvalLaneModels().map((m) => m.id).sort()).toEqual([...evalLaneIds].sort());
+  });
+
+  // A tier assignment is a CHOICE on the serving path, so it owes a measurement
+  // cited next to the code — the constraint register applied to model selection.
+  // The R3c fold moved these assignments out of nine id constants in
+  // selection/recommend.ts, whose comments carried the by-eye reads, the measured
+  // throughputs and the evidence-doc filenames behind each pick. This test is what
+  // stops the next fold from dropping that trail again: hold a rung, cite why.
+  it('backs every tier assignment and the starter floor with recorded provenance', () => {
+    for (const model of getCatalog()) {
+      const provenance: Record<string, string> = model._provenance ?? {};
+      const slots = Object.keys(model.tier);
+      if (slots.length > 0) {
+        // Either one entry covering the whole ladder position, or one per slot.
+        const cited = '_provenance' in model
+          && (provenance.tier !== undefined
+            || slots.every((slot) => provenance[`tier.${slot}`] !== undefined));
+        expect(cited, `${model.id} holds tier rung(s) ${slots.join('+')} with no _provenance`)
+          .toBe(true);
+      }
+      if (model.starterFloor === true) {
+        expect(provenance.starterFloor, `${model.id} is the starter floor with no _provenance`)
+          .toEqual(expect.any(String));
+      }
+    }
+  });
+
+  // Non-vacuous: the recovered evidence must still carry the ORIGINAL measured
+  // numbers, not a paraphrase. These are the values the deleted
+  // PREFERRED_DEFAULT_MODEL_ID comment recorded for the 2026-08-09 by-eye read
+  // that reversed the swap to Qwen3.5-2B — the specific thing a future rubric
+  // score must not quietly overturn.
+  it('keeps the measured numbers behind the everyday default, not a paraphrase', () => {
+    const everyday = getModel('candidate/lfm2.5-1.2b-instruct-onnx')!;
+    const cited = everyday._provenance!['tier.eco-fast']!;
+    for (const token of [
+      '~300ms first token', '~51 tok/s', '~4s per answer',
+      '~567ms', '~23 tok/s', '~15.5s',
+      'fabricated Roman history', '$0.10',
+      'm2-evidence/model-ladder-by-eye-2026-08-09.md',
+      'deeper-tier-read-by-eye-2026-08-09.md',
+    ]) {
+      expect(cited, `everyday-default provenance lost "${token}"`).toContain(token);
+    }
+  });
+
+  // Every shipping entry declares which device tier it is the default for. The
+  // ladder selection/recommend.ts walks is this data, not id literals in the
+  // engine — so a rung that silently emptied would change what a device is
+  // offered. Pinned per rung.
+  it('fills the recommendation ladder from the catalog, one model per rung', () => {
+    const rungs = new Map<string, string>();
+    for (const model of getCatalog()) {
+      for (const [slot, tier] of Object.entries(model.tier)) {
+        expect(rungs.has(`${slot}/${tier}`), `${slot}/${tier} claimed twice`).toBe(false);
+        rungs.set(`${slot}/${tier}`, model.id);
+      }
+    }
+    expect(Object.fromEntries(rungs)).toEqual({
+      'eco-fast/capable': 'candidate/lfm2.5-1.2b-instruct-onnx',
+      'eco-fast/laptop': 'candidate/lfm2.5-1.2b-instruct-q4-onnx',
+      'eco-fast/phone': 'candidate/smollm2-360m-instruct-onnx',
+      'eco-fast/floor': 'local/qwen3-0.6b',
+      'eco-smart/capable': 'candidate/lfm2-2.6b-onnx',
+      'eco-smart/laptop': 'candidate/gemma-4-e2b-litert',
+      'eco-smart/phone': 'candidate/granite-4.0-350m-onnx',
+      'eco-smart/floor': 'local/qwen3-0.6b',
+    });
   });
 
   it('ships the locked v1.0 catalog ids in source order', () => {

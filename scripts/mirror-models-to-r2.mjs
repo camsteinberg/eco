@@ -116,7 +116,13 @@ function buildLicensePlan(models) {
 function buildMirrorPlan() {
   const catalog = JSON.parse(readFileSync(CATALOG_PATH, 'utf8'));
   const metadata = JSON.parse(readFileSync(METADATA_PATH, 'utf8'));
-  const models = Array.isArray(catalog?.models) ? catalog.models : [];
+  // Shipping lane only. catalog-data.json also holds the dev-only eval
+  // candidates (`shipping: false`); those are served from Hugging Face through
+  // the loopback-gated validation proxy and must never be mirrored to the public
+  // model CDN.
+  const models = Array.isArray(catalog?.models)
+    ? catalog.models.filter((model) => model?.shipping === true)
+    : [];
 
   const plan = [];
   for (const model of models) {

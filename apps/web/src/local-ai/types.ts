@@ -286,6 +286,28 @@ export type ModelQuirks = {
   webllmModelLibFile?: string;
 };
 
+/**
+ * The device class a model is the *default* pick for. `preferredModelIdForSlot`
+ * walks these best-first — `capable` -> `laptop` -> `phone` -> `floor` — and
+ * takes the first rung this device can actually run, so a weaker device steps
+ * down the ladder instead of falling back to whatever fit-scoring surfaced.
+ *
+ *   - `capable`  WebGPU with `shader-f16`: the everyday q4f16 picks.
+ *   - `laptop`   WebGPU without `shader-f16`: the plain-int4 / LiteRT builds.
+ *   - `phone`    no WebGPU at all (ort-web CPU EP): the `requireWasmOnly` picks.
+ *   - `floor`    the universal small fallback, tried last on every device.
+ *
+ * FOUR rungs, not three device classes: the CPU-only picks and the universal
+ * floor are BOTH reachable on a `wasm-only` device (the CPU picks win there), so
+ * collapsing them into one rung would change which model such a device is
+ * offered. The rung is per-slot — `eco-fast` and `eco-smart` climb separate
+ * ladders — and a model that is nobody's default carries an empty assignment.
+ */
+export type ModelTier = 'capable' | 'laptop' | 'phone' | 'floor';
+
+/** Which slot(s) a model is the tier default for. Empty = never a default. */
+export type ModelTierAssignment = Readonly<Partial<Record<Slot, ModelTier>>>;
+
 export type ModelConfig = {
   id: string;
   friendlyName: string;
@@ -336,6 +358,49 @@ export type ModelConfig = {
   display?: ModelDisplay;
   /** Adapter-specific facts, present only where an adapter reads one. */
   quirks?: ModelQuirks;
+  /**
+   * Whether this entry is offered to users. `true` = the shipping catalog
+   * (`getCatalog()`); `false` = the dev-only eval lane, reachable through
+   * `getEvalCandidateModels()` and the loopback-gated validation proxy alone.
+   * Both live in catalog-data.json — this flag is the only thing separating
+   * them, and `getCatalog()` filters on it. Required on every catalog-data.json
+   * entry (`assertCatalogEntry` throws without it); optional on the type so
+   * test fixtures built as bare `ModelConfig`s don't have to carry it.
+   */
+  shipping?: boolean;
+  /**
+   * The device tier(s) this model is the default pick for. Required on every
+   * shipping catalog entry; the eval lane never carries one because it is never
+   * recommended. See {@link ModelTierAssignment}.
+   */
+  tier?: ModelTierAssignment;
+  /**
+   * Exempt from the repeated-download-failure auto-demotion because this model
+   * is the instant-start floor: demoting it would leave a device with nothing
+   * offerable at all. Exactly one shipping entry sets it.
+   */
+  starterFloor?: boolean;
+  /**
+   * Why this entry's numbers are what they are, keyed by the field each note
+   * justifies (`"tier.eco-fast"`, `"maxNewTokens.ceiling"`, …). A choice on the
+   * serving path owes a measurement cited next to the code, so a note records
+   * MEASURED/DERIVED/INHERITED provenance and a falsifier.
+   *
+   * `tier` assignments in particular: the by-eye reads and measured throughputs
+   * behind each device-tier default used to live in comments on nine id
+   * constants in `selection/recommend.ts`. They live here now, and
+   * catalog.test.ts fails if an entry holds a tier rung without citing why.
+   * Documentation, not serving data — nothing reads it at runtime, so a missing
+   * note is a test failure rather than a load-time throw.
+   */
+  _provenance?: Readonly<Record<string, string>>;
+  /**
+   * Was once the everyday `eco-fast` default. Boot self-heal rebinds a slot
+   * still pointing at one of these to the CURRENT device-appropriate default.
+   * No entry sets it today — the flag is how a future default swap declares the
+   * migration on the outgoing entry rather than in a hand-kept list.
+   */
+  formerEverydayDefault?: boolean;
 };
 
 // ─── Below-floor ───────────────────────────────────────────────────────────

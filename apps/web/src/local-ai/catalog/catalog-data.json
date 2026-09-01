@@ -1,18 +1,24 @@
 {
   "_documentation": {
     "source": "docs/design/2026-05-16/vision-and-architecture.md §2.4",
-    "scope": "The shipping user-facing catalog (every entry in `models`). Additional/experimental models are gated out of the shipped user bundle.",
+    "scope": "Every model Eco knows about. `shipping: true` is the user-facing catalog that getCatalog() returns and every user-facing surface reads; `shipping: false` is the dev-only eval lane, reachable through getEvalCandidateModels() and the loopback-gated validation proxy alone (403 in production). One file, two lanes, one flag between them - there is no second catalog.",
+    "tier_note": "`tier` names the device class an entry is the DEFAULT pick for, per slot. selection/recommend.ts walks capable -> laptop -> phone -> floor and takes the first rung the device can actually run, so a graduation is a catalog edit rather than an id literal in the engine. `{}` means the entry is nobody's default and is reachable by fit score alone. Eval-lane entries carry no tier: they are never recommended.",
     "field_definitions": "apps/web/src/local-ai/types.ts (ModelConfig type)",
-    "last_updated": "2026-08-29",
+    "last_updated": "2026-08-31",
     "license_note": "Every entry carries a `license` block describing the license of the model WEIGHTS (separate from Eco's own AGPL-3.0 code license). Eco redistributes those weights, so Apache-2.0 §4(a) and LFM Open License v1.0 §4(a) require recipients to get the license text: `license.textFile` names the verbatim copy under catalog/licenses/ that ships in the bundle, is rendered at /licenses, and is uploaded next to the weights by scripts/mirror-models-to-r2.mjs. `license.artifactLicenseFile` is non-null only where the download repo itself carries a LICENSE at the pinned revision (verified over HTTP); those paths are also in artifact.files so the download itself includes it. `upstreamRepo` is the ORIGINAL author's repo, never the repack we download from. `confirmed: false` means the publisher declares the license but the declaration is self-inconsistent or unverified.",
     "phase": "bonsai-retirement",
     "generation_note": "Every entry's `generation` block is the model's COMPLETE sampling description: a base row plus per-intent overrides, resolved as `{ ...base, ...intentOverrides[intent] }`. An override may restate a base value — recorded as authored so a future retune of the base does not silently move an intent tuned to its own number. Provenance by model: Qwen3 uses the family's published thinking-mode defaults (temp 0.6 / top_p 0.95 / top_k 20); Qwen3.5-2B holds top_p at 0.8, the vendor non-thinking ceiling, kept on NO-REGRESSION evidence and NOT as a CJK fix — a real-WebGPU A/B on 2026-06-11 (runs wave25-cjk-fix-r1/r2) showed the reproducible s1 leak (the token for methane) recurs at 0.8, so `suppressCjkTokens` is the actual fix; LFM2/LFM2.5 follow Liquid's published low-temp factual recs; Gemma-4 on LiteRT keeps only the controls LiteRT-LM Web 0.13.1 can honor (sampler type / temperature / top_k / top_p / seed — no repetition penalty, no n-gram ban). NO shipping entry sets `noRepeatNgramSize`: Transformers.js applies that ban across the FULL sequence, prompt included (verified by instantiating NoRepeatNGramLogitsProcessor from the pinned 4.2.0 package at generation step 0 with prompt tokens only), so it forbids handing the user their own words back — the corruption class a chat-experience quality audit recorded. `repetitionPenalty` is the loop guard instead.",
     "max_new_tokens_note": "`maxNewTokens` is the model's length budget. The cap for an intent is `min(intentTokens[intent] ?? default, max, ceiling)`. `ceiling` is the model's own generation ceiling — the largest number of new tokens it may be asked for under ANY intent — and context-window selection reserves against it before the turn's intent is known.",
-    "artifact_note": "Each model's `artifact` is the canonical download contract. `hfId` + `revision` + `files` feed the server-side proxy allowlist via apps/web/src/lib/local-model-registry.ts (getProxyAllowedLocalModelRegistryArtifacts), and every file MUST have a matching entry in artifact-metadata.json (the proxy's size/SHA-256 verification source — catalog.test.ts pins this invariant). Bootstrap reads this to build the DownloadPlan; mismatches surface as 403 from the proxy."
+    "artifact_note": "Each model's `artifact` is the canonical download contract. `hfId` + `revision` + `files` feed the server-side proxy allowlist via apps/web/src/lib/local-model-registry.ts (getProxyAllowedLocalModelRegistryArtifacts), and every file MUST have a matching entry in artifact-metadata.json (the proxy's size/SHA-256 verification source — catalog.test.ts pins this invariant). Bootstrap reads this to build the DownloadPlan; mismatches surface as 403 from the proxy. Eval-lane per-file metadata lives in artifact-metadata-eval.json instead, so artifact-metadata.json stays 1:1 with the shipping catalog."
   },
   "models": [
     {
       "id": "local/qwen3-0.6b",
+      "shipping": true,
+      "tier": { "eco-fast": "floor", "eco-smart": "floor" },
+      "_provenance": {
+        "tier": "DERIVED from a measured ranking defect (FR-2) — the universal `floor` rung for BOTH slots, tried last on every device. On a WebGPU device that can't run the 8GB-floor 1.2B family (sub-8GB memory) yet isn't wasm-only, natural fit-ranking otherwise surfaces LFM2.5-350M — a 0.35GB extraction-type model wrong for chat — as the \"Recommended\" pick by a ~0.004 margin over the PROVEN qwen3-0.6b. This rung prefers the proven 0.6B chat floor instead. On a `wasm-only` device it sits BELOW the `phone` rung (the requireWasmOnly CPU picks win there) but above nothing else. Where qwen3-0.6b is itself unassignable (e.g. a shader-f16-less adapter, where only the 350M's onnx-q4 loads) this is a safe no-op and natural ranking applies — the 350M stays the honest only option. Falsifier: a fit-scoring change that makes the natural ranking put a chat-appropriate model on top for the sub-8GB WebGPU band, which would make this rung redundant rather than corrective."
+      },
       "friendlyName": "Qwen3",
       "vendor": "Alibaba",
       "sizeGB": 0.57,
@@ -92,6 +98,11 @@
     },
     {
       "id": "candidate/lfm2.5-1.2b-instruct-onnx",
+      "shipping": true,
+      "tier": { "eco-fast": "capable" },
+      "_provenance": {
+        "tier.eco-fast": "MEASURED (model-ladder by-eye read, 2026-08-09) — LFM2.5-1.2B-instruct is the default recommendation on any device that can run it. This REVERSES the 2026-06-13 everyday-swap to Qwen3.5-2B. That swap graduated on a rubric-scored bake-off; a by-eye read on real WebGPU (the rubric cannot see answer quality — it scored reader-rejected output 1.00) found the 2B buys no clear everyday-quality gain over the 1.2B while costing ~2–4× the speed, AND it hallucinates on open-knowledge asks (fabricated Roman history) and mangles simple reasoning (bat-and-ball headlined \"$0.10\"). The 1.2B is the fast, accurate everyday workhorse: ~300ms first token / ~51 tok/s / ~4s per answer vs the 2B's ~567ms / ~23 tok/s / ~15.5s. Evidence: m2-evidence/model-ladder-by-eye-2026-08-09.md and deeper-tier-read-by-eye-2026-08-09.md. The 2B is NOT removed — it stays selectable via Settings (\"Choose your own\"). Falsifier: a by-eye read on real WebGPU, scored by someone who did not author the change, in which the 2B (or a successor) beats the 1.2B on everyday answer quality without the ~2–4× speed cost. A rubric score alone does NOT falsify this — a rubric is what got it wrong in 2026-06-13."
+      },
       "friendlyName": "LFM2.5 1.2B",
       "vendor": "Liquid AI",
       "sizeGB": 0.76,
@@ -171,6 +182,11 @@
     },
     {
       "id": "candidate/lfm2.5-1.2b-instruct-q4-onnx",
+      "shipping": true,
+      "tier": { "eco-fast": "laptop" },
+      "_provenance": {
+        "tier.eco-fast": "DERIVED from a measured gap (device-coverage, 2026-08-10) — the f16-less-but-WebGPU eco-FAST pick. On adapters that run WebGPU but lack `shader-f16`, the everyday q4f16 1.2B default is unassignable, and the old fallback (Gemma 4) is 1.87GB — over the instant-start budget — so `starterModelForSlot` stepped the first download DOWN to the weak 350M. The plain-int4 build of the SAME 1.2B (onnx-q4, 0.85GB) needs no shader-f16, loads on the f16-less WebGPU EP, and — being <= STARTER_MAX_SIZE_GB — is its OWN starter. So f16-less eco-fast gets the good 1.2B as its first impression, converging starter==recommend exactly as the 2026-08-09 fix did for f16-capable devices. Falsifier: a measurement showing the plain-int4 build's answer quality is materially worse than the q4f16 sibling's, or that it fails to load on a real f16-less adapter."
+      },
       "friendlyName": "LFM2.5 1.2B",
       "vendor": "Liquid AI",
       "sizeGB": 0.85,
@@ -253,6 +269,12 @@
     },
     {
       "id": "candidate/lfm2.5-350m-onnx",
+      "shipping": true,
+      "tier": {},
+      "_provenance": {
+        "starterFloor": "DERIVED (device-coverage audit, finding COV-3 — fixed) — the default instant-start floor: the smallest, f16-free starter rung most devices fall back to. It is EXEMPT from the download-fail auto-demotion because demoting the floor would leave a device with nothing offerable and break instant-start. Repeated download failures of even this model are an environmental dead-end the demotion can't fix, so we never remove it. NOT literally universal: on a `wasm-only` device this build is unassignable (its block-quantized embeddings emit GatherBlockQuantized, unimplemented on the CPU EP — see compat.cpuEpIncompatible), so the `eco-fast` `phone` rung is the effective floor there. The exemption therefore cannot be keyed to this one entry alone; `isDemotionExemptFloor` also exempts the wasm-only floor on a wasm-only device and the `compat.webkitMobileValidated` entry on iOS/WebKit, so a runnable low-end device whose sole assignable model has a couple of transient download failures is never declined below its floor for the 7-day window. Falsifier: a device class where all three exemption clauses miss and a two-download-failure device is still declined below floor."
+      },
+      "starterFloor": true,
       "friendlyName": "LFM2.5",
       "vendor": "Liquid AI",
       "sizeGB": 0.28,
@@ -334,6 +356,8 @@
     },
     {
       "id": "candidate/qwen3.5-2b-onnx",
+      "shipping": true,
+      "tier": {},
       "friendlyName": "Qwen3.5 2B",
       "vendor": "Alibaba",
       "sizeGB": 1.4,
@@ -408,6 +432,8 @@
     },
     {
       "id": "candidate/gemma-4-e2b-litert",
+      "shipping": true,
+      "tier": { "eco-smart": "laptop" },
       "friendlyName": "Gemma 4",
       "vendor": "Google",
       "sizeGB": 1.87,
@@ -437,6 +463,7 @@
         "intentTokens": { "quick": 256, "explain": 768, "deep": 1536, "code": 1024, "writing": 1024, "file": 1536, "research": 1536 }
       },
       "_provenance": {
+        "tier.eco-smart": "MEASURED (Track E Slice 4, 2026-06-30) — the f16-less-but-WebGPU deeper pick. On devices that run WebGPU but lack the `shader-f16` feature — older-Intel desktops (C2) and ~all Adreno Android (C3) — every q4f16 ONNX/MLC build is unassignable, but Gemma 4 (LiteRT, non-f16 `.litertlm`) loads fine. It is therefore the device-appropriate deeper pick there — the f16-free role Bonsai used to share before it retired (2026-07-11); LFM2.5-350M (onnx-q4) remains the light non-f16 fallback. Empirically confirmed runnable on a shimmed-f16-less WebGPU device (#191: 51/51 generations, 0 errors). Where Gemma is ALSO unassignable (low-memory / WASM-only / non-Chromium) it never enters the ranked list, so holding this rung is a safe no-op and natural fit-score ranking applies unchanged. Falsifier: a real (not shimmed) f16-less adapter on which it fails to load or generate, or a smaller non-f16 build that matches its quality. NOTE: retiring this lane is a Phase R7 decision requiring a written comparison — it is the ONLY second choice f16-less devices have.",
         "maxNewTokens.ceiling": "DERIVED — 1024 is the loosest generation-to-context ratio already in use on a shipping model (LFM2.5-1.2B runs 2048 against a 4096 context). The previous 2048 ceiling against this entry's 2048 contextTokens left no room for the system prompt or history: an s33 measurement saw only 2 of 10 messages survive selection. Falsifier: a measured contextTokens from a context-stress probe, or the publisher's model card stating a larger real context.",
         "capabilities.contextTokens": "INHERITED — provenance unknown; 2048 may be our own guess rather than the model's real limit. Falsifier: a measured contextTokens from a context-stress probe, or the publisher's model card stating a larger real context.",
         "maxNewTokens.intentTokens": "INERT AS WRITTEN — `deep`, `file` and `research` are authored at 1536 but the 1024 `ceiling` clamps all three, so each currently resolves to 1024. The authored numbers are kept, not lowered: they are the intended budgets for when the context question is settled, and they become live again the moment a stress probe justifies raising the ceiling. Read the resolved value as `min(intentTokens[intent] ?? default, max, ceiling)`, not as this table alone."
@@ -476,6 +503,8 @@
     },
     {
       "id": "candidate/qwen2.5-0.5b-mlc",
+      "shipping": true,
+      "tier": {},
       "friendlyName": "Qwen2.5 0.5B",
       "vendor": "Alibaba",
       "sizeGB": 0.27,
@@ -559,6 +588,11 @@
     },
     {
       "id": "candidate/granite-4.0-350m-onnx",
+      "shipping": true,
+      "tier": { "eco-smart": "phone" },
+      "_provenance": {
+        "tier.eco-smart": "MEASURED (headed WASM-EP smoke test, 2026-08-17d; device-coverage audit 2026-08-17) — the no-WebGPU (WASM/CPU-EP) SMART-slot step-up. Granite-4.0-350M (onnx-q4) is the most capable CPU-safe model in the catalog (class-leading 350M IFEval) — a genuine quality step up over the 360M SmolLM2 fast floor. Its q4 build clears the CPU EP (loads + generates coherently, no GatherBlockQuantized, so not cpuEpIncompatible) and is assignable on wasm-only devices with >=4GB. Holding this rung (instead of collapsing BOTH slots onto the 360M floor) gives a CPU-only device a genuine two-model first-run CHOICE where before it saw one option. This is the HONEST ceiling for no-WebGPU hardware: a real WebGPU-class \"smart\" model (a 2B) decodes under a word per second on the CPU EP, so it is deliberately never offered here; a ~350M step-up is the most a CPU device can meaningfully carry. Granite replaced Qwen2.5-0.5B in this slot 2026-08-17d — a strictly more capable CPU deeper pick. Falsifier: a CPU-EP-safe model that beats it on instruction-following at comparable decode speed."
+      },
       "friendlyName": "Granite 4.0 350M",
       "vendor": "IBM",
       "sizeGB": 0.58,
@@ -645,6 +679,11 @@
     },
     {
       "id": "candidate/smollm2-360m-instruct-onnx",
+      "shipping": true,
+      "tier": { "eco-fast": "phone" },
+      "_provenance": {
+        "tier.eco-fast": "MEASURED on-device (2026-08-10) — the no-WebGPU (WASM/CPU-EP) fast floor. On a `wasm-only` device the f16 primary (requireWebgpu) and its f16-less int4 sibling BOTH can never load: the int4 LFM2.5 builds block-quantize embeddings -> emit GatherBlockQuantized, which ort-web 1.26's CPU/WASM EP does not implement (verified on-device 2026-08-10, three LFM2.5 builds). So a no-GPU device needs its own pick. SmolLM2-360M (onnx-int8) is the fast floor — ~2.7× the retired qwen3-0.6b's CPU-EP throughput (8.1 vs 2.98 words/s on-device), coherent + WebGPU/WASM-consistent, and small enough (0.37GB, 3GB memory floor) to reach devices below the 4GB rung that previously got nothing. int8 has no block-quantized embeddings, so it clears the wall — but it decodes far slower on the WebGPU EP than a WebGPU-native build, which is why `compat.requireWasmOnly` scopes it to no-GPU devices and is what keeps this rung off every WebGPU device. Falsifier: an int4/int8 build with higher measured CPU-EP throughput that also clears the GatherBlockQuantized wall."
+      },
       "friendlyName": "SmolLM2 360M",
       "vendor": "Hugging Face",
       "sizeGB": 0.37,
@@ -728,6 +767,11 @@
     },
     {
       "id": "candidate/lfm2-2.6b-onnx",
+      "shipping": true,
+      "tier": { "eco-smart": "capable" },
+      "_provenance": {
+        "tier.eco-smart": "MEASURED (by-eye read on real WebGPU, 2026-08-10) — the graduated deeper tier. The rubric-scored chat #7 bake-off had ranked Qwen3.5-2B over LFM2-2.6B, but a by-eye read found the 2.6B clearly beats the 2B on reasoning, history and code at equal speed (the rubric cannot see answer quality). Holding this rung re-splits the slots that the 2026-08-09 read had collapsed onto the 1.2B: eco-fast stays the fast everyday default and eco-smart is the deeper opt-in, which the model selector's pair (`deriveFirstRunChoices`, which asks for `recommend('eco-smart')`) surfaces as a genuine \"deeper\" download. The pair only ever offers a device a step UP: the size guard in `deriveFirstRunChoices` never offers a deeper tile that isn't a genuine step up in size, and the 1.2B everyday default (0.76GB) -> the 2.6B (1.65GB) is a real up-size. A fresh device still chats on the 1.2B first; the deeper model is opt-in, never auto-pushed. Existing 2B users keep their 2B (it stays selectable via Settings). Falsifier: a second-machine by-eye read in which the 2.6B does not beat the 2B on reasoning/history/code, or a deeper candidate that does so at the same speed and size step."
+      },
       "friendlyName": "LFM2 2.6B",
       "vendor": "Liquid AI",
       "sizeGB": 1.65,
@@ -802,6 +846,342 @@
           "special_tokens_map.json",
           "tokenizer.json",
           "tokenizer_config.json"
+        ]
+      }
+    },
+    {
+      "id": "candidate/qwen3-1.7b-onnx",
+      "shipping": false,
+      "_laneNote": "Phase-2 lane candidate, parked non-viable: the 1.43GB single-file q4f16 ONNX std::bad_allocs at onnxruntime-web session creation even on 16GB. Retry needs an external-data build.",
+      "friendlyName": "Qwen3 1.7B",
+      "vendor": "Alibaba",
+      "sizeGB": 1.44,
+      "runtime": "transformers",
+      "format": "onnx-q4f16",
+      "capabilities": {
+        "intent": [
+          "snappy",
+          "balanced"
+        ],
+        "tasks": [
+          "chat",
+          "writing",
+          "reasoning"
+        ],
+        "contextTokens": 4096
+      },
+      "bestFor": "Instruction-tuned chat and reasoning; the larger Qwen3 sibling for higher quality.",
+      "knownLimitation": "Non-viable in Eco's browser runtime: 1.43GB single-file q4f16 ONNX std::bad_allocs on onnxruntime-web session creation (even on 16GB). Retry needs an external-data build.",
+      "evidenceTier": "predicted",
+      "systemRoleSupport": "native",
+      "artifact": {
+        "hfId": "onnx-community/Qwen3-1.7B-ONNX",
+        "revision": "cc6a06a21d614e9b8e92a6adfab1074d4e7d2438",
+        "files": [
+          "onnx/model_q4f16.onnx",
+          "added_tokens.json",
+          "chat_template.jinja",
+          "config.json",
+          "generation_config.json",
+          "merges.txt",
+          "special_tokens_map.json",
+          "tokenizer.json",
+          "tokenizer_config.json",
+          "vocab.json"
+        ]
+      }
+    },
+    {
+      "id": "candidate/qwen3-0.6b-q4",
+      "shipping": false,
+      "_laneNote": "A-3 load-peak decomposition cell (2026-07-16): the SAME Qwen3-0.6B weights the catalog serves, but the repo's fp32-initializer q4 artifact, so the sustained-memory probe can test whether the fp16->fp32 initializer conversion causes the ~3.1GB ORT session-init RSS spike.",
+      "friendlyName": "Qwen3 0.6B (q4)",
+      "vendor": "Alibaba",
+      "sizeGB": 0.86,
+      "runtime": "transformers",
+      "format": "onnx-q4",
+      "capabilities": {
+        "intent": [
+          "snappy",
+          "balanced"
+        ],
+        "tasks": [
+          "chat",
+          "writing",
+          "reasoning"
+        ],
+        "contextTokens": 4096
+      },
+      "bestFor": "A-3 measurement cell: the shipping Qwen3-0.6B weights in the fp32-initializer q4 build, to profile ORT session-init load peak without fp16 initializers.",
+      "knownLimitation": "Dev-only load-peak measurement cell — not a shipping default. The q4 artifact is ~0.86GB (larger on disk than the q4f16 build) and exists only to test whether removing fp16 initializers at the source kills the ORT session-init RSS spike.",
+      "evidenceTier": "predicted",
+      "systemRoleSupport": "native",
+      "artifact": {
+        "hfId": "onnx-community/Qwen3-0.6B-ONNX",
+        "revision": "da1453100cf3ff33ef56d17983fc7a8648706db6",
+        "files": [
+          "onnx/model_q4.onnx",
+          "added_tokens.json",
+          "chat_template.jinja",
+          "config.json",
+          "generation_config.json",
+          "merges.txt",
+          "special_tokens_map.json",
+          "tokenizer.json",
+          "tokenizer_config.json",
+          "vocab.json"
+        ]
+      }
+    },
+    {
+      "id": "candidate/qwen3-0.6b-q4f16-single",
+      "shipping": false,
+      "_laneNote": "A-3 baseline cell retained at the 2026-07-17 external-data graduation: the pre-graduation single-file q4f16 build, kept so its ORT session-init load transient can be A/B'd against the shipping external-data artifact on the same machine and pressure.",
+      "friendlyName": "Qwen3 0.6B (q4f16 single-file)",
+      "vendor": "Alibaba",
+      "sizeGB": 0.57,
+      "runtime": "transformers",
+      "format": "onnx-q4f16",
+      "capabilities": {
+        "intent": [
+          "snappy",
+          "balanced"
+        ],
+        "tasks": [
+          "chat",
+          "writing",
+          "reasoning"
+        ],
+        "contextTokens": 4096
+      },
+      "bestFor": "A-3 baseline cell: the pre-graduation single-file q4f16 Qwen3-0.6B build, retained to A/B its ORT session-init load transient against the graduated external-data catalog artifact (same weights, paired measurement).",
+      "knownLimitation": "Dev-only measurement baseline — the single-file build the catalog moved off of. It stages the whole model in the wasm heap at session create (the ~2s load spike the external-data graduation removed); kept only for paired A/B against the shipping external-data build.",
+      "evidenceTier": "predicted",
+      "systemRoleSupport": "native",
+      "artifact": {
+        "hfId": "onnx-community/Qwen3-0.6B-ONNX",
+        "revision": "da1453100cf3ff33ef56d17983fc7a8648706db6",
+        "files": [
+          "onnx/model_q4f16.onnx",
+          "added_tokens.json",
+          "chat_template.jinja",
+          "config.json",
+          "generation_config.json",
+          "merges.txt",
+          "special_tokens_map.json",
+          "tokenizer.json",
+          "tokenizer_config.json",
+          "vocab.json"
+        ]
+      }
+    },
+    {
+      "id": "candidate/qwen3.5-4b-onnx",
+      "shipping": false,
+      "_laneNote": "Chat #7 M2 bake-off, high-memory quality tier (leads all <10B on Intelligence Index). Decoder external data ships in TWO chunks, so it also exercises the per-file chunk-map path.",
+      "friendlyName": "Qwen3.5 4B",
+      "vendor": "Alibaba",
+      "sizeGB": 2.82,
+      "runtime": "transformers",
+      "format": "onnx-q4f16",
+      "capabilities": {
+        "intent": [
+          "balanced",
+          "quality"
+        ],
+        "tasks": [
+          "chat",
+          "writing",
+          "reasoning",
+          "code"
+        ],
+        "contextTokens": 4096
+      },
+      "bestFor": "Bake-off candidate: highest-quality option for high-memory devices (leads all <10B models on Intelligence Index).",
+      "knownLimitation": "Unvalidated in Eco's runtime; ~2.8GB download + multi-chunk decoder targets high-memory WebGPU devices only.",
+      "evidenceTier": "predicted",
+      "systemRoleSupport": "native",
+      "artifact": {
+        "hfId": "onnx-community/Qwen3.5-4B-ONNX-OPT",
+        "revision": "57b13b4dce7be073be0df3eaf1c842a6bbb2e0a7",
+        "files": [
+          "onnx/decoder_model_merged_q4f16.onnx",
+          "onnx/decoder_model_merged_q4f16.onnx_data",
+          "onnx/decoder_model_merged_q4f16.onnx_data_1",
+          "onnx/embed_tokens_q4f16.onnx",
+          "onnx/embed_tokens_q4f16.onnx_data",
+          "chat_template.jinja",
+          "config.json",
+          "generation_config.json",
+          "tokenizer.json",
+          "tokenizer_config.json"
+        ]
+      }
+    },
+    {
+      "id": "candidate/gemma-4-e2b-onnx",
+      "shipping": false,
+      "_laneNote": "Chat #7 M2 bake-off, eliminated on evidence (deterministic m2 arithmetic error, slowest decode). Base PTQ q4f16 export consumed text-only; the preferred QAT-mobile q2f16 build is ORT-web-blocked (2-bit GatherBlockQuantized unsupported).",
+      "friendlyName": "Gemma 4 E2B",
+      "vendor": "Google",
+      "sizeGB": 3.13,
+      "runtime": "transformers",
+      "format": "onnx-q4f16",
+      "capabilities": {
+        "intent": [
+          "balanced",
+          "quality"
+        ],
+        "tasks": [
+          "chat",
+          "writing",
+          "reasoning",
+          "code"
+        ],
+        "contextTokens": 4096
+      },
+      "bestFor": "Bake-off candidate: strongest raw quality in the 2B class; future vision/audio path in the same artifact family.",
+      "knownLimitation": "Unvalidated in Eco's runtime. PTQ q4f16 fallback build (QAT-mobile q2f16 is ORT-web-blocked); ~1.6GB embeddings resident in RAM; ORT-web Gemma fp16 overflow lineage and KV-cache reuse compatibility unverified.",
+      "evidenceTier": "predicted",
+      "systemRoleSupport": "native",
+      "artifact": {
+        "hfId": "onnx-community/gemma-4-E2B-it-ONNX",
+        "revision": "9f4bef82ea6e296bc69f8a2f5939f73af81b07a6",
+        "files": [
+          "onnx/decoder_model_merged_q4f16.onnx",
+          "onnx/decoder_model_merged_q4f16.onnx_data",
+          "onnx/embed_tokens_q4f16.onnx",
+          "onnx/embed_tokens_q4f16.onnx_data",
+          "chat_template.jinja",
+          "config.json",
+          "generation_config.json",
+          "tokenizer.json",
+          "tokenizer_config.json"
+        ]
+      }
+    },
+    {
+      "id": "candidate/gemma-4-e2b-qat-q4-onnx",
+      "shipping": false,
+      "_laneNote": "Community QAT-q4 conversion (nico-martin). RESULT 2026-06-15: DOES NOT LOAD -- downloads and verifies, then hangs indefinitely at ORT-web WebGPU session-create, because the q4 build block-quantizes the 1.76GB embedding table into GatherBlockQuantized, unsupported on ORT-web's WebGPU EP. Kept as the test record; do NOT re-run blind or graduate.",
+      "friendlyName": "Gemma 4 E2B QAT q4",
+      "vendor": "Google",
+      "sizeGB": 3.2,
+      "runtime": "transformers",
+      "format": "onnx-q4",
+      "capabilities": {
+        "intent": [
+          "balanced",
+          "quality"
+        ],
+        "tasks": [
+          "chat",
+          "writing",
+          "reasoning",
+          "code"
+        ],
+        "contextTokens": 4096
+      },
+      "bestFor": "Bake-off candidate: a quantization-aware-trained (QAT) q4 Gemma 4 E2B (community conversion by nico-martin) — tests whether QAT recovers the quality the base PTQ build lost.",
+      "knownLimitation": "Does NOT load in Eco's runtime (verified 2026-06-15): hangs at onnxruntime-web WebGPU session-create because the q4 build block-quantizes its 1.76GB embedding table → GatherBlockQuantized, unsupported on ORT-web's WebGPU EP. WASM/CPU EP also impractical at this size. Lane-only test record.",
+      "evidenceTier": "predicted",
+      "systemRoleSupport": "native",
+      "artifact": {
+        "hfId": "nico-martin/gemma-4-E2B-it-qat-q4-ONNX",
+        "revision": "f83a0fb4825956b3d87687a30b7716e8692f1f70",
+        "files": [
+          "onnx/decoder_model_merged_q4.onnx",
+          "onnx/decoder_model_merged_q4.onnx_data",
+          "onnx/embed_tokens_q4.onnx",
+          "onnx/embed_tokens_q4.onnx_data",
+          "chat_template.jinja",
+          "config.json",
+          "tokenizer.json",
+          "tokenizer_config.json"
+        ]
+      }
+    },
+    {
+      "id": "candidate/gemma-4-e4b-litert",
+      "shipping": false,
+      "_laneNote": "Eval-only sibling of the shipping E2B LiteRT entry: tests whether the larger Gemma 4 LiteRT build improves quality through the same validation-selected path, without changing shipping defaults.",
+      "friendlyName": "Gemma 4 E4B (LiteRT)",
+      "vendor": "Google",
+      "sizeGB": 2.77,
+      "runtime": "litert",
+      "format": "litertlm",
+      "capabilities": {
+        "intent": [
+          "balanced",
+          "quality"
+        ],
+        "tasks": [
+          "chat",
+          "writing",
+          "reasoning",
+          "code"
+        ],
+        "contextTokens": 2048
+      },
+      "bestFor": "Eval-only LiteRT evidence candidate: tests whether the larger Gemma 4 LiteRT build improves quality over E2B through the same validation-selected product path, without changing Eco shipping defaults.",
+      "knownLimitation": "Dev-only third runtime (@litert-lm/core, early preview, Chromium WebGPU only). Single 2.97GB .litertlm bundle fetched through Eco's validation-only same-origin proxy; sampling maps temperature/top-k/top-p but has no repetition-penalty knob; KV-cache reuse across turns is not wired in the spike.",
+      "evidenceTier": "predicted",
+      "systemRoleSupport": "native",
+      "artifact": {
+        "hfId": "litert-community/gemma-4-E4B-it-litert-lm",
+        "revision": "f7ad3343bd6ebc9607f4dc3bc4f2398bd5749bc5",
+        "files": [
+          "gemma-4-E4B-it-web.litertlm"
+        ]
+      }
+    },
+    {
+      "id": "candidate/qwen3-0.6b-mlc",
+      "shipping": false,
+      "_laneNote": "Runtime bake-off cell: the same Qwen3-0.6B weights the catalog serves as ONNX, on the WebLLM/MLC runtime, so diagnostics can compare TTFT, decode throughput, context ceiling and output parity across both runtimes. contextTokens is deliberately 16384 -- the adapter passes it to MLC as context_window_size and the depth probes need ~12k.",
+      "friendlyName": "Qwen3 0.6B (MLC)",
+      "vendor": "Alibaba",
+      "sizeGB": 0.33,
+      "runtime": "webllm",
+      "format": "mlc-q4f16",
+      "capabilities": {
+        "intent": [
+          "snappy",
+          "balanced"
+        ],
+        "tasks": [
+          "chat",
+          "writing",
+          "reasoning"
+        ],
+        "contextTokens": 16384
+      },
+      "bestFor": "Runtime bake-off cell: the same Qwen3-0.6B weights the catalog serves as ONNX, but on the WebLLM/MLC runtime, so diagnostics can compare both runtimes on identical weights.",
+      "knownLimitation": "Dev-only runtime comparison cell. Not a shipping default; exists only to A/B the MLC runtime against the ONNX runtime on the same model in the eval harness.",
+      "evidenceTier": "predicted",
+      "systemRoleSupport": "native",
+      "quirks": {
+        "webllmModelLibFile": "Qwen3-0.6B-q4f16_1_cs1k-webgpu.wasm"
+      },
+      "artifact": {
+        "hfId": "mlc-ai/Qwen3-0.6B-q4f16_1-MLC",
+        "revision": "8c14ce481d4c692769976ad52afea453a102df19",
+        "files": [
+          "params_shard_0.bin",
+          "params_shard_1.bin",
+          "params_shard_2.bin",
+          "params_shard_3.bin",
+          "params_shard_4.bin",
+          "params_shard_5.bin",
+          "params_shard_6.bin",
+          "params_shard_7.bin",
+          "params_shard_8.bin",
+          "tensor-cache.json",
+          "mlc-chat-config.json",
+          "tokenizer.json",
+          "tokenizer_config.json",
+          "vocab.json",
+          "merges.txt"
         ]
       }
     }

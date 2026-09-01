@@ -1,0 +1,317 @@
+{
+  "_documentation": {
+    "scope": "Per-file download metadata for the DEV-ONLY eval lane (catalog-data.json entries with `shipping: false`). Kept separate from artifact-metadata.json, which stays 1:1 with the shipping catalog.",
+    "verification": "EXACT values verified against the pinned HuggingFace revisions. 64-char oids are LFS SHA-256 and the proxy verifies the downloaded bytes against them; 40-char oids are git-blob hashes and pass through unverified.",
+    "reachability": "Consumed only through getValidationAllowedLocalModelRegistryArtifacts(), which the proxy consults solely when isValidationHarnessRequestAllowed(headers) is true (loopback host + non-production). 403 in production."
+  },
+  "models": {
+    "candidate/qwen3-1.7b-onnx": {
+      "onnx/model_q4f16.onnx": {
+        "sizeBytes": 1426069098,
+        "oid": "fb85b44defdf43ace50c7a4937127e889b9f8a0483eb87a6c4151a815c5da3b5"
+      },
+      "added_tokens.json": {
+        "sizeBytes": 707,
+        "oid": "b54f9135e44c1e81047e8d05cb027af8bc039eed"
+      },
+      "chat_template.jinja": {
+        "sizeBytes": 4116,
+        "oid": "699ff8df401fe4788525e9c1f9b86a99eadd6230"
+      },
+      "config.json": {
+        "sizeBytes": 943,
+        "oid": "29522daabd113d097e62390bacec58f0fca04428"
+      },
+      "generation_config.json": {
+        "sizeBytes": 219,
+        "oid": "f0e014517edce509b5d5f07cfa4855d79fad3bcf"
+      },
+      "merges.txt": {
+        "sizeBytes": 1671853,
+        "oid": "31349551d90c7606f325fe0f11bbb8bd5fa0d7c7"
+      },
+      "special_tokens_map.json": {
+        "sizeBytes": 613,
+        "oid": "ac23c0aaa2434523c494330aeb79c58395378103"
+      },
+      "tokenizer.json": {
+        "sizeBytes": 9117040,
+        "oid": "e7a95fce95bf5b0946d0ddb3f9d7caa030b7e850bbe92b0edb26bcf563e9f3d5"
+      },
+      "tokenizer_config.json": {
+        "sizeBytes": 9705,
+        "oid": "7ea8b974de6450e023f8e4977a8b7f30902cc3be"
+      },
+      "vocab.json": {
+        "sizeBytes": 2776833,
+        "oid": "4783fe10ac3adce15ac8f358ef5462739852c569"
+      }
+    },
+    "candidate/qwen3-0.6b-q4": {
+      "onnx/model_q4.onnx": {
+        "sizeBytes": 919096585,
+        "oid": "d43d836fc5e240df9013733ccd214972c5d21bd9ec47e574e4f1e359cf90aed0"
+      },
+      "added_tokens.json": {
+        "sizeBytes": 707,
+        "oid": "b54f9135e44c1e81047e8d05cb027af8bc039eed"
+      },
+      "chat_template.jinja": {
+        "sizeBytes": 4116,
+        "oid": "699ff8df401fe4788525e9c1f9b86a99eadd6230"
+      },
+      "config.json": {
+        "sizeBytes": 912,
+        "oid": "5618bd85d36283349a0cb4a99ab15454691f355b"
+      },
+      "generation_config.json": {
+        "sizeBytes": 219,
+        "oid": "f0e014517edce509b5d5f07cfa4855d79fad3bcf"
+      },
+      "merges.txt": {
+        "sizeBytes": 1671853,
+        "oid": "31349551d90c7606f325fe0f11bbb8bd5fa0d7c7"
+      },
+      "special_tokens_map.json": {
+        "sizeBytes": 613,
+        "oid": "ac23c0aaa2434523c494330aeb79c58395378103"
+      },
+      "tokenizer.json": {
+        "sizeBytes": 9117040,
+        "oid": "e7a95fce95bf5b0946d0ddb3f9d7caa030b7e850bbe92b0edb26bcf563e9f3d5"
+      },
+      "tokenizer_config.json": {
+        "sizeBytes": 9705,
+        "oid": "7ea8b974de6450e023f8e4977a8b7f30902cc3be"
+      },
+      "vocab.json": {
+        "sizeBytes": 2776833,
+        "oid": "4783fe10ac3adce15ac8f358ef5462739852c569"
+      }
+    },
+    "candidate/qwen3-0.6b-q4f16-single": {
+      "onnx/model_q4f16.onnx": {
+        "sizeBytes": 569789750,
+        "oid": "9e33a5911974174761d0dfdcc0bec975d9c45af0eae5e9eb647b8ba9442a8f91"
+      },
+      "added_tokens.json": {
+        "sizeBytes": 707,
+        "oid": "b54f9135e44c1e81047e8d05cb027af8bc039eed"
+      },
+      "chat_template.jinja": {
+        "sizeBytes": 4116,
+        "oid": "699ff8df401fe4788525e9c1f9b86a99eadd6230"
+      },
+      "config.json": {
+        "sizeBytes": 912,
+        "oid": "5618bd85d36283349a0cb4a99ab15454691f355b"
+      },
+      "generation_config.json": {
+        "sizeBytes": 219,
+        "oid": "f0e014517edce509b5d5f07cfa4855d79fad3bcf"
+      },
+      "merges.txt": {
+        "sizeBytes": 1671853,
+        "oid": "31349551d90c7606f325fe0f11bbb8bd5fa0d7c7"
+      },
+      "special_tokens_map.json": {
+        "sizeBytes": 613,
+        "oid": "ac23c0aaa2434523c494330aeb79c58395378103"
+      },
+      "tokenizer.json": {
+        "sizeBytes": 9117040,
+        "oid": "e7a95fce95bf5b0946d0ddb3f9d7caa030b7e850bbe92b0edb26bcf563e9f3d5"
+      },
+      "tokenizer_config.json": {
+        "sizeBytes": 9705,
+        "oid": "7ea8b974de6450e023f8e4977a8b7f30902cc3be"
+      },
+      "vocab.json": {
+        "sizeBytes": 2776833,
+        "oid": "4783fe10ac3adce15ac8f358ef5462739852c569"
+      }
+    },
+    "candidate/qwen3.5-4b-onnx": {
+      "onnx/decoder_model_merged_q4f16.onnx": {
+        "sizeBytes": 933554,
+        "oid": "8f159924389ced435ff445b9aaf1604d7de7756961299568f106990415bedcbb"
+      },
+      "onnx/decoder_model_merged_q4f16.onnx_data": {
+        "sizeBytes": 2065635328,
+        "oid": "83a2b12931978d2a3577f1f1a19e7ec42b87a760e87567dd26313fd933dcddd3"
+      },
+      "onnx/decoder_model_merged_q4f16.onnx_data_1": {
+        "sizeBytes": 367513600,
+        "oid": "fc1bb145d8839272a87c71e0cb4d34832a0d7bb4de06ab4fb74fea1aa6ddf7e5"
+      },
+      "onnx/embed_tokens_q4f16.onnx": {
+        "sizeBytes": 1064,
+        "oid": "0e5fe965e5575b6428b7dea82661ed09bf7abadf29450c279e46e8113745110e"
+      },
+      "onnx/embed_tokens_q4f16.onnx_data": {
+        "sizeBytes": 367513600,
+        "oid": "fc1bb145d8839272a87c71e0cb4d34832a0d7bb4de06ab4fb74fea1aa6ddf7e5"
+      },
+      "chat_template.jinja": {
+        "sizeBytes": 7756,
+        "oid": "a585dec894e63da457d9440ec6aa7caa16d20860"
+      },
+      "config.json": {
+        "sizeBytes": 3198,
+        "oid": "fde26e50a8587ab4a2aafc503d24678e74f42366"
+      },
+      "generation_config.json": {
+        "sizeBytes": 248,
+        "oid": "59ee4c198e909ccdc280d57660829658989582b2"
+      },
+      "tokenizer.json": {
+        "sizeBytes": 19226111,
+        "oid": "89da80cc6689bef4d90cc1028249436975ffb0814618f1d93c65310e05801a9b"
+      },
+      "tokenizer_config.json": {
+        "sizeBytes": 9162,
+        "oid": "b92de956c8b2d468de079efed8104ab7ec80281e"
+      }
+    },
+    "candidate/gemma-4-e2b-onnx": {
+      "onnx/decoder_model_merged_q4f16.onnx": {
+        "sizeBytes": 673231,
+        "oid": "73c0f1fe04f9a3a048fb3319c0671b6cf0346bf33a3a8624c853bcffe01c24a4"
+      },
+      "onnx/decoder_model_merged_q4f16.onnx_data": {
+        "sizeBytes": 1519700992,
+        "oid": "3b27245a7396cb7039a4e4118bd2a8aa35106bae381522edf7c4867b5f22bb10"
+      },
+      "onnx/embed_tokens_q4f16.onnx": {
+        "sizeBytes": 5621,
+        "oid": "d7ca53f6a169471b5699b2f57ee4c7aa2c73732b0152f3909e64b71384444825"
+      },
+      "onnx/embed_tokens_q4f16.onnx_data": {
+        "sizeBytes": 1590689792,
+        "oid": "024b199e6358ed42970f807686add5f9430d7e254ca7ce22fc9c83f015b9c517"
+      },
+      "chat_template.jinja": {
+        "sizeBytes": 16317,
+        "oid": "07e50e69a8c445f2c31a089b828e85b2a93942bf"
+      },
+      "config.json": {
+        "sizeBytes": 5549,
+        "oid": "a7f7623b5229c8498655847bd9cdeea34e5017f6"
+      },
+      "generation_config.json": {
+        "sizeBytes": 238,
+        "oid": "b2b0ab11eaf5317ad648bb48ce64b110532d661a"
+      },
+      "tokenizer.json": {
+        "sizeBytes": 19439251,
+        "oid": "47bd35616c7c782aaca6ccf48c75f3461d5877170984b8836b375107d0a9f566"
+      },
+      "tokenizer_config.json": {
+        "sizeBytes": 18807,
+        "oid": "8dc6453271e40decb8ebdb68f4f9421d306dd6b3"
+      }
+    },
+    "candidate/gemma-4-e2b-qat-q4-onnx": {
+      "onnx/decoder_model_merged_q4.onnx": {
+        "sizeBytes": 2757274,
+        "oid": "23f6dfb651b51f75ccaee65cd6feb4ed2443105b4edf0aa2cebb2d90147312d2"
+      },
+      "onnx/decoder_model_merged_q4.onnx_data": {
+        "sizeBytes": 1425784832,
+        "oid": "a6bbd8b57332a79ac8a4cfda7a8ed349c015fa7e522113eda1b46d40ec109767"
+      },
+      "onnx/embed_tokens_q4.onnx": {
+        "sizeBytes": 5142,
+        "oid": "2d8c8a2bcc30e8ded7f636967c2a58a346116583356dd933720b005fc88079c4"
+      },
+      "onnx/embed_tokens_q4.onnx_data": {
+        "sizeBytes": 1762656256,
+        "oid": "fc6c6db4c1f72a7ee7c75c5e6ed11fcb2cc78e92e5214ed4fbc96026e1504361"
+      },
+      "chat_template.jinja": {
+        "sizeBytes": 16804,
+        "oid": "dc032e46e28e0d325b18d26da1279cdda3afa8d7"
+      },
+      "config.json": {
+        "sizeBytes": 5097,
+        "oid": "bf8fe268a14c8cc67143d153448ab5d3ad7b937f"
+      },
+      "tokenizer.json": {
+        "sizeBytes": 32169626,
+        "oid": "cc8d3a0ce36466ccc1278bf987df5f71db1719b9ca6b4118264f45cb627bfe0f"
+      },
+      "tokenizer_config.json": {
+        "sizeBytes": 19949,
+        "oid": "6a79f1e4e96f21a1b9004ecb5966e795a1667914"
+      }
+    },
+    "candidate/gemma-4-e4b-litert": {
+      "gemma-4-E4B-it-web.litertlm": {
+        "sizeBytes": 2969059328,
+        "oid": "3904d826d5dddd25ea173e85204caec09e68ba038116e9b992b69cbdc94f57a0"
+      }
+    },
+    "candidate/qwen3-0.6b-mlc": {
+      "params_shard_0.bin": {
+        "sizeBytes": 77791232,
+        "oid": "61062e64b475309e648516c853c7bd949344f1ce5c0921e9b121f905953ce9e3"
+      },
+      "params_shard_1.bin": {
+        "sizeBytes": 32740608,
+        "oid": "a7d9e88e510636b34c850bf19c660c38cdacbe64bd128c6bb4dcc710455db81d"
+      },
+      "params_shard_2.bin": {
+        "sizeBytes": 31866624,
+        "oid": "eb5af136518c33abd7c2eb66e154b5504ce27f62728aafffd8fca26a3cab64a9"
+      },
+      "params_shard_3.bin": {
+        "sizeBytes": 33505024,
+        "oid": "482d32bfefe36ec9ee452d88c25cce42f31d8350e4abccc8f4727e4006ab2859"
+      },
+      "params_shard_4.bin": {
+        "sizeBytes": 32000000,
+        "oid": "b3d1ecb2553ae323c95b19e231dc74e1ef34d63094ccf0dd3e79a37f312663f3"
+      },
+      "params_shard_5.bin": {
+        "sizeBytes": 31866624,
+        "oid": "2c753a811fbea6e0292caf39d9f9ceeb8cb5ff74a183f7350be3f846f3013438"
+      },
+      "params_shard_6.bin": {
+        "sizeBytes": 33505024,
+        "oid": "52d543cee1e1d6526dae4a5a36a69c1bafa222d1e3e95c4ee46456d56f1aeab2"
+      },
+      "params_shard_7.bin": {
+        "sizeBytes": 32000000,
+        "oid": "3d9047c2603d24b4ca8e689bc924a7715224205ba591504238ff5910e8542c65"
+      },
+      "params_shard_8.bin": {
+        "sizeBytes": 30097152,
+        "oid": "13985d7899bf0188ff5a0d37fe6254a8b3e3bf7e4aba0d198de1469faa9ef9b4"
+      },
+      "tensor-cache.json": {
+        "sizeBytes": 129391,
+        "oid": "ba8ccdc73c2bcb0e2a0897cd1f3dc21a7d7b7cab"
+      },
+      "mlc-chat-config.json": {
+        "sizeBytes": 2075,
+        "oid": "b91a63cc536d16cbc6a0924f6b9db770b91e894d"
+      },
+      "tokenizer.json": {
+        "sizeBytes": 11422654,
+        "oid": "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4"
+      },
+      "tokenizer_config.json": {
+        "sizeBytes": 9676,
+        "oid": "b7104cb637a5ac4ccfb8c26922019149cdfb015f"
+      },
+      "vocab.json": {
+        "sizeBytes": 2776833,
+        "oid": "4783fe10ac3adce15ac8f358ef5462739852c569"
+      },
+      "merges.txt": {
+        "sizeBytes": 1671853,
+        "oid": "31349551d90c7606f325fe0f11bbb8bd5fa0d7c7"
+      }
+    }
+  }
+}

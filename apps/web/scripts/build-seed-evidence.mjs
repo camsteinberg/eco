@@ -396,6 +396,11 @@ function loadShippingModelIds() {
   }
   return new Set(
     catalog.models
+      // catalog-data.json holds BOTH lanes; `shipping: true` is the shipping
+      // catalog. Without this filter the dev-only eval candidates would count as
+      // shipping models and their rows would be merged into the seed snapshot the
+      // app ships — which is what this function exists to prevent.
+      .filter((model) => model?.shipping === true)
       .map((model) => (typeof model?.id === 'string' ? model.id : null))
       .filter((modelId) => modelId !== null),
   );

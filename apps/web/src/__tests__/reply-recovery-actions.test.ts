@@ -75,7 +75,7 @@ import {
   type ReplyRegenerateControl,
 } from "../lib/reply-controls";
 import { getCatalog } from "../local-ai/catalog/catalog";
-import { PREFERRED_DEFAULT_MODEL_ID } from "../local-ai/selection/recommend";
+import { tierDefaultModelId } from "../local-ai/selection/recommend";
 import type { AssistantReplyControl } from "../components/chat/MessageActions";
 
 // ---------------------------------------------------------------------------
@@ -104,6 +104,8 @@ const CONTROLS: readonly AssistantReplyControl[] = ["continue", "check-source", 
 
 /** Every model a user can actually be served, derived so a new one is covered. */
 const CATALOG_MODEL_IDS: readonly string[] = getCatalog().map((model) => model.id);
+// The eco-fast `capable` rung — the everyday default, read off the catalog.
+const EVERYDAY_DEFAULT_MODEL_ID = tierDefaultModelId("eco-fast", "capable")!;
 
 /**
  * A control is by definition a follow-up — it can only be pressed on an
@@ -430,7 +432,7 @@ describe("reply recovery — what pressing each control does today, pinned exact
   it("renders each turn to the model unchanged", () => {
     const actual: Record<string, string> = {};
     for (const control of CONTROLS) {
-      actual[`${control}@default`] = renderControlTurn(control, PREFERRED_DEFAULT_MODEL_ID);
+      actual[`${control}@default`] = renderControlTurn(control, EVERYDAY_DEFAULT_MODEL_ID);
       actual[`${control}@litert`] = renderControlTurn(control, LITERT_MODEL_ID);
     }
     expect(actual).toEqual(RENDERED_TURN_TODAY);
@@ -475,7 +477,7 @@ describe("reply recovery — the instrument", () => {
   });
 
   it("measures against models a user can actually be served", () => {
-    expect(CATALOG_MODEL_IDS).toContain(PREFERRED_DEFAULT_MODEL_ID);
+    expect(CATALOG_MODEL_IDS).toContain(EVERYDAY_DEFAULT_MODEL_ID);
     expect(CATALOG_MODEL_IDS).toContain(LITERT_MODEL_ID);
     expect(CATALOG_MODEL_IDS.length).toBeGreaterThanOrEqual(6);
   });
@@ -580,7 +582,7 @@ describe("reply recovery — what the fix changed", () => {
         `pressing "Make shorter" costs more than typing it on ${modelId}`,
       ).toBeLessThanOrEqual(typed.maxTokens);
     }
-    expect(resolveControl("shorter", PREFERRED_DEFAULT_MODEL_ID).maxTokens).toBe(1024);
+    expect(resolveControl("shorter", EVERYDAY_DEFAULT_MODEL_ID).maxTokens).toBe(1024);
   });
 
   it("no longer hands expand a budget below the model's own depth ceiling", () => {
