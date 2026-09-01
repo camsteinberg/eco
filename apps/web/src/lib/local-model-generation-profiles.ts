@@ -2,42 +2,51 @@
 // Copyright (C) 2026 Bos Computing LLC
 
 /**
- * Per-model generation profiles for the v1 local-AI catalog.
+ * Generation-profile resolution for chat-intent.
  *
- * Resolves `generationDefaults` (sampling) and `contextBudget` (max-new-tokens)
- * for chat-intent. Lookup priority: model id → family fallback → null. Entries
- * here MUST stay in sync with `apps/web/src/local-ai/catalog/catalog-data.json`;
- * an invariant test in `__tests__/local-model-generation-profiles.test.ts`
- * guards that contract.
+ * Resolves sampling (`generationDefaults`) and the length budget
+ * (`contextBudget`) for a model id.
+ *
+ * SHIPPING CATALOG MODELS RESOLVE FROM THE CATALOG. Their sampling rows and
+ * length budgets live in `local-ai/catalog/catalog-data.json` (`generation`
+ * and `maxNewTokens`), which catalog.ts validates at load — a catalog entry
+ * missing either field throws rather than falling back to a house default.
+ * Adding a shipping model is a one-file change.
+ *
+ * What is left in this file is the EVAL LANE: models that exist only for
+ * benchmark and validation-harness runs (`allowValidationModel: true`) and are
+ * not in the user bundle. Lookup order is catalog id → eval-lane id → eval-lane
+ * family fallback → null.
  */
 
-// ─── Local generation/budget types (inlined, see catalog for model ids) ──
+import { getCatalog, getModel } from '../local-ai/catalog/catalog';
+import type { ModelIntent, ModelSampling } from '../local-ai/types';
 
-type LocalGenerationSamplingDefaults = {
-  temperature?: number;
-  topP?: number;
-  topK?: number;
-  repetitionPenalty?: number;
-  noRepeatNgramSize?: number;
-};
+// ─── Local generation/budget types ────────────────────────────────────────
+
+type LocalGenerationSamplingDefaults = Partial<ModelSampling>;
 
 type LocalModelFamily =
   | 'qwen2_5' | 'qwen3' | 'qwen3_5' | 'bonsai' | 'lfm2';
 
-type LocalModelIntentFit =
-  | 'quick' | 'explain' | 'deep' | 'code' | 'writing' | 'file' | 'research';
+type LocalModelIntentFit = ModelIntent;
 
 /**
- * Minimal shape consumed by the generation-profile lookup. Chat-intent
- * passes a ChatIntentModelSlice; the profile reader only inspects .id,
- * .family, and .generationDefaults. Context length deliberately does NOT
- * live here — the catalog's `capabilities.contextTokens` is the single
- * source of truth (see local-ai/util.ts `getContextTokens`).
+ * Minimal shape consumed by the generation-profile lookup. Chat-intent passes
+ * a ChatIntentModelSlice; the profile reader inspects `.id` first and only
+ * falls back to `.family`.
+ *
+ * `family` and `qualityTier` are OPTIONAL because they are eval-lane-only
+ * concerns: a shipping catalog model resolves by id from the catalog, so it
+ * never reaches the family fallback (here) or the quality-tier baseline table
+ * (chat-intent). Context length deliberately does NOT live here — the
+ * catalog's `capabilities.contextTokens` is the single source of truth (see
+ * local-ai/util.ts `getContextTokens`).
  */
 export type ChatIntentModelSlice = {
   id: string;
-  family: LocalModelFamily;
-  qualityTier: 'fast' | 'smart' | 'experimental';
+  family?: LocalModelFamily;
+  qualityTier?: 'fast' | 'smart' | 'experimental';
   maxNewTokens: { webgpu: number };
   generationDefaults?: LocalGenerationSamplingDefaults & {
     intentOverrides?: Partial<Record<LocalModelIntentFit, Partial<LocalGenerationSamplingDefaults>>>;
@@ -68,7 +77,49 @@ type GenerationProfileSlice = {
   suppressCjkTokens?: boolean;
 };
 
-// ─── Shared budget constants ──────────────────────────────────────────────
+// ─── Catalog-backed profiles (the shipping path) ──────────────────────────
+
+const CATALOG_SLICES = new Map<string, GenerationProfileSlice>();
+
+function getCatalogProfileSlice(modelId: string): GenerationProfileSlice | undefined {
+  const cached = CATALOG_SLICES.get(modelId);
+  if (cached) return cached;
+
+  const model = getModel(modelId);
+  if (!model) return undefined;
+
+  const { intentOverrides, suppressCjkTokens, ...sampling } = model.generation;
+  const slice: GenerationProfileSlice = {
+    generationDefaults: { ...sampling, intentOverrides },
+    contextBudget: {
+      default: model.maxNewTokens.default,
+      max: model.maxNewTokens.max,
+      intentTokens: model.maxNewTokens.intentTokens,
+    },
+    ...(suppressCjkTokens === true ? { suppressCjkTokens: true } : {}),
+  };
+  CATALOG_SLICES.set(modelId, slice);
+  return slice;
+}
+
+// ─── Eval-lane generation profiles ────────────────────────────────────────
+//
+// Dev-only benchmark and validation-harness candidates. These are NOT in the
+// shipping catalog and are not in the user bundle; they exist so a harness run
+// exercises a real generation profile instead of a baseline fallback.
+//
+// ★ NO `noRepeatNgramSize` ON `writing` (and none at all on an
+// instruction-tuned model). Transformers.js applies the n-gram ban across the
+// FULL sequence, prompt included — verified by instantiating the real
+// `NoRepeatNGramLogitsProcessor` from the pinned 4.2.0 package and calling it
+// at generation step 0 with prompt tokens only, which returned -Infinity for
+// the offending token. With n=4 the model can copy at most three consecutive
+// tokens of the user's own text before the fourth is hard-banned, at every
+// position — and `writing` is the intent that fires when someone pastes their
+// own words and asks for them back changed. `repetitionPenalty` is the loop
+// guard instead. Bonsai still bans: it is not instruction-tuned, and it is an
+// eval-lane seam rather than a catalog model. The same hazard note for the
+// shipping models now lives in catalog-data.json `_documentation.sampling_note`.
 
 const DEFAULT_CONTEXT_BUDGET: ContextBudget = {
   default: 1024,
@@ -83,31 +134,6 @@ const DEFAULT_CONTEXT_BUDGET: ContextBudget = {
     research: 2048,
   },
 };
-
-// ─── Per-model generation profiles ────────────────────────────────────────
-//
-// ★ NO `noRepeatNgramSize` ON `writing`. Transformers.js applies the n-gram ban
-// across the FULL sequence, prompt included — verified by instantiating the real
-// `NoRepeatNGramLogitsProcessor` from the pinned 4.2.0 package and calling it at
-// generation step 0 with prompt tokens only, which returned -Infinity for the
-// offending token. With n=4 the model can copy at most three consecutive tokens
-// of the user's own text before the fourth is hard-banned, at every position.
-//
-// `writing` is the intent that fires when someone pastes their own words and asks
-// for them back changed — "fix the spelling but don't change my voice", "make this
-// shorter", "put this in a table". Banning reuse of the user's phrasing on exactly
-// those turns is backwards, and the visible result is the corruption class an
-// earlier quality audit recorded: mangled figures and run-together words.
-//
-// This was already understood: LFM25_1_2B_GEN and GEMMA4_GEN each refuse the guard
-// with a comment naming this hazard. A 2026-06-09 fix removed it from one model's
-// BASE setting and missed every per-intent override, so it survived here for seven
-// weeks. `repetitionPenalty` remains the loop guard on these instruction-tuned
-// models.
-//
-// The 350M starter was the last holdout, and its ban came off at both layers once a
-// real-model A/B settled the question — see LFM25_350M_GEN. Bonsai still bans: it is
-// not instruction-tuned, and it is an eval-lane seam rather than a catalog model.
 
 const QWEN_GEN: GenerationProfileSlice = {
   generationDefaults: {
@@ -131,25 +157,11 @@ const QWEN35_GEN: GenerationProfileSlice = {
     // presence_penalty 1.5 / repetition_penalty 1.0. Two of those knobs are
     // unreachable here: Transformers.js 4.2.0 implements NEITHER presence_penalty
     // NOR min_p (verified against src/generation/logits_process.js +
-    // configuration_utils.js in the pinned package — only temperature, top_p,
-    // top_k, repetition_penalty, and no_repeat_ngram are available). So we keep
-    // repetitionPenalty 1.08 in lieu of the vendor's presence-penalty pairing
-    // rather than dropping to 1.0 and risking loops with no presence guard.
-    // top_p is held at 0.8 (the vendor non-thinking ceiling) on no-regression
-    // evidence — NOT as a CJK fix. We tried it as the fix: a real-WebGPU A/B on
-    // 2026-06-11 (runs wave25-cjk-fix-r1/r2, full 19-probe battery, 0 errors)
-    // tested whether 0.95 → 0.8 removes the reproducible s1 CJK leak (probe s1
-    // emitted "甲烷" — methane). Result: the leak is NOT fixed by sampling — it
-    // recurred at 0.8 (r2 leaked the SAME token in the SAME slot; 1/2 post-change
-    // vs 2/2 pre-change, n too small to claim even a reduction). The token is
-    // HIGH-probability in that slot for this multilingual model (a translation of
-    // "methane", not tail noise), so no top_p/tail tweak deterministically removes
-    // it. We keep 0.8 anyway because the A/B showed no quality regression at it
-    // (strict sentinels if1/if2/st1 clean both runs; richness 303–364 words;
-    // honesty u1/u2 intact) and it matches the vendor rec. temperature stays 0.6
-    // — the measured bake-off value. The real fix is `suppressCjkTokens` below:
-    // deterministic logits-level CJK suppression for non-CJK conversations
-    // (runtime/cjk-suppression.ts).
+    // configuration_utils.js in the pinned package), so we keep
+    // repetitionPenalty 1.08 in lieu of the vendor's presence-penalty pairing.
+    // top_p is held at 0.8 on no-regression evidence, NOT as a CJK fix — the
+    // reproducible s1 leak recurred at 0.8. See the shipping 2B's entry in
+    // catalog-data.json and `_documentation.sampling_note` for the full record.
     temperature: 0.6,
     topP: 0.8,
     topK: 20,
@@ -163,62 +175,9 @@ const QWEN35_GEN: GenerationProfileSlice = {
   },
   contextBudget: DEFAULT_CONTEXT_BUDGET,
   // Measured CJK leak class (s1 "甲烷" 2/2, sampling fix refuted) — the
-  // deterministic suppression is the fix. QWEN_GEN (Qwen3 gen) shares the
-  // multilingual-vocab risk but has no measured leak; it can adopt the flag
-  // after its own gated run.
+  // deterministic suppression is the fix. Shared with the shipping 2B, whose
+  // own copy of this flag lives in the catalog.
   suppressCjkTokens: true,
-};
-
-const LFM25_350M_GEN: GenerationProfileSlice = {
-  generationDefaults: {
-    // No authoritative sampling recs from Liquid AI; generation_config.json has no
-    // sampling params.
-    //
-    // ★ NO `noRepeatNgramSize`, base or per-intent. The A/B this profile used to ask
-    // for ran against the real loaded model (n=10, 490 generations per arm): dropping
-    // the ban moved `preservesUserText` well past the pre-registered bar, and the
-    // feared runaway repetition never appeared — the measured cost was two replies
-    // that repeated a bullet header, a mild templated tic rather than a loop.
-    //
-    // It had to come off at BOTH layers. The `writing` override carried its own n=4,
-    // and `writing` is the intent that fires when someone pastes their own words and
-    // asks for them back changed — leaving it would have kept the ban exactly where
-    // it does the most harm. That is also what the arm measured: it drops the
-    // RESOLVED value, so no intent kept a ban.
-    //
-    // `repetitionPenalty` is the loop guard, as on every other profile here.
-    temperature: 0.45,
-    topP: 0.86,
-    topK: 30,
-    repetitionPenalty: 1.08,
-    intentOverrides: {
-      quick: { temperature: 0.25, topP: 0.78, repetitionPenalty: 1.06 },
-      writing: { temperature: 0.38, topP: 0.82, repetitionPenalty: 1.1 },
-    },
-  },
-  contextBudget: DEFAULT_CONTEXT_BUDGET,
-};
-
-const LFM25_1_2B_GEN: GenerationProfileSlice = {
-  generationDefaults: {
-    // LFM2 instruct: low-temp factual bias, per Liquid's published recs (temp 0.3, rep 1.05).
-    // NO noRepeatNgramSize here: TJS bans n-grams across the FULL sequence INCLUDING the
-    // prompt, so a 3-gram guard forbids restating tool results, entities, or any phrase from
-    // earlier turns — the proven cause of corrupted numbers/words ("332,026", "Nobel Award",
-    // "capital ofFrance"; proven by the chat-experience quality audit).
-    // repetitionPenalty alone is the loop guard for this instruction-tuned model.
-    temperature: 0.3,
-    topP: 0.9,
-    topK: 40,
-    repetitionPenalty: 1.05,
-    intentOverrides: {
-      quick: { temperature: 0.2, topP: 0.8 },
-      explain: { temperature: 0.3, topP: 0.88 },
-      writing: { temperature: 0.4, topP: 0.9, repetitionPenalty: 1.08 },
-      code: { temperature: 0.2, topP: 0.85 },
-    },
-  },
-  contextBudget: DEFAULT_CONTEXT_BUDGET,
 };
 
 function bonsaiGenerationProfile(quantization: "q1" | "q2" | "q4" | "q8"): GenerationProfileSlice {
@@ -278,7 +237,7 @@ const GEMMA4_GEN: GenerationProfileSlice = {
     // Full temp 1.0 is too hot for Eco's intent-routed factual asks; we keep the
     // vendor's top_k/top_p anchors and scale temperature to the house intent
     // pattern (cf. QWEN35_GEN). NO noRepeatNgramSize — TJS bans n-grams
-    // across the prompt too (see LFM25_1_2B_GEN note / chat-experience audit).
+    // across the prompt too (see the hazard note above).
     temperature: 0.6,
     topP: 0.95,
     topK: 64,
@@ -326,68 +285,35 @@ const GEMMA4_LITERT_GEN: GenerationProfileSlice = {
   },
 };
 
-// ─── Lookup maps ──────────────────────────────────────────────────────────
+// ─── Eval-lane lookup maps ────────────────────────────────────────────────
+//
+// Shipping catalog ids are deliberately ABSENT: they resolve from
+// catalog-data.json. Only dev-lane candidates appear here.
 
 const PROFILE_BY_MODEL_ID: Record<string, GenerationProfileSlice> = {
-  // Bonsai q4 retired from the catalog 2026-07-11; its profile lives on via
-  // `bonsaiGenerationProfile` + `FAMILY_FALLBACK.bonsai` for the eval-lane
-  // q1/q2/q8 dev seams (see chat-intent.ts), so no PROFILE_BY_MODEL_ID row.
-  "local/qwen3-0.6b": QWEN_GEN,
-  "candidate/lfm2.5-350m-onnx": LFM25_350M_GEN,
-  // Fast / low-memory fallback: graduated from the eval lane into the catalog,
-  // now intentionally behind Qwen3.5-2B for everyday/default selection.
-  "candidate/lfm2.5-1.2b-instruct-onnx": LFM25_1_2B_GEN,
-  // The f16-less plain-int4 (onnx-q4) build of the SAME 1.2B (PR #137) — shares its
-  // q4f16 sibling's generation slice. (Was missing here, silently falling through to
-  // the lfm2 family fallback = the 350M's slice; restored to the correct 1.2B slice.)
-  "candidate/lfm2.5-1.2b-instruct-q4-onnx": LFM25_1_2B_GEN,
-  // Shipping smart pick (chat #7, graduated 2026-06-11). Moved off the shared
-  // QWEN_GEN slice onto the dedicated QWEN35_GEN: the winning bake-off run
-  // (`eval-mq8s89xp-1xeys0c7`) surfaced a reproducible CJK token leak (s1 "甲烷"
-  // 2/2), and the Qwen3.5 family's own non-thinking rec narrows top_p to 0.8 —
-  // QWEN35_GEN applies that tail-narrowing as the fix (see its in-code note).
-  "candidate/qwen3.5-2b-onnx": QWEN35_GEN,
-  // Shipping deeper/eco-smart pick (graduated 2026-08-10). Shares the LFM2-family
-  // sampling with the 1.2B fast default (LFM25_1_2B_GEN).
-  "candidate/lfm2-2.6b-onnx": LFM25_1_2B_GEN,
-  // Phase-2 eval candidates (dev-only lane; not in the shipping catalog).
+  // Phase-2 eval candidate.
   "candidate/qwen3-1.7b-onnx": QWEN_GEN,
-  // Chat #7 M2 bake-off candidates (dev-only lane). The qwen3.5-4b shares the
-  // Qwen3.5 family rec, so it rides the same QWEN35_GEN slice as the shipping 2B
-  // (top_p 0.8 tail-narrowing). Gemma 4 gets its own vendor-anchored slice.
+  // Chat #7 M2 bake-off candidates. The qwen3.5-4b shares the Qwen3.5 family
+  // rec, so it rides the same slice as the shipping 2B (top_p 0.8
+  // tail-narrowing, CJK suppression). Gemma 4 gets its own vendor-anchored slice.
   "candidate/qwen3.5-4b-onnx": QWEN35_GEN,
   "candidate/gemma-4-e2b-onnx": GEMMA4_GEN,
   // Community QAT-q4 Gemma 4 E2B (nico-martin) — same vendor-anchored Gemma slice.
   "candidate/gemma-4-e2b-qat-q4-onnx": GEMMA4_GEN,
-  // Gemma 4 via LiteRT-LM Web runtime — runtime-specific slice because LiteRT
-  // cannot honor repetition/no-repeat-ngram controls from the generic Gemma
-  // profile, and concise product-path testing needs tighter caps. These remain
-  // eval-only validation candidates, not shipping catalog/default entries.
-  "candidate/gemma-4-e2b-litert": GEMMA4_LITERT_GEN,
-  // WebKit-mobile pick (Qwen2.5-0.5B via WebLLM/MLC). A small Qwen instruct model,
-  // so it rides the shared generic Qwen slice (same as qwen3-0.6b) — deliberately
-  // NOT QWEN35_GEN, which carries the Qwen3.5-family-only CJK-token suppression.
-  "candidate/qwen2.5-0.5b-mlc": QWEN_GEN,
-  // Runtime bake-off cell: Qwen3-0.6B on MLC — same qwen3 family as local/qwen3-0.6b,
-  // so it rides the same generic Qwen slice. NOT QWEN35_GEN.
+  // Runtime bake-off cell: Qwen3-0.6B on MLC — same qwen3 family as the
+  // shipping local/qwen3-0.6b, so it rides the generic Qwen slice. NOT QWEN35_GEN.
   "candidate/qwen3-0.6b-mlc": QWEN_GEN,
-  // No-GPU (WASM/CPU-EP) floor models: the lightest int8 SmolLM2 (fast floor) and the
-  // deeper q4 Granite. Both are small instruct models with no vendor-specific sampling
-  // rec, so they ride the generic small-instruct Qwen slice (moderate temperature plus a
-  // repetitionPenalty loop guard a sub-1B model benefits from) — the same slice as the
-  // Qwen2.5-0.5B-mlc sibling. NOT QWEN35_GEN (that carries the Qwen3.5-family-only
-  // CJK-token suppression). Granite/SmolLM2 are different families but have no
-  // vendor-specific sampling rec, so the generic slice is the honest default.
-  "candidate/granite-4.0-350m-onnx": QWEN_GEN,
-  "candidate/smollm2-360m-instruct-onnx": QWEN_GEN,
+  // Gemma 4 E4B via LiteRT-LM Web — the eval-only sibling of the shipping E2B
+  // LiteRT entry, on the same runtime-specific slice.
   "candidate/gemma-4-e4b-litert": GEMMA4_LITERT_GEN,
 };
 
-const FAMILY_FALLBACK: Record<LocalModelFamily, GenerationProfileSlice> = {
-  qwen2_5: QWEN_GEN,
+// Partial: only the families an eval-lane model can actually land on. The
+// families whose sole members graduated into the catalog (qwen2_5, lfm2) no
+// longer need a fallback row — those models resolve by id from the catalog.
+const FAMILY_FALLBACK: Partial<Record<LocalModelFamily, GenerationProfileSlice>> = {
   qwen3: QWEN_GEN,
   qwen3_5: QWEN35_GEN,
-  lfm2: LFM25_350M_GEN,
   bonsai: bonsaiGenerationProfile("q4"),
 };
 
@@ -397,10 +323,13 @@ function getGenerationProfileSlice(
   model: ChatIntentModelSlice | null | undefined,
 ): GenerationProfileSlice | null {
   if (!model) return null;
-  return PROFILE_BY_MODEL_ID[model.id] ?? FAMILY_FALLBACK[model.family] ?? null;
+  return getCatalogProfileSlice(model.id)
+    ?? PROFILE_BY_MODEL_ID[model.id]
+    ?? (model.family ? FAMILY_FALLBACK[model.family] : undefined)
+    ?? null;
 }
 
-// ─── Public accessors (same semantics as local-model-optimization.ts) ─────
+// ─── Public accessors ─────────────────────────────────────────────────────
 
 export function getLocalModelGenerationDefaults(
   model: ChatIntentModelSlice | null | undefined,
@@ -450,16 +379,23 @@ export function getLocalModelContextBudget(
  * Whether `modelId` opts into deterministic CJK-token suppression
  * (runtime/cjk-suppression.ts). Id-based lookup ONLY — the call site
  * (transformers-adapter, at worker init) has the model id but not the
- * family, and every catalog + eval-lane model has an explicit
- * PROFILE_BY_MODEL_ID row (the invariant test pins that), so the family
- * fallback would never legitimately fire here.
+ * family. Every shipping model carries the flag in its catalog entry and
+ * every eval-lane model has an explicit PROFILE_BY_MODEL_ID row, so the
+ * family fallback would never legitimately fire here.
  */
 export function isCjkSuppressionEnabled(modelId: string): boolean {
-  return PROFILE_BY_MODEL_ID[modelId]?.suppressCjkTokens === true;
+  const profile = getCatalogProfileSlice(modelId) ?? PROFILE_BY_MODEL_ID[modelId];
+  return profile?.suppressCjkTokens === true;
 }
 
 /**
- * Test-only export — list of profile-covered catalog IDs. Underscore prefix
- * marks it as not for runtime consumers.
+ * Test-only export — every id with an explicit (non-family-fallback) profile:
+ * the shipping catalog plus the eval lane. Underscore prefix marks it as not
+ * for runtime consumers.
+ *
+ * A function, not a const: reading the catalog at module load would break
+ * every suite that mocks `catalog/catalog` with just the exports it needs.
  */
-export const __profileModelIds = Object.keys(PROFILE_BY_MODEL_ID);
+export function __profileModelIds(): string[] {
+  return [...getCatalog().map((model) => model.id), ...Object.keys(PROFILE_BY_MODEL_ID)];
+}

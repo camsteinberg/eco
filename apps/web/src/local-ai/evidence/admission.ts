@@ -7,9 +7,11 @@
  * v1.0 has no default-vs-manual routing distinction — local AI is the only
  * path — so admission collapses to one decision tree.
  *
- * NOTE: experimental-tier gating is handled at the catalog level (models
- * with evidenceTier 'experimental' are excluded from getCatalog()). The
- * admission gate no longer has an experimental branch.
+ * NOTE: the admission gate has no experimental branch. It used to claim the
+ * catalog filtered `evidenceTier: 'experimental'` out of `getCatalog()` —
+ * verified FALSE on 2026-08-31: catalog/catalog.ts applies no tier filter and
+ * returns every entry in catalog-data.json. Nothing gates on the experimental
+ * tier today; it is descriptive metadata the UI surfaces, not a filter.
  *
  * Decision order (the only thing downstream consumers care about):
  *

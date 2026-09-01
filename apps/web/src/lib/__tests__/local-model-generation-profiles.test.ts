@@ -229,8 +229,8 @@ describe("Gemma 4 LiteRT generation profile", () => {
   });
 
   it("includes both LiteRT Gemma candidates in the explicit profile map", () => {
-    expect(__profileModelIds).toContain("candidate/gemma-4-e2b-litert");
-    expect(__profileModelIds).toContain("candidate/gemma-4-e4b-litert");
+    expect(__profileModelIds()).toContain("candidate/gemma-4-e2b-litert");
+    expect(__profileModelIds()).toContain("candidate/gemma-4-e4b-litert");
   });
 
   it.each([
@@ -277,21 +277,41 @@ describe("generation profile edge cases", () => {
 
 // ─── Catalog ↔ profile coverage invariant ────────────────────────────────
 //
-// If a model lands in catalog-data.json without a profile entry, chat-intent
-// will silently fall through to family fallback or default budgets — guard
-// against that drift in CI.
+// Sampling and budgets now live in catalog-data.json, so the old name-based
+// check ("is this id a key in the profile map?") would pass by construction
+// and prove nothing. This asserts the BEHAVIOUR instead: every catalog model
+// must RESOLVE a full sampling row and a real per-intent budget, at every
+// intent. A model that silently fell through to a family fallback or a house
+// default would fail here — that fallback is what this fold removed.
 
 type CatalogEntry = { id: string };
 
 describe("catalog coverage invariant", () => {
-  it("has a generation profile entry for every v1 catalog model id", () => {
-    const catalogIds = (catalog as { models: CatalogEntry[] }).models.map(
-      (m) => m.id,
-    );
-    const profileIds = new Set(__profileModelIds);
+  const catalogIds = (catalog as { models: CatalogEntry[] }).models.map((m) => m.id);
 
-    const missing = catalogIds.filter((id) => !profileIds.has(id));
-    expect(missing).toEqual([]);
+  it.each(catalogIds)("resolves complete generation data for %s at every intent", (id) => {
+    const model: ChatIntentModelSlice = { id, maxNewTokens: { webgpu: 4096 } };
+
+    for (const intent of INTENTS) {
+      const defaults = getLocalModelGenerationDefaults(model, intent);
+      expect(defaults.temperature, `${id}/${intent} has no temperature`).toEqual(
+        expect.any(Number),
+      );
+      expect(defaults.topP, `${id}/${intent} has no topP`).toEqual(expect.any(Number));
+      expect(
+        getLocalModelContextBudget(model, intent),
+        `${id}/${intent} has no per-intent budget`,
+      ).toEqual(expect.any(Number));
+    }
+  });
+
+  it("resolves nothing for an id that is in neither the catalog nor the eval lane", () => {
+    const unknown: ChatIntentModelSlice = {
+      id: "candidate/not-a-real-model",
+      maxNewTokens: { webgpu: 512 },
+    };
+    expect(getLocalModelContextBudget(unknown)).toBeNull();
+    expect(Object.keys(getLocalModelGenerationDefaults(unknown))).toHaveLength(0);
   });
 });
 
