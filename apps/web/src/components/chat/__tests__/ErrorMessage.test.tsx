@@ -67,9 +67,12 @@ vi.mock("../../../local-ai/lifecycle/slots", () => ({
   }),
 }));
 
-vi.mock("../../../local-ai/catalog/catalog", () => ({
-  getModel: () => null,
-}));
+// The REAL catalog: branding under test comes from a catalog entry's `display`
+// block. The synthetic non-catalog fixtures below (Bonsai Lite) still resolve to
+// null through the real lookup, exactly as they did through the old stub.
+vi.mock("../../../local-ai/catalog/catalog", async () =>
+  vi.importActual("../../../local-ai/catalog/catalog"),
+);
 
 vi.mock("../../../local-ai/download/download", () => ({
   // Runtime-aware downloaded-ness probe the lighter-model nudge consults.

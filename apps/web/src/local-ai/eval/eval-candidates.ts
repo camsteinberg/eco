@@ -433,6 +433,10 @@ const QWEN3_0_6B_MLC: ModelConfig = {
     'Dev-only runtime comparison cell. Not a shipping default; exists only to A/B the MLC runtime against the ONNX runtime on the same model in the eval harness.',
   evidenceTier: 'predicted',
   systemRoleSupport: 'native',
+  // The vendored WebLLM `model_lib` wasm for this architecture. Carried on the
+  // entry (rather than a runtime-side id map) so a WebLLM model is described in
+  // one place, exactly as the shipping catalog describes its own.
+  quirks: { webllmModelLibFile: 'Qwen3-0.6B-q4f16_1_cs1k-webgpu.wasm' },
   artifact: {
     hfId: 'mlc-ai/Qwen3-0.6B-q4f16_1-MLC',
     revision: '8c14ce481d4c692769976ad52afea453a102df19',

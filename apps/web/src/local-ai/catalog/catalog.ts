@@ -32,7 +32,10 @@
  */
 
 import type {
+  BrowserClass,
+  ModelCompat,
   ModelConfig,
+  ModelDisplay,
   ModelGeneration,
   ModelIntent,
   ModelLicense,
@@ -44,15 +47,18 @@ import catalogData from './catalog-data.json';
  * A shipping catalog entry. Narrower than `ModelConfig`: `license`,
  * `generation` and `maxNewTokens` are optional on the shared type (test
  * fixtures and eval-lane candidates don't carry them), but every entry in
- * catalog-data.json MUST have all three — we redistribute the weights, so the
- * license travels with them, and the catalog is the single description of how
- * a model is sampled and how long it may generate. `assertCatalogEntry` below
- * pins that at load; this type gives catalog consumers it at compile time.
+ * catalog-data.json MUST have all five — we redistribute the weights, so the
+ * license travels with them, and the catalog is the single description of how a
+ * model is sampled, how long it may generate, which devices may run it, and how
+ * it is named to a person. `assertCatalogEntry` below pins that at load; this
+ * type gives catalog consumers it at compile time.
  */
 export type CatalogModel = ModelConfig & {
   license: ModelLicense;
   generation: ModelGeneration;
   maxNewTokens: ModelMaxNewTokens;
+  compat: ModelCompat;
+  display: ModelDisplay;
 };
 
 const INTENTS: readonly ModelIntent[] = [
@@ -62,6 +68,10 @@ const INTENTS: readonly ModelIntent[] = [
 const SAMPLING_KEYS = [
   'temperature', 'topP', 'topK', 'repetitionPenalty', 'noRepeatNgramSize',
 ] as const;
+
+const BROWSER_CLASSES: readonly BrowserClass[] = [
+  'chromium', 'safari', 'firefox', 'mobile', 'unknown',
+];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -74,6 +84,18 @@ function bad(id: string, what: string): never {
 function assertFiniteNumber(value: unknown, id: string, path: string): void {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     bad(id, `has no finite \`${path}\` (got ${JSON.stringify(value)})`);
+  }
+}
+
+function assertBoolean(value: unknown, id: string, path: string): void {
+  if (typeof value !== 'boolean') {
+    bad(id, `has no boolean \`${path}\` (got ${JSON.stringify(value)})`);
+  }
+}
+
+function assertNonEmptyString(value: unknown, id: string, path: string): void {
+  if (typeof value !== 'string' || value.length === 0) {
+    bad(id, `has no non-empty \`${path}\` (got ${JSON.stringify(value)})`);
   }
 }
 
@@ -120,6 +142,53 @@ function assertCatalogEntry(raw: unknown): void {
     }
     assertFiniteNumber(tokens, id, `maxNewTokens.intentTokens.${intent}`);
   }
+
+  assertCompat(raw.compat, id);
+  assertDisplay(raw.display, id);
+
+  // A WebLLM entry with no vendored `model_lib` wasm cannot load at all — the
+  // engine fails after a full download. Catch it here, at the point of origin.
+  if (raw.runtime === 'webllm') {
+    if (!isRecord(raw.quirks)) bad(id, 'is a webllm model with no `quirks` object');
+    assertNonEmptyString(raw.quirks.webllmModelLibFile, id, 'quirks.webllmModelLibFile');
+  }
+}
+
+function assertCompat(value: unknown, id: string): void {
+  if (!isRecord(value)) bad(id, 'has no `compat` block');
+  assertBoolean(value.requireWebgpu, id, 'compat.requireWebgpu');
+  assertBoolean(value.warnIfMobile, id, 'compat.warnIfMobile');
+  assertFiniteNumber(value.minDeviceMemoryGB, id, 'compat.minDeviceMemoryGB');
+  if (!Array.isArray(value.allowedBrowsers) || value.allowedBrowsers.length === 0) {
+    bad(id, 'has no non-empty `compat.allowedBrowsers` array');
+  }
+  for (const browser of value.allowedBrowsers as readonly unknown[]) {
+    if (!BROWSER_CLASSES.includes(browser as BrowserClass)) {
+      bad(id, `has an unknown browser class ${JSON.stringify(browser)} in \`compat.allowedBrowsers\``);
+    }
+  }
+  for (const key of [
+    'requireWasmOnly', 'requireWebKitMobile', 'webkitMobileValidated',
+    'cpuEpIncompatible', 'requireNoShaderF16',
+  ] as const) {
+    if (value[key] !== undefined) assertBoolean(value[key], id, `compat.${key}`);
+  }
+  if (value.minMaxBufferBytes !== undefined) {
+    assertFiniteNumber(value.minMaxBufferBytes, id, 'compat.minMaxBufferBytes');
+  }
+}
+
+function assertDisplay(value: unknown, id: string): void {
+  if (!isRecord(value)) bad(id, 'has no `display` block');
+  assertNonEmptyString(value.friendlyName, id, 'display.friendlyName');
+  assertNonEmptyString(value.qualityPhrase, id, 'display.qualityPhrase');
+  assertNonEmptyString(value.provider, id, 'display.provider');
+  if (value.welcome === undefined) return;
+  if (!isRecord(value.welcome)) bad(id, 'has a non-object `display.welcome`');
+  assertNonEmptyString(value.welcome.name, id, 'display.welcome.name');
+  assertNonEmptyString(value.welcome.tagline, id, 'display.welcome.tagline');
+  assertFiniteNumber(value.welcome.speed, id, 'display.welcome.speed');
+  assertFiniteNumber(value.welcome.depth, id, 'display.welcome.depth');
 }
 
 for (const entry of catalogData.models as readonly unknown[]) assertCatalogEntry(entry);

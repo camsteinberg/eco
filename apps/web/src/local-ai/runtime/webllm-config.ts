@@ -40,19 +40,6 @@ export const WEBLLM_MODEL_LIB_VERSION = 'v0_2_84';
 export const WEBLLM_MODEL_LIB_BASE_PATH = `/webllm/${WEBLLM_MODEL_LIB_VERSION}/`;
 
 /**
- * Per-model `model_lib` wasm filenames, keyed by model id. Each WebLLM model
- * architecture needs its own compiled wasm library (compiled per model arch +
- * quantization + prefill-chunk against a specific web-llm release). The wasm
- * binaries are vendored to `apps/web/public/webllm/v0_2_84/` in a SEPARATE
- * hash-verified step — these constants only reference same-origin paths.
- */
-const WEBLLM_MODEL_LIB_MAP: Readonly<Record<string, string>> = {
-  'candidate/qwen2.5-0.5b-mlc': `${WEBLLM_MODEL_LIB_BASE_PATH}Qwen2-0.5B-Instruct-q4f16_1_cs1k-webgpu.wasm`,
-  'candidate/qwen3-0.6b-mlc': `${WEBLLM_MODEL_LIB_BASE_PATH}Qwen3-0.6B-q4f16_1_cs1k-webgpu.wasm`,
-};
-
-
-/**
  * MLC's `ModelRecord.model_id` (and its cache layout) uses the repo name WITHOUT
  * the org prefix (e.g. `Qwen2-0.5B-Instruct-q4f16_1-MLC`). The catalog stores the
  * full HF id (`mlc-ai/Qwen2-0.5B-Instruct-q4f16_1-MLC`); strip the `mlc-ai/`
@@ -123,22 +110,28 @@ export function buildWebLLMAppConfig(
 }
 
 /**
- * The `model_lib` wasm path for a WebLLM model — resolved per-entry from
- * `WEBLLM_MODEL_LIB_MAP`. Each model architecture has its own compiled wasm
- * library; the map is the single source of truth. Throws for an unregistered
- * model id so a misconfigured entry fails immediately at the point of origin
- * instead of producing a cryptic MLC engine error after a full download.
+ * The `model_lib` wasm path for a WebLLM model — the model's own
+ * `quirks.webllmModelLibFile`, resolved under the version dir. Each model
+ * architecture has its own compiled wasm library (compiled per model arch +
+ * quantization + prefill-chunk against a specific web-llm release), vendored to
+ * `apps/web/public/webllm/<version>/` in a SEPARATE hash-verified step; only the
+ * filename is data, so a web-llm bump moves every model at once.
+ *
+ * Throws when the entry declares none, so a misconfigured model fails at the
+ * point of origin instead of producing a cryptic MLC engine error after a full
+ * download. (`assertCatalogEntry` already refuses to load a shipping `webllm`
+ * entry without one; this covers the eval lane, which is not catalog-validated.)
  */
 export function webllmModelLibPathFor(model: ModelConfig): string {
-  const path = WEBLLM_MODEL_LIB_MAP[model.id];
-  if (!path) {
+  const file = model.quirks?.webllmModelLibFile;
+  if (!file) {
     throw new AdapterError(
-      `No model_lib wasm vendored for "${model.id}" — add it to WEBLLM_MODEL_LIB_MAP in webllm-config.ts.`,
+      `No model_lib wasm vendored for "${model.id}" — set \`quirks.webllmModelLibFile\` on its entry.`,
       'init-failed',
       false,
     );
   }
-  return path;
+  return `${WEBLLM_MODEL_LIB_BASE_PATH}${file}`;
 }
 
 // ─── Cache-key mapping ──────────────────────────────────────────────────────

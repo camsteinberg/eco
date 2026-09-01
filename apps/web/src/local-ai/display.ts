@@ -4,16 +4,20 @@
 /**
  * Display-layer mapping for v1.0 catalog models.
  *
- * The catalog stores technical metadata (vendor, sizeGB, format). This
- * module remaps those to benefit-oriented, brand-safe copy per
- * DESIGN-REFERENCE.md:84 ("Never expose model names, VRAM, or token
- * counts in primary UI"). The raw metadata still appears behind the
- * "Show technical details" disclosure for transparency (AGPL).
+ * The branded copy itself is each catalog entry's `display` block — a model's
+ * name to a person lives with the model, not in a second table that a new entry
+ * can silently miss. This module is the boundary that reads it: it composes the
+ * provenance line from the entry's own `sizeGB`, and falls back to raw metadata
+ * for ids the catalog doesn't know.
  *
- * The mapping lives at the display boundary — no catalog data is mutated.
+ * Branding is deliberately benefit-oriented per DESIGN-REFERENCE.md:84 ("Never
+ * expose model names, VRAM, or token counts in primary UI"); the raw metadata
+ * still appears behind the "Show technical details" disclosure for transparency
+ * (AGPL). No catalog data is mutated.
  */
 
 import type { ModelConfig, Slot } from './types';
+import { getModel } from './catalog/catalog';
 import { SLOTS, type SlotStatus } from './lifecycle/slots';
 import { isLocalAiSlot } from './util';
 
@@ -26,76 +30,17 @@ export type DisplayInfo = {
   provenance: string;
 };
 
-const DISPLAY_MAP: Record<string, Omit<DisplayInfo, 'provenance'> & { provider: string }> = {
-  'candidate/lfm2.5-1.2b-instruct-onnx': {
-    friendlyName: 'Eco Fast (Liquid)',
-    qualityPhrase: 'The everyday pick · quick, clear answers',
-    provider: 'Liquid AI',
-  },
-  // The plain-int4 build of the same 1.2B, for older graphics hardware — same
-  // model, so same "Eco Fast" branding (f16-less users get the same experience).
-  'candidate/lfm2.5-1.2b-instruct-q4-onnx': {
-    friendlyName: 'Eco Fast (Liquid)',
-    qualityPhrase: 'The everyday pick · quick, clear answers',
-    provider: 'Liquid AI',
-  },
-  'candidate/lfm2.5-350m-onnx': {
-    friendlyName: 'Eco Light (Liquid)',
-    qualityPhrase: 'Smallest footprint · best for older devices',
-    provider: 'Liquid AI',
-  },
-  'candidate/qwen3.5-2b-onnx': {
-    friendlyName: 'Eco (Qwen)',
-    qualityPhrase: 'A larger model · longer, slower answers',
-    provider: 'Alibaba',
-  },
-  'candidate/lfm2-2.6b-onnx': {
-    friendlyName: 'Eco Deeper (Liquid)',
-    qualityPhrase: 'A deeper model · stronger reasoning and code',
-    provider: 'Liquid AI',
-  },
-  'local/qwen3-0.6b': {
-    friendlyName: 'Eco Compact (Qwen)',
-    qualityPhrase: 'Small + capable · good for limited devices',
-    provider: 'Alibaba',
-  },
-  'candidate/gemma-4-e2b-litert': {
-    friendlyName: 'Eco Capable (Gemma)',
-    qualityPhrase: 'Strong all-round answers · runs on more devices',
-    provider: 'Google',
-  },
-  'candidate/qwen2.5-0.5b-mlc': {
-    friendlyName: 'Eco Mobile (Qwen)',
-    qualityPhrase: 'Made for iPhone · quick private chat on the go',
-    provider: 'Alibaba',
-  },
-  // The two CPU-EP floor models the weakest / no-GPU devices actually run: the
-  // lightest int8 SmolLM2 (the fast floor) and the deeper q4 Granite. Without branded
-  // entries here they leak their raw catalog names ("Granite 4.0 350M" / "SmolLM2 360M")
-  // into primary UI (MC-4). Names avoid collisions with "Eco Light" (350M) and
-  // "Eco Mobile" (the distinct WebGPU/iPhone 0.5B build).
-  'candidate/granite-4.0-350m-onnx': {
-    friendlyName: 'Eco Basic (Granite)',
-    qualityPhrase: 'Runs on almost any computer · a more capable private chat',
-    provider: 'IBM',
-  },
-  'candidate/smollm2-360m-instruct-onnx': {
-    friendlyName: 'Eco Tiny (SmolLM)',
-    qualityPhrase: 'The lightest option · for the most limited devices',
-    provider: 'Hugging Face',
-  },
-};
-
 /**
- * Return branded display copy for a catalog model id. Falls back to the
- * raw `ModelConfig.friendlyName` + vendor when the id isn't in the map
- * (future models, test fixtures).
+ * Return branded display copy for a catalog model id. Falls back to the raw
+ * `ModelConfig.friendlyName` + vendor when the id isn't in the catalog (future
+ * models, eval-lane candidates, test fixtures) — catalog entries themselves
+ * always carry a `display` block, which `assertCatalogEntry` pins at load.
  */
 export function getDisplayInfo(
   modelId: string,
   fallback: { friendlyName: string; vendor: string; sizeGB: number },
 ): DisplayInfo {
-  const entry = DISPLAY_MAP[modelId];
+  const entry = getModel(modelId)?.display;
   if (entry) {
     return {
       friendlyName: entry.friendlyName,

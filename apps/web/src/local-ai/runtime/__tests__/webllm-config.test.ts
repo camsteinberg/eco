@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import type { ModelConfig } from '../../types';
 import { AdapterError } from '../types';
 import { getModel } from '../../catalog/catalog';
+import { getEvalCandidateModel } from '../../eval/eval-candidates';
 import {
   buildWebLLMAppConfig,
   buildWebLLMModelRecord,
@@ -18,10 +19,10 @@ const ORIGIN = 'https://econetwork.ai';
 const MLC_ID = 'Qwen2-0.5B-Instruct-q4f16_1-MLC';
 const CTX = 4096;
 
-/** Resolved from the map — tests use it to avoid duplicating the literal. */
-const QWEN2_LIB_PATH = webllmModelLibPathFor({
-  id: 'candidate/qwen2.5-0.5b-mlc',
-} as ModelConfig);
+const QWEN2_MODEL = getModel('candidate/qwen2.5-0.5b-mlc')!;
+
+/** Resolved from the catalog entry — tests avoid duplicating the literal. */
+const QWEN2_LIB_PATH = webllmModelLibPathFor(QWEN2_MODEL);
 
 describe('stripMlcOrgPrefix', () => {
   it('strips the mlc-ai/ org prefix', () => {
@@ -103,19 +104,20 @@ describe('buildWebLLMModelRecord / buildWebLLMAppConfig', () => {
 });
 
 describe('webllmModelLibPathFor', () => {
-  it('returns the Qwen2 library for candidate/qwen2.5-0.5b-mlc', () => {
-    const model = { id: 'candidate/qwen2.5-0.5b-mlc', runtime: 'webllm' } as ModelConfig;
-    expect(webllmModelLibPathFor(model)).toBe(QWEN2_LIB_PATH);
+  it('returns the Qwen2 library for the catalog entry', () => {
+    expect(webllmModelLibPathFor(QWEN2_MODEL)).toBe(
+      '/webllm/v0_2_84/Qwen2-0.5B-Instruct-q4f16_1_cs1k-webgpu.wasm',
+    );
   });
 
-  it('returns the Qwen3 library for candidate/qwen3-0.6b-mlc', () => {
-    const model = { id: 'candidate/qwen3-0.6b-mlc', runtime: 'webllm' } as ModelConfig;
+  it('returns the Qwen3 library for the eval-lane candidate', () => {
+    const model = getEvalCandidateModel('candidate/qwen3-0.6b-mlc')!;
     expect(webllmModelLibPathFor(model)).toBe(
       '/webllm/v0_2_84/Qwen3-0.6B-q4f16_1_cs1k-webgpu.wasm',
     );
   });
 
-  it('throws AdapterError (init-failed) for an unregistered model id', () => {
+  it('throws AdapterError (init-failed) for an entry that declares no library', () => {
     const model = { id: 'candidate/unknown-mlc', runtime: 'webllm' } as ModelConfig;
     expect(() => webllmModelLibPathFor(model)).toThrow(AdapterError);
     try {
