@@ -16,11 +16,11 @@
  * The transformers runtime (the ONNX path these candidate models use) does not
  * clamp the sequence to `contextTokens`: `toTransformersGenerateArgs` sets only
  * `max_new_tokens`, and the KV cache grows with whatever message sequence the
- * caller feeds. Production caps history earlier via `selectMessagesForContext`
- * (`floor(contextTokens * 0.75)`), but the eval harness passes FULL history to
- * the model — so a single long probe run through the harness pushes the real
- * token count into the KV cache and measures headroom directly, independent of
- * the catalog value.
+ * caller feeds. Production windows history in `runtime/stream.ts` (via
+ * `runtime/window.ts`, real token counts), but the eval harness calls the
+ * adapter directly and passes FULL history to the model — so a single long
+ * probe run through the harness pushes the real token count into the KV cache
+ * and measures headroom directly, independent of the catalog value.
  *
  * Each probe plants an unguessable secret in the FIRST turn, buries it under a
  * long, specific, distractor-heavy conversation, then asks for it back in the
@@ -203,6 +203,28 @@ export const CONTEXT_STRESS_PROBES: readonly EvalPromptSpec[] = [
  *   | LFM2.5-1.2B   |         32 |   6,577 | PASS, 54s, planted facts returned    |
  *   | LFM2.5-1.2B   |         32 |   7,950 | FAIL, allocation error at first run  |
  *   | LFM2.5-350M   |         16 |  10,800 | no allocation error — but GIBBERISH  |
+ *
+ * Re-run 2026-09-01, same device class (Apple Silicon, 16 GB, 4 GiB buffers),
+ * production build, greedy, 128 max tokens — the 7,950 failure did NOT
+ * reproduce:
+ *
+ *   | model              | ~tokens | TTFT   | outcome                          |
+ *   |--------------------|--------:|-------:|----------------------------------|
+ *   | LFM2.5-1.2B        |   4,515 | 28.4 s | PASS, both facts verbatim        |
+ *   | LFM2.5-1.2B        |   6,839 | 49.7 s | PASS, both facts verbatim        |
+ *   | LFM2.5-1.2B        |   7,991 | 70.3 s | PASS, both facts verbatim        |
+ *   | Gemma 4 E2B LiteRT |  ~4,400 |  5.1 s | PASS (engine cap raised to 8192) |
+ *   | Gemma 4 E2B LiteRT |   6,721 |  7.7 s | PASS (engine's own token count)  |
+ *   | Gemma 4 E2B LiteRT |  ~7,900 |  9.2 s | PASS                             |
+ *   | Gemma 4 E2B LiteRT | ~10,800 | 13.1 s | PASS (engine cap 32768)          |
+ *   | Gemma 4 E2B LiteRT | ~12,000 | 14.1 s | PASS                             |
+ *
+ * Two things to read from it. The 2026-08-29 allocation failure was a state of
+ * that session, not a property of the model: treat any single failing run as
+ * one sample. And LiteRT-LM does not truncate past its `maxNumTokens` — it
+ * throws ("Input token ids are too long … 6721 >= 2048") and the worker is
+ * dead for the rest of the run, so a LiteRT probe above the catalog cap needs
+ * the cap raised for that build.
  *
  * Two conclusions, both load-bearing:
  *
