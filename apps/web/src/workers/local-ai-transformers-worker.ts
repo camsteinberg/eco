@@ -914,6 +914,15 @@ async function handleGenerate(msg: Extract<WorkerInbound, { type: 'generate' }>)
     }
     const confidence = confidenceAcc.summarize(isGreedy) ?? undefined;
     const maxNewTokens = samplingArgs.max_new_tokens as number;
+    // The streamer callback fires once per decoded TEXT piece, not per token
+    // (it holds tokens back until a printable boundary), so the callback count
+    // undercounts by roughly a third on these tokenizers — measured s40:
+    // cachedLen exceeded prompt+completion by ~270 on ~500-token replies, and
+    // `finishReason: 'length'` could never fire. The returned sequence is the
+    // ground truth: everything past the prompt was generated (EOS included).
+    if (nextIds !== null && nextIds.length >= promptTokens) {
+      completionTokens = nextIds.length - promptTokens;
+    }
     post({
       type: 'done',
       generationId: msg.generationId,
