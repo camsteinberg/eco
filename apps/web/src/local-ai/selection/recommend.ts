@@ -12,8 +12,8 @@
  *
  *   1. Filter the v1.0 catalog to models the device can run
  *      (`device/compatibility.isAssignable`). Models flagged unsupported
- *      never reach scoring — a structural guarantee so predicted-fit
- *      cannot recommend unassignable models.
+ *      never enter the ranked list — a structural guarantee so `recommend()`
+ *      cannot return an unassignable model.
  *
  *   2. Filter to admitted candidates (`evidence/admission.admit()`).
  *      Models with recent smoke failures on this profile also drop out
@@ -24,12 +24,19 @@
  *      balanced/quality. A model can match multiple intents — Bonsai
  *      shows up in both slots, for example.
  *
- *   4. Score each survivor with `scoreFit` (intent-weighted). Use seed
- *      metrics when seed evidence exists for (model × profile); fall
- *      back to predicted metrics from `predicted-fit.ts` otherwise.
- *      Reliability axis is derived from the admission decision.
+ *   4. Order survivors by the catalog's tier walk (`TIER_ORDER`, best rung
+ *      first — see `ModelTier`'s doc comment) with catalog declaration
+ *      order as the tiebreak among untiered survivors. There is no scorer:
+ *      Phase R5c deleted the six-axis fit scorer (`fit-scoring.ts`,
+ *      `predicted-fit.ts`) after measuring that it never changed which
+ *      model `recommend()` returned across 750 device profiles — the tier
+ *      table was already the deciding mechanism in every case that
+ *      mattered, and the handful of cells where it wasn't (an untiered
+ *      model was the sole assignable survivor) were closed by giving those
+ *      entries the rung they actually serve (see their catalog
+ *      `_provenance` blocks).
  *
- *   5. Return the highest-scoring model. If no candidate survives the
+ *   5. Return the top of the ordered list. If no candidate survives the
  *      filters, throw `NoAssignableModelError` — the caller is expected
  *      to have gated below-floor profiles already via `isBelowFloor()`.
  *      Any other surface that reaches this throw is a bug.
@@ -50,8 +57,21 @@ import {
   type AdmissionResult,
 } from '../evidence/admission';
 import type { SeedEvidenceSource } from '../evidence/seed';
-import { scoreFit, type FitScore } from './fit-scoring';
-import { getMetrics, modelMatchesSlot, slotDefaultIntent } from './predicted-fit';
+
+/**
+ * Whether `model` matches `slot`'s preferred intents: eco-fast wants
+ * snappy/balanced, eco-smart wants balanced/quality. A model can declare
+ * multiple intents and so match both slots.
+ */
+export function modelMatchesSlot(model: ModelConfig, slot: Slot): boolean {
+  const preferred: readonly Intent[] =
+    slot === 'eco-fast' ? ['snappy', 'balanced'] : ['balanced', 'quality'];
+  return model.capabilities.intent.some((intent) => preferred.includes(intent));
+}
+
+export function slotDefaultIntent(slot: Slot): Intent {
+  return slot === 'eco-fast' ? 'snappy' : 'quality';
+}
 
 /**
  * Models that were once the everyday default and should yield to the CURRENT
@@ -127,6 +147,25 @@ function preferredModelIdForSlot(slot: Slot, profile: DeviceProfile): string {
   // Nothing on the ladder runs here. Naming the top rung anyway is a no-op —
   // promotePreferred cannot lift a model that never entered the ranked list.
   return ladder[0]?.id ?? '';
+}
+
+/**
+ * A model's position in `slot`'s tier ladder — lower is better, matching
+ * `TIER_ORDER`. Untiered-for-this-slot models sort after every tiered one
+ * (`TIER_ORDER.length`), never before. This is the ranked list's ONLY
+ * ordering input (Phase R5c deleted the fit scorer); ties among
+ * equally-ranked survivors break on catalog declaration order.
+ */
+function tierRank(model: ModelConfig, slot: Slot): number {
+  const tier = model.tier?.[slot];
+  if (tier === undefined) return TIER_ORDER.length;
+  const idx = TIER_ORDER.indexOf(tier);
+  return idx === -1 ? TIER_ORDER.length : idx;
+}
+
+/** Catalog declaration order, the tiebreak under tierRank. */
+function catalogOrderIndex(): ReadonlyMap<string, number> {
+  return new Map(getCatalog().map((model, i) => [model.id, i]));
 }
 
 function promotePreferred<T extends { model: { id: string } }>(
@@ -215,7 +254,6 @@ export class NoAssignableModelError extends Error {
 
 export type RecommendationCandidate = {
   model: ModelConfig;
-  score: FitScore;
   admission: AdmissionResult;
   reliability: number;
 };
@@ -232,7 +270,6 @@ export type AvailableConfidence = 'benchmark' | 'calculated' | 'ledger';
 export type AvailableModel = {
   model: ModelConfig;
   confidence: AvailableConfidence;
-  scoreTotal: number;
 };
 
 export type ListCatalogResult = {
@@ -290,7 +327,11 @@ export function canServe(profile: DeviceProfile): boolean {
 export function listCandidates(
   slot: Slot,
   profile: DeviceProfile,
-  intent: Intent = slotDefaultIntent(slot),
+  // Kept for call-site compatibility (many callers pass it positionally
+  // ahead of `options`); no longer consumed. It fed the fit scorer's
+  // per-intent weighting, deleted in R5c along with the scorer itself — the
+  // tier walk that replaced it does not vary by intent.
+  _intent: Intent = slotDefaultIntent(slot),
   options: ListCandidatesOptions = {},
 ): RecommendationCandidate[] {
   const ranked: RecommendationCandidate[] = [];
@@ -306,11 +347,13 @@ export function listCandidates(
     if (!floor.admit) continue;
 
     const reliability = reliabilityFromDecision(admission.decision);
-    const metrics = getMetrics(model, profile);
-    const score = scoreFit({ model, profile, intent, metrics, reliability, confidence: floor.confidence });
-    ranked.push({ model, score, admission, reliability });
+    ranked.push({ model, admission, reliability });
   }
-  ranked.sort((a, b) => b.score.total - a.score.total);
+  const order = catalogOrderIndex();
+  ranked.sort((a, b) =>
+    tierRank(a.model, slot) - tierRank(b.model, slot)
+    || order.get(a.model.id)! - order.get(b.model.id)!,
+  );
   return promotePreferred(ranked, preferredModelIdForSlot(slot, profile));
 }
 
@@ -368,24 +411,27 @@ export function listCatalog(
     });
     if (!floor.admit) continue;
 
-    const reliability = reliabilityFromDecision(admission.decision);
-    const metrics = getMetrics(model, profile);
-    const intent = slotDefaultIntent('eco-fast');
-    const score = scoreFit({ model, profile, intent, metrics, reliability, confidence: floor.confidence });
-
     available.push({
       model,
       confidence: floor.confidence,
-      scoreTotal: score.total,
     });
   }
 
-  available.sort((a, b) => b.scoreTotal - a.scoreTotal);
+  // The flat dialog list is slotless, so a model's rank is its BEST rung across
+  // either slot's ladder (min index — lower is better), catalog order as the
+  // tiebreak. promotePreferred below then keeps the device-appropriate default
+  // (the slot the setup path actually binds — eco-fast) at the top spot.
+  const order = catalogOrderIndex();
+  available.sort((a, b) =>
+    Math.min(tierRank(a.model, 'eco-fast'), tierRank(a.model, 'eco-smart'))
+      - Math.min(tierRank(b.model, 'eco-fast'), tierRank(b.model, 'eco-smart'))
+    || order.get(a.model.id)! - order.get(b.model.id)!,
+  );
   // The flat dialog list is slotless — the device-appropriate default keeps the
   // top spot (it is what a fresh device gets): LFM2.5-1.2B on f16-capable
-  // hardware, Gemma 4 on f16-less-but-WebGPU adapters. Everything else ranks by
-  // fit score. Using the eco-fast preference keeps the dialog's "Recommended"
-  // tag consistent with the slot the setup path actually binds.
+  // hardware, Gemma 4 on f16-less-but-WebGPU adapters. Using the eco-fast
+  // preference keeps the dialog's "Recommended" tag consistent with the slot
+  // the setup path actually binds.
   return { available: promotePreferred(available, preferredModelIdForSlot('eco-fast', profile)) };
 }
 

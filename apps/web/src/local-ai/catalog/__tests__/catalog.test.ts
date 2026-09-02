@@ -129,10 +129,19 @@ describe('local-ai catalog (Phase C)', () => {
       'eco-fast/laptop': 'candidate/lfm2.5-1.2b-instruct-q4-onnx',
       'eco-fast/phone': 'candidate/smollm2-360m-instruct-onnx',
       'eco-fast/floor': 'local/qwen3-0.6b',
+      // R5c: rungs added when the fit scorer was deleted (recommend.ts /
+      // catalog.ts TIER_ORDER doc comments explain each). `light` is the
+      // last-resort WebGPU-general pick reached only when `floor`'s own
+      // occupant is unassignable; `webkit-mobile` is the sole model iOS/
+      // WebKit-mobile can ever run, on both slots.
+      'eco-fast/light': 'candidate/lfm2.5-350m-onnx',
+      'eco-fast/webkit-mobile': 'candidate/qwen2.5-0.5b-mlc',
       'eco-smart/capable': 'candidate/lfm2-2.6b-onnx',
       'eco-smart/laptop': 'candidate/gemma-4-e2b-litert',
       'eco-smart/phone': 'candidate/granite-4.0-350m-onnx',
       'eco-smart/floor': 'local/qwen3-0.6b',
+      'eco-smart/light': 'candidate/lfm2.5-1.2b-instruct-q4-onnx',
+      'eco-smart/webkit-mobile': 'candidate/qwen2.5-0.5b-mlc',
     });
   });
 

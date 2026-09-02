@@ -183,9 +183,10 @@
     {
       "id": "candidate/lfm2.5-1.2b-instruct-q4-onnx",
       "shipping": true,
-      "tier": { "eco-fast": "laptop" },
+      "tier": { "eco-fast": "laptop", "eco-smart": "light" },
       "_provenance": {
-        "tier.eco-fast": "DERIVED from a measured gap (device-coverage, 2026-08-10) — the f16-less-but-WebGPU eco-FAST pick. On adapters that run WebGPU but lack `shader-f16`, the everyday q4f16 1.2B default is unassignable, and the old fallback (Gemma 4) is 1.87GB — over the instant-start budget — so `starterModelForSlot` stepped the first download DOWN to the weak 350M. The plain-int4 build of the SAME 1.2B (onnx-q4, 0.85GB) needs no shader-f16, loads on the f16-less WebGPU EP, and — being <= STARTER_MAX_SIZE_GB — is its OWN starter. So f16-less eco-fast gets the good 1.2B as its first impression, converging starter==recommend exactly as the 2026-08-09 fix did for f16-capable devices. Falsifier: a measurement showing the plain-int4 build's answer quality is materially worse than the q4f16 sibling's, or that it fails to load on a real f16-less adapter."
+        "tier.eco-fast": "DERIVED from a measured gap (device-coverage, 2026-08-10) — the f16-less-but-WebGPU eco-FAST pick. On adapters that run WebGPU but lack `shader-f16`, the everyday q4f16 1.2B default is unassignable, and the old fallback (Gemma 4) is 1.87GB — over the instant-start budget — so `starterModelForSlot` stepped the first download DOWN to the weak 350M. The plain-int4 build of the SAME 1.2B (onnx-q4, 0.85GB) needs no shader-f16, loads on the f16-less WebGPU EP, and — being <= STARTER_MAX_SIZE_GB — is its OWN starter. So f16-less eco-fast gets the good 1.2B as its first impression, converging starter==recommend exactly as the 2026-08-09 fix did for f16-capable devices. Falsifier: a measurement showing the plain-int4 build's answer quality is materially worse than the q4f16 sibling's, or that it fails to load on a real f16-less adapter.",
+        "tier.eco-smart": "MEASURED 2026-09-01: tier-walk vs scorer diff over 750 profiles, the only assignable model on these cells — f16-less Chromium at <=4GB (12 cells). eco-smart's `laptop` rung (Gemma 4 LiteRT) has an 8GB floor, so it is unassignable in the 4-7GB f16-less-WebGPU band; this same model already carries `requireNoShaderF16` + a 4GB floor for eco-fast, and it is genuinely assignable there for eco-smart too — before this rung existed, the scorer (now deleted) reached it only because it was the sole survivor after filtering, never on a ranking merit. Holding the `light` rung makes that reachability structural instead of an artifact of the scorer being deleted last."
       },
       "friendlyName": "LFM2.5 1.2B",
       "vendor": "Liquid AI",
@@ -270,9 +271,10 @@
     {
       "id": "candidate/lfm2.5-350m-onnx",
       "shipping": true,
-      "tier": {},
+      "tier": { "eco-fast": "light" },
       "_provenance": {
-        "starterFloor": "DERIVED (device-coverage audit, finding COV-3 — fixed) — the default instant-start floor: the smallest, f16-free starter rung most devices fall back to. It is EXEMPT from the download-fail auto-demotion because demoting the floor would leave a device with nothing offerable and break instant-start. Repeated download failures of even this model are an environmental dead-end the demotion can't fix, so we never remove it. NOT literally universal: on a `wasm-only` device this build is unassignable (its block-quantized embeddings emit GatherBlockQuantized, unimplemented on the CPU EP — see compat.cpuEpIncompatible), so the `eco-fast` `phone` rung is the effective floor there. The exemption therefore cannot be keyed to this one entry alone; `isDemotionExemptFloor` also exempts the wasm-only floor on a wasm-only device and the `compat.webkitMobileValidated` entry on iOS/WebKit, so a runnable low-end device whose sole assignable model has a couple of transient download failures is never declined below its floor for the 7-day window. Falsifier: a device class where all three exemption clauses miss and a two-download-failure device is still declined below floor."
+        "starterFloor": "DERIVED (device-coverage audit, finding COV-3 — fixed) — the default instant-start floor: the smallest, f16-free starter rung most devices fall back to. It is EXEMPT from the download-fail auto-demotion because demoting the floor would leave a device with nothing offerable and break instant-start. Repeated download failures of even this model are an environmental dead-end the demotion can't fix, so we never remove it. NOT literally universal: on a `wasm-only` device this build is unassignable (its block-quantized embeddings emit GatherBlockQuantized, unimplemented on the CPU EP — see compat.cpuEpIncompatible), so the `eco-fast` `phone` rung is the effective floor there. The exemption therefore cannot be keyed to this one entry alone; `isDemotionExemptFloor` also exempts the wasm-only floor on a wasm-only device and the `compat.webkitMobileValidated` entry on iOS/WebKit, so a runnable low-end device whose sole assignable model has a couple of transient download failures is never declined below its floor for the 7-day window. Falsifier: a device class where all three exemption clauses miss and a two-download-failure device is still declined below floor.",
+        "tier.eco-fast": "MEASURED 2026-09-01: tier-walk vs scorer diff over 750 profiles, the only assignable model on these cells — f16-less Safari/non-Chromium WebGPU (84 cells). The `laptop` rung's occupant (LFM2.5-1.2B q4) is Chromium-only, so it is unassignable on Safari/Firefox/mobile/unknown even when f16-less-WebGPU is genuinely present; this model's `compat.allowedBrowsers` includes every browser and it needs no shader-f16, so it is the correct `light` rung there. `light` sits LAST in TIER_ORDER (after `floor`, not between `laptop` and `phone`): the `floor` occupant (qwen3-0.6b, onnx-q4f16) is genuinely assignable whenever f16 is unprobed or present, and must keep winning there — a hand-written recommend.test.ts profile (desktop Safari, WebGPU, f16 unprobed) caught a regression where placing `light` before `floor` intercepted that case. `light` is reached only when `floor`'s own occupant is not assignable, e.g. a real f16-less adapter."
       },
       "starterFloor": true,
       "friendlyName": "LFM2.5",
@@ -504,7 +506,11 @@
     {
       "id": "candidate/qwen2.5-0.5b-mlc",
       "shipping": true,
-      "tier": {},
+      "tier": { "eco-fast": "webkit-mobile", "eco-smart": "webkit-mobile" },
+      "_provenance": {
+        "tier.eco-fast": "MEASURED 2026-09-01: tier-walk vs scorer diff over 750 profiles, the only assignable model on these cells — iOS/WebKit-mobile (30 cells for eco-fast, 30 for eco-smart, both slots since this model is the sole survivor there regardless of slot). Every onnx build (including the `floor` rung's qwen3-0.6b) is declined by the WebKit-mobile gate before any capability check (`device/compatibility.ts` `isWebKitMobile`), so this rung never competes with another rung's occupant on the same device — it exists purely to give the WebKit-mobile niche a tier-walk answer instead of relying on it being the sole scorer survivor.",
+        "tier.eco-smart": "Same as tier.eco-fast — see that entry."
+      },
       "friendlyName": "Qwen2.5 0.5B",
       "vendor": "Alibaba",
       "sizeGB": 0.27,
