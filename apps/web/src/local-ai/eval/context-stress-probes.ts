@@ -219,6 +219,24 @@ export const CONTEXT_STRESS_PROBES: readonly EvalPromptSpec[] = [
  *   | Gemma 4 E2B LiteRT | ~10,800 | 13.1 s | PASS (engine cap 32768)          |
  *   | Gemma 4 E2B LiteRT | ~12,000 | 14.1 s | PASS                             |
  *
+ *   2026-09-02 (s38), same Mac, harness greedy, 128 max tokens, one probe per launch:
+ *   | LFM2.5-350M          |  ~4,515 | 15.3 s | PASS                              |
+ *   | LFM2.5-350M          |  ~6,839 | 29.1 s | PASS                              |
+ *   | LFM2.5-350M          |  ~7,900 | 52.0 s | FAIL (recall lost: "Noted.")      |
+ *   | LFM2.5-1.2B int4     |  ~4,515 | 29.5 s | PASS                              |
+ *   | SmolLM2-360M         |  ~4,515 | 30.7 s | PASS                              |
+ *   | Qwen3-0.6B           |  ~2,000 |  6.7 s | PASS                              |
+ *   | Qwen3-0.6B           |  ~2,700 | 20.8 s | PASS                              |
+ *   | Qwen3-0.6B           |  ~3,400 |      — | FAIL: WebGPU "Failed to allocate  |
+ *   |                      |         |        | memory for buffer mapping" (also  |
+ *   |                      |         |        | at 4,515 and 6,839); short prompts |
+ *   |                      |         |        | fine (0.5 s). Shipped 4096 > limit |
+ *   | Granite-4.0-350M     | 2k–4.5k |  13–47 s | streams, NEVER returns the facts |
+ *   |                      |         |        | at any length: a recall-capability |
+ *   |                      |         |        | result, not a window number        |
+ *   | Qwen3.5-2B           |       — |      — | not run: load timed out at 0%     |
+ *   |                      |         |        | twice (download stall)             |
+ *
  * Two things to read from it. The 2026-08-29 allocation failure was a state of
  * that session, not a property of the model: treat any single failing run as
  * one sample. And LiteRT-LM does not truncate past its `maxNumTokens` — it
@@ -258,6 +276,15 @@ export const CONTEXT_STRESS_PROBES: readonly EvalPromptSpec[] = [
  * by construction; read `perf.promptTokens` for the length actually fed.
  */
 export const CONTEXT_BOUNDARY_PROBES: readonly EvalPromptSpec[] = [
+  // The narrow pair brackets a 4,096 window from below: what a saturated chat
+  // on a 4,096 entry actually sends (window minus the reply reserve) is
+  // ~3.4k–3.9k tokens, and `ctx-stress-4k-recall` (4,515) sits ABOVE it.
+  // Added 2026-09-02 (s38) after Qwen3-0.6B failed to allocate at 4,515 on a
+  // 16 GB Mac while answering short prompts fine.
+  buildHeadroomProbe({ id: 'ctx-boundary-xs-lo', historyTurns: 8, perTurnChars: 820, windowLabel: '~2.0k' }),
+  buildHeadroomProbe({ id: 'ctx-boundary-xs-hi', historyTurns: 11, perTurnChars: 820, windowLabel: '~2.7k' }),
+  buildHeadroomProbe({ id: 'ctx-boundary-narrow-lo', historyTurns: 14, perTurnChars: 820, windowLabel: '~3.4k' }),
+  buildHeadroomProbe({ id: 'ctx-boundary-narrow-hi', historyTurns: 16, perTurnChars: 820, windowLabel: '~3.9k' }),
   buildHeadroomProbe({ id: 'ctx-boundary-lo', historyTurns: 33, perTurnChars: 820, windowLabel: '~7.9k' }),
   buildHeadroomProbe({ id: 'ctx-boundary-hi', historyTurns: 35, perTurnChars: 820, windowLabel: '~8.4k' }),
   buildHeadroomProbe({ id: 'ctx-boundary-wide-lo', historyTurns: 45, perTurnChars: 820, windowLabel: '~10.8k' }),
