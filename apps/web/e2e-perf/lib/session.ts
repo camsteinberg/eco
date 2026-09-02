@@ -2,21 +2,41 @@
 // Copyright (C) 2026 Bos Computing LLC
 
 /**
- * Shared session plumbing for the e2e-perf lane.
+ * Shared session plumbing for the browser lanes that drive real inference.
  *
- * Both perf specs (the regression gate and the KV-reuse measurement) walk the
- * same warm path: a persistent real-Chrome profile, a stubbed auth session, an
- * empty workspace per page, and turns that finish when the app records a
- * generation receipt — never when the DOM stops changing. This module is that
- * shared walk; the specs own only what they measure and assert.
+ * Both perf specs (the regression gate and the KV-reuse measurement) and the
+ * acceptance lane (`e2e-acceptance/`) walk the same warm path: a persistent
+ * real-Chrome profile, a stubbed auth session, an empty workspace per page,
+ * and turns that finish when the app records a generation receipt — never when
+ * the DOM stops changing. This module is that shared walk; each lane owns only
+ * what it measures and asserts.
+ *
+ * It lives here because the perf lane was its first consumer. Anything a
+ * second lane needs is parameterised (base URL, model id) rather than copied.
  */
 
 import { expect, type BrowserContext, type Page } from "@playwright/test";
 import type { GenerationReceipt } from "../../src/local-ai/lifecycle/generation-receipt";
 
-export const WEB_BASE_URL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3100";
+/**
+ * The perf lane's own production port. A lane that serves elsewhere calls
+ * `setWebBaseUrl` before it opens its first page. Playwright reloads config
+ * and specs in every worker process, so that setting is per-run and cannot
+ * leak between lanes.
+ */
+export const DEFAULT_WEB_BASE_URL = "http://localhost:3100";
 
-/** The lane's model: the smallest shipping desktop model (~0.28GB starter floor). */
+let webBaseUrl = process.env.PLAYWRIGHT_BASE_URL ?? DEFAULT_WEB_BASE_URL;
+
+export function setWebBaseUrl(url: string): void {
+  webBaseUrl = url;
+}
+
+export function getWebBaseUrl(): string {
+  return webBaseUrl;
+}
+
+/** The perf lane's model: the smallest shipping desktop model (~0.28GB starter floor). */
 export const MODEL_ID = "candidate/lfm2.5-350m-onnx";
 
 /** Forced device profile (WebGPU desktop) so selection is deterministic. */
@@ -78,7 +98,7 @@ export async function openEmptyChat(context: BrowserContext): Promise<Page> {
   await page.addInitScript(() => {
     window.sessionStorage.setItem("eco-skip-conversation-persistence-once", "true");
   });
-  await page.goto(`${WEB_BASE_URL}/chat?${FORCED_DESKTOP_PROFILE}`, {
+  await page.goto(`${getWebBaseUrl()}/chat?${FORCED_DESKTOP_PROFILE}`, {
     waitUntil: "commit",
   });
   return page;
@@ -105,7 +125,10 @@ export async function requireBridge(page: Page): Promise<void> {
  * downloads when someone taps its tile and confirms, so this lane cannot have a
  * background transfer competing for bandwidth mid-measurement.
  */
-export async function ensureModelReady(context: BrowserContext): Promise<void> {
+export async function ensureModelReady(
+  context: BrowserContext,
+  expectedModelId: string = MODEL_ID,
+): Promise<void> {
   console.log("  prefetch: opening /chat …");
   const prefetch = await openEmptyChat(context);
   try {
@@ -130,11 +153,11 @@ export async function ensureModelReady(context: BrowserContext): Promise<void> {
     await expect
       .poll(() => prefetch.evaluate(() => window.__ecoPerf?.activeModelId() ?? null), {
         timeout: READY_TIMEOUT_MS,
-        message: `setup did not leave ${MODEL_ID} resident in the runtime`,
+        message: `setup did not leave ${expectedModelId} resident in the runtime`,
       })
-      .toBe(MODEL_ID);
+      .toBe(expectedModelId);
 
-    console.log(`  prefetch: ${MODEL_ID} resident`);
+    console.log(`  prefetch: ${expectedModelId} resident`);
   } finally {
     await prefetch.close();
   }
@@ -166,6 +189,7 @@ export async function runTurn(
   page: Page,
   prompt: string,
   turnNumber: number,
+  expectedModelId: string = MODEL_ID,
 ): Promise<GenerationReceipt[]> {
   await expect(composer(page), {
     message: "composer never re-enabled — the previous generation never finalized",
@@ -203,7 +227,7 @@ export async function runTurn(
   const outcome = turnReceipts[turnReceipts.length - 1]!;
   expect(outcome.status, `turn ${turnNumber} did not complete cleanly`).toBe("complete");
   expect(outcome.modelId, "the lane measured a different model than it targets").toBe(
-    MODEL_ID,
+    expectedModelId,
   );
   expect(
     outcome.completionTokens,

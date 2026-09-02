@@ -22,6 +22,7 @@ export default defineConfig({
       // otherwise pick up; its manifest IS unit-tested, from src/__tests__.
       "e2e-capture/**",
       "e2e-perf/*.spec.ts",
+      "e2e-acceptance/**",
       "node_modules/**",
     ],
   },
