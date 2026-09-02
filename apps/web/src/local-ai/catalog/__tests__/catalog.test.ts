@@ -226,14 +226,17 @@ describe('local-ai catalog (Phase C)', () => {
   // across a 10-turn budgeting chat and a 10-turn code-and-writing chat on the
   // 2.6B, plus s39's 19 turns on the 1.2B, the longest reply was 656 tokens;
   // at 2048 the budgeting chat evicted from turn 5 (Deeper) / 9 (Fast) and the
-  // code chat from turn 4, each eviction a 9–14 s first token. 1024 leaves 1.5×
-  // headroom over the longest reply seen. Raising it again needs a receipt
-  // showing `finishReason: 'length'` on a real chat turn at 1024.
+  // code chat from turn 4, each eviction a 9–14 s first token. 1536 is 2.3× the
+  // longest reply seen; 1024 would have made deep equal quick and removed the
+  // More depth control. Raising it again needs a receipt showing
+  // `finishReason: 'length'` on a real chat turn at 1536.
   it('pins the measured reply ceiling on the 4096/8192-window shipping picks', () => {
     const expected: Record<string, number> = {
-      'candidate/lfm2.5-1.2b-instruct-onnx': 1024,
-      'candidate/lfm2-2.6b-onnx': 1024,
-      'candidate/qwen3.5-2b-onnx': 1024,
+      'candidate/lfm2.5-1.2b-instruct-onnx': 1536,
+      // The f16-less plain-int4 build of the same 1.2B — same ceiling.
+      'candidate/lfm2.5-1.2b-instruct-q4-onnx': 1536,
+      'candidate/lfm2-2.6b-onnx': 1536,
+      'candidate/qwen3.5-2b-onnx': 1536,
     };
     for (const [id, ceiling] of Object.entries(expected)) {
       expect(getModel(id)!.maxNewTokens.ceiling, id).toBe(ceiling);
