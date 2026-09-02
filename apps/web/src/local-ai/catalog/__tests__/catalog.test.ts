@@ -173,7 +173,14 @@ describe('local-ai catalog (Phase C)', () => {
   // measurement. Raising any value here means a fresh headroom run first.
   it('pins the measured per-model context windows', () => {
     const expected: Record<(typeof V1_CATALOG_IDS)[number], number> = {
-      'local/qwen3-0.6b': 4096,
+      // Qwen3-0.6B (the floor rung on both slots): LOWERED 4096 → 2048 on
+      // 2026-09-02 after s38 context probes on a production build (16 GB Apple
+      // Silicon): two-fact recall PASSED at ~2.0k (6.7 s TTFT) and ~2.7k (20.8 s),
+      // then WebGPU "Failed to allocate memory for buffer mapping" at ~3.4k, 4.5k
+      // and 6.8k. A saturated chat sends ~3.5k, so 4096 put long chats past the
+      // failure. 2048 keeps ~1.5k of history after the 512 ceiling. Raising it
+      // needs a pass at ~3.4k on the weakest device class that gets this pick.
+      'local/qwen3-0.6b': 2048,
       // LFM2.5-1.2B: LOWERED 8192 → 4096 on 2026-08-26 after real-WebGPU headroom
       // probes on a 16GB M1 Pro (Chromium, Metal): ~8k input = GPU OOM ("Failed
       // to allocate memory for buffer mapping", runtime left dead); ~6k (chat's
