@@ -35,7 +35,6 @@
 import { expect, test, chromium, type BrowserContext, type Page } from "@playwright/test";
 import { join } from "node:path";
 import {
-  READY_TIMEOUT_MS,
   TURN_TIMEOUT_MS,
   composer,
   setWebBaseUrl,
@@ -59,6 +58,7 @@ import {
   outcomeReceipt,
   provisionPick,
   sendTurn,
+  setWebLookups,
   stopButton,
   switchTo,
   waitForUsableChat,
@@ -137,10 +137,20 @@ const report: AcceptanceReport = {
   picks: [],
 };
 
-test.describe.configure({ mode: "serial" });
+/**
+ * Deliberately NOT `mode: "serial"`. The lane runs one worker with parallelism
+ * off, so the tests already execute in order — what serial mode would add is
+ * SKIPPING every later test once one fails, and that is how the second run of
+ * this lane lost a whole shipping model: the first walk ended red on a
+ * recorded failure and the second walk never ran, leaving the report with no
+ * section for it at all. A model that silently vanishes from the report is the
+ * same defect as a green run with failures in its table.
+ */
 
 test.describe("ten-task acceptance walk", () => {
   let context: BrowserContext;
+  /** The walk currently running, so a death outside a task can still be recorded. */
+  let currentWalk: PickReport | null = null;
 
   test.beforeAll(async () => {
     setWebBaseUrl(BASE_URL);
@@ -153,6 +163,41 @@ test.describe("ten-task acceptance walk", () => {
       viewport: null,
     });
     await stubAuth(context);
+  });
+
+  /**
+   * A walk that dies anywhere still leaves a row saying so.
+   *
+   * Individual tasks already turn their own failures into rows, but a test can
+   * also die outside any of them — a Playwright-level timeout being the case a
+   * try/catch inside the test would never see. Without this, such a walk
+   * contributes an empty table and the report reads as though the model was
+   * never meant to be walked.
+   */
+  // Playwright's "no fixtures" form. A plain parameter here would ask for
+  // every fixture, including a browser this lane does not use.
+  // eslint-disable-next-line no-empty-pattern
+  test.afterEach(({}, testInfo) => {
+    const walk = currentWalk;
+    currentWalk = null;
+    if (!walk || testInfo.status === testInfo.expectedStatus) return;
+    walk.abortedAt = {
+      task: 0,
+      reason: clip(testInfo.error?.message ?? `test ended ${testInfo.status ?? "unknown"}`, 300),
+    };
+    walk.rows.push({
+      task: 0,
+      turn: 0,
+      label: "the walk itself did not finish",
+      modelId: walk.modelId,
+      firstTokenMs: null,
+      kvReason: null,
+      result: "FAIL",
+      evidence: `walk ended ${testInfo.status ?? "unknown"}: ${clip(
+        testInfo.error?.message ?? "no error message",
+        300,
+      )}`,
+    });
   });
 
   test.afterAll(async () => {
@@ -211,6 +256,7 @@ test.describe("ten-task acceptance walk", () => {
         rows: [],
       };
       report.picks.push(pickReport);
+      currentWalk = pickReport;
 
       const push = (row: AcceptanceRow) => {
         pickReport.rows.push(row);
@@ -532,15 +578,7 @@ test.describe("ten-task acceptance walk", () => {
         );
         await offPage.close();
 
-        const settings = await context.newPage();
-        await settings.goto(`${BASE_URL}/settings`, { waitUntil: "commit" });
-        const toggle = settings.getByRole("switch", { name: "Toggle web fact lookups" });
-        await expect(toggle).toBeVisible({ timeout: READY_TIMEOUT_MS });
-        await toggle.click();
-        await expect(toggle).toHaveAttribute("aria-checked", "true", {
-          timeout: READY_TIMEOUT_MS,
-        });
-        await settings.close();
+        await setWebLookups(context, true);
 
         const onPage = await open();
         const on = await sendTurn(onPage, question, LONG_TURN_TIMEOUT_MS);
@@ -560,17 +598,7 @@ test.describe("ten-task acceptance walk", () => {
         await onPage.close();
 
         // Leave the device as we found it — lookups are off by default.
-        const reset = await context.newPage();
-        await reset.goto(`${BASE_URL}/settings`, { waitUntil: "commit" });
-        const resetToggle = reset.getByRole("switch", { name: "Toggle web fact lookups" });
-        await expect(resetToggle).toBeVisible({ timeout: READY_TIMEOUT_MS });
-        if ((await resetToggle.getAttribute("aria-checked")) === "true") {
-          await resetToggle.click();
-          await expect(resetToggle).toHaveAttribute("aria-checked", "false", {
-            timeout: READY_TIMEOUT_MS,
-          });
-        }
-        await reset.close();
+        await setWebLookups(context, false);
       });
 
       // ── 10. Kill the tab mid-generation, reopen ───────────────────────────
@@ -635,17 +663,33 @@ test.describe("ten-task acceptance walk", () => {
         await page.close().catch(() => undefined);
       });
 
-      // The exit status follows the report, or the report is a wish. A walk
-      // whose table carries FAIL rows must end red — an EXPECTED-FAIL is the
-      // one verdict that is allowed not to, because it names a gap that is
-      // already known and being tracked.
-      const failures = pickReport.rows.filter((row) => row.result === "FAIL");
-      expect(
-        failures.map(
-          (row) => `task ${row.task}.${row.turn} — ${row.label}: ${clip(row.evidence, 120)}`,
-        ),
-        `${pick.tileName} recorded failures; the full table is in test-results/acceptance-report.md`,
-      ).toEqual([]);
     });
   }
+
+  /**
+   * The exit status follows the report, or the report is a wish.
+   *
+   * It lives in its own test, after both walks, on purpose: asserting inside a
+   * walk makes that walk red, and a red walk is exactly what would stop the
+   * next model from being walked at all.
+   */
+  test("both models walked, and nothing failed that was not expected to", () => {
+    const missing = PICKS.filter(
+      (pick) => !report.picks.some((entry) => entry.modelId === pick.modelId),
+    ).map((pick) => pick.tileName);
+    expect(missing, "a shipping model produced no table at all").toEqual([]);
+
+    const failures = report.picks.flatMap((entry) =>
+      entry.rows
+        .filter((row) => row.result === "FAIL")
+        .map(
+          (row) =>
+            `${entry.label} task ${row.task}.${row.turn} — ${row.label}: ${clip(row.evidence, 120)}`,
+        ),
+    );
+    expect(
+      failures,
+      "the walk recorded failures; the full tables are in test-results/acceptance-report.md",
+    ).toEqual([]);
+  });
 });

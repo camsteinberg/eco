@@ -423,3 +423,38 @@ export async function switchTo(page: Page, pick: Pick): Promise<string> {
   await expectTriggerNames(page, pick);
   return (await modelSelectorTrigger(page).getAttribute("aria-label")) ?? "";
 }
+
+/**
+ * Turn web fact lookups on or off the way a person does.
+ *
+ * The switch is not on the chat page: it lives on the Eco tab of Settings,
+ * which is `?tab=models` (see `components/settings/settingsNavigation`). The
+ * preference is stored encrypted in IndexedDB, so there is no localStorage
+ * shortcut — the UI is the only honest way in, and it is the thing worth
+ * exercising anyway.
+ *
+ * Idempotent: a switch already in the wanted position is left alone.
+ */
+export async function setWebLookups(
+  context: BrowserContext,
+  enabled: boolean,
+): Promise<void> {
+  const page = await context.newPage();
+  try {
+    await page.goto(`${getWebBaseUrl()}/settings?tab=models`, { waitUntil: "commit" });
+    const toggle = page.getByRole("switch", { name: "Toggle web fact lookups" });
+    await expect(
+      toggle,
+      "the web-lookups switch was not on the Eco tab of Settings",
+    ).toBeVisible({ timeout: READY_TIMEOUT_MS });
+    const want = String(enabled);
+    if ((await toggle.getAttribute("aria-checked")) !== want) {
+      await toggle.click();
+    }
+    await expect(toggle).toHaveAttribute("aria-checked", want, {
+      timeout: READY_TIMEOUT_MS,
+    });
+  } finally {
+    await page.close().catch(() => undefined);
+  }
+}
