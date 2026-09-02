@@ -39,16 +39,36 @@ describe("datetimeTool.match — current date/time/day true positives", () => {
 
 describe("datetimeTool.match — date arithmetic true positives", () => {
   it("matches '90 days from today' as an offset", () => {
-    expect(match("what day is 90 days from today")).toEqual({ op: "offset", days: 90 });
+    expect(match("what day is 90 days from today")).toEqual({ op: "offset", unit: "day", count: 90 });
   });
   it("matches '30 days from now'", () => {
-    expect(match("30 days from now")).toEqual({ op: "offset", days: 30 });
+    expect(match("30 days from now")).toEqual({ op: "offset", unit: "day", count: 30 });
   });
   it("matches '7 days ago' as a negative offset", () => {
-    expect(match("what was the date 7 days ago")).toEqual({ op: "offset", days: -7 });
+    expect(match("what was the date 7 days ago")).toEqual({ op: "offset", unit: "day", count: -7 });
   });
   it("matches 'what's the date in 30 days'", () => {
-    expect(match("what's the date in 30 days")).toEqual({ op: "offset", days: 30 });
+    expect(match("what's the date in 30 days")).toEqual({ op: "offset", unit: "day", count: 30 });
+  });
+  // Weeks, months and years (the acceptance script's phrase, s39: "what date is
+  // 6 weeks from today" fell through to the current-date branch and answered
+  // with today's date — a confident card for a different question).
+  it("matches '6 weeks from today' as a week offset", () => {
+    expect(match("what date is 6 weeks from today")).toEqual({ op: "offset", unit: "week", count: 6 });
+  });
+  it("matches '3 months from now'", () => {
+    expect(match("3 months from now")).toEqual({ op: "offset", unit: "month", count: 3 });
+  });
+  it("matches 'what's the date in 2 weeks'", () => {
+    expect(match("what's the date in 2 weeks")).toEqual({ op: "offset", unit: "week", count: 2 });
+  });
+  it("matches '2 years ago' as a negative year offset", () => {
+    expect(match("what was the date 2 years ago")).toEqual({ op: "offset", unit: "year", count: -2 });
+  });
+  it("abstains on an offset from a weekday rather than today (never a current-date card)", () => {
+    expect(match("what day is 6 weeks from Tuesday")).toBeNull();
+    expect(match("what date is 3 weeks from Friday")).toBeNull();
+    expect(match("what's the date 2 months after March 3")).toBeNull();
   });
   it("matches 'days until 2026-12-25'", () => {
     expect(match("days until 2026-12-25")).toEqual({ op: "until", target: "2026-12-25" });
@@ -160,7 +180,7 @@ describe("datetimeTool.match — offsets are scoped to the ask, not the paste", 
   });
 
   it("still matches when the offset phrase is essentially the whole turn", () => {
-    expect(match("30 days ago")).toEqual({ op: "offset", days: -30 });
+    expect(match("30 days ago")).toEqual({ op: "offset", unit: "day", count: -30 });
   });
 
   it("still matches a long turn that carries a date cue", () => {
@@ -170,7 +190,7 @@ describe("datetimeTool.match — offsets are scoped to the ask, not the paste", 
       "is a whole other argument. Anyway: what day was 30 days ago, so I can count forward " +
       "from there and stop guessing at this?";
     expect(longAsk.length).toBeGreaterThan(280);
-    expect(match(longAsk)).toEqual({ op: "offset", days: -30 });
+    expect(match(longAsk)).toEqual({ op: "offset", unit: "day", count: -30 });
   });
 });
 
@@ -203,7 +223,7 @@ describe("datetimeTool.execute — deterministic with fixed now", () => {
   });
 
   it("computes a positive offset (90 days from today)", () => {
-    const result = executeDatetime({ op: "offset", days: 90 }, FIXED_NOW);
+    const result = executeDatetime({ op: "offset", unit: "day", count: 90 }, FIXED_NOW);
     expect(result.ok).toBe(true);
     // 2026-06-15 + 90 days = 2026-09-13.
     expect(result.display).toContain("September");
@@ -212,11 +232,43 @@ describe("datetimeTool.execute — deterministic with fixed now", () => {
   });
 
   it("computes a negative offset (7 days ago)", () => {
-    const result = executeDatetime({ op: "offset", days: -7 }, FIXED_NOW);
+    const result = executeDatetime({ op: "offset", unit: "day", count: -7 }, FIXED_NOW);
     expect(result.ok).toBe(true);
     // 2026-06-15 - 7 days = 2026-06-08.
     expect(result.display).toContain("8");
     expect(result.display).toContain("7 days ago");
+  });
+
+  it("computes a week offset (6 weeks from today)", () => {
+    const result = executeDatetime({ op: "offset", unit: "week", count: 6 }, FIXED_NOW);
+    expect(result.ok).toBe(true);
+    // 2026-06-15 + 42 days = 2026-07-27.
+    expect(result.display).toContain("July 27, 2026");
+    expect(result.display).toContain("6 weeks from today");
+    expect(result.display).not.toContain("Today is");
+  });
+
+  it("computes a month offset by calendar month, clamped to the month's end", () => {
+    const jan31 = new Date(2026, 0, 31, 9, 0, 0);
+    const result = executeDatetime({ op: "offset", unit: "month", count: 1 }, jan31);
+    expect(result.ok).toBe(true);
+    // January 31 + 1 month is the end of February, not March 3.
+    expect(result.display).toContain("February 28, 2026");
+    expect(result.display).toContain("1 month from today");
+  });
+
+  it("computes a negative month offset (3 months ago)", () => {
+    const result = executeDatetime({ op: "offset", unit: "month", count: -3 }, FIXED_NOW);
+    expect(result.ok).toBe(true);
+    expect(result.display).toContain("March 15, 2026");
+    expect(result.display).toContain("3 months ago");
+  });
+
+  it("computes a year offset from a leap day, clamped", () => {
+    const leap = new Date(2028, 1, 29, 9, 0, 0);
+    const result = executeDatetime({ op: "offset", unit: "year", count: 1 }, leap);
+    expect(result.ok).toBe(true);
+    expect(result.display).toContain("February 28, 2029");
   });
 
   it("computes days until a future date", () => {
@@ -287,7 +339,7 @@ describe("datetimeTool.validate", () => {
     expect(validate({ op: "current", kind: "date" } satisfies DatetimeArgs)).toBe(true);
   });
   it("accepts valid offset args", () => {
-    expect(validate({ op: "offset", days: 5 } satisfies DatetimeArgs)).toBe(true);
+    expect(validate({ op: "offset", unit: "day", count: 5 } satisfies DatetimeArgs)).toBe(true);
   });
   it("accepts valid until args", () => {
     expect(validate({ op: "until", target: "2026-12-25" } satisfies DatetimeArgs)).toBe(true);
@@ -298,8 +350,13 @@ describe("datetimeTool.validate", () => {
   it("rejects malformed until target", () => {
     expect(validate({ op: "until", target: "Dec 25" })).toBe(false);
   });
+  it("accepts week/month/year offsets and rejects an unknown unit", () => {
+    expect(validate({ op: "offset", unit: "week", count: 6 } satisfies DatetimeArgs)).toBe(true);
+    expect(validate({ op: "offset", unit: "month", count: -3 } satisfies DatetimeArgs)).toBe(true);
+    expect(validate({ op: "offset", unit: "fortnight", count: 1 })).toBe(false);
+  });
   it("rejects non-finite offset", () => {
-    expect(validate({ op: "offset", days: Number.NaN })).toBe(false);
+    expect(validate({ op: "offset", unit: "day", count: Number.NaN })).toBe(false);
   });
   it("rejects null / non-object", () => {
     expect(validate(null)).toBe(false);
@@ -317,10 +374,12 @@ describe("datetimeTool.summarize — friendly headline", () => {
   });
 
   it("frames offsets with direction + pluralization", () => {
-    expect(datetimeTool.summarize?.({ op: "offset", days: 90 })).toBe("90 days from today");
-    expect(datetimeTool.summarize?.({ op: "offset", days: 1 })).toBe("1 day from today");
-    expect(datetimeTool.summarize?.({ op: "offset", days: -30 })).toBe("30 days ago");
-    expect(datetimeTool.summarize?.({ op: "offset", days: -1 })).toBe("1 day ago");
+    expect(datetimeTool.summarize?.({ op: "offset", unit: "day", count: 90 })).toBe("90 days from today");
+    expect(datetimeTool.summarize?.({ op: "offset", unit: "day", count: 1 })).toBe("1 day from today");
+    expect(datetimeTool.summarize?.({ op: "offset", unit: "day", count: -30 })).toBe("30 days ago");
+    expect(datetimeTool.summarize?.({ op: "offset", unit: "day", count: -1 })).toBe("1 day ago");
+    expect(datetimeTool.summarize?.({ op: "offset", unit: "week", count: 6 })).toBe("6 weeks from today");
+    expect(datetimeTool.summarize?.({ op: "offset", unit: "month", count: -1 })).toBe("1 month ago");
   });
 
   it("frames a days-until question with the target date", () => {

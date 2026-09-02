@@ -26,6 +26,7 @@ function detectTool(input: string) {
 describe("acceptance phrases — tool cards that must show", () => {
   const cases: { input: string; tool: string; displayContains: string }[] = [
     { input: "What's 18% of $62.50", tool: "calculator", displayContains: "= 11.25" },
+    { input: "what date is 6 weeks from today", tool: "datetime", displayContains: "6 weeks from today is" },
   ];
 
   for (const { input, tool, displayContains } of cases) {
@@ -48,6 +49,9 @@ describe("acceptance phrases — conversational turns that must NOT fire a tool"
     "Groceries run me around $400, and I spend $120 on transit.",
     "What was my rent again?",
     "Can you make that shorter?",
+    // An offset from a weekday, not today: the tool must abstain rather than
+    // answer a different question with a confident card (s39).
+    "what day is 6 weeks from Tuesday",
   ];
 
   for (const input of cases) {
