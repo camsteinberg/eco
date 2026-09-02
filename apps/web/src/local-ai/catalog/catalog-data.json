@@ -102,6 +102,7 @@
       "shipping": true,
       "tier": { "eco-fast": "capable" },
       "_provenance": {
+        "maxNewTokens.ceiling": "MEASURED 2026-09-02 (s40, production build, 16 GB Apple Silicon Chromium) \u2014 LOWERED 2048 \u2192 1024. Selection reserves the ceiling against the window before the intent is known, so 2048 halved a 4096 window: a 10-turn budgeting chat evicted from turn 5 on the 2.6B and turn 9 on the 1.2B, a 10-turn code-and-writing chat from turn 4, at 9\u201314 s first token per eviction. Replies over those 39 turns ran 15\u2013656 tokens (longest: a pytest file on the 2.6B). 1024 is 1.5\u00d7 the longest reply seen. The `deep`/`code`/`file`/`research` intentTokens authored at 2048 now clamp to 1024 (read the resolved value as min(intent, max, ceiling)). Falsifier: a receipt with finishReason 'length' on a real chat turn at 1024, or a chat type whose replies measure above ~700 tokens. Qwen3.5-2B: same number, NOT separately measured on the chat path this session (Cam, s40: consistency over a third unmeasured value).",
         "tier.eco-fast": "MEASURED (model-ladder by-eye read, 2026-08-09) — LFM2.5-1.2B-instruct is the default recommendation on any device that can run it. This REVERSES the 2026-06-13 everyday-swap to Qwen3.5-2B. That swap graduated on a rubric-scored bake-off; a by-eye read on real WebGPU (the rubric cannot see answer quality — it scored reader-rejected output 1.00) found the 2B buys no clear everyday-quality gain over the 1.2B while costing ~2–4× the speed, AND it hallucinates on open-knowledge asks (fabricated Roman history) and mangles simple reasoning (bat-and-ball headlined \"$0.10\"). The 1.2B is the fast, accurate everyday workhorse: ~300ms first token / ~51 tok/s / ~4s per answer vs the 2B's ~567ms / ~23 tok/s / ~15.5s. Evidence: m2-evidence/model-ladder-by-eye-2026-08-09.md and deeper-tier-read-by-eye-2026-08-09.md. The 2B is NOT removed — it stays selectable via Settings (\"Choose your own\"). Falsifier: a by-eye read on real WebGPU, scored by someone who did not author the change, in which the 2B (or a successor) beats the 1.2B on everyday answer quality without the ~2–4× speed cost. A rubric score alone does NOT falsify this — a rubric is what got it wrong in 2026-06-13."
       },
       "friendlyName": "LFM2.5 1.2B",
@@ -127,7 +128,7 @@
         }
       },
       "maxNewTokens": {
-        "ceiling": 2048,
+        "ceiling": 1024,
         "default": 1024,
         "max": 4096,
         "intentTokens": { "quick": 1024, "explain": 1536, "deep": 2048, "code": 2048, "writing": 1536, "file": 2048, "research": 2048 }
@@ -385,10 +386,13 @@
         }
       },
       "maxNewTokens": {
-        "ceiling": 2048,
+        "ceiling": 1024,
         "default": 1024,
         "max": 4096,
         "intentTokens": { "quick": 1024, "explain": 1536, "deep": 2048, "code": 2048, "writing": 1536, "file": 2048, "research": 2048 }
+      },
+      "_provenance": {
+        "maxNewTokens.ceiling": "MEASURED 2026-09-02 (s40, production build, 16 GB Apple Silicon Chromium) \u2014 LOWERED 2048 \u2192 1024. Selection reserves the ceiling against the window before the intent is known, so 2048 halved a 4096 window: a 10-turn budgeting chat evicted from turn 5 on the 2.6B and turn 9 on the 1.2B, a 10-turn code-and-writing chat from turn 4, at 9\u201314 s first token per eviction. Replies over those 39 turns ran 15\u2013656 tokens (longest: a pytest file on the 2.6B). 1024 is 1.5\u00d7 the longest reply seen. The `deep`/`code`/`file`/`research` intentTokens authored at 2048 now clamp to 1024 (read the resolved value as min(intent, max, ceiling)). Falsifier: a receipt with finishReason 'length' on a real chat turn at 1024, or a chat type whose replies measure above ~700 tokens. Qwen3.5-2B: same number, NOT separately measured on the chat path this session (Cam, s40: consistency over a third unmeasured value)."
       },
       "compat": {
         "requireWebgpu": true,
@@ -777,6 +781,7 @@
       "shipping": true,
       "tier": { "eco-smart": "capable" },
       "_provenance": {
+        "maxNewTokens.ceiling": "MEASURED 2026-09-02 (s40, production build, 16 GB Apple Silicon Chromium) \u2014 LOWERED 2048 \u2192 1024. Selection reserves the ceiling against the window before the intent is known, so 2048 halved a 4096 window: a 10-turn budgeting chat evicted from turn 5 on the 2.6B and turn 9 on the 1.2B, a 10-turn code-and-writing chat from turn 4, at 9\u201314 s first token per eviction. Replies over those 39 turns ran 15\u2013656 tokens (longest: a pytest file on the 2.6B). 1024 is 1.5\u00d7 the longest reply seen. The `deep`/`code`/`file`/`research` intentTokens authored at 2048 now clamp to 1024 (read the resolved value as min(intent, max, ceiling)). Falsifier: a receipt with finishReason 'length' on a real chat turn at 1024, or a chat type whose replies measure above ~700 tokens. Qwen3.5-2B: same number, NOT separately measured on the chat path this session (Cam, s40: consistency over a third unmeasured value).",
         "tier.eco-smart": "MEASURED (by-eye read on real WebGPU, 2026-08-10) — the graduated deeper tier. The rubric-scored chat #7 bake-off had ranked Qwen3.5-2B over LFM2-2.6B, but a by-eye read found the 2.6B clearly beats the 2B on reasoning, history and code at equal speed (the rubric cannot see answer quality). Holding this rung re-splits the slots that the 2026-08-09 read had collapsed onto the 1.2B: eco-fast stays the fast everyday default and eco-smart is the deeper opt-in, which the model selector's pair (`deriveFirstRunChoices`, which asks for `recommend('eco-smart')`) surfaces as a genuine \"deeper\" download. The pair only ever offers a device a step UP: the size guard in `deriveFirstRunChoices` never offers a deeper tile that isn't a genuine step up in size, and the 1.2B everyday default (0.76GB) -> the 2.6B (1.65GB) is a real up-size. A fresh device still chats on the 1.2B first; the deeper model is opt-in, never auto-pushed. Existing 2B users keep their 2B (it stays selectable via Settings). Falsifier: a second-machine by-eye read in which the 2.6B does not beat the 2B on reasoning/history/code, or a deeper candidate that does so at the same speed and size step."
       },
       "friendlyName": "LFM2 2.6B",
@@ -802,7 +807,7 @@
         }
       },
       "maxNewTokens": {
-        "ceiling": 2048,
+        "ceiling": 1024,
         "default": 1024,
         "max": 4096,
         "intentTokens": { "quick": 1024, "explain": 1536, "deep": 2048, "code": 2048, "writing": 1536, "file": 2048, "research": 2048 }

@@ -220,6 +220,26 @@ describe('local-ai catalog (Phase C)', () => {
     }
   });
 
+  // The reply ceiling is what context-window selection reserves for the reply
+  // before the turn's intent is known, so it halves a 4096 window when set to
+  // 2048. MEASURED 2026-09-02 (s40, production build, 16 GB Apple Silicon):
+  // across a 10-turn budgeting chat and a 10-turn code-and-writing chat on the
+  // 2.6B, plus s39's 19 turns on the 1.2B, the longest reply was 656 tokens;
+  // at 2048 the budgeting chat evicted from turn 5 (Deeper) / 9 (Fast) and the
+  // code chat from turn 4, each eviction a 9–14 s first token. 1024 leaves 1.5×
+  // headroom over the longest reply seen. Raising it again needs a receipt
+  // showing `finishReason: 'length'` on a real chat turn at 1024.
+  it('pins the measured reply ceiling on the 4096/8192-window shipping picks', () => {
+    const expected: Record<string, number> = {
+      'candidate/lfm2.5-1.2b-instruct-onnx': 1024,
+      'candidate/lfm2-2.6b-onnx': 1024,
+      'candidate/qwen3.5-2b-onnx': 1024,
+    };
+    for (const [id, ceiling] of Object.entries(expected)) {
+      expect(getModel(id)!.maxNewTokens.ceiling, id).toBe(ceiling);
+    }
+  });
+
   // systemRoleSupport is the per-model strategy normalizeMessagesForTemplate
   // applies before apply_chat_template; it must match what each model's real
   // chat template actually supports. Audited against the pinned tokenizers
