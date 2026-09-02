@@ -41,6 +41,11 @@ function model(id: string): ModelConfig {
   return m;
 }
 
+/** The same entry with a different context window (no shipping entry is at the 2048 floor any more). */
+function withContext(m: ModelConfig, contextTokens: number): ModelConfig {
+  return { ...m, capabilities: { ...m.capabilities, contextTokens } };
+}
+
 describe('INTENT_WEIGHTS', () => {
   it.each(['snappy', 'balanced', 'quality'] as const)('weights for %s sum to 1', (intent) => {
     const w = INTENT_WEIGHTS[intent];
@@ -123,21 +128,21 @@ describe('scoreContextFit', () => {
     // 8192-token window (at the target) beats a 4096 window beats a 2048 window (at the floor).
     const long = scoreContextFit(model('candidate/qwen3.5-2b-onnx')); // ctx 8192
     const mid = scoreContextFit(model('candidate/lfm2.5-350m-onnx')); // ctx 4096
-    const short = scoreContextFit(model('candidate/gemma-4-e2b-litert')); // ctx 2048
+    const short = scoreContextFit(withContext(model('candidate/gemma-4-e2b-litert'), 2048));
     expect(long).toBeGreaterThan(mid);
     expect(mid).toBeGreaterThan(short);
   });
 
   it('saturates: 1 at/above the target window, 0 at/below the floor', () => {
     expect(scoreContextFit(model('candidate/qwen3.5-2b-onnx'))).toBe(1); // ctx 8192 = target
-    expect(scoreContextFit(model('candidate/gemma-4-e2b-litert'))).toBe(0); // ctx 2048 = floor
+    expect(scoreContextFit(withContext(model('candidate/gemma-4-e2b-litert'), 2048))).toBe(0); // floor
   });
 
   it('is decoupled from sizeGB — the largest model here scores lowest', () => {
-    // gemma-4-e2b-litert is the biggest catalog model (1.87 GB) yet has the
-    // SHORTEST window (2048 → 0); the 350M (0.28 GB) scores higher. Context
+    // gemma-4-e2b-litert is the biggest catalog model (1.87 GB); pinned here
+    // at the 2048 floor (→ 0), the 350M (0.28 GB) scores higher. Context
     // capability, not size, drives this axis (memoryFit already carries size).
-    const biggestModel = scoreContextFit(model('candidate/gemma-4-e2b-litert'));
+    const biggestModel = scoreContextFit(withContext(model('candidate/gemma-4-e2b-litert'), 2048));
     const tinyModel = scoreContextFit(model('candidate/lfm2.5-350m-onnx'));
     expect(tinyModel).toBeGreaterThan(biggestModel);
   });
