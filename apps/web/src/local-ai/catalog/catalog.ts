@@ -86,8 +86,11 @@ const SLOTS: readonly Slot[] = ['eco-fast', 'eco-smart'];
 /**
  * The tier ladder, best rung first. `selection/recommend.ts` walks it in this
  * order, so the array IS the fallback order — see {@link ModelTierAssignment}.
+ * `light` and `webkit-mobile` were added in R5c when the fit scorer was
+ * deleted (see `ModelTier`'s doc comment for what each rung means).
  */
-export const TIER_ORDER: readonly ModelTier[] = ['capable', 'laptop', 'phone', 'floor'];
+export const TIER_ORDER: readonly ModelTier[] =
+  ['capable', 'laptop', 'phone', 'floor', 'light', 'webkit-mobile'];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);

@@ -288,22 +288,46 @@ export type ModelQuirks = {
 
 /**
  * The device class a model is the *default* pick for. `preferredModelIdForSlot`
- * walks these best-first — `capable` -> `laptop` -> `phone` -> `floor` — and
- * takes the first rung this device can actually run, so a weaker device steps
- * down the ladder instead of falling back to whatever fit-scoring surfaced.
+ * (and every other consumer of `recommend()`) walks these best-first —
+ * `capable` -> `laptop` -> `phone` -> `floor` -> `light` -> `webkit-mobile` —
+ * and takes the first rung this device can actually run, so a weaker device
+ * steps down the ladder. This IS the recommendation engine (Phase R5c deleted
+ * the six-axis fit scorer that used to sit alongside it — a rung is now the
+ * only mechanism, not a tie-breaker input).
  *
- *   - `capable`  WebGPU with `shader-f16`: the everyday q4f16 picks.
- *   - `laptop`   WebGPU without `shader-f16`: the plain-int4 / LiteRT builds.
- *   - `phone`    no WebGPU at all (ort-web CPU EP): the `requireWasmOnly` picks.
- *   - `floor`    the universal small fallback, tried last on every device.
+ *   - `capable`       WebGPU with `shader-f16`: the everyday q4f16 picks.
+ *   - `laptop`        WebGPU without `shader-f16`, Chromium: the plain-int4 /
+ *                      LiteRT builds.
+ *   - `phone`         no WebGPU at all (ort-web CPU EP): the `requireWasmOnly` picks.
+ *   - `floor`         the universal small fallback, tried on every device
+ *                      whose f16 status is either unprobed or matches its
+ *                      q4f16 build's requirement.
+ *   - `light`         last resort before `webkit-mobile`: a WebGPU-general
+ *                      (not Chromium-only, not wasm-only) light pick for a
+ *                      device niche where `floor`'s own occupant is
+ *                      unassignable — e.g. an f16-LESS adapter, where a
+ *                      q4f16 `floor` model is gated off by the shader-f16
+ *                      check but this rung's plain-int4 build still loads.
+ *                      Ordered AFTER `floor`, not before it: `floor`'s
+ *                      occupant must win whenever it is genuinely assignable
+ *                      (an unprobed-f16 profile keeps it assignable), so
+ *                      `light` may only be reached when `floor` itself
+ *                      is not.
+ *   - `webkit-mobile` iOS/WebKit-mobile: EVERY onnx build (incl. `floor`) is
+ *                      declined there before any capability check (see
+ *                      `device/compatibility.ts` `isWebKitMobile`), so this
+ *                      rung's occupant is the sole model that class can ever
+ *                      run — it never competes with another rung's occupant.
  *
- * FOUR rungs, not three device classes: the CPU-only picks and the universal
- * floor are BOTH reachable on a `wasm-only` device (the CPU picks win there), so
- * collapsing them into one rung would change which model such a device is
- * offered. The rung is per-slot — `eco-fast` and `eco-smart` climb separate
- * ladders — and a model that is nobody's default carries an empty assignment.
+ * Rungs beyond the original four exist because a device niche had NO
+ * assignable model among the four rung occupants while exactly one other
+ * catalog entry WAS assignable there — see each entry's `tier` provenance
+ * (measured 2026-09-01: tier-walk vs scorer diff over 750 profiles, the only
+ * assignable model on those cells). The rung is per-slot — `eco-fast` and
+ * `eco-smart` climb separate ladders — and a model that is nobody's default
+ * carries an empty assignment.
  */
-export type ModelTier = 'capable' | 'laptop' | 'phone' | 'floor';
+export type ModelTier = 'capable' | 'laptop' | 'phone' | 'floor' | 'light' | 'webkit-mobile';
 
 /** Which slot(s) a model is the tier default for. Empty = never a default. */
 export type ModelTierAssignment = Readonly<Partial<Record<Slot, ModelTier>>>;

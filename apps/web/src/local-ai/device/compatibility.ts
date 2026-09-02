@@ -18,9 +18,11 @@
  *   - `selection/recommend.ts` refuses to return any model where
  *     `isAssignable(model, profile)` is false.
  *   - `evidence/admission.ts` maps `'with-warning'` to a with-warning
- *     admission, which `selection/fit-scoring.ts` scores at 0.6 instead of
- *     1.0. The Switch dialog shows no warning tag (every surfaced entry is
- *     admitted); the caveat lowers a model's rank, it does not label it.
+ *     admission (`reliabilityFromDecision` in `selection/recommend.ts` reads
+ *     it as 0.6, still exposed on `RecommendationCandidate.reliability`
+ *     though nothing ranks on it post-R5c). The Switch dialog shows no
+ *     warning tag (every surfaced entry is admitted); the caveat is
+ *     informational, not a label.
  */
 
 import type { DeviceProfile, ModelCompat, ModelConfig } from '../types';

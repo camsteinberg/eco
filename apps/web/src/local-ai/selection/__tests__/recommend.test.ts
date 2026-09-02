@@ -16,13 +16,22 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { getCatalog, getModel } from '../../catalog/catalog';
+import { getCatalog, getModel, TIER_ORDER } from '../../catalog/catalog';
 import { isAssignable } from '../../device/compatibility';
+import { enumerateProfiles } from '../../device-coverage/device-matrix';
 import { CURRENT_LEDGER_VERSION, FAILURE_EVIDENCE_VALID_FROM, profileKey } from '../../evidence/ledger';
 import { canServe, listCandidates, listCatalog, NoAssignableModelError, recommend, starterModelForSlot, tierDefaultModelId } from '../recommend';
 import { isBelowFloor } from '../../device/below-floor';
 import { deriveFirstRunChoices } from '../first-run-choices';
-import type { DeviceProfile } from '../../types';
+import type { DeviceProfile, ModelConfig, Slot } from '../../types';
+
+/** Mirrors recommend.ts's (unexported) tierRank: lower is better, untiered sorts last. */
+function tierRankOf(model: ModelConfig, slot: Slot): number {
+  const tier = model.tier?.[slot];
+  if (tier === undefined) return TIER_ORDER.length;
+  const idx = TIER_ORDER.indexOf(tier);
+  return idx === -1 ? TIER_ORDER.length : idx;
+}
 
 /** A stable clock safely after the failure-evidence epoch so rows seeded with
  *  `new Date().toISOString()` are never pre-epoch. */
@@ -413,24 +422,27 @@ describe('listCandidates', () => {
     }
   });
 
-  it('returns LFM2.5-1.2B first (preferred default) then remaining by score descending', () => {
+  it('returns LFM2.5-1.2B first (preferred default) then remaining by tier rank', () => {
     const ranked = listCandidates('eco-fast', PROFILE_24GB);
     // The default should be promoted to position 0 on capable devices.
     expect(ranked[0]!.model.id).toBe('candidate/lfm2.5-1.2b-instruct-onnx');
-    // Remaining entries (after the promoted default) are score-descending.
+    // Remaining entries (after the promoted default) are tier-rank ascending
+    // (lower rung index = better; untiered models sort last).
     for (let i = 2; i < ranked.length; i++) {
-      expect(ranked[i - 1]!.score.total).toBeGreaterThanOrEqual(ranked[i]!.score.total);
+      expect(tierRankOf(ranked[i - 1]!.model, 'eco-fast'))
+        .toBeLessThanOrEqual(tierRankOf(ranked[i]!.model, 'eco-fast'));
     }
   });
 
-  it('returns the deeper LFM2-2.6B first for eco-smart (preferred smart pick), score order after', () => {
+  it('returns the deeper LFM2-2.6B first for eco-smart (preferred smart pick), tier rank order after', () => {
     const ranked = listCandidates('eco-smart', PROFILE_24GB);
     expect(ranked[0]!.model.id).toBe('candidate/lfm2-2.6b-onnx');
     for (let i = 2; i < ranked.length; i++) {
-      expect(ranked[i - 1]!.score.total).toBeGreaterThanOrEqual(ranked[i]!.score.total);
+      expect(tierRankOf(ranked[i - 1]!.model, 'eco-smart'))
+        .toBeLessThanOrEqual(tierRankOf(ranked[i]!.model, 'eco-smart'));
     }
     // The smart-pick promotion also drives the cascade: a smoke failure on the
-    // smart pick falls back to the natural score ranking, never to nothing.
+    // smart pick falls back to the natural tier-rank ordering, never to nothing.
     expect(ranked.length).toBeGreaterThan(1);
   });
 
@@ -500,13 +512,17 @@ describe('listCatalog', () => {
     expect(Array.isArray(r.available)).toBe(true);
   });
 
-  it('ranks LFM2.5-1.2B first (preferred default) then remaining by fit score', () => {
+  it('ranks LFM2.5-1.2B first (preferred default) then remaining by best-slot tier rank', () => {
     const r = listCatalog(PROFILE_24GB);
     // The default should be promoted to position 0 on capable devices.
     expect(r.available[0]!.model.id).toBe('candidate/lfm2.5-1.2b-instruct-onnx');
-    // Remaining entries (after the promoted default) are score-descending.
+    // Remaining entries (after the promoted default) are tier-rank ascending,
+    // ranked by each model's BEST rung across either slot (the flat list is
+    // slotless).
+    const bestRank = (model: ModelConfig): number =>
+      Math.min(tierRankOf(model, 'eco-fast'), tierRankOf(model, 'eco-smart'));
     for (let i = 2; i < r.available.length; i++) {
-      expect(r.available[i - 1]!.scoreTotal).toBeGreaterThanOrEqual(r.available[i]!.scoreTotal);
+      expect(bestRank(r.available[i - 1]!.model)).toBeLessThanOrEqual(bestRank(r.available[i]!.model));
     }
   });
 
@@ -962,5 +978,38 @@ describe('recommend — WebKit-mobile MLC entry is additive only', () => {
     expect(listCandidates('eco-fast', iosSafariWebgpu).length).toBeGreaterThan(0);
     expect(recommend('eco-fast', iosSafariWebgpu).id).toBe(MLC_ID);
     expect(recommend('eco-smart', iosSafariWebgpu).id).toBe(MLC_ID);
+  });
+});
+
+// Phase R5c deleted the six-axis fit scorer (fit-scoring.ts, predicted-fit.ts):
+// it was measured (750 profiles × 2 slots) to never change which model
+// recommend() returned. The tier walk (TIER_ORDER, best-first, first
+// assignable rung wins) is now THE mechanism, not a tie-break input on top of
+// a scorer. This is trivially true today by construction — it exists to pin
+// that fact so a future PR can't quietly reintroduce a second, scoring-based
+// decision path without this test naming what broke.
+describe('recommend — tier walk is the only ranking mechanism (no scorer, pinned)', () => {
+  it('recommend() always agrees with a bare tier-only walk, for every enumerated profile × slot', () => {
+    const profiles = enumerateProfiles();
+    const slots: Slot[] = ['eco-fast', 'eco-smart'];
+
+    const tierOnlyPick = (slot: Slot, profile: DeviceProfile): string | null => {
+      for (const tier of TIER_ORDER) {
+        const model = getCatalog().find((m) => m.tier[slot] === tier);
+        if (model !== undefined && isAssignable(model, profile)) return model.id;
+      }
+      return null;
+    };
+
+    let checked = 0;
+    for (const profile of profiles) {
+      for (const slot of slots) {
+        let actual: string | null = null;
+        try { actual = recommend(slot, profile).id; } catch { actual = null; }
+        expect(actual, `${slot} on ${JSON.stringify(profile)}`).toBe(tierOnlyPick(slot, profile));
+        checked++;
+      }
+    }
+    expect(checked).toBeGreaterThan(0);
   });
 });
