@@ -225,6 +225,7 @@ export const CONTEXT_STRESS_PROBES: readonly EvalPromptSpec[] = [
  *   | LFM2.5-350M          |  ~7,900 | 52.0 s | FAIL (recall lost: "Noted.")      |
  *   | LFM2.5-1.2B int4     |  ~4,515 | 29.5 s | PASS                              |
  *   | SmolLM2-360M         |  ~4,515 | 30.7 s | PASS                              |
+ *   | LFM2-2.6B            |  ~4,515 | 38.9 s | PASS                              |
  *   | Qwen3-0.6B           |  ~2,000 |  6.7 s | PASS                              |
  *   | Qwen3-0.6B           |  ~2,700 | 20.8 s | PASS                              |
  *   | Qwen3-0.6B           |  ~3,400 |      — | FAIL: WebGPU "Failed to allocate  |
