@@ -59,7 +59,7 @@ import type {
   WorkerOutbound,
 } from '../local-ai/runtime/transformers-adapter';
 import { toTransformersGenerateArgs } from '../local-ai/runtime/transformers-generate-args';
-import { buildKvReuseReport } from '../local-ai/runtime/kv-cache';
+import { buildKvReuseReport, divergenceWindow } from '../local-ai/runtime/kv-cache';
 import { appendContinuation, splitContinuation } from '../local-ai/runtime/continue-final-message';
 import { patchChatTemplateForKvReuse } from '../local-ai/runtime/template-patches';
 import {
@@ -772,6 +772,21 @@ async function handleGenerate(msg: Extract<WorkerInbound, { type: 'generate' }>)
     // prefix miss from a runtime that never returned a cache (the two looked
     // identical from outside during the Qwen3.5 swap-gate failure).
     const kvReuse = buildKvReuseReport(cachedTokenIds ?? [], newTokenIds);
+    // On a prefix miss, decode the tokens either side of the divergence so a
+    // receipt shows WHAT differed, not only where (a 24-token window of the
+    // conversation's own text; the receipt never leaves the device).
+    if (kvReuse.reason === 'not-strict-prefix' && kvReuse.commonPrefixLen !== undefined) {
+      kvReuse.divergence = divergenceWindow(
+        cachedTokenIds ?? [],
+        newTokenIds,
+        kvReuse.commonPrefixLen,
+        (ids) =>
+          (tokenizer as unknown as { decode: (ids: number[], args?: Record<string, unknown>) => string }).decode(
+            Array.from(ids),
+            { skip_special_tokens: false, clean_up_tokenization_spaces: false },
+          ),
+      );
+    }
 
     // ── CJK suppression (opt-in models, conversation-gated) ───────────
     // Gates on the RAW msg.messages (system/user/assistant roles intact —
