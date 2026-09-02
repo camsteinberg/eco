@@ -6,7 +6,7 @@ import type { EcoTool, EcoToolResult } from "./registry";
 /**
  * The datetime tool answers explicit date/time questions deterministically:
  *  - current date / time / day-of-week ("what day is it", "today's date")
- *  - date arithmetic ("what day is 90 days from today")
+ *  - date arithmetic ("what day is 90 days from today", "6 weeks from now")
  *  - days until a date ("days until 2026-12-25", "days until Christmas")
  *  - clock arithmetic ("leaves at 2:15pm, takes 1h50m, when does it arrive")
  *
@@ -23,9 +23,15 @@ import type { EcoTool, EcoToolResult } from "./registry";
 
 export type DatetimeOp = "current" | "offset" | "until" | "clock";
 
+/** Calendar units an offset can be stated in. Weeks are exact; months and years follow the calendar. */
+export type OffsetUnit = "day" | "week" | "month" | "year";
+
+const OFFSET_UNITS: readonly OffsetUnit[] = ["day", "week", "month", "year"];
+
 export type DatetimeArgs =
   | { op: "current"; kind: "date" | "time" | "dayOfWeek" }
-  | { op: "offset"; days: number }
+  /** `count` is signed: negative means "ago". */
+  | { op: "offset"; unit: OffsetUnit; count: number }
   | { op: "until"; target: string }
   /**
    * Clock arithmetic: a start time of day plus/minus a duration ("leaves at
@@ -44,7 +50,11 @@ function isDatetimeArgs(value: unknown): value is DatetimeArgs {
     return v.kind === "date" || v.kind === "time" || v.kind === "dayOfWeek";
   }
   if (v.op === "offset") {
-    return typeof v.days === "number" && Number.isFinite(v.days);
+    return (
+      OFFSET_UNITS.includes(v.unit as OffsetUnit) &&
+      typeof v.count === "number" &&
+      Number.isFinite(v.count)
+    );
   }
   if (v.op === "until") {
     return typeof v.target === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v.target);
@@ -291,9 +301,9 @@ function matchDatetime(userText: string): DatetimeArgs | null {
 
   // ── offset from today ─────────────────────────────────────────────────────
   // "what day is 90 days from today", "what's the date in 30 days",
-  // "90 days from now", "30 days ago"
+  // "6 weeks from now", "3 months ago"
   const offsetMatch =
-    /\b(\d{1,5})\s+days?\s+(from\s+(?:today|now)|ago|in the future|out|later|before(?:\s+today)?)\b/.exec(
+    /\b(\d{1,5})\s+(day|week|month|year)s?\s+(from\s+(?:today|now)|ago|in the future|out|later|before(?:\s+today)?)\b/.exec(
       lower
     );
   // Scoped the same way the grounding tool bounds extraction: a short turn IS the
@@ -304,23 +314,34 @@ function matchDatetime(userText: string): DatetimeArgs | null {
   // cue the `in N days` branch below already requires.
   if (
     offsetMatch?.[1] !== undefined &&
-    offsetMatch[2] !== undefined &&
+    offsetMatch[3] !== undefined &&
+    isOffsetUnit(offsetMatch[2]) &&
     (lower.length <= SHORT_TURN_MAX_CHARS || /\b(date|day)\b/.test(lower))
   ) {
     const n = Number(offsetMatch[1]);
-    const dir = offsetMatch[2];
+    const dir = offsetMatch[3];
     const sign = /ago|before/.test(dir) ? -1 : 1;
     if (Number.isFinite(n)) {
-      return { op: "offset", days: sign * n };
+      return { op: "offset", unit: offsetMatch[2], count: sign * n };
     }
   }
-  // "in 30 days" phrasing ("what's the date in 30 days")
-  const inDaysMatch = /\bin\s+(\d{1,5})\s+days?\b/.exec(lower);
-  if (inDaysMatch?.[1] !== undefined && /\b(date|day)\b/.test(lower)) {
-    const n = Number(inDaysMatch[1]);
+  // "in 30 days" phrasing ("what's the date in 30 days", "what day is it in 2 weeks")
+  const inUnitsMatch = /\bin\s+(\d{1,5})\s+(day|week|month|year)s?\b/.exec(lower);
+  if (inUnitsMatch?.[1] !== undefined && isOffsetUnit(inUnitsMatch[2]) && /\b(date|day)\b/.test(lower)) {
+    const n = Number(inUnitsMatch[1]);
     if (Number.isFinite(n)) {
-      return { op: "offset", days: n };
+      return { op: "offset", unit: inUnitsMatch[2], count: n };
     }
+  }
+
+  // ── an offset we could not resolve: abstain, never answer "today" ────────
+  // "what day is 6 weeks from Tuesday", "2 months after March 3": the ask is a
+  // date OTHER than today, anchored on something the tool does not compute. The
+  // current-date branches below would otherwise match the "what date/day" lead
+  // and answer a different question with a confident card (s39, the acceptance
+  // script's own phrase). A miss goes to the model; a wrong card does not.
+  if (/\b\d{1,5}\s+(?:day|week|month|year)s?\b/.test(lower)) {
+    return null;
   }
 
   // ── current day-of-week ───────────────────────────────────────────────────
@@ -394,15 +415,9 @@ function executeDatetime(args: DatetimeArgs, now: Date = new Date()): EcoToolRes
   }
 
   if (args.op === "offset") {
-    const target = new Date(now);
-    target.setDate(target.getDate() + args.days);
+    const target = addOffset(now, args.unit, args.count);
     const display = DATE_FMT.format(target);
-    const magnitude = Math.abs(args.days);
-    const plural = magnitude === 1 ? "" : "s";
-    const phrase =
-      args.days >= 0
-        ? `${String(magnitude)} day${plural} from today`
-        : `${String(magnitude)} day${plural} ago`;
+    const phrase = offsetPhrase(args);
     return {
       display: `${phrase} is ${display}.`,
       forModel: `The date ${phrase} is ${display}. Use this exact date.`,
@@ -459,6 +474,43 @@ function executeDatetime(args: DatetimeArgs, now: Date = new Date()): EcoToolRes
   };
 }
 
+function isOffsetUnit(value: string | undefined): value is OffsetUnit {
+  return value !== undefined && OFFSET_UNITS.includes(value as OffsetUnit);
+}
+
+/**
+ * Shift `now` by a signed count of calendar units. Days and weeks are exact.
+ * Months and years move the calendar field and clamp to the last day of the
+ * resulting month, the convention date libraries use: January 31 + 1 month is
+ * February 28, not March 3.
+ */
+function addOffset(now: Date, unit: OffsetUnit, count: number): Date {
+  const target = new Date(now);
+  if (unit === "day" || unit === "week") {
+    target.setDate(target.getDate() + count * (unit === "week" ? 7 : 1));
+    return target;
+  }
+  const dayOfMonth = target.getDate();
+  target.setDate(1);
+  if (unit === "month") {
+    target.setMonth(target.getMonth() + count);
+  } else {
+    target.setFullYear(target.getFullYear() + count);
+  }
+  const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+  target.setDate(Math.min(dayOfMonth, lastDay));
+  return target;
+}
+
+/** "6 weeks from today" / "1 month ago" — the headline and the display share it. */
+function offsetPhrase(args: { unit: OffsetUnit; count: number }): string {
+  const magnitude = Math.abs(args.count);
+  const plural = magnitude === 1 ? "" : "s";
+  return args.count >= 0
+    ? `${String(magnitude)} ${args.unit}${plural} from today`
+    : `${String(magnitude)} ${args.unit}${plural} ago`;
+}
+
 /** Render minutes-since-midnight as "4:05 PM", or "7:05" / "0:30" when the user gave no am/pm. */
 function formatClock(minutes: number, meridiem: boolean): string {
   const h = Math.floor(minutes / 60);
@@ -495,11 +547,7 @@ function summarizeDatetime(args: DatetimeArgs): string {
     return "Today's day of the week";
   }
   if (args.op === "offset") {
-    const magnitude = Math.abs(args.days);
-    const plural = magnitude === 1 ? "" : "s";
-    return args.days >= 0
-      ? `${String(magnitude)} day${plural} from today`
-      : `${String(magnitude)} day${plural} ago`;
+    return offsetPhrase(args);
   }
   if (args.op === "clock") {
     return args.deltaMinutes < 0 ? "Time to leave" : "Time it ends";
