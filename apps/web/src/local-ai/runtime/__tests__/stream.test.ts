@@ -37,6 +37,8 @@ const FAKE_MODEL: ModelConfig = {
   context: 4096,
   // R5a windows inside `stream()`, so the context window is now load-bearing here.
   capabilities: { contextTokens: 4096 },
+  // The window reserves the ceiling (R5c), so it is load-bearing too.
+  maxNewTokens: { ceiling: 2048, default: 1024, max: 4096, intentTokens: {} },
   intent: ['snappy', 'balanced'],
   evidenceTier: 'proven',
   // Other required fields filled by spread for parity with catalog-data.json.
@@ -414,6 +416,54 @@ describe('stream()', () => {
     const start = doneOf(events)!.windowStartIndex!;
     expect(start).toBeGreaterThan(1);
     expect(long[start]).toEqual(sent[1]);
+  });
+
+  it('reserves the model ceiling for the reply, so the window does not move with the request', async () => {
+    // A per-intent request (`quick` 1024 → `explain` 1536 → `quick` 1024) must
+    // not move the history budget: a reserve that shrinks slides the window
+    // start BACK, the prompt stops being a strict extension of the last one,
+    // and the KV-reuse gate misses (measured 2026-09-01: 13.5 s to first token).
+    const starts: number[] = [];
+    let sentCount = 0;
+    mockGenerate.mockImplementation((messages: Array<{ role: string; content: string }>) => {
+      sentCount = messages.length;
+      return asyncIterable([{ kind: 'done', promptTokens: 1, completionTokens: 1 }]);
+    });
+    const long: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+      { role: 'system', content: 'system prompt' },
+    ];
+    for (let i = 0; i < 60; i++) {
+      long.push({
+        role: i % 2 === 0 ? 'user' : 'assistant',
+        content: `turn ${i} ${'word '.repeat(120).trim()}`,
+      });
+    }
+    for (const maxTokens of [1024, 1536, 1024, 256]) {
+      const events = await readAll(stream(long, FAKE_MODEL.id, { maxTokens }));
+      starts.push(doneOf(events)!.windowStartIndex!);
+    }
+    expect(new Set(starts).size).toBe(1);
+    // Budget = 4096 − ceiling 2048 − system 2 = 2046 tokens; each turn is 122
+    // tokens under the word counter, so at most 16 conversation turns fit.
+    expect(sentCount - 1).toBeLessThanOrEqual(16);
+    expect(sentCount - 1).toBeGreaterThan(0);
+  });
+
+  it('reserves the requested budget when the model carries no ceiling (non-catalog)', async () => {
+    mockIsValidationHarnessEnabled.mockReturnValue(true);
+    mockGenerate.mockImplementation(() =>
+      asyncIterable([{ kind: 'done', promptTokens: 1, completionTokens: 1 }]),
+    );
+    const long: Array<{ role: 'user' | 'assistant'; content: string }> = [];
+    for (let i = 0; i < 40; i++) {
+      long.push({
+        role: i % 2 === 0 ? 'user' : 'assistant',
+        content: `turn ${i} ${'word '.repeat(120).trim()}`,
+      });
+    }
+    const small = await readAll(stream(long, FAKE_EVAL_MODEL.id, { maxTokens: 128 }));
+    const large = await readAll(stream(long, FAKE_EVAL_MODEL.id, { maxTokens: 1024 }));
+    expect(doneOf(small)!.windowStartIndex!).toBeLessThan(doneOf(large)!.windowStartIndex!);
   });
 
   it('refuses when even the final user turn does not fit the window', async () => {

@@ -72,16 +72,39 @@ const NOT_IN_CATALOG_MESSAGE =
   "That model isn't available on this device. Choose an available model in Settings → Eco.";
 
 /**
- * The reply reserve assumed when a caller names no budget. Mirrors the default
- * every adapter's `generate()` already applies to `options.maxTokens`, so the
- * window reserves exactly what the generation may produce.
+ * The reply reserve assumed when the model carries no generation ceiling and
+ * the caller names no budget. Mirrors the default every adapter's `generate()`
+ * already applies to `options.maxTokens`.
  *
  * PROVENANCE: INHERITED from the adapters (`options?.maxTokens ?? 512`).
  * FALSIFIER: an adapter default that is not 512 makes this an under-reserve.
- * In practice every dispatch path passes an explicit budget from
- * `resolveOptions`, so this is the empty-options case only.
+ * Every shipping catalog entry carries `maxNewTokens.ceiling`, so this is the
+ * non-catalog, empty-options case only.
  */
 const DEFAULT_MAX_TOKENS = 512;
+
+/**
+ * How many tokens the history window reserves for the reply.
+ *
+ * The model's fixed ceiling, not the turn's requested budget. The request
+ * varies by intent (`quick` 1024, `explain` 1536, …), and a reserve that moves
+ * between turns moves the history budget with it: when a later turn reserves
+ * LESS, the window start slides back to admit an older message, the prompt is
+ * no longer a strict extension of the previous one, and the worker's KV-reuse
+ * gate misses. MEASURED on the production path (2026-09-01, Apple Silicon,
+ * LFM2.5-1.2B, a saturated sixty-turn chat): an `explain` turn followed by a
+ * `quick` turn cost a full re-prefill — 13.5 s to first token against ~0.47 s
+ * on a hit. Reference systems (llama.cpp server, Ollama, WebLLM, Chrome's
+ * Prompt API) reserve one number per model. The ceiling is an upper bound on
+ * every request (`chat-intent.ts` clamps the request to it), so the window is
+ * never under-reserved; `Math.max` keeps that true even for a caller that
+ * bypasses the clamp.
+ */
+function replyReserve(model: ModelConfig, requested: number | undefined): number {
+  const ceiling = model.maxNewTokens?.ceiling;
+  if (ceiling === undefined) return requested ?? DEFAULT_MAX_TOKENS;
+  return Math.max(ceiling, requested ?? 0);
+}
 
 /**
  * What `useChat` consumes. An `AsyncIterable<TokenEvent>` plus a synchronous
@@ -191,7 +214,7 @@ export function stream(
       const countTokens = adapter.countTokens?.bind(adapter);
       const selection = await selectWindow(messages, {
         contextTokens: model.capabilities.contextTokens,
-        maxNewTokens: options.maxTokens ?? DEFAULT_MAX_TOKENS,
+        maxNewTokens: replyReserve(model, options.maxTokens),
         ...(countTokens ? { countTokens } : {}),
       });
       if (!selection.fits) {
