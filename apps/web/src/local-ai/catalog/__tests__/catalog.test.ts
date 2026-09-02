@@ -224,10 +224,13 @@ describe('local-ai catalog (Phase C)', () => {
   // before the turn's intent is known, so it halves a 4096 window when set to
   // 2048. MEASURED 2026-09-02 (s40, production build, 16 GB Apple Silicon):
   // across a 10-turn budgeting chat and a 10-turn code-and-writing chat on the
-  // 2.6B, plus s39's 19 turns on the 1.2B, the longest reply was 656 tokens;
+  // 2.6B, plus s39's 19 turns on the 1.2B, the longest reply was recorded at
+  // 656 tokens — an undercount by about a third (the completion count was a
+  // streamer-callback count until the completion-count fix); the true longest
+  // seen on the exact count is 1,095 at the 2048 ceiling, so 1536 is ~1.4× it;
   // at 2048 the budgeting chat evicted from turn 5 (Deeper) / 9 (Fast) and the
-  // code chat from turn 4, each eviction a 9–14 s first token. 1536 is 2.3× the
-  // longest reply seen; 1024 would have made deep equal quick and removed the
+  // code chat from turn 4, each eviction a 9–14 s first token. 1024 would have
+  // capped real replies and made deep equal quick, removing the
   // More depth control. Raising it again needs a receipt showing
   // `finishReason: 'length'` on a real chat turn at 1536.
   it('pins the measured reply ceiling on the 4096/8192-window shipping picks', () => {
