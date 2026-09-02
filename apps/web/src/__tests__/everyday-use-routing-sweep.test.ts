@@ -425,7 +425,7 @@ const ROUTING_TODAY: Readonly<
   "sw-13": { intent: "explain", maxTokens: 1536 },
   "food-fridge-dinner": { intent: "explain", maxTokens: 1536 },
   "travel-lisbon-kid": { intent: "explain", maxTokens: 1536 },
-  "ideas-01": { intent: "deep", maxTokens: 2048 },
+  "ideas-01": { intent: "deep", maxTokens: 1536 },
   "family-text-thread": { intent: "explain", maxTokens: 1536 },
   "company-01": { intent: "explain", maxTokens: 1536 },
   "company-02": { intent: "explain", maxTokens: 1536 },
@@ -452,17 +452,20 @@ const ROUTING_TODAY: Readonly<
  * The same facts per model, because the intent alone does not decide what the
  * model receives. Format: `intent:maxTokens[/nNoRepeatNgram]`.
  */
+// deep/code/file/research on the 1.2B (both builds), the 2.6B and Qwen3.5-2B
+// are authored at 2048 and clamp to the reply ceiling, lowered to 1536 on
+// 2026-09-02 (s40): the 2048 reserve halved the 4096 window (catalog provenance).
 const MODEL_MATRIX_TODAY: Readonly<Record<string, string>> = {
   "local/qwen3-0.6b":
     "quick:512 explain:512 deep:512 code:512 writing:512 file:512 research:512",
   "candidate/lfm2.5-1.2b-instruct-onnx":
-    "quick:1024 explain:1536 deep:2048 code:2048 writing:1536 file:2048 research:2048",
+    "quick:1024 explain:1536 deep:1536 code:1536 writing:1536 file:1536 research:1536",
   "candidate/lfm2.5-1.2b-instruct-q4-onnx":
-    "quick:1024 explain:1536 deep:2048 code:2048 writing:1536 file:2048 research:2048",
+    "quick:1024 explain:1536 deep:1536 code:1536 writing:1536 file:1536 research:1536",
   "candidate/lfm2.5-350m-onnx":
     "quick:384 explain:384 deep:384 code:384 writing:384 file:384 research:384",
   "candidate/qwen3.5-2b-onnx":
-    "quick:1024 explain:1536 deep:2048 code:2048 writing:1536 file:2048 research:2048",
+    "quick:1024 explain:1536 deep:1536 code:1536 writing:1536 file:1536 research:1536",
   // deep/file/research were 1536 until R3a lowered this model's generation
   // ceiling from 2048 to 1024. Its per-intent budget table is unchanged; the
   // ceiling now binds, because 2048 generation against 2048 contextTokens left
@@ -476,7 +479,7 @@ const MODEL_MATRIX_TODAY: Readonly<Record<string, string>> = {
   "candidate/smollm2-360m-instruct-onnx":
     "quick:512 explain:512 deep:512 code:512 writing:512 file:512 research:512",
   "candidate/lfm2-2.6b-onnx":
-    "quick:1024 explain:1536 deep:2048 code:2048 writing:1536 file:2048 research:2048",
+    "quick:1024 explain:1536 deep:1536 code:1536 writing:1536 file:1536 research:1536",
 };
 
 describe("everyday-use sweep — today's routing, pinned exactly", () => {
