@@ -147,6 +147,10 @@ test.describe("ten-task acceptance walk", () => {
     context = await chromium.launchPersistentContext(PROFILE_DIR, {
       channel: "chrome",
       headless: false,
+      // Let the app lay out to the real window. Playwright otherwise emulates a
+      // fixed 1280x720 viewport inside a taller window, so the `h-dvh` shell
+      // renders short and the run looks broken to anyone watching it.
+      viewport: null,
     });
     await stubAuth(context);
   });
