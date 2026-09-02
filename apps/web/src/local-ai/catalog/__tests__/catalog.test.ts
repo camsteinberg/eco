@@ -178,9 +178,12 @@ describe('local-ai catalog (Phase C)', () => {
       'candidate/lfm2.5-1.2b-instruct-q4-onnx': 4096,
       'candidate/lfm2.5-350m-onnx': 4096,
       'candidate/qwen3.5-2b-onnx': 8192,
-      // LiteRT web/CPU/GPU builds are 2048-context (model card; only the NPU
-      // build is 4096). Passed as the engine's maxNumTokens.
-      'candidate/gemma-4-e2b-litert': 2048,
+      // Passed as the engine's maxNumTokens. MEASURED 2026-09-01 (s37 context
+      // probes, production build): loads at 32768 and passes two-fact recall
+      // at ~12k prompt tokens, 14 s TTFT. The old 2048 made the engine throw
+      // past it. This lane windows on a chars-per-token upper bound, so the
+      // real prompt stays about 8k tokens at this value. See the entry's provenance.
+      'candidate/gemma-4-e2b-litert': 32768,
       // Qwen2.5-0.5B is natively 32k, but the WebKit-mobile pick is deliberately
       // capped at 4096 to bound the KV-cache working set inside iOS's per-tab
       // memory envelope. This value is enforced engine-side via

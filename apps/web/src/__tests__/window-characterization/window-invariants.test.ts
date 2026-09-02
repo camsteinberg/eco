@@ -147,7 +147,16 @@ describe('window selection invariants across the shipping catalog', () => {
     const cells = await runCells(undefined);
     printTable('uncounted (sound upper bound — the LiteRT lane)', cells);
     // The bound is strictly more conservative than any real count, so every
-    // cell that evicted under counting must still evict here.
-    expect(cells.every((c) => c.evicted > 0)).toBe(true);
+    // cell that evicted under counting must still evict here. (Not every cell
+    // evicts: an entry whose window is wide enough for the whole fixture even
+    // in characters — Gemma 4 E2B at 32,768 since 2026-09-02 — legitimately
+    // keeps everything under both.)
+    const counted = await runCells(wordCounter);
+    const key = (c: Cell): string => `${c.modelId}|${c.reserveName}|${c.turns}`;
+    const evictedUnderCounting = new Set(counted.filter((c) => c.evicted > 0).map(key));
+    expect(evictedUnderCounting.size).toBeGreaterThan(0);
+    for (const c of cells) {
+      if (evictedUnderCounting.has(key(c))) expect(c.evicted, key(c)).toBeGreaterThan(0);
+    }
   });
 });
