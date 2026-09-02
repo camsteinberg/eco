@@ -17,6 +17,7 @@
       "shipping": true,
       "tier": { "eco-fast": "floor", "eco-smart": "floor" },
       "_provenance": {
+        "capabilities.contextTokens": "MEASURED (2026-09-01, s38 context probes on a production build, Apple Silicon 16 GB, Chrome; eco-notes decisions/data/s38-context-probes.md) — with contextTokens at 4096 the model passed verbatim two-fact recall at ~2.0k (TTFT 6.7 s) and ~2.7k (20.8 s) prompt tokens, and hit a WebGPU allocation failure (`Failed to allocate memory for buffer mapping`, runtime left dead) at ~3.4k, 4.5k and 6.8k; short prompts were fine (0.5 s). A saturated chat sends ~3.5k on the production path, so the old 4096 (INHERITED: the catalog's default for entries that had not earned a measurement) put every long chat on this entry past the measured failure. 2048 keeps the history window at ~1.5k after the 512 reply ceiling, inside the passing band with margin for the floor devices this rung exists for, which have less memory than the Mac it was measured on. Falsifier: a pass at ~3.4k on the weakest device class that gets this pick, which would earn 3072.",
         "tier": "DERIVED from a measured ranking defect (FR-2) — the universal `floor` rung for BOTH slots, tried last on every device. On a WebGPU device that can't run the 8GB-floor 1.2B family (sub-8GB memory) yet isn't wasm-only, natural fit-ranking otherwise surfaces LFM2.5-350M — a 0.35GB extraction-type model wrong for chat — as the \"Recommended\" pick by a ~0.004 margin over the PROVEN qwen3-0.6b. This rung prefers the proven 0.6B chat floor instead. On a `wasm-only` device it sits BELOW the `phone` rung (the requireWasmOnly CPU picks win there) but above nothing else. Where qwen3-0.6b is itself unassignable (e.g. a shader-f16-less adapter, where only the 350M's onnx-q4 loads) this is a safe no-op and natural ranking applies — the 350M stays the honest only option. Falsifier: a fit-scoring change that makes the natural ranking put a chat-appropriate model on top for the sub-8GB WebGPU band, which would make this rung redundant rather than corrective."
       },
       "friendlyName": "Qwen3",
@@ -27,7 +28,7 @@
       "capabilities": {
         "intent": ["snappy", "balanced"],
         "tasks": ["chat", "writing", "reasoning"],
-        "contextTokens": 4096
+        "contextTokens": 2048
       },
       "generation": {
         "temperature": 0.6,
