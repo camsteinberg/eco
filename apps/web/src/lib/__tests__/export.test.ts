@@ -150,6 +150,23 @@ describe("exportConversationAsMarkdown", () => {
     expect(result).toContain("---");
   });
 
+  it("normalizes an assistant body's markdown artifacts on read, and leaves user text as typed", async () => {
+    // Stored replies are the model's raw bytes (the prompt re-render must match
+    // the KV cache); the display, copy and export paths clean them on read.
+    const raw: DbMessage[] = [
+      { ...mockMessages[0]!, content: "keep  my  spacing" },
+      { ...mockMessages[1]!, content: "**Steps:**\n\n*   Track income\n*   Track spend" },
+    ];
+    mockDb.get.mockResolvedValue(mockConversation);
+    vi.mocked(getActiveBranch).mockResolvedValue(raw);
+
+    const result = await exportConversationAsMarkdown("conv-1");
+
+    expect(result).toContain("* Track income\n* Track spend");
+    expect(result).not.toContain("*   Track");
+    expect(result).toContain("keep  my  spacing");
+  });
+
   it("states that the file holds the active branch only", async () => {
     mockDb.get.mockResolvedValue(mockConversation);
     vi.mocked(getActiveBranch).mockResolvedValue(branchMessages);

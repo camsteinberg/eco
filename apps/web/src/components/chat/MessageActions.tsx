@@ -7,6 +7,7 @@ import { useState, useCallback, useEffect, useId, useLayoutEffect, useRef } from
 
 import { resolveActiveModelId } from "../../lib/active-model";
 import { copyTextWithFallback } from "../../lib/clipboard";
+import { normalizeStreamMarkdown } from "../../lib/stream-markdown-normalizer";
 import { canDeepen, SHORTER_MIN_COMPLETION_TOKENS } from "../../lib/reply-controls";
 import type { ReplyRegenerateControl } from "../../lib/reply-controls";
 import { useChatStore } from "../../stores/chatStore";
@@ -90,7 +91,10 @@ export function MessageActions({
       ? Promise.resolve(content)
       : import("remark").then(async ({ remark }) => {
           const { default: stripMarkdown } = await import("strip-markdown");
-          const result = await remark().use(stripMarkdown).process(content);
+          // The stored body is the model's raw text; clean it the way the renderer does.
+          const result = await remark()
+            .use(stripMarkdown)
+            .process(normalizeStreamMarkdown(content, { complete: true }));
           return String(result).trim();
         });
 

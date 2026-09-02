@@ -23,14 +23,14 @@
  *   passed through verbatim, and table-separator insertion only fires once two
  *   COMPLETE pipe rows exist — so already-displayed content never flickers.
  *
- * This module is intentionally decoupled from the chat pipeline. `<think>`
- * handling differs by call site: the DISPLAY path receives think-stripped text
- * (MessageBubble extracts `<think>…</think>` before the renderer), but the
- * FINALIZE path (`finalizeAssistantMarkdown` in useChat) normalizes the FULL
- * stored body. That is safe today only because the worker-side `ThinkTagFilter`
- * (`local-ai/runtime/output-filter.ts`) strips think blocks before tokens ever
- * reach the store — if that filter is removed or think output starts being
- * persisted, the finalize call site must treat think segments as opaque.
+ * This module is intentionally decoupled from the chat pipeline. It runs ON
+ * READ only — the renderer (live and final), copy, export and share — never on
+ * the stored body. The stored assistant text is the model's raw output because
+ * the next turn's prompt re-renders it and must match the worker's KV cache
+ * token for token; a stored rewrite (the old finalize path) cost the 2.6B a
+ * full re-prefill on every reply with a list. `<think>` handling stays with the
+ * call sites: the display path receives think-stripped text (MessageBubble
+ * extracts `<think>…</think>` before the renderer).
  */
 
 export type NormalizeOptions = {

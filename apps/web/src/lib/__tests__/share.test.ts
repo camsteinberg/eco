@@ -163,6 +163,19 @@ describe("generateShareableHTML", () => {
     expect(result).toContain("<!DOCTYPE html>");
   });
 
+  it("normalizes an assistant body's markdown artifacts on read", async () => {
+    mockDb.get.mockResolvedValue(mockConversation);
+    vi.mocked(getActiveBranch).mockResolvedValue([
+      { ...mockMessages[0]!, role: "user", content: "hi" },
+      { ...mockMessages[1]!, role: "assistant", content: "*   Track income\n*   Track spend" },
+    ]);
+
+    const html = await generateShareableHTML("conv-1");
+
+    expect(html).toContain("* Track income");
+    expect(html).not.toContain("*   Track");
+  });
+
   it("includes conversation title", async () => {
     mockDb.get.mockResolvedValue(mockConversation);
     vi.mocked(getActiveBranch).mockResolvedValue(mockMessages);
