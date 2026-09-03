@@ -429,38 +429,72 @@ export async function switchTo(page: Page, pick: Pick): Promise<string> {
 }
 
 /**
- * Turn web fact lookups on or off the way a person does.
+ * Turn web fact lookups on or off the way a person does, in THIS tab, and
+ * report whether the setting survived a reload.
  *
- * The switch is not on the chat page: it lives on the Eco tab of Settings,
- * which is `?tab=models` (see `components/settings/settingsNavigation`). The
- * preference is stored encrypted in IndexedDB, so there is no localStorage
- * shortcut — the UI is the only honest way in, and it is the thing worth
- * exercising anyway.
+ * Two things make the tab matter. The switch is not on the chat page — it is
+ * on the Eco tab of Settings, `?tab=models` (see
+ * `components/settings/settingsNavigation`) — and the preference is hydrated
+ * into a per-tab store at mount. Flipping it in a SECOND tab therefore leaves
+ * the chat tab still believing what it believed when it loaded: the setting is
+ * persisted correctly, but an already-open tab does not learn about it. A
+ * person flips it and navigates back in the same tab, which is what this does.
  *
- * Idempotent: a switch already in the wanted position is left alone.
+ * The read-back is the point of the reload: the value is written encrypted and
+ * asynchronously, so "the switch moved" and "the setting is on" are different
+ * claims, and only the second one makes the next turn mean anything. A
+ * read-back that never settles is reported, not thrown — the row should be
+ * able to say the setting did not take.
  */
-export async function setWebLookups(
-  context: BrowserContext,
+export async function setWebLookupsInTab(
+  page: Page,
   enabled: boolean,
-): Promise<void> {
-  const page = await context.newPage();
-  try {
-    await page.goto(`${getWebBaseUrl()}/settings?tab=models`, { waitUntil: "commit" });
-    const toggle = page.getByRole("switch", { name: "Toggle web fact lookups" });
-    await expect(
-      toggle,
-      "the web-lookups switch was not on the Eco tab of Settings",
-    ).toBeVisible({ timeout: READY_TIMEOUT_MS });
-    const want = String(enabled);
-    if ((await toggle.getAttribute("aria-checked")) !== want) {
-      await toggle.click();
-    }
-    await expect(toggle).toHaveAttribute("aria-checked", want, {
-      timeout: READY_TIMEOUT_MS,
-    });
-  } finally {
-    await page.close().catch(() => undefined);
+  pick: Pick,
+): Promise<boolean> {
+  const want = String(enabled);
+  const switchOn = (target: Page) =>
+    target.getByRole("switch", { name: "Toggle web fact lookups" });
+
+  await page.goto(`${getWebBaseUrl()}/settings?tab=models`, { waitUntil: "commit" });
+  await expect(
+    switchOn(page),
+    "the web-lookups switch was not on the Eco tab of Settings",
+  ).toBeVisible({ timeout: READY_TIMEOUT_MS });
+  if ((await switchOn(page).getAttribute("aria-checked")) !== want) {
+    await switchOn(page).click();
   }
+  await expect(switchOn(page)).toHaveAttribute("aria-checked", want, {
+    timeout: READY_TIMEOUT_MS,
+  });
+
+  await page.reload({ waitUntil: "commit" });
+  await expect(switchOn(page)).toBeVisible({ timeout: READY_TIMEOUT_MS });
+  try {
+    await expect(switchOn(page)).toHaveAttribute("aria-checked", want, {
+      timeout: 30_000,
+    });
+  } catch {
+    // Not an error here: the caller's row reports what the setting actually is.
+  }
+  const settled = (await switchOn(page).getAttribute("aria-checked")) === "true";
+
+  await returnToChat(page, pick);
+  return settled;
+}
+
+/** Navigate this tab back to a ready chat on the walk's model. */
+export async function returnToChat(page: Page, pick: Pick): Promise<void> {
+  await page.goto(`${getWebBaseUrl()}/chat?${FORCED_DESKTOP_PROFILE}`, {
+    waitUntil: "commit",
+  });
+  await waitForUsableChat(page);
+  await expectTriggerNames(page, pick);
+  await expect
+    .poll(() => page.evaluate(() => window.__ecoPerf?.activeModelId() ?? null), {
+      timeout: RESIDENCY_SETTLE_MS,
+      message: `returning to chat did not leave ${pick.modelId} resident`,
+    })
+    .toBe(pick.modelId);
 }
 
 /**
@@ -510,17 +544,4 @@ export function watchLookupRequests(context: BrowserContext): {
     },
     urls: () => [...seen],
   };
-}
-
-/** Whether the Eco tab's web-lookups switch currently reads as on. */
-export async function readWebLookups(context: BrowserContext): Promise<boolean> {
-  const page = await context.newPage();
-  try {
-    await page.goto(`${getWebBaseUrl()}/settings?tab=models`, { waitUntil: "commit" });
-    const toggle = page.getByRole("switch", { name: "Toggle web fact lookups" });
-    await expect(toggle).toBeVisible({ timeout: READY_TIMEOUT_MS });
-    return (await toggle.getAttribute("aria-checked")) === "true";
-  } finally {
-    await page.close().catch(() => undefined);
-  }
 }

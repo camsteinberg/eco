@@ -56,9 +56,8 @@ import {
   openChatOnModel,
   outcomeReceipt,
   provisionPick,
-  readWebLookups,
   sendTurn,
-  setWebLookups,
+  setWebLookupsInTab,
   startNewConversation,
   stopButton,
   switchTo,
@@ -597,14 +596,15 @@ test.describe("ten-task acceptance walk", () => {
           ),
         );
 
-        // Set it, then READ IT BACK from a fresh Settings page. The preference
-        // is written encrypted and asynchronously, so "we clicked the switch"
-        // is not the same claim as "the setting is on" — and only the second
-        // one makes the next turn's result mean anything.
-        await setWebLookups(context, true);
-        const lookupsOn = await readWebLookups(context);
+        // Flip it in THIS tab, and read it back after a reload. Both halves
+        // matter: the preference is hydrated per tab at mount, so flipping it
+        // in a second tab leaves this one still believing lookups are off; and
+        // it is written encrypted and asynchronously, so "the switch moved" is
+        // not yet "the setting is on".
+        const lookupsOn = await setWebLookupsInTab(offPage, true, pick);
 
-        const onPage = await open();
+        const onPage = offPage;
+        await startNewConversation(onPage);
         lookups.reset();
         const on = await sendTurn(onPage, question, LONG_TURN_TIMEOUT_MS);
         const sourceCard = await citations(onPage).count();
@@ -627,7 +627,7 @@ test.describe("ten-task acceptance walk", () => {
         );
 
         // Leave the device as we found it — lookups are off by default.
-        await setWebLookups(context, false);
+        await setWebLookupsInTab(onPage, false, pick);
       });
 
       // ── 10. Kill the tab mid-generation, reopen ───────────────────────────

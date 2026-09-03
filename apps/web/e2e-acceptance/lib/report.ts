@@ -100,6 +100,20 @@ export function renderMarkdown(report: AcceptanceReport): string {
     "",
     `Started ${report.startedAt}, finished ${report.finishedAt}.`,
     "",
+    "## Method",
+    "",
+    "Real inference on this machine's GPU against a production build, one row",
+    "per turn. `PASS`/`FAIL` come from a mechanical check, `EXPECTED-FAIL` names",
+    "a known gap, and `RECORDED` is a turn only a person can judge — its",
+    "evidence carries the reply.",
+    "",
+    "Each model is walked in ONE tab, starting a fresh conversation between",
+    "tasks, because a tab per task asks the machine for a copy of the model per",
+    "task. Web lookups are switched on and off in that same tab: the preference",
+    "is hydrated per tab when it mounts, so flipping it in a second tab leaves",
+    "an already-open chat still believing what it believed when it loaded. That",
+    "is a product nuance the walk works with, not a defect it reports.",
+    "",
   ];
   for (const pick of report.picks) {
     parts.push(`## ${pick.label} (\`${pick.modelId}\`, slot \`${pick.slot}\`)`, "");
