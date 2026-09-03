@@ -3,6 +3,7 @@
 
 import { openEcoDB, getActiveBranch } from "./db";
 import type { DbConversation, DbMessage } from "./db";
+import { normalizeStreamMarkdown } from "./stream-markdown-normalizer";
 
 /**
  * The conversation record is not in this device's database.
@@ -101,7 +102,11 @@ export async function exportConversationAsMarkdown(
     const timestamp = new Date(msg.createdAt).toLocaleString();
     lines.push(`**${roleLabel}** *(${timestamp})*`);
     lines.push("");
-    lines.push(msg.content);
+    // Assistant bodies are stored as the model wrote them (the prompt re-render
+    // must match the KV cache byte for byte); clean them here, as the renderer does.
+    lines.push(
+      msg.role === "assistant" ? normalizeStreamMarkdown(msg.content, { complete: true }) : msg.content,
+    );
     if (msg.citations && msg.citations.length > 0) {
       // A grounded answer without its sources is indistinguishable from one the
       // model made up, so the export carries the links the chat UI shows.

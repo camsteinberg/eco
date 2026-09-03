@@ -86,7 +86,6 @@ import { runToolStep } from "./useChat/tool-step";
 import { deriveGroundedMatchContext } from "./useChat/grounding-context";
 import { deriveMoneyMatchContext } from "./useChat/money-context";
 import { DEFAULT_TOOLS } from "../lib/tools";
-import { normalizeStreamMarkdown } from "../lib/stream-markdown-normalizer";
 
 export {
   buildLocalFallbackMessages,
@@ -106,55 +105,6 @@ export {
 // The base system prompt lives with the rest of prompt assembly now. Kept as a
 // re-export because the hook's test suites import it from this barrel.
 export { buildSystemPrompt };
-
-/**
- * Normalize an assistant message's final body so the persisted text matches what
- * the renderer displays (copy / export / history stay consistent). Runs once at
- * completion, AFTER the batcher's terminal `flushSync()`, on the committed store
- * content; `complete: true` normalizes the whole text. No-op write is skipped.
- *
- * The renderer applies the SAME normalizer live during streaming, so this only
- * reconciles the stored bytes — there is no visible re-flow when the message
- * finalizes. Aborted / interrupted partial replies are intentionally left raw:
- * their text ends mid-construct and the user explicitly stopped, so we don't
- * touch the load-bearing user-stop finalize path.
- *
- * UNLIKE the display path (which normalizes think-stripped text), this
- * normalizes the FULL stored body. That is safe today only because the
- * worker-side `ThinkTagFilter` (`local-ai/runtime/output-filter.ts`) strips
- * `<think>…</think>` blocks before tokens ever reach the store. If that filter
- * is removed or think output starts being persisted, this call site must treat
- * think segments as opaque before normalizing.
- *
- * Reads the store globally but takes `updateMessage` as a parameter on purpose:
- * tests inject a counting wrapper to assert the no-op-skip (zero writes when
- * content is already clean).
- *
- * KV-CACHE TRADEOFF (deliberate, bounded): when this REWRITES the stored
- * assistant body, that turn's text no longer strictly-prefix-matches the token
- * sequence the worker cached for it, so the worker's `decideKvReuse` gate
- * (`local-ai/runtime/kv-cache.ts`) correctly declines reuse and the NEXT turn
- * pays a full prefill instead of a warm TTFT. The cost is bounded and only paid
- * on turns where artifacts were actually fixed: the no-op-skip above preserves
- * the common (already-clean) path, where reuse stays intact. We accept it
- * because a permanently-clean transcript (correct copy / export / history, and
- * a stable prompt prefix for every later turn) is worth more than one warm TTFT.
- * Verified live 2026-06-11: LFM2.5 clean-turn multi-turn TTFT ~1.5s — reuse held
- * through the normalizer's no-op path.
- *
- * @internal Exported for unit testing.
- */
-export function finalizeAssistantMarkdown(
-  assistantId: string,
-  updateMessage: (id: string, updates: { content: string }) => void,
-): void {
-  const msg = useChatStore.getState().messages.find((m) => m.id === assistantId);
-  if (!msg) return;
-  const normalized = normalizeStreamMarkdown(msg.content, { complete: true });
-  if (normalized !== msg.content) {
-    updateMessage(assistantId, { content: normalized });
-  }
-}
 
 /**
  * Decide the initial stream phase for a turn by model residency, BEFORE the
@@ -1080,7 +1030,6 @@ export function useChat() {
         inferenceMethod: "local",
         confidence: null,
       });
-      finalizeAssistantMarkdown(assistantId, updateMessage);
       playMessageReceived(useSettingsStore.getState().soundsEnabled);
       clearActiveGeneration(generation);
       return;
@@ -1351,7 +1300,6 @@ export function useChat() {
           updateMessage(assistantId, { content: cleaned, lastSeq: 0 });
           generation.batcher.resetSeq();
         }
-        finalizeAssistantMarkdown(assistantId, updateMessage);
       }
       recordReceiptAsync((base, sph) => ({
         ...base,
@@ -1513,9 +1461,6 @@ export function useChat() {
         updateMessage(assistantId, { content: redacted, lastSeq: 0 });
         generation.batcher.resetSeq();
       }
-      // Reconcile persisted body with the deterministic display normalization
-      // (this block is reached only on a clean "completed" continuation).
-      finalizeAssistantMarkdown(assistantId, updateMessage);
       playMessageReceived(useSettingsStore.getState().soundsEnabled);
     } finally {
       leaseAcquisition.release();

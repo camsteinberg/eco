@@ -109,9 +109,8 @@ export type ToolStepResult = {
    * identities, inverting a privacy-first product's core promise. Taking the model
    * out of the loop makes fabrication impossible. Unlike `canonicalAnswer` this
    * renders as normal Markdown (prose, not a computed value), so the caller does NOT
-   * set `canonicalToolAnswer`; it finalizes with `finalizeAssistantMarkdown` exactly
-   * like the decline path, so the answer persists, is copyable, and survives scroll-
-   * back. Mutually exclusive with `systemNote` (null here), `citation`,
+   * set `canonicalToolAnswer`; it is stored like the decline path, so the answer
+   * persists, is copyable, and survives scroll-back. Mutually exclusive with `systemNote` (null here), `citation`,
    * `verification`, and `canonicalAnswer`.
    */
   hostAnswer?: string;
