@@ -94,7 +94,44 @@ export type KvReuseReport = {
    * a not-strict-prefix miss (the one reason where "where?" is the question).
    */
   commonPrefixLen?: number;
+  /**
+   * The tokens on each side of the divergence, decoded — present only on a
+   * not-strict-prefix miss. Answers "what differed?" where `commonPrefixLen`
+   * answers "where?": a miss inside the previous reply (s39: the 2.6B missed
+   * with headroom, common prefix 213 of 612) cannot be diagnosed from a
+   * position alone. Attached by the worker, which owns the tokenizer.
+   */
+  divergence?: KvDivergenceWindow;
 };
+
+/** A short decoded window around a prefix divergence. */
+export type KvDivergenceWindow = {
+  /** Index of the first differing token (= `commonPrefixLen`). */
+  at: number;
+  cachedIds: number[];
+  nextIds: number[];
+  cached: string;
+  next: string;
+};
+
+/**
+ * Decode a window of tokens around the divergence point on both sequences.
+ * Pure over a supplied `decode`, so the worker's tokenizer stays out of this
+ * module. Window bounds clamp to each sequence's length.
+ */
+export function divergenceWindow(
+  cachedTokenIds: readonly number[],
+  nextTokenIds: readonly number[],
+  at: number,
+  decode: (ids: readonly number[]) => string,
+  span: { before: number; after: number } = { before: 8, after: 16 },
+): KvDivergenceWindow {
+  const start = Math.max(0, at - span.before);
+  const end = at + span.after;
+  const cachedIds = cachedTokenIds.slice(start, end);
+  const nextIds = nextTokenIds.slice(start, end);
+  return { at, cachedIds, nextIds, cached: decode(cachedIds), next: decode(nextIds) };
+}
 
 /**
  * What actually crosses the worker boundary: the gate's report plus whether

@@ -2,7 +2,12 @@
 // Copyright (C) 2026 Bos Computing LLC
 
 import { describe, expect, it } from 'vitest';
-import { buildKvReuseReport, decideKvReuse, longestCommonPrefixLen } from '../kv-cache';
+import {
+  buildKvReuseReport,
+  decideKvReuse,
+  divergenceWindow,
+  longestCommonPrefixLen,
+} from '../kv-cache';
 
 describe('decideKvReuse', () => {
   it('returns no-cache when the cache is empty', () => {
@@ -203,5 +208,44 @@ describe('longestCommonPrefixLen', () => {
     const a = Array.from({ length: 2000 }, (_, i) => i);
     const b = [...a, 2000, 2001];
     expect(longestCommonPrefixLen(a, b)).toBe(2000);
+  });
+});
+
+describe('divergenceWindow', () => {
+  // A decode that renders each id as its own bracketed token, so the window's
+  // text shows exactly which ids were included.
+  const decode = (ids: readonly number[]): string => ids.map((id) => `[${String(id)}]`).join('');
+
+  it('returns the ids and text on both sides of the divergence point', () => {
+    const cached = [1, 2, 3, 7, 8];
+    const next = [1, 2, 3, 4, 5, 6];
+    const w = divergenceWindow(cached, next, 3, decode, { before: 2, after: 2 });
+    expect(w).toEqual({
+      at: 3,
+      cachedIds: [2, 3, 7, 8],
+      nextIds: [2, 3, 4, 5],
+      cached: '[2][3][7][8]',
+      next: '[2][3][4][5]',
+    });
+  });
+
+  it('clamps the window at the start of the sequences', () => {
+    const w = divergenceWindow([9, 9], [1, 2, 3], 0, decode, { before: 8, after: 1 });
+    expect(w.cachedIds).toEqual([9]);
+    expect(w.nextIds).toEqual([1]);
+  });
+
+  it('clamps the window at the end of the shorter sequence', () => {
+    const w = divergenceWindow([1, 2, 5], [1, 2, 3, 4, 6, 7], 2, decode, { before: 1, after: 16 });
+    expect(w.cachedIds).toEqual([2, 5]);
+    expect(w.nextIds).toEqual([2, 3, 4, 6, 7]);
+  });
+
+  it('defaults to 8 tokens before and 16 after', () => {
+    const cached = Array.from({ length: 40 }, (_, i) => i);
+    const next = [...cached.slice(0, 20), ...Array.from({ length: 30 }, (_, i) => 100 + i)];
+    const w = divergenceWindow(cached, next, 20, decode);
+    expect(w.cachedIds).toEqual(cached.slice(12, 36));
+    expect(w.nextIds).toEqual(next.slice(12, 36));
   });
 });
