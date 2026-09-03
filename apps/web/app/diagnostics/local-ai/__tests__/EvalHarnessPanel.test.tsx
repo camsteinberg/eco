@@ -235,55 +235,6 @@ describe('EvalHarnessPanel — W1b enablers', () => {
     expect(runEvalMock.mock.calls[0]![0].modelIds).toEqual(['local/model-a']);
   });
 
-  it('threads the eco-tangent arm and experiment set when eco-eval-arm + eco-eval-tangent are set', async () => {
-    currentParams = new URLSearchParams(
-      'eco-diagnostics=1&eco-eval-autorun=1&eco-eval-models=local/model-a&eco-eval-arm=B&eco-eval-tangent=1',
-    );
-
-    render(<EvalHarnessPanel />);
-
-    await waitFor(() => {
-      expect(runEvalMock).toHaveBeenCalledTimes(1);
-    });
-    const config = runEvalMock.mock.calls[0]![0];
-    expect(config.identityArm).toBe('B');
-    // The tangent set rides as session-scoped extraPrompts…
-    expect(config.extraPrompts?.length ?? 0).toBeGreaterThanOrEqual(15);
-    expect(config.extraPrompts?.every((p) => p.id.startsWith('eco-tangent-'))).toBe(true);
-    // …and, with no explicit subset, the run is narrowed to just that set.
-    expect((config.promptIds ?? []).length).toBeGreaterThanOrEqual(15);
-    expect((config.promptIds ?? []).every((id) => id.startsWith('eco-tangent-'))).toBe(true);
-  });
-
-  it('applies the arm alone (full pool) when eco-eval-arm is set without eco-eval-tangent', async () => {
-    currentParams = new URLSearchParams(
-      'eco-diagnostics=1&eco-eval-autorun=1&eco-eval-models=local/model-a&eco-eval-arm=C',
-    );
-
-    render(<EvalHarnessPanel />);
-
-    await waitFor(() => {
-      expect(runEvalMock).toHaveBeenCalledTimes(1);
-    });
-    const config = runEvalMock.mock.calls[0]![0];
-    expect(config.identityArm).toBe('C');
-    expect(config.extraPrompts).toBeUndefined();
-    expect(config.promptIds).toBeUndefined();
-  });
-
-  it('ignores an invalid eco-eval-arm value', async () => {
-    currentParams = new URLSearchParams(
-      'eco-diagnostics=1&eco-eval-autorun=1&eco-eval-models=local/model-a&eco-eval-arm=Z',
-    );
-
-    render(<EvalHarnessPanel />);
-
-    await waitFor(() => {
-      expect(runEvalMock).toHaveBeenCalledTimes(1);
-    });
-    expect(runEvalMock.mock.calls[0]![0].identityArm).toBeUndefined();
-  });
-
   // ── Part B: judge-score backfill ─────────────────────────────────────────
 
   it('button is disabled until a run is selected and the textarea is non-empty', async () => {

@@ -42,32 +42,21 @@ import type {
  * `preservesHistoryFacts`, `honorsRuledOut`, `deliversAskedArtifact` — simply
  * lack the key; the `isFiniteNumber` guard drops it from their means.)
  *
- * `deliversFirst`, `preservesUserText`, `preservesFacts`,
- * `preservesHistoryFacts`, `honorsRuledOut` and `deliversAskedArtifact` are
- * spec-gated (`expectDeliverable` / `expectUserTextReuse` /
- * `expectFactPreservation` / `historyFactSources` / `historyRuledOut` /
- * `expectsArtifact`), so they are null for every probe set that predates them
- * and existing composites are unchanged by their arrival.
+ * `deliversFirst`, `preservesHistoryFacts` and `honorsRuledOut` are spec-gated
+ * (`expectDeliverable` / `historyFactSources` / `historyRuledOut`), so they are
+ * null for every probe set that predates them and existing composites are
+ * unchanged by their arrival.
  */
 export const AUTOMATED_DIMENSIONS: readonly (keyof RubricScores)[] = [
   'correctStop',
   'noRepetition',
-  'noCannedLeakage',
   'noThinkLeakage',
   'noCjkLeak',
-  'formatAdherence',
   'exactness',
-  'instructionFollowing',
-  'appropriateUncertainty',
   'answerDepth',
-  'depthMatch',
   'deliversFirst',
-  'preservesUserText',
-  'preservesUserRegister',
-  'preservesFacts',
   'preservesHistoryFacts',
   'honorsRuledOut',
-  'deliversAskedArtifact',
 ] as const;
 
 /** All rubric dims, automated + judge — the universe for `dimensionAverages`. */

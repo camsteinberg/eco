@@ -27,28 +27,20 @@ export type AbResult = {
   compositeDelta: number;
 };
 
-/** Short, human labels for the 11 automated rubric dims, in scorecard order. */
+/** Short, human labels for the automated rubric dims, in scorecard order. */
 const AUTOMATED_DIM_LABELS: { key: keyof RubricScores; label: string }[] = [
   { key: 'correctStop', label: 'Stops' },
   { key: 'noRepetition', label: 'No repeat' },
-  { key: 'noCannedLeakage', label: 'No canned' },
   { key: 'noThinkLeakage', label: 'No <think>' },
   { key: 'noCjkLeak', label: 'No CJK leak' },
-  { key: 'formatAdherence', label: 'Format' },
   { key: 'exactness', label: 'Exact' },
-  { key: 'instructionFollowing', label: 'Follows' },
-  { key: 'appropriateUncertainty', label: 'Uncertainty' },
   { key: 'answerDepth', label: 'Depth' },
-  { key: 'depthMatch', label: 'Depth fit' },
 ];
 
 /** Dims surfaced in the compact diff / A-B views (decision-relevant + composite-feeding). */
 const KEY_DIFF_DIMS: { key: keyof RubricScores; label: string }[] = [
-  { key: 'instructionFollowing', label: 'Follows' },
   { key: 'exactness', label: 'Exact' },
-  { key: 'depthMatch', label: 'Depth fit' },
   { key: 'answerDepth', label: 'Depth' },
-  { key: 'appropriateUncertainty', label: 'Uncertainty' },
   { key: 'noCjkLeak', label: 'No CJK' },
   { key: 'noThinkLeakage', label: 'No <think>' },
   { key: 'correctStop', label: 'Stops' },
