@@ -41,10 +41,9 @@ import {
   stubAuth,
 } from "../e2e-perf/lib/session";
 import {
-  REPORT_JSON_PATH,
+  assembleReport,
   clip,
-  writeReport,
-  type AcceptanceReport,
+  writePickFragment,
   type AcceptanceRow,
   type PickReport,
   type RowResult,
@@ -57,11 +56,14 @@ import {
   openChatOnModel,
   outcomeReceipt,
   provisionPick,
+  readWebLookups,
   sendTurn,
   setWebLookups,
+  startNewConversation,
   stopButton,
   switchTo,
   waitForUsableChat,
+  watchLookupRequests,
   wipeOrigin,
   type Pick,
   type TurnOutcome,
@@ -129,14 +131,6 @@ const RENT_RECALL_TURN = 10;
 const contains = (text: string, ...needles: string[]): boolean =>
   needles.some((needle) => text.includes(needle));
 
-// ─── Report accumulation ───────────────────────────────────────────────────
-
-const report: AcceptanceReport = {
-  startedAt: new Date().toISOString(),
-  finishedAt: "",
-  picks: [],
-};
-
 /**
  * Deliberately NOT `mode: "serial"`. The lane runs one worker with parallelism
  * off, so the tests already execute in order — what serial mode would add is
@@ -198,11 +192,14 @@ test.describe("ten-task acceptance walk", () => {
         300,
       )}`,
     });
+    walk.finishedAt = new Date().toISOString();
+    writePickFragment(walk);
   });
 
   test.afterAll(async () => {
-    report.finishedAt = new Date().toISOString();
-    const paths = writeReport(report, REPORT_JSON_PATH);
+    // Assembled from the fragments on disk, so this is the WHOLE run even when
+    // an earlier walk ran in a worker that has since been replaced.
+    const paths = assembleReport();
     console.log(`\nacceptance report: ${paths.jsonPath}\n                   ${paths.markdownPath}`);
     await context?.close();
   });
@@ -250,16 +247,23 @@ test.describe("ten-task acceptance walk", () => {
     test(`${pick.tileName} — ten-task walk`, async () => {
       test.setTimeout(5_400_000);
       const pickReport: PickReport = {
+        order: PICKS.indexOf(pick),
+        startedAt: new Date().toISOString(),
+        finishedAt: "",
         modelId: pick.modelId,
         label: pick.tileName,
         slot: pick.slot,
         rows: [],
       };
-      report.picks.push(pickReport);
       currentWalk = pickReport;
+      writePickFragment(pickReport);
 
+      // Persisted after every row: a walk that dies still leaves everything it
+      // had established, and any worker can assemble the whole run from disk.
       const push = (row: AcceptanceRow) => {
         pickReport.rows.push(row);
+        pickReport.finishedAt = new Date().toISOString();
+        writePickFragment(pickReport);
         console.log(
           `  task ${row.task}.${row.turn} ${row.result} — ${row.label}: ${clip(row.evidence, 90)}`,
         );
@@ -321,15 +325,32 @@ test.describe("ten-task acceptance walk", () => {
             )}`,
           });
         } finally {
+          // Close anything a task opened beyond the walk's own page. A page
+          // left open holds a loaded model, and an earlier run showed one
+          // leaked page taking every later task down with it.
           for (const leaked of context.pages()) {
-            if (leaked.url().startsWith(BASE_URL)) {
+            if (leaked !== walkPage && leaked.url().startsWith(BASE_URL)) {
               await leaked.close().catch(() => undefined);
             }
           }
         }
       };
 
-      const open = (): Promise<Page> => openChatOnModel(context, pick, PICKS);
+      // ONE page for the whole walk. Each task starts a fresh conversation on
+      // it rather than a fresh tab: a person does not reload the app between
+      // questions, and a tab per task asks the machine for a copy of the model
+      // per task — which is what wedged an earlier run.
+      let walkPage: Page | null = null;
+      const lookups = watchLookupRequests(context);
+
+      const open = async (): Promise<Page> => {
+        if (walkPage === null || walkPage.isClosed()) {
+          walkPage = await openChatOnModel(context, pick, PICKS);
+          return walkPage;
+        }
+        await startNewConversation(walkPage);
+        return walkPage;
+      };
 
       // ── 1. Cold first run to first reply, no dead ends ────────────────────
       await task(1, "cold first run to a first reply", async () => {
@@ -349,7 +370,6 @@ test.describe("ten-task acceptance walk", () => {
             )}`,
           ),
         );
-        await page.close();
       });
 
       // ── 2. Ten-turn budgeting chat: a running total and a recall ──────────
@@ -382,7 +402,6 @@ test.describe("ten-task acceptance walk", () => {
           }
           push(rowFor(2, turn, `turn ${turn}: ${clip(prompt, 48)}`, outcome, result, evidence));
         }
-        await page.close();
       });
 
       // ── 3. Paste ~2 pages, ask for a summary ──────────────────────────────
@@ -404,7 +423,6 @@ test.describe("ten-task acceptance walk", () => {
             )}`,
           ),
         );
-        await page.close();
       });
 
       // ── 4. The exact-answer tools ─────────────────────────────────────────
@@ -431,7 +449,6 @@ test.describe("ten-task acceptance walk", () => {
             ),
           );
         }
-        await page.close();
       });
 
       // ── 5. Draft an email, then shorten it ────────────────────────────────
@@ -462,7 +479,6 @@ test.describe("ten-task acceptance walk", () => {
             )}`,
           ),
         );
-        await page.close();
       });
 
       // ── 6. Long chat until the context boundary is admitted ───────────────
@@ -511,7 +527,6 @@ test.describe("ten-task acceptance walk", () => {
             evidence: `${maxTurns} pastes of ${PASTE_BLOCK.length} chars did not surface a divider or notice`,
           });
         }
-        await page.close();
       });
 
       // ── 8. Switch faster ↔ smarter ────────────────────────────────────────
@@ -554,7 +569,6 @@ test.describe("ten-task acceptance walk", () => {
             ),
           );
         }
-        await page.close();
       });
 
       // ── 9. A factual question, lookups off then on ────────────────────────
@@ -562,40 +576,55 @@ test.describe("ten-task acceptance walk", () => {
         const question = "Who wrote the novel Frankenstein?";
 
         const offPage = await open();
+        lookups.reset();
         const off = await sendTurn(offPage, question);
         const firedOff = (await citations(offPage).count()) > 0;
+        const offRequests = lookups.urls();
         push(
           rowFor(
             9,
             1,
             "lookups off: nothing should fire",
             off,
-            firedOff ? "FAIL" : "RECORDED",
-            firedOff
-              ? "a source card appeared with lookups off"
-              : `no source card; the answer reads: ${clip(off.replyText, 240)}`,
+            firedOff || offRequests.length > 0 ? "FAIL" : "RECORDED",
+            firedOff || offRequests.length > 0
+              ? `lookups are off, yet ${offRequests.length} request(s) left the device and `
+                + `${firedOff ? "a source card appeared" : "no card appeared"}`
+              : `no source card, no request left the device; the answer reads: ${clip(
+                  off.replyText,
+                  220,
+                )}`,
           ),
         );
-        await offPage.close();
 
+        // Set it, then READ IT BACK from a fresh Settings page. The preference
+        // is written encrypted and asynchronously, so "we clicked the switch"
+        // is not the same claim as "the setting is on" — and only the second
+        // one makes the next turn's result mean anything.
         await setWebLookups(context, true);
+        const lookupsOn = await readWebLookups(context);
 
         const onPage = await open();
+        lookups.reset();
         const on = await sendTurn(onPage, question, LONG_TURN_TIMEOUT_MS);
         const sourceCard = await citations(onPage).count();
+        const onRequests = lookups.urls();
+        const witness =
+          `setting read back as ${lookupsOn ? "ON" : "OFF"}; `
+          + `${onRequests.length} lookup request(s)`
+          + (onRequests[0] ? ` (first: ${clip(onRequests[0], 70)})` : "");
         push(
           rowFor(
             9,
             2,
             "lookups on: a source card should appear",
             on,
-            sourceCard > 0 ? "PASS" : "RECORDED",
+            sourceCard > 0 ? "PASS" : lookupsOn ? "FAIL" : "RECORDED",
             sourceCard > 0
-              ? `${sourceCard} source card(s); answer: ${clip(on.replyText, 200)}`
-              : `no source card fired; answer: ${clip(on.replyText, 200)}`,
+              ? `${sourceCard} source card(s); ${witness}; answer: ${clip(on.replyText, 160)}`
+              : `NO source card. ${witness}; answer: ${clip(on.replyText, 160)}`,
           ),
         );
-        await onPage.close();
 
         // Leave the device as we found it — lookups are off by default.
         await setWebLookups(context, false);
@@ -603,6 +632,8 @@ test.describe("ten-task acceptance walk", () => {
 
       // ── 10. Kill the tab mid-generation, reopen ───────────────────────────
       await task(10, "no wedge after a tab dies mid-reply", async () => {
+        // The walk's own tab is the one that dies — that is the scenario.
+        // Closing it makes `open()` build a new one, which is the reopening.
         const victim = await open();
         await composer(victim).click();
         await victim.keyboard.insertText(
@@ -627,7 +658,6 @@ test.describe("ten-task acceptance walk", () => {
             `reply after reopening: ${clip(outcome.replyText)}`,
           ),
         );
-        await revived.close();
       });
 
       // ── 7. Offline reload — LAST, because it ends the page ────────────────
@@ -660,9 +690,16 @@ test.describe("ten-task acceptance walk", () => {
           result: usable ? "PASS" : "EXPECTED-FAIL",
           evidence: usable ? detail : `offline reload did not reach a working chat: ${detail}`,
         });
-        await page.close().catch(() => undefined);
       });
 
+      // The walk is over: let go of its tab so the next model does not begin on
+      // a machine still holding this one's model.
+      for (const remaining of context.pages()) {
+        if (remaining.url().startsWith(BASE_URL)) {
+          await remaining.close().catch(() => undefined);
+        }
+      }
+      walkPage = null;
     });
   }
 
@@ -674,6 +711,13 @@ test.describe("ten-task acceptance walk", () => {
    * next model from being walked at all.
    */
   test("both models walked, and nothing failed that was not expected to", () => {
+    // Read from disk, not from memory: a walk that ran in a worker Playwright
+    // has since replaced left its rows in a fragment, and nowhere else.
+    const { report } = assembleReport();
+    expect(
+      report.picks.length,
+      `the report carries ${report.picks.length} model table(s), not ${PICKS.length}`,
+    ).toBe(PICKS.length);
     const missing = PICKS.filter(
       (pick) => !report.picks.some((entry) => entry.modelId === pick.modelId),
     ).map((pick) => pick.tileName);

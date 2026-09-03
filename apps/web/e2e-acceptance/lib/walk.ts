@@ -31,11 +31,18 @@ import {
 export const DOWNLOAD_TIMEOUT_MS = 1_800_000;
 
 /**
- * How long a freshly opened page is given to load its model before the walk
- * stops waiting and lets the first turn do it. Not an assertion — see
- * `openChatOnModel`.
+ * How long a freshly opened page gets to load its model. Measured need with the
+ * bytes cached: ~4 s for the 2.6B on this Mac, so this is ~45x headroom.
  */
-export const RESIDENCY_SETTLE_MS = 90_000;
+export const RESIDENCY_SETTLE_MS = 180_000;
+
+/**
+ * Default ceiling for one turn. Measured turns on this Mac run 5-9 s wall on
+ * either model; the ceiling exists to end a wedged turn, not to accommodate a
+ * slow one, and `TURN_TIMEOUT_MS` from the perf lane was too tight to tell the
+ * two apart.
+ */
+export const DEFAULT_TURN_TIMEOUT_MS = 300_000;
 
 export type SlotName = "eco-fast" | "eco-smart";
 
@@ -107,22 +114,19 @@ export async function openChatOnModel(
   });
   await waitForUsableChat(page);
 
-  // What the page must agree about before a turn is which model it is offering
-  // — the app's own claim in the switcher label. Residency is allowed to lag:
-  // the runtime loads a model when a turn needs it, so a page that has not
-  // generated yet can legitimately have nothing resident. Every row carries the
-  // receipt's own `modelId`, so a page that somehow served a different model
-  // says so in the report rather than being caught by a precondition here.
+  // Two things must agree before the walk types anything: the app's own claim
+  // about what is running (the switcher label), and the runtime actually
+  // holding it. Measured on this lane's profile with the bytes cached, the
+  // 2.6B is resident about four seconds after the composer appears, so the
+  // budget below is generous by a wide margin — it is here to fail fast and
+  // legibly, not to wait out a slow machine.
   await expectTriggerNames(page, pick);
   await expect
     .poll(() => page.evaluate(() => window.__ecoPerf?.activeModelId() ?? null), {
       timeout: RESIDENCY_SETTLE_MS,
       message: `chat did not leave ${pick.modelId} resident in the runtime`,
     })
-    .toBe(pick.modelId)
-    .catch(() => {
-      console.log(`  note: ${pick.modelId} not resident yet at page open; the first turn will load it`);
-    });
+    .toBe(pick.modelId);
   return page;
 }
 
@@ -207,7 +211,7 @@ export function kvReasonOf(receipt: GenerationReceipt | null): string | null {
 export async function sendTurn(
   page: Page,
   prompt: string,
-  timeoutMs: number = TURN_TIMEOUT_MS,
+  timeoutMs: number = DEFAULT_TURN_TIMEOUT_MS,
 ): Promise<TurnOutcome> {
   await expect(composer(page), {
     message: "composer never re-enabled — the previous turn never finalized",
@@ -454,6 +458,68 @@ export async function setWebLookups(
     await expect(toggle).toHaveAttribute("aria-checked", want, {
       timeout: READY_TIMEOUT_MS,
     });
+  } finally {
+    await page.close().catch(() => undefined);
+  }
+}
+
+/**
+ * Start a fresh conversation without reloading the app.
+ *
+ * The walk used to open a new page per task. That is not what a person does,
+ * and it cost far more than tidiness: every page loads the model into its own
+ * worker, so a ten-task walk asked the machine for ten copies of a 1-2 GB model
+ * and the browser eventually gave out mid-run — a first token measured at
+ * 186 seconds on a model that answers in under one, and then a closed context.
+ *
+ * Cmd/Ctrl+N is the product's own new-chat shortcut (`useKeyboardShortcuts`),
+ * and it fires even while the composer has focus. Measured on this lane's
+ * profile: the transcript empties without a navigation and the next turn on a
+ * 2.6B model returns its first token in ~0.7 s.
+ */
+export async function startNewConversation(page: Page): Promise<void> {
+  await expect(composer(page)).toBeEnabled({ timeout: TURN_TIMEOUT_MS });
+  await page.keyboard.press("Meta+n");
+  await expect(assistantMessages(page), "Cmd+N did not clear the transcript").toHaveCount(0, {
+    timeout: 30_000,
+  });
+  await expect(composer(page)).toBeEnabled({ timeout: 30_000 });
+}
+
+/**
+ * Count the lookup requests a turn sent straight to the sources.
+ *
+ * Grounding is the one path that leaves the device, so "did a source card
+ * appear" deserves a second, independent witness: whether any request actually
+ * went to Wikipedia. A card with no request, or a request with no card, are
+ * different findings and the row should be able to tell them apart.
+ */
+export function watchLookupRequests(context: BrowserContext): {
+  reset: () => void;
+  urls: () => string[];
+} {
+  let seen: string[] = [];
+  context.on("request", (request) => {
+    if (/wikipedia|wikidata|wikimedia/i.test(request.url())) {
+      seen.push(request.url().slice(0, 140));
+    }
+  });
+  return {
+    reset: () => {
+      seen = [];
+    },
+    urls: () => [...seen],
+  };
+}
+
+/** Whether the Eco tab's web-lookups switch currently reads as on. */
+export async function readWebLookups(context: BrowserContext): Promise<boolean> {
+  const page = await context.newPage();
+  try {
+    await page.goto(`${getWebBaseUrl()}/settings?tab=models`, { waitUntil: "commit" });
+    const toggle = page.getByRole("switch", { name: "Toggle web fact lookups" });
+    await expect(toggle).toBeVisible({ timeout: READY_TIMEOUT_MS });
+    return (await toggle.getAttribute("aria-checked")) === "true";
   } finally {
     await page.close().catch(() => undefined);
   }

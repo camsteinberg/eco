@@ -40,6 +40,8 @@ const PROD_ENV = [
 
 export default defineConfig({
   testDir: "./e2e-acceptance",
+  // Clears the previous run's report fragments — see e2e-acceptance/lib/report.
+  globalSetup: "./e2e-acceptance/global-setup.ts",
   // Only the Playwright spec; `lib/**` are plain modules, not tests.
   testMatch: "*.spec.ts",
   fullyParallel: false,

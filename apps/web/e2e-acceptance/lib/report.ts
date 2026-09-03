@@ -12,7 +12,7 @@
  * invents.
  */
 
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 /**
@@ -40,6 +40,10 @@ export type AcceptanceRow = {
 };
 
 export type PickReport = {
+  /** Declaration order, so an assembled report keeps the order of the walks. */
+  order: number;
+  startedAt: string;
+  finishedAt: string;
   /** The catalog id the walk targeted. */
   modelId: string;
   /** The product name a person sees for it. */
@@ -121,18 +125,6 @@ export function renderMarkdown(report: AcceptanceReport): string {
   return parts.join("\n");
 }
 
-/** Write both artefacts and return the paths written. */
-export function writeReport(
-  report: AcceptanceReport,
-  jsonPath: string,
-): { jsonPath: string; markdownPath: string } {
-  const markdownPath = jsonPath.replace(/\.json$/, ".md");
-  mkdirSync(dirname(jsonPath), { recursive: true });
-  writeFileSync(jsonPath, `${JSON.stringify(report, null, 2)}\n`);
-  writeFileSync(markdownPath, renderMarkdown(report));
-  return { jsonPath, markdownPath };
-}
-
 export const REPORT_JSON_PATH = join(
   __dirname,
   "..",
@@ -140,3 +132,80 @@ export const REPORT_JSON_PATH = join(
   "test-results",
   "acceptance-report.json",
 );
+
+/**
+ * Where each walk's rows are kept while the run is in progress.
+ *
+ * The report cannot live in module memory. Playwright starts a FRESH WORKER
+ * PROCESS after a failed test, which re-imports the spec and so re-creates any
+ * module-level accumulator — and this lane learned that the hard way twice: one
+ * run lost the second model's table because the first walk failed, the next run
+ * lost the FIRST model's table because the second walk ran in a new worker and
+ * its `afterAll` overwrote the file with only what that worker had seen.
+ *
+ * So each walk owns a fragment on disk, rewritten after every row, and the
+ * report is assembled from every fragment present. Any worker can assemble it,
+ * at any point, and get the whole run.
+ */
+const FRAGMENT_DIR = join(dirname(REPORT_JSON_PATH), "acceptance-picks");
+
+function fragmentPath(pick: PickReport): string {
+  const slug = pick.modelId.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
+  return join(FRAGMENT_DIR, `${String(pick.order).padStart(2, "0")}-${slug}.json`);
+}
+
+/** Persist one walk's rows so far. Safe to call after every row. */
+export function writePickFragment(pick: PickReport): void {
+  mkdirSync(FRAGMENT_DIR, { recursive: true });
+  writeFileSync(fragmentPath(pick), `${JSON.stringify(pick, null, 2)}\n`);
+}
+
+/** Every walk's fragment on disk, in declaration order. */
+export function readPickFragments(): PickReport[] {
+  let names: string[];
+  try {
+    names = readdirSync(FRAGMENT_DIR).filter((name) => name.endsWith(".json"));
+  } catch {
+    return [];
+  }
+  const picks: PickReport[] = [];
+  for (const name of names.sort()) {
+    try {
+      picks.push(JSON.parse(readFileSync(join(FRAGMENT_DIR, name), "utf8")) as PickReport);
+    } catch {
+      // A fragment written mid-crash is not worth failing the assembly over.
+    }
+  }
+  return picks.sort((a, b) => a.order - b.order);
+}
+
+/** Clear the previous run's fragments and report. Called once, before the run. */
+export function resetReportArtefacts(): void {
+  rmSync(FRAGMENT_DIR, { recursive: true, force: true });
+  rmSync(REPORT_JSON_PATH, { force: true });
+  rmSync(REPORT_JSON_PATH.replace(/\.json$/, ".md"), { force: true });
+}
+
+/**
+ * Assemble every fragment into the report and write both artefacts.
+ * Idempotent, so every worker can call it as it finishes.
+ */
+export function assembleReport(): {
+  report: AcceptanceReport;
+  jsonPath: string;
+  markdownPath: string;
+} {
+  const picks = readPickFragments();
+  const report: AcceptanceReport = {
+    startedAt: picks.map((pick) => pick.startedAt).sort()[0] ?? new Date().toISOString(),
+    finishedAt:
+      picks.map((pick) => pick.finishedAt).filter(Boolean).sort().pop()
+      ?? new Date().toISOString(),
+    picks,
+  };
+  const markdownPath = REPORT_JSON_PATH.replace(/\.json$/, ".md");
+  mkdirSync(dirname(REPORT_JSON_PATH), { recursive: true });
+  writeFileSync(REPORT_JSON_PATH, `${JSON.stringify(report, null, 2)}\n`);
+  writeFileSync(markdownPath, renderMarkdown(report));
+  return { report, jsonPath: REPORT_JSON_PATH, markdownPath };
+}
