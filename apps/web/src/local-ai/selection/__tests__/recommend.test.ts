@@ -18,12 +18,60 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getCatalog, getModel, TIER_ORDER } from '../../catalog/catalog';
 import { isAssignable } from '../../device/compatibility';
-import { enumerateProfiles } from '../../device-coverage/device-matrix';
 import { CURRENT_LEDGER_VERSION, FAILURE_EVIDENCE_VALID_FROM, profileKey } from '../../evidence/ledger';
 import { canServe, listCandidates, listCatalog, NoAssignableModelError, recommend, starterModelForSlot, tierDefaultModelId } from '../recommend';
 import { isBelowFloor } from '../../device/below-floor';
 import { deriveFirstRunChoices } from '../first-run-choices';
-import type { DeviceProfile, ModelConfig, Slot } from '../../types';
+import type {
+  BrowserClass,
+  DeviceProfile,
+  ModelConfig,
+  Slot,
+  WebGPUSupport,
+} from '../../types';
+
+/**
+ * Enumerates the full universe of device profiles the routing system can
+ * perceive: the six DeviceProfile axes, all URL-forceable. Written inline here
+ * (rather than imported) because this test is its only consumer.
+ *
+ * `deviceMemoryGB: 0` means unreported (Safari/Firefox/unknown); 8 is the
+ * Chromium cap. `webgpuMaxBufferBytes` is a WebGPU-only probe, so it varies
+ * only under the `webgpu` cap — the real profiler leaves it undefined
+ * elsewhere, and fabricating values there would enumerate impossible devices.
+ */
+function enumerateProfiles(): DeviceProfile[] {
+  const browsers: readonly BrowserClass[] = ['chromium', 'safari', 'firefox', 'mobile', 'unknown'];
+  const caps: readonly WebGPUSupport[] = ['webgpu', 'wasm-only', 'none'];
+  const mems: readonly number[] = [0, 2, 4, 8, 16];
+  const shaderF16: readonly (boolean | undefined)[] = [true, false, undefined];
+  const mobile: readonly boolean[] = [false, true];
+  const maxBufferBytes: readonly (number | undefined)[] = [
+    undefined,
+    128_000_000,
+    2_147_483_648,
+  ];
+
+  const out: DeviceProfile[] = [];
+  for (const browserClass of browsers)
+    for (const webgpuSupport of caps)
+      for (const deviceMemoryGB of mems)
+        for (const webgpuShaderF16 of shaderF16)
+          for (const isMobile of mobile)
+            for (const webgpuMaxBufferBytes of webgpuSupport === 'webgpu'
+              ? maxBufferBytes
+              : [undefined])
+              out.push({
+                browserClass,
+                webgpuSupport,
+                deviceMemoryGB,
+                isMobile,
+                webgpuShaderF16,
+                webgpuMaxBufferBytes,
+                override: 'auto',
+              });
+  return out;
+}
 
 /** Mirrors recommend.ts's (unexported) tierRank: lower is better, untiered sorts last. */
 function tierRankOf(model: ModelConfig, slot: Slot): number {
