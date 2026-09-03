@@ -63,7 +63,6 @@ export const AUTOMATED_DIMENSIONS: readonly (keyof RubricScores)[] = [
   'depthMatch',
   'deliversFirst',
   'preservesUserText',
-  'preservesUserRegister',
   'preservesFacts',
   'preservesHistoryFacts',
   'honorsRuledOut',

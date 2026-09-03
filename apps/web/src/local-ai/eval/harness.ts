@@ -58,25 +58,11 @@ import { loadModel, generate as generateThroughLifecycle } from '../runtime/life
 import type { ModelConfig } from '../types';
 import type { ChatMessage, GenerateOptions, TokenEvent } from '../runtime/types';
 import { getEvalCandidateModel } from './eval-candidates';
-import { applyDispatchArm } from './dispatch-arm';
-import {
-  runGroundingStep,
-  withOutputSignals,
-  type EvalGroundingArm,
-} from './retrieval-arm';
-import { applyEcoTangentArm, type EcoTangentArm } from './eco-tangent';
-import {
-  applyEverydayArmOptions,
-  getEverydayArm,
-} from './everyday-arms';
 import { scoreResult } from './rubric';
 import { saveEvalRun } from './storage';
 import { EVAL_PROMPTS } from './prompts';
-import { FELT_PROBES } from './felt-probes';
-import { SHAPE_PROBES, SHAPE_RESEARCH_ARMS } from './shape-probes';
 import { CONTEXT_BOUNDARY_PROBES, CONTEXT_STRESS_PROBES } from './context-stress-probes';
 import type {
-  EvalEverydayArmId,
   EvalGroundingRecord,
   EvalMessageTopology,
   EvalPromptContractId,
@@ -188,19 +174,20 @@ export type EvalRunConfig = {
   /** 'baseline' | 'after-phase-1' | custom. */
   label: string;
   modelIds: string[];
-  /** Subset of prompt ids (fixed ∪ felt ∪ extra); default all. */
+  /** Subset of prompt ids (fixed ∪ context-stress ∪ extra); default all. */
   promptIds?: string[];
   /**
-   * Session-scoped probes appended to the fixed+felt pool (e.g. captured
+   * Session-scoped probes appended to the checked-in pool (e.g. captured
    * failures selected in the diagnostics panel), deduped by id — a collision
-   * with a fixed/felt id keeps the checked-in spec.
+   * with a checked-in id keeps the checked-in spec.
    */
   extraPrompts?: EvalPromptSpec[];
   /**
-   * Include the Stage-0 answer-shape research arms (forced intents / explicit
-   * phrasing / hint placement — shape-probes.SHAPE_RESEARCH_ARMS). Off by
-   * default: arms measure NON-production composition, so they'd skew routine
-   * scorecard composites if they rode every run.
+   * Include the diagnostic context-stress and context-boundary probes
+   * (context-stress-probes.ts). Off by default: they measure headroom at a
+   * model's context ceiling rather than answer quality, so they would skew
+   * routine scorecard composites if they rode every run. The URL param that
+   * arms them is `eco-eval-arms=1`.
    */
   includeResearchArms?: boolean;
   /**
@@ -208,46 +195,6 @@ export type EvalRunConfig = {
    * removed (R1); this field now only gates the Gemma-native contract lane.
    */
   messageTopology?: EvalMessageTopology;
-  /**
-   * Eco-tangent A/B arm (prompt-persona-quality-pass root cause #2). When set,
-   * swaps the identity sentence of the base system prompt for the arm's variant
-   * — a LOCAL, UNSHIPPED parameterization (see local-ai/eval/eco-tangent.ts).
-   * 'A' is the live sentence (a no-op). Off by default: production runs never
-   * set it, so the harness measures the shipped prompt. The A/B never lands in
-   * prod code — only the winning sentence ships, as a one-line prompt change.
-   */
-  identityArm?: EcoTangentArm;
-  /**
-   * Everyday-use A/B cell (local-ai/eval/everyday-arms.ts). Conditions the
-   * system prompt's add-context clause and/or drops the prompt-inclusive n-gram
-   * ban — a LOCAL, UNSHIPPED parameterization, stamped on the run's fingerprint
-   * so `compareEverydayArms` can find the control and refuse without it. Unset
-   * by default: production runs measure exactly what ships.
-   */
-  everydayArm?: EvalEverydayArmId;
-  /**
-   * Model-native tool-dispatch arm (local-ai/eval/dispatch-arm.ts). `'schemas'`
-   * appends the six shipping tools' JSON schemas to the system prompt so the
-   * model can dispatch itself; unset leaves the shipped prompt exactly as it is,
-   * which is the control arm. A LOCAL, UNSHIPPED parameterization — production
-   * runs never set it. Composes AFTER `identityArm`, so the schemas ride whatever
-   * base prompt that arm produced.
-   */
-  dispatchArm?: 'schemas';
-  /**
-   * Passage-retrieval arm (local-ai/eval/retrieval-arm.ts) — the ONLY config that
-   * makes the harness run a TOOL. Unset (every run to date) leaves the harness
-   * tool-free: no matcher runs and nothing is fetched. `'lead'` is the control —
-   * the shipped grounding tool, injecting the article's lead summary. `'passages'`
-   * is the treatment — the same tool built with `extractMode: 'passages'`, which
-   * fetches the article body and injects question-matched sentences.
-   *
-   * A LOCAL, UNSHIPPED parameterization: production imports the shipped tool and
-   * has no switch for this. Composes AFTER `identityArm` and `dispatchArm` — the
-   * grounding note is appended to whatever system prompt those produced, so the
-   * arms stack rather than shadow. Stamped on the run's fingerprint.
-   */
-  groundingArm?: EvalGroundingArm;
   /** Hard cap per generation (default 512 — keeps runs fast). */
   maxTokensCap?: number;
   /** Applies to the TOKEN STREAM only, not load (default 60000). */
@@ -393,13 +340,12 @@ function runtimeAdapterFor(model: ModelConfig): EvalRuntimeAdapter {
 }
 
 /**
- * Pick the prompt specs to run from the fixed ∪ shape ∪ felt (∪ research arms
- * ∪ context-stress ∪ extra) pool, preserving pool order. The answer-shape
- * probes are part of the permanent bar (like felt probes); the research arms
- * and the diagnostic context-stress headroom probes join only when explicitly
- * requested (`includeResearchArms`, off by default), so a full run's default
- * set and its fingerprint stay unchanged. Extras are deduped by id — the
- * checked-in spec always wins a collision.
+ * Pick the prompt specs to run from the fixed (∪ context-stress ∪ extra) pool,
+ * preserving pool order. The diagnostic context-stress and context-boundary
+ * headroom probes join only when explicitly requested (`includeResearchArms`,
+ * off by default), so a full run's default set and its fingerprint stay
+ * unchanged. Extras are deduped by id — the checked-in spec always wins a
+ * collision.
  */
 function selectPrompts(
   promptIds?: string[],
@@ -408,11 +354,7 @@ function selectPrompts(
 ): EvalPromptSpec[] {
   const pool: EvalPromptSpec[] = [
     ...EVAL_PROMPTS,
-    ...SHAPE_PROBES,
-    ...FELT_PROBES,
-    ...(includeResearchArms
-      ? [...SHAPE_RESEARCH_ARMS, ...CONTEXT_STRESS_PROBES, ...CONTEXT_BOUNDARY_PROBES]
-      : []),
+    ...(includeResearchArms ? [...CONTEXT_STRESS_PROBES, ...CONTEXT_BOUNDARY_PROBES] : []),
   ];
   const seen = new Set(pool.map((p) => p.id));
   for (const spec of extraPrompts ?? []) {
@@ -910,33 +852,12 @@ export async function runEval(config: EvalRunConfig, deps?: EvalRunnerDeps): Pro
   const total = config.modelIds.length * prompts.length * samplesPerProbe;
   const runSignal = config.signal;
 
-  // Eco-tangent A/B: swap the identity sentence of the base system prompt for
-  // the selected arm (a local, unshipped parameterization). Arm A is a no-op;
-  // an unset arm leaves the shipped prompt untouched.
-  const arm = config.identityArm;
-  const identityArmed = arm
-    ? (modelId: string): string => applyEcoTangentArm(d.buildSystemPrompt(modelId), arm)
-    : d.buildSystemPrompt;
-
-  // Everyday-use A/B: the remaining arm switch (n-gram ban) only affects
-  // generation options, not the system prompt. Composes with the identity arm
-  // above rather than replacing it.
-  const everydayArm = config.everydayArm ? getEverydayArm(config.everydayArm) : null;
-  // Dispatch measurement arm: append the tool schemas to whatever prompt the
-  // identity arm produced. Composed last so the two arms stack rather than
-  // shadow each other; unset = the shipped prompt (the measurement's control).
-  const buildSystemPrompt =
-    config.dispatchArm === 'schemas'
-      ? (modelId: string): string => applyDispatchArm(identityArmed(modelId))
-      : identityArmed;
-  // Retrieval measurement arm. Composes AFTER the prompt arms rather than with
-  // them: its note is per-PROBE (it depends on what the tool found for that turn),
-  // so it is appended inside the prompt loop, not folded into `buildSystemPrompt`.
-  const groundingArm = config.groundingArm;
-  const buildOptions = everydayArm
-    ? (modelId: string, intent: ChatIntent): GenerateOptions =>
-      applyEverydayArmOptions(d.buildOptions(modelId, intent), everydayArm)
-    : d.buildOptions;
+  // R6 removed the prompt-arm layer (identity / dispatch / everyday / grounding):
+  // every one of those arms was a retired research parameterization, and with
+  // them gone the harness composes exactly the shipped prompt and the shipped
+  // per-intent options, with no switch in between.
+  const buildSystemPrompt = d.buildSystemPrompt;
+  const buildOptions = d.buildOptions;
 
   const emit = (p: EvalProgress): void => config.onProgress?.(p);
 
@@ -997,25 +918,6 @@ export async function runEval(config: EvalRunConfig, deps?: EvalRunnerDeps): Pro
       const requestedMaxTokens = Math.min(baseOptions.maxTokens ?? cap, cap);
       const requestedOptions: GenerateOptions = { ...baseOptions, maxTokens: requestedMaxTokens };
 
-      // Retrieval arm: actually RUN the grounding tool for this probe and append
-      // its note to the system prompt joined by "\n\n" — byte-for-byte the join
-      // the chat pipeline uses at its tool step (useChat.ts). The tool sees ONLY
-      // the final user turn; the replayed history is untouched, which is where
-      // grounding fires in production. Timed separately from generation so the
-      // protocol's cost rule can name the tool step and the token stream apart.
-      // Unset arm = no tool runs at all, i.e. every run before this existed.
-      let groundingRecord: EvalGroundingRecord | undefined;
-      let groundingNote: string | null = null;
-      if (groundingArm !== undefined) {
-        const step = await runGroundingStep(spec.id, spec.prompt, groundingArm, runSignal, d.now);
-        groundingRecord = step.record;
-        groundingNote = step.systemNote;
-      }
-      const armedSystemPrompt =
-        groundingNote !== null
-          ? [buildSystemPrompt(modelId), groundingNote].join('\n\n')
-          : buildSystemPrompt(modelId);
-
       // Messages composed through the SHARED production helpers (hints on
       // user turns — see the header's fidelity note). Multi-turn probes
       // (captured failures / follow-up controls) replay their prior turns
@@ -1023,7 +925,7 @@ export async function runEval(config: EvalRunConfig, deps?: EvalRunnerDeps): Pro
       // as production re-renders history.
       const composed = composeProbeMessages(
         spec,
-        armedSystemPrompt,
+        buildSystemPrompt(modelId),
         modelId,
         messageTopology,
       );
@@ -1054,11 +956,6 @@ export async function runEval(config: EvalRunConfig, deps?: EvalRunnerDeps): Pro
             outcome,
             composed.promptTrace,
             resultSampleIndex,
-            // Sentinel-in-output and parroting need the REPLY, so they are filled
-            // in per sample rather than once per probe.
-            groundingRecord !== undefined
-              ? withOutputSignals(groundingRecord, spec.id, groundingNote, outcome.output)
-              : undefined,
           ),
         );
         completed++;
@@ -1075,9 +972,6 @@ export async function runEval(config: EvalRunConfig, deps?: EvalRunnerDeps): Pro
     maxTokensCap: cap,
     perGenerationTimeoutMs: timeoutMs,
     includeResearchArms: config.includeResearchArms ?? false,
-    ...(config.everydayArm ? { everydayArm: config.everydayArm } : {}),
-    ...(config.dispatchArm ? { dispatchArm: config.dispatchArm } : {}),
-    ...(groundingArm !== undefined ? { groundingArm } : {}),
     promptCount: prompts.length,
     promptSetHash: hashPromptSet(prompts),
     compositionEra: COMPOSITION_ERA,

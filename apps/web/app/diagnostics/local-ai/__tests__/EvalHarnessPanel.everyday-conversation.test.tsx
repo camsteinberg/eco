@@ -25,7 +25,6 @@ import '@testing-library/jest-dom';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EVERYDAY_CONVERSATION_PROBES } from '../../../../src/local-ai/eval/everyday-conversation-probes';
-import { EVERYDAY_USE_PROBES } from '../../../../src/local-ai/eval/everyday-probes';
 import type { EvalRunConfig } from '../../../../src/local-ai/eval/harness';
 import type { EvalRun } from '../../../../src/local-ai/eval/types';
 
@@ -77,8 +76,8 @@ vi.mock('../../../../src/local-ai/eval/storage', () => ({
   clearEvalRuns: () => {},
 }));
 
-// `everyday-conversation-probes` and `everyday-probes` are deliberately NOT
-// mocked — the set that has to become reachable is the real one.
+// `everyday-conversation-probes` is deliberately NOT mocked — the set that has
+// to become reachable is the real one.
 import { EvalHarnessPanel } from '../EvalHarnessPanel';
 
 function url(extra: string): URLSearchParams {
@@ -103,7 +102,6 @@ async function settle(): Promise<void> {
 }
 
 const CONVERSATION_PROBE_IDS = EVERYDAY_CONVERSATION_PROBES.map((p) => p.id);
-const EVERYDAY_PROBE_IDS = EVERYDAY_USE_PROBES.map((p) => p.id);
 
 /**
  * ★ The set pinned as a LIST, not a count. Adding a ninth conversation has to
@@ -166,16 +164,6 @@ describe('EvalHarnessPanel — everyday-conversation probes are reachable', () =
     }
   });
 
-  it('★ the single-turn set still carries no history — the two sets stay distinguishable', async () => {
-    currentParams = url('eco-eval-categories=everyday-use');
-    render(<EvalHarnessPanel />);
-
-    const config = await lastConfig();
-    for (const probe of config.extraPrompts ?? []) {
-      expect(probe.history).toBeUndefined();
-    }
-  });
-
   it('carries only the conversation probes a prompt-id subset actually named', async () => {
     const [first, second] = CONVERSATION_PROBE_IDS;
     currentParams = url(`eco-eval-prompts=${first!},${second!}`);
@@ -215,40 +203,18 @@ describe('EvalHarnessPanel — the two everyday sets do not select each other', 
   });
 
   /**
-   * Both sets now live in the same resolution pool, so the risk this pins is
-   * bleed: a conversation probe averaged into the single-turn scorecard would
-   * be comparing a reply handed eight turns of context against one handed none.
-   * The categories are what keep them apart, and these two assertions are what
-   * keep the categories honest.
+   * R6 deleted the single-turn everyday-use set, so the bleed this used to pin
+   * (a conversation probe averaged into the single-turn scorecard) can no
+   * longer occur from that direction. What still has to hold is that the
+   * category selects THIS set and nothing else in the pool.
    */
-  it('everyday-use still resolves to the single-turn set alone', async () => {
-    currentParams = url('eco-eval-categories=everyday-use');
-    render(<EvalHarnessPanel />);
-
-    const config = await lastConfig();
-    expect(config.promptIds).toEqual(EVERYDAY_PROBE_IDS);
-    expect(config.extraPrompts).toEqual([...EVERYDAY_USE_PROBES]);
-  });
-
-  it('everyday-conversation pulls in no single-turn probe', async () => {
+  it('everyday-conversation resolves to the conversation set alone', async () => {
     currentParams = url('eco-eval-categories=everyday-conversation');
     render(<EvalHarnessPanel />);
 
     const config = await lastConfig();
-    const everydayIds = new Set(EVERYDAY_PROBE_IDS);
-    expect(config.promptIds?.some((id) => everydayIds.has(id))).toBe(false);
-  });
-
-  it('asking for both runs both, single-turn set first', async () => {
-    currentParams = url('eco-eval-categories=everyday-use,everyday-conversation');
-    render(<EvalHarnessPanel />);
-
-    const config = await lastConfig();
-    expect(config.promptIds).toEqual([...EVERYDAY_PROBE_IDS, ...CONVERSATION_PROBE_IDS]);
-    expect(config.extraPrompts).toEqual([
-      ...EVERYDAY_USE_PROBES,
-      ...EVERYDAY_CONVERSATION_PROBES,
-    ]);
+    expect(config.promptIds).toEqual(CONVERSATION_PROBE_IDS);
+    expect(config.extraPrompts).toEqual([...EVERYDAY_CONVERSATION_PROBES]);
   });
 
   it('leaves a non-everyday selection exactly as it was — no probes, no extras', async () => {

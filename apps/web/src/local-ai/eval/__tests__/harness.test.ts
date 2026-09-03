@@ -589,15 +589,11 @@ describe('runEval — captured probes', () => {
   it('includes extra prompts after the fixed pool in a default run', async () => {
     const seen: ChatMessage[][] = [];
     const { EVAL_PROMPTS } = await import('../prompts');
-    const { FELT_PROBES } = await import('../felt-probes');
-    const { SHAPE_PROBES } = await import('../shape-probes');
     const run = await runEval(
-      { label: 'felt', modelIds: ['m'], extraPrompts: [CAPTURED_PROBE] },
+      { label: 'extra', modelIds: ['m'], extraPrompts: [CAPTURED_PROBE] },
       baseDeps({ generate: recordingGenerate(seen) }),
     );
-    expect(run.results).toHaveLength(
-      EVAL_PROMPTS.length + SHAPE_PROBES.length + FELT_PROBES.length + 1,
-    );
+    expect(run.results).toHaveLength(EVAL_PROMPTS.length + 1);
     expect(run.results.at(-1)!.promptId).toBe('cap-t1');
   });
 
@@ -614,9 +610,9 @@ describe('runEval — captured probes', () => {
   });
 });
 
-// ─── Answer-shape composition (Wave 2.6 Stage 0) ─────────────────────────────
+// ─── Message composition ─────────────────────────────────────────────────────
 
-describe('runEval — answer-shape composition', () => {
+describe('runEval — message composition', () => {
   function recordingGenerate(seen: ChatMessage[][]): EvalGenerationFn {
     return (_model, messages) => {
       seen.push(messages);
@@ -629,34 +625,36 @@ describe('runEval — answer-shape composition', () => {
 
   it('passes user turn content through unchanged (no per-turn hints)', async () => {
     const seen: ChatMessage[][] = [];
-    // as1 is a deep-intent (teaching-shaped) probe in the default pool.
+    // rich1 is a deep-intent probe in the default pool.
     await runEval(
-      { label: 'shape', modelIds: ['m'], promptIds: ['as1'] },
+      { label: 'shape', modelIds: ['m'], promptIds: ['rich1'] },
       baseDeps({ generate: recordingGenerate(seen) }),
     );
     expect(seen).toHaveLength(1);
     const [system, user] = [seen[0]![0]!, seen[0]!.at(-1)!];
     expect(system).toEqual({ role: 'system', content: 'system for m' });
     expect(user.role).toBe('user');
-    expect(user.content).toBe('please teach me how to invest');
+    expect(user.content).toBe('how do i get better at public speaking');
   });
 
-  it('excludes research arms by default and includes them with includeResearchArms', async () => {
-    const { SHAPE_RESEARCH_ARMS } = await import('../shape-probes');
-    const armIds = SHAPE_RESEARCH_ARMS.map((p) => p.id);
+  it('excludes the context-stress probes by default and includes them with includeResearchArms', async () => {
+    const { CONTEXT_STRESS_PROBES, CONTEXT_BOUNDARY_PROBES } = await import(
+      '../context-stress-probes'
+    );
+    const gatedIds = [...CONTEXT_STRESS_PROBES, ...CONTEXT_BOUNDARY_PROBES].map((p) => p.id);
 
     const defaultRun = await runEval(
-      { label: 'shape', modelIds: ['m'], promptIds: armIds },
+      { label: 'ctx', modelIds: ['m'], promptIds: gatedIds },
       baseDeps({ generate: recordingGenerate([]) }),
     );
-    // promptIds that only name arms select nothing from the default pool.
+    // promptIds that only name gated probes select nothing from the default pool.
     expect(defaultRun.results).toHaveLength(0);
 
-    const armsRun = await runEval(
-      { label: 'shape', modelIds: ['m'], promptIds: armIds, includeResearchArms: true },
+    const gatedRun = await runEval(
+      { label: 'ctx', modelIds: ['m'], promptIds: gatedIds, includeResearchArms: true },
       baseDeps({ generate: recordingGenerate([]) }),
     );
-    expect(armsRun.results.map((r) => r.promptId)).toEqual(armIds);
+    expect(gatedRun.results.map((r) => r.promptId)).toEqual(gatedIds);
   });
 
   it('can run the Gemma-native user-contract topology without a system role', async () => {
@@ -665,7 +663,7 @@ describe('runEval — answer-shape composition', () => {
       {
         label: 'gemma-native',
         modelIds: ['candidate/gemma-4-e2b-litert'],
-        promptIds: ['as1'],
+        promptIds: ['rich1'],
         messageTopology: 'gemma-native-user-contract',
       },
       baseDeps({
@@ -681,7 +679,7 @@ describe('runEval — answer-shape composition', () => {
     expect(firstUser.role).toBe('user');
     expect(firstUser.content).toContain('You are Eco, a private on-device assistant.');
     expect(firstUser.content).toContain('User task:');
-    expect(firstUser.content).toContain('please teach me how to invest');
+    expect(firstUser.content).toContain('how do i get better at public speaking');
     expect(run.config?.messageTopology).toBe('gemma-native-user-contract');
   });
 
@@ -714,7 +712,7 @@ describe('runEval — answer-shape composition', () => {
       {
         label: 'trace',
         modelIds: ['candidate/gemma-4-e2b-litert'],
-        promptIds: ['as1'],
+        promptIds: ['rich1'],
         messageTopology: 'gemma-native-user-contract',
       },
       baseDeps({
@@ -772,25 +770,6 @@ describe('runEval — answer-shape composition', () => {
     expect(first.results[0]!.promptTrace?.messageTextHash).toBe(second.results[0]!.promptTrace?.messageTextHash);
   });
 
-  it('arm options come from spec.intent (deep treatment on both arm kinds)', async () => {
-    const seenIntents: string[] = [];
-    await runEval(
-      {
-        label: 'shape',
-        modelIds: ['m'],
-        promptIds: ['as4-explicit', 'as4-syshint'],
-        includeResearchArms: true,
-      },
-      baseDeps({
-        generate: recordingGenerate([]),
-        buildOptions: (_modelId, intent) => {
-          seenIntents.push(intent);
-          return { temperature: 0.5, maxTokens: 64 };
-        },
-      }),
-    );
-    expect(seenIntents).toEqual(['deep', 'deep']);
-  });
 });
 
 // ─── Decode mode + run fingerprint ────────────────────────────────────────────

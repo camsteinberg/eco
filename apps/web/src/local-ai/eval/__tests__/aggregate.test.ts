@@ -60,7 +60,6 @@ function makeScores(overrides?: Partial<RubricScores>): RubricScores {
     depthMatch: null,
     deliversFirst: null,
     preservesUserText: null,
-    preservesUserRegister: null,
     preservesFacts: null,
     preservesHistoryFacts: null,
     honorsRuledOut: null,
@@ -140,7 +139,6 @@ describe('AUTOMATED_DIMENSIONS', () => {
       // their arrival.
       'deliversFirst',
       'preservesUserText',
-      'preservesUserRegister',
       'preservesFacts',
       // The conversation pair, gated by `historyFactSources` / `historyRuledOut`
       // — spans of an earlier turn whose facts must survive into this reply, and

@@ -194,15 +194,6 @@ export type EvalPromptSpec = {
    */
   expectUserTextReuse?: true;
   /**
-   * `preservesUserRegister`: the reply has to come back in the person's own
-   * VOICE, not just with their tokens. Set on the same items as
-   * `expectUserTextReuse` — those are exactly the asks that say "leave it in my
-   * own words" — but it measures something that dim provably cannot see: a
-   * reply that replaced an applicant's voice with cover-letter English scored
-   * 1.00 on span overlap (2026-08-09). See `register-shift.ts`.
-   */
-  expectUserRegister?: true;
-  /**
    * `preservesFacts`: the reply has to carry the user's own FIGURES, DATES and
    * NAMES back out intact while the wording is deliberately changed (a summary
    * compresses, a tone rewrite softens, a hospital letter is translated out of
@@ -356,17 +347,6 @@ export type RubricScores = {
    * absolute level.
    */
   preservesUserText: number | null;
-  /**
-   * Whether the person's REGISTER survived, measured as formal-correspondence
-   * markers the reply introduced that their pasted text did not have. 1 = their
-   * voice; 0 = replaced by a genre exemplar. null unless `expectUserRegister`.
-   *
-   * The sibling `preservesUserText` cannot see this: it reads a longest common
-   * token span, and an 8-token run survives almost any rewrite. Differential
-   * against the paste by design — a person who already signs off "Sincerely" is
-   * not made formal by the model echoing it.
-   */
-  preservesUserRegister: number | null;
   /**
    * Fraction of the concrete facts in the user's pasted block — figures,
    * monetary amounts, dates, proper names — that came back UNCORRUPTED. null
