@@ -22,7 +22,9 @@ export default defineConfig({
       // otherwise pick up; its manifest IS unit-tested, from src/__tests__.
       "e2e-capture/**",
       "e2e-perf/*.spec.ts",
-      "e2e-acceptance/**",
+      // Same treatment for the acceptance lane: only its Playwright spec is
+      // filtered out, so `e2e-acceptance/lib/**` keeps its vitest coverage.
+      "e2e-acceptance/*.spec.ts",
       "node_modules/**",
     ],
   },

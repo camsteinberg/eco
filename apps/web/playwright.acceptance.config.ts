@@ -23,7 +23,12 @@ import { defineConfig } from "@playwright/test";
  * describing a different build than the one under test.
  *
  * Run:
- *   pnpm --filter @eco/web test:acceptance
+ *   pnpm --filter @eco/web test:acceptance         # the full walk
+ *   pnpm --filter @eco/web test:acceptance:smoke   # ~10 min self-test
+ *
+ * The smoke subset (`ECO_ACCEPTANCE_SMOKE=1`) walks one model and three tasks
+ * on the existing profile — enough to prove the lane still works after someone
+ * edits it, and never a product verdict. See `e2e-acceptance/lib/subset`.
  *
  * Output: `test-results/acceptance-report.json` and `.md`, one table per
  * shipping model, one row per turn.

@@ -49,6 +49,11 @@ import {
   type RowResult,
 } from "./lib/report";
 import {
+  acceptancePlan,
+  planPicks,
+  planWalksTask,
+} from "./lib/subset";
+import {
   citations,
   contextDivider,
   contextWindowNotice,
@@ -96,6 +101,16 @@ const ECO_DEEPER: Pick = {
   friendlyName: "Eco Deeper (Liquid)",
 };
 const PICKS: readonly Pick[] = [ECO_FAST, ECO_DEEPER];
+
+/**
+ * Full walk, or the ten-minute self-test (`ECO_ACCEPTANCE_SMOKE=1`).
+ *
+ * Both models are still PROVISIONED either way — task 8 needs somewhere to
+ * switch to — but a smoke run walks only `WALK_PICKS` and only the tasks the
+ * plan names. See `lib/subset`.
+ */
+const PLAN = acceptancePlan();
+const WALK_PICKS: readonly Pick[] = planPicks(PLAN, PICKS);
 
 /** ~4,400 chars ≈ 1,100 estimator-tokens. Plain prose, not a token-stuffer. */
 const PASTE_BLOCK = (
@@ -198,7 +213,7 @@ test.describe("ten-task acceptance walk", () => {
   test.afterAll(async () => {
     // Assembled from the fragments on disk, so this is the WHOLE run even when
     // an earlier walk ran in a worker that has since been replaced.
-    const paths = assembleReport();
+    const paths = assembleReport({ smoke: PLAN.smoke });
     console.log(`\nacceptance report: ${paths.jsonPath}\n                   ${paths.markdownPath}`);
     await context?.close();
   });
@@ -213,10 +228,16 @@ test.describe("ten-task acceptance walk", () => {
    */
   test("cold profile, both shipping models provisioned", async () => {
     test.setTimeout(3_600_000);
-    const bootstrap = await context.newPage();
-    await bootstrap.goto(`${BASE_URL}/`, { waitUntil: "commit" });
-    await wipeOrigin(context, bootstrap);
-    await bootstrap.close();
+    if (PLAN.wipesOrigin) {
+      const bootstrap = await context.newPage();
+      await bootstrap.goto(`${BASE_URL}/`, { waitUntil: "commit" });
+      await wipeOrigin(context, bootstrap);
+      await bootstrap.close();
+    } else {
+      // A smoke run keeps whatever the profile already has: the wipe would
+      // re-download both models, and no ten-minute self-test survives that.
+      console.log("  smoke subset: keeping the existing profile, no origin wipe");
+    }
 
     // No slot binding here on purpose: this is the app's own first-run setup,
     // choosing and fetching a model for this device without being told which.
@@ -240,10 +261,13 @@ test.describe("ten-task acceptance walk", () => {
     await page.close();
   });
 
-  for (const pick of PICKS) {
+  // `WALK_PICKS`, not `PICKS`: a smoke run walks one model. `others` stays
+  // derived from `PICKS`, because task 8 switches to a model it does not walk.
+  for (const pick of WALK_PICKS) {
     const others = PICKS.filter((entry) => entry.modelId !== pick.modelId);
 
-    test(`${pick.tileName} — ten-task walk`, async () => {
+    // The title says what actually ran; a smoke run is not a ten-task walk.
+    test(`${pick.tileName} — ${PLAN.smoke ? "smoke subset" : "ten-task"} walk`, async () => {
       test.setTimeout(5_400_000);
       const pickReport: PickReport = {
         order: PICKS.indexOf(pick),
@@ -307,6 +331,9 @@ test.describe("ten-task acceptance walk", () => {
         label: string,
         body: () => Promise<void>,
       ): Promise<void> => {
+        // A task outside this run's plan contributes no row at all, which is
+        // what keeps the smoke report's rows identical in shape to a full one.
+        if (!planWalksTask(PLAN, number)) return;
         try {
           await body();
         } catch (error) {
@@ -710,15 +737,15 @@ test.describe("ten-task acceptance walk", () => {
    * walk makes that walk red, and a red walk is exactly what would stop the
    * next model from being walked at all.
    */
-  test("both models walked, and nothing failed that was not expected to", () => {
+  test("every walked model produced a table, and nothing failed that was not expected to", () => {
     // Read from disk, not from memory: a walk that ran in a worker Playwright
     // has since replaced left its rows in a fragment, and nowhere else.
-    const { report } = assembleReport();
+    const { report } = assembleReport({ smoke: PLAN.smoke });
     expect(
       report.picks.length,
-      `the report carries ${report.picks.length} model table(s), not ${PICKS.length}`,
-    ).toBe(PICKS.length);
-    const missing = PICKS.filter(
+      `the report carries ${report.picks.length} model table(s), not ${WALK_PICKS.length}`,
+    ).toBe(WALK_PICKS.length);
+    const missing = WALK_PICKS.filter(
       (pick) => !report.picks.some((entry) => entry.modelId === pick.modelId),
     ).map((pick) => pick.tileName);
     expect(missing, "a shipping model produced no table at all").toEqual([]);
