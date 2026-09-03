@@ -22,6 +22,12 @@ describe("calculatorTool.match — true positives (must match + correct execute)
     { input: "calculate 2^8", expectedResult: "256" },
     { input: "what is 9 minus 4", expectedResult: "5" },
     { input: "compute (10 - 3) * 5", expectedResult: "35" },
+    // Currency symbols on the operands (the acceptance script's own phrase, s39:
+    // the `$` made the percent rewrite abstain and no card showed).
+    { input: "What's 18% of $62.50", expectedResult: "11.25" },
+    { input: "$1,000 + $250", expectedResult: "1250" },
+    { input: "what is 20% of £80?", expectedResult: "16" },
+    { input: "€45 x 3", expectedResult: "135" },
   ];
 
   for (const { input, expectedResult } of cases) {

@@ -69,6 +69,11 @@ function stripWrapper(text: string): string {
   );
   // Trailing question/equals.
   s = s.replace(/\s*(?:\?|=|equals?|equal to)\s*$/i, "");
+  // A currency symbol glued to a number is a unit, not an operand: "18% of $62.50"
+  // is the same arithmetic as "18% of 62.50" (the acceptance script's own phrase
+  // produced no card until this, s39). Only symbols directly before a digit, so a
+  // stray "$" in prose still counts as a non-arithmetic character below.
+  s = s.replace(/[$£€]\s*(?=\d)/g, "");
   return s.trim();
 }
 
