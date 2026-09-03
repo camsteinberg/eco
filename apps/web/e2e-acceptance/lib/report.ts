@@ -57,6 +57,12 @@ export type PickReport = {
 export type AcceptanceReport = {
   startedAt: string;
   finishedAt: string;
+  /**
+   * Present, and true, only on a smoke run (`ECO_ACCEPTANCE_SMOKE=1`): one
+   * pick, three tasks, no origin wipe. Absent on a full walk, so a full run's
+   * artefacts are unchanged by this field existing.
+   */
+  smoke?: true;
   picks: PickReport[];
 };
 
@@ -100,6 +106,15 @@ export function renderMarkdown(report: AcceptanceReport): string {
     "",
     `Started ${report.startedAt}, finished ${report.finishedAt}.`,
     "",
+    ...(report.smoke
+      ? [
+          "**Smoke subset (`ECO_ACCEPTANCE_SMOKE=1`): one model, tasks 1, 4 and",
+          "8 only, on whatever the profile already had.** This run is a self-test",
+          "of the lane, not an acceptance verdict — read it as \"the walk still",
+          "works\", never as \"the product passed\".",
+          "",
+        ]
+      : []),
     "## Method",
     "",
     "Real inference on this machine's GPU against a production build, one row",
@@ -204,7 +219,7 @@ export function resetReportArtefacts(): void {
  * Assemble every fragment into the report and write both artefacts.
  * Idempotent, so every worker can call it as it finishes.
  */
-export function assembleReport(): {
+export function assembleReport(options: { smoke?: boolean } = {}): {
   report: AcceptanceReport;
   jsonPath: string;
   markdownPath: string;
@@ -215,6 +230,8 @@ export function assembleReport(): {
     finishedAt:
       picks.map((pick) => pick.finishedAt).filter(Boolean).sort().pop()
       ?? new Date().toISOString(),
+    // Omitted rather than set false, so a full run's JSON is byte-identical.
+    ...(options.smoke ? { smoke: true as const } : {}),
     picks,
   };
   const markdownPath = REPORT_JSON_PATH.replace(/\.json$/, ".md");

@@ -20,6 +20,25 @@ It is **opt-in**. It is not in `pnpm qa` and not in CI: the first run downloads
 two models (~0.8 GB and ~1.7 GB), every turn is real generation, and the whole
 walk takes the better part of an hour per model.
 
+## The ten-minute self-test
+
+```bash
+pnpm --filter @eco/web test:acceptance:smoke
+```
+
+`ECO_ACCEPTANCE_SMOKE=1` walks Eco Fast only, and only tasks 1, 4 and 8 — a
+cold-start reply, the two tool cards, and the model switch there and back.
+Those three cover the lane's own machinery end to end: session plumbing and
+slot binding, the non-generation tool path, and the switcher flow on a second
+model. On a warm profile it takes about ten minutes.
+
+It writes the same report files with the same rows, and still ends red on any
+`FAIL` row, so a broken walk is as visible as it is in a full run. Two things
+differ, and the report header says both: one model is walked, and the origin is
+NOT wiped — a wipe would re-download both models. **Read a smoke report as "the
+walk still works", never as "the product passed."** Both models are still
+provisioned, because task 8 has to have somewhere to switch to.
+
 ## What it does
 
 | # | Task |

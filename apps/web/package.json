@@ -18,6 +18,7 @@
     "perf-gate:update": "ECO_PERF_UPDATE_BASELINE=1 playwright test --config playwright.perf.config.ts perf-gate.spec.ts",
     "perf-kv": "playwright test --config playwright.perf.config.ts kv-reuse.spec.ts",
     "test:acceptance": "playwright test --config playwright.acceptance.config.ts",
+    "test:acceptance:smoke": "ECO_ACCEPTANCE_SMOKE=1 playwright test --config playwright.acceptance.config.ts",
     "verify:no-lab-bundle": "node scripts/verify-no-lab-bundled.mjs",
     "seed:evidence": "node scripts/build-seed-evidence.mjs",
     "test:visual": "playwright test --config playwright.visual.config.ts",
