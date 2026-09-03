@@ -39,34 +39,21 @@ const CONFIG = {
 
 /**
  * A rubric scores object with every dim non-null except the judge dims,
- * `depthMatch`, `deliversFirst`, `preservesUserText`, `preservesFacts`,
- * `preservesHistoryFacts`, `honorsRuledOut` and `deliversAskedArtifact` (null =
- * not-applicable, like a probe without a depthBand or without
- * `expectDeliverable` — keeps the hand-computed means below stable); override
- * per test.
+ * `deliversFirst`, `preservesHistoryFacts` and `honorsRuledOut` (null =
+ * not-applicable, like a probe without `expectDeliverable` — keeps the
+ * hand-computed means below stable); override per test.
  */
 function makeScores(overrides?: Partial<RubricScores>): RubricScores {
   return {
     correctStop: 1,
     noRepetition: 1,
-    noCannedLeakage: 1,
     noThinkLeakage: 1,
     noCjkLeak: 1,
-    formatAdherence: 1,
     exactness: 1,
-    instructionFollowing: 1,
-    appropriateUncertainty: 1,
     answerDepth: 1,
-    depthMatch: null,
     deliversFirst: null,
-    preservesUserText: null,
-    preservesFacts: null,
     preservesHistoryFacts: null,
     honorsRuledOut: null,
-    deliversAskedArtifact: null,
-    noUnfilledSlots: null,
-    noInventedTime: null,
-    deliversUnburied: null,
     coherence: null,
     taskFit: null,
     ...overrides,
@@ -120,33 +107,23 @@ describe('median', () => {
 });
 
 describe('AUTOMATED_DIMENSIONS', () => {
-  it('lists the 17 automated dims and excludes the judge dims', () => {
+  it('lists the 9 automated dims and excludes the judge dims', () => {
     expect(AUTOMATED_DIMENSIONS).toEqual([
       'correctStop',
       'noRepetition',
-      'noCannedLeakage',
       'noThinkLeakage',
       'noCjkLeak',
-      'formatAdherence',
       'exactness',
-      'instructionFollowing',
-      'appropriateUncertainty',
       'answerDepth',
-      'depthMatch',
-      // Spec-gated (`expectDeliverable` / `expectUserTextReuse` /
-      // `expectFactPreservation` / `expectsArtifact`), so they are null for every
-      // probe set that predates them and existing composites are unchanged by
-      // their arrival.
+      // Spec-gated by `expectDeliverable`, so null for every probe set that
+      // predates it and existing composites are unchanged by its arrival.
       'deliversFirst',
-      'preservesUserText',
-      'preservesFacts',
       // The conversation pair, gated by `historyFactSources` / `historyRuledOut`
       // — spans of an earlier turn whose facts must survive into this reply, and
       // things an earlier turn ruled out that must not come back. Null for every
       // probe that names neither, so no existing composite moves.
       'preservesHistoryFacts',
       'honorsRuledOut',
-      'deliversAskedArtifact',
     ]);
     expect(AUTOMATED_DIMENSIONS).not.toContain('coherence');
     expect(AUTOMATED_DIMENSIONS).not.toContain('taskFit');
@@ -157,33 +134,33 @@ describe('buildScorecard — composite math', () => {
   it('computes compositeScore as the mean of per-result composites (hand fixture)', () => {
     // Result A: all 10 automated dims = 1.0 → composite 1.0
     // Result B: 4 dims = 0.5, 6 dims = 1.0 → composite (4*0.5 + 6*1.0)/10 = 8/10
-    // Model composite = mean(1.0, 8/10) = 9/10
+    // Applicable automated dims per result: correctStop, noRepetition,
+    // noThinkLeakage, noCjkLeak, exactness, answerDepth = 6.
+    // Result b drops 4 of them to 0.5 → composite (6 - 4 * 0.5) / 6 = 4/6.
+    // Model composite = mean(1.0, 4/6) = 5/6.
     const a = makeResult({ promptId: 'a', scores: makeScores() });
     const b = makeResult({
       promptId: 'b',
       scores: makeScores({
         correctStop: 0.5,
         noRepetition: 0.5,
-        noCannedLeakage: 0.5,
         noThinkLeakage: 0.5,
+        noCjkLeak: 0.5,
       }),
     });
     const card = buildScorecard(makeRun([a, b]));
     expect(card.models).toHaveLength(1);
-    expect(card.models[0]!.compositeScore).toBeCloseTo(9 / 10, 10);
+    expect(card.models[0]!.compositeScore).toBeCloseTo(5 / 6, 10);
   });
 
   it('computes a per-result composite over only the non-null automated dims', () => {
-    // One result, formatAdherence/exactness/instructionFollowing/appropriateUncertainty null.
-    // Applicable automated dims: correctStop, noRepetition, noCannedLeakage,
-    // noThinkLeakage, noCjkLeak, answerDepth = all 1.0
-    // composite = 1.0
+    // One result, exactness and answerDepth null.
+    // Applicable automated dims: correctStop, noRepetition, noThinkLeakage,
+    // noCjkLeak = all 1.0 → composite = 1.0
     const r = makeResult({
       scores: makeScores({
-        formatAdherence: null,
         exactness: null,
-        instructionFollowing: null,
-        appropriateUncertainty: null,
+        answerDepth: null,
       }),
     });
     const card = buildScorecard(makeRun([r]));
@@ -195,35 +172,27 @@ describe('buildScorecard — composite math', () => {
     // Result B: every automated dim null → no applicable dims → skipped
     // Model composite = mean(0.5) = 0.5
     //
-    // Note: 4 dims (noRepetition/noCannedLeakage/noThinkLeakage/noCjkLeak) are typed
-    // non-null in RubricScores, so a *well-typed* result can never have zero
-    // applicable dims — but the runtime guard must still defend against
-    // malformed data that lands via storage. We force that shape with a cast.
+    // Note: 3 dims (noRepetition/noThinkLeakage/noCjkLeak) are typed non-null in
+    // RubricScores, so a *well-typed* result can never have zero applicable
+    // dims — but the runtime guard must still defend against malformed data
+    // that lands via storage. We force that shape with a cast.
     const a = makeResult({
       promptId: 'a',
       scores: makeScores({
         correctStop: 0.5,
         noRepetition: 0.5,
-        noCannedLeakage: 0.5,
         noThinkLeakage: 0.5,
         noCjkLeak: 0.5,
-        formatAdherence: 0.5,
         exactness: 0.5,
-        instructionFollowing: 0.5,
-        appropriateUncertainty: 0.5,
         answerDepth: 0.5,
       }),
     });
     const allNullScores = {
       correctStop: null,
       noRepetition: null,
-      noCannedLeakage: null,
       noThinkLeakage: null,
       noCjkLeak: null,
-      formatAdherence: null,
       exactness: null,
-      instructionFollowing: null,
-      appropriateUncertainty: null,
       answerDepth: null,
       coherence: null,
       taskFit: null,
@@ -248,11 +217,11 @@ describe('buildScorecard — dimensionAverages null skipping', () => {
 
   it('reports null for a dim that is null in every result', () => {
     const results = [
-      makeResult({ promptId: 'a', scores: makeScores({ formatAdherence: null }) }),
-      makeResult({ promptId: 'b', scores: makeScores({ formatAdherence: null }) }),
+      makeResult({ promptId: 'a', scores: makeScores({ exactness: null }) }),
+      makeResult({ promptId: 'b', scores: makeScores({ exactness: null }) }),
     ];
     const card = buildScorecard(makeRun(results));
-    expect(card.models[0]!.dimensionAverages.formatAdherence).toBeNull();
+    expect(card.models[0]!.dimensionAverages.exactness).toBeNull();
   });
 
   it('reports per-dimension and composite spread when repeated samples vary', () => {

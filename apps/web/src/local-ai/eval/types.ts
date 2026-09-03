@@ -300,8 +300,6 @@ export type RubricScores = {
   /** Always computed. */
   noRepetition: number;
   /** Always computed. */
-  noCannedLeakage: number;
-  /** Always computed. */
   noThinkLeakage: number;
   /**
    * Always computed. 0 when CJK script (ideographs / kana / hangul) leaks into
@@ -309,19 +307,9 @@ export type RubricScores = {
    * legitimately CJK prompt).
    */
   noCjkLeak: number;
-  formatAdherence: number | null;
   exactness: number | null;
-  instructionFollowing: number | null;
-  /** Heuristic; a judge confirms. */
-  appropriateUncertainty: number | null;
   /** Richness floor: min(1, words/minWords). null unless `minWords` set. */
   answerDepth: number | null;
-  /**
-   * Depth-band fit: graduated penalty for under-shoot (words/minWords) AND
-   * over-shoot (maxWords/words). null unless `depthBand` set. Word counts are
-   * a proxy for shape — a judge (taskFit) confirms structure quality.
-   */
-  depthMatch: number | null;
   /**
    * Whether the deliverable survived the reply's questions. null unless
    * `expectDeliverable` is set.
@@ -337,46 +325,18 @@ export type RubricScores = {
    */
   deliversFirst: number | null;
   /**
-   * Longest contiguous run of the user's own tokens the reply managed to reuse,
-   * scaled against a clause-length target. null unless `expectUserTextReuse`.
-   *
-   * This is the only dim that can read out a PROMPT-INCLUSIVE n-gram ban: with
-   * `noRepeatNgramSize = n` the model can copy at most n-1 consecutive prompt
-   * tokens at any position, so the measured span is a direct readout of the
-   * constraint. COMPARATIVE by design — read the delta between arms, not the
-   * absolute level.
-   */
-  preservesUserText: number | null;
-  /**
-   * Fraction of the concrete facts in the user's pasted block — figures,
-   * monetary amounts, dates, proper names — that came back UNCORRUPTED. null
-   * unless `expectFactPreservation`.
-   *
-   * Deliberately NOT a span measure. Span overlap rewards parroting and punishes
-   * the rephrasing these items are asking for; this dim asks only whether "£25",
-   * "£180", "7 not 8" and the names survived, however they were re-worded. A
-   * corrupted near-form ("332,062" for "332,026", "Nobel Award" for "Nobel
-   * Prize") is a MISS, not a match.
-   *
-   * ★ ONE-SIDED, BY DESIGN. It scores fact survival and nothing else, so a
-   * verbatim parrot of the paste scores 1.0 — see `scoreFactPreservation`.
-   * COMPARATIVE by design, like `preservesUserText`: read the delta between
-   * arms, not the absolute level.
-   */
-  preservesFacts: number | null;
-  /**
    * Fraction of the facts an EARLIER turn established — the drafted email's
    * dates, the list of bills, the date the party moved to — that came back in
    * the reply to a LATER turn. null unless `historyFactSources` names the spans
    * that carry them.
    *
-   * The conversation sibling of `preservesFacts`, and the dim that closes the
-   * fact half of the gap `everyday-conversation-probes.ts` states about itself:
+   * The dim that closes the fact half of the gap
+   * `everyday-conversation-probes.ts` states about itself:
    * five of those conversations need faithful reproduction and none of them
    * could have it measured, because the instrument read one turn and the
    * requirement spanned many.
    *
-   * ★ ONE-SIDED, like its sibling. It scores fact survival and nothing else: a
+   * ★ ONE-SIDED, BY DESIGN. It scores fact survival and nothing else: a
    * reply that names the facts without doing the job scores 1.0 here, and
    * `answerDepth` / `deliversFirst` / the judge are what catch that.
    */
@@ -391,54 +351,6 @@ export type RubricScores = {
    * thermometer he already said he does not own.
    */
   honorsRuledOut: number | null;
-  /**
-   * Did the reply hand back the message/email/letter the ask named, addressed to
-   * someone and in the person's own voice? null unless `expectsArtifact`.
-   *
-   *   1   — a salutation opens a body somebody could send;
-   *   0.5 — signed but never addressed: the announcement/flyer register, which is
-   *         where the hand-labelled borderline samples sit;
-   *   0   — notes, advice, fragments, or a deflection.
-   *
-   * ★ NOT `deliversFirst`. That dim counts ANY bullet list as a deliverable, so
-   * organiser notes score 1 on it — measured, on thirty real generations, at 29
-   * ones and one 0.5 while the artifact arrived in ten. This dim scores the SHAPE
-   * of what came back; that one scores whether anything came back before the
-   * questions. Neither subsumes the other and neither re-scores the other's axis.
-   */
-  deliversAskedArtifact: number | null;
-  // ── overwrite instrument (M2 mechanism 1) ──
-  /**
-   * Bracket-slot penalty. 1 = clean, 0 = defective slots present. null unless
-   * `expectOverwriteWatch`. A slot is defective when the slotted fact was given
-   * by the user, when it is inserted into the user's own reproduced text, when
-   * the slots are so numerous the artifact is a template, or when the slot
-   * invites the user to author content. Name/date/phone blanks for genuinely
-   * unknown facts are NOT defects.
-   *
-   * Calibration source: 35 hand-labelled frozen captures (M2 baseline
-   * 2026-08-06), labelled before any scorer existed.
-   */
-  noUnfilledSlots: number | null;
-  /**
-   * Invented-time penalty. 1 = clean, 0 = the reply commits to a time/day the
-   * ask never gave. null unless `expectOverwriteWatch`. The detector is
-   * DIFFERENTIAL against the ask text: a time-word that appears in the ask
-   * (e.g. summarise-01's "tonight") is sourced and clean.
-   *
-   * Calibration source: same 35 frozen captures.
-   */
-  noInventedTime: number | null;
-  /**
-   * Artifact-burial penalty. 1 = the asked-for artifact/answer IS the reply,
-   * 0 = buried under or replaced by apparatus (Option/Version multiplicity,
-   * "Changes Made & Rationale" sections, bold-field outlines, per-marker
-   * enumerations). null unless `expectOverwriteWatch`. Orthogonal to fidelity
-   * (preservesUserText/preservesFacts) and to correctness.
-   *
-   * Calibration source: same 35 frozen captures.
-   */
-  deliversUnburied: number | null;
   // ── judge ──
   coherence: number | null;
   taskFit: number | null;

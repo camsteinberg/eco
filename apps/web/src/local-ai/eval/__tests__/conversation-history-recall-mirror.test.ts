@@ -485,7 +485,6 @@ describe('⚠ stated limit: a verbatim recital of the history scores 1.0 on ever
     expect(automated.map(([dim]) => dim)).toEqual([
       'correctStop',
       'noRepetition',
-      'noCannedLeakage',
       'noThinkLeakage',
       'noCjkLeak',
       'answerDepth',
