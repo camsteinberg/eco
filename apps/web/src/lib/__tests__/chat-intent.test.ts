@@ -212,9 +212,13 @@ describe("LFM2.5-1.2B default-model token budgets", () => {
     expect(getGenerationProfile("explain", true, DEFAULT_MODEL).maxTokens).toBe(1536);
   });
 
-  it("gives deep/code their designed 2048 budgets", () => {
-    expect(getGenerationProfile("deep", true, DEFAULT_MODEL).maxTokens).toBe(2048);
-    expect(getGenerationProfile("code", true, DEFAULT_MODEL).maxTokens).toBe(2048);
+  // deep/code are authored at 2048 but clamp to the model's reply ceiling,
+  // lowered to 1536 on 2026-09-02 (s40) after two measured ten-turn chats: the
+  // 2048 reserve halved the 4096 window and evicted history from turn 4–5,
+  // while no reply exceeded 656 tokens. See catalog-data.json provenance.
+  it("gives deep/code the reply ceiling (1536), above explain's 1536 floor and quick's 1024", () => {
+    expect(getGenerationProfile("deep", true, DEFAULT_MODEL).maxTokens).toBe(1536);
+    expect(getGenerationProfile("code", true, DEFAULT_MODEL).maxTokens).toBe(1536);
   });
 
   it("keeps quick at 1024", () => {

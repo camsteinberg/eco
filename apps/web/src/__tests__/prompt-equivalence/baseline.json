@@ -2131,7 +2131,7 @@
         ],
         "modelId": "candidate/lfm2.5-1.2b-instruct-onnx",
         "options": {
-          "max_new_tokens": 2048,
+          "max_new_tokens": 1536,
           "temperature": 0.2,
           "top_p": 0.85,
           "top_k": 40,
@@ -2160,7 +2160,7 @@
         ],
         "modelId": "candidate/lfm2.5-1.2b-instruct-onnx",
         "options": {
-          "max_new_tokens": 2048,
+          "max_new_tokens": 1536,
           "temperature": 0.2,
           "top_p": 0.85,
           "top_k": 40,
@@ -2189,7 +2189,7 @@
         ],
         "modelId": "candidate/lfm2.5-1.2b-instruct-onnx",
         "options": {
-          "max_new_tokens": 2048,
+          "max_new_tokens": 1536,
           "temperature": 0.2,
           "top_p": 0.85,
           "top_k": 40,
@@ -2222,7 +2222,7 @@
         ],
         "modelId": "candidate/lfm2.5-1.2b-instruct-onnx",
         "options": {
-          "max_new_tokens": 2048,
+          "max_new_tokens": 1536,
           "temperature": 0.2,
           "top_p": 0.85,
           "top_k": 40,
@@ -2252,7 +2252,7 @@
         ],
         "modelId": "candidate/lfm2.5-1.2b-instruct-onnx",
         "options": {
-          "max_new_tokens": 2048,
+          "max_new_tokens": 1536,
           "temperature": 0.2,
           "top_p": 0.85,
           "top_k": 40,
@@ -2281,7 +2281,7 @@
         ],
         "modelId": "candidate/lfm2.5-1.2b-instruct-onnx",
         "options": {
-          "max_new_tokens": 2048,
+          "max_new_tokens": 1536,
           "temperature": 0.2,
           "top_p": 0.85,
           "top_k": 40,
@@ -2310,7 +2310,7 @@
         ],
         "modelId": "candidate/lfm2.5-1.2b-instruct-onnx",
         "options": {
-          "max_new_tokens": 2048,
+          "max_new_tokens": 1536,
           "temperature": 0.2,
           "top_p": 0.85,
           "top_k": 40,
@@ -2343,7 +2343,7 @@
         ],
         "modelId": "candidate/lfm2.5-1.2b-instruct-onnx",
         "options": {
-          "max_new_tokens": 2048,
+          "max_new_tokens": 1536,
           "temperature": 0.2,
           "top_p": 0.85,
           "top_k": 40,
@@ -3391,7 +3391,7 @@
         ],
         "modelId": "candidate/lfm2.5-1.2b-instruct-q4-onnx",
         "options": {
-          "max_new_tokens": 2048,
+          "max_new_tokens": 1536,
           "temperature": 0.2,
           "top_p": 0.85,
           "top_k": 40,
@@ -3420,7 +3420,7 @@
         ],
         "modelId": "candidate/lfm2.5-1.2b-instruct-q4-onnx",
         "options": {
-          "max_new_tokens": 2048,
+          "max_new_tokens": 1536,
           "temperature": 0.2,
           "top_p": 0.85,
           "top_k": 40,
@@ -4311,7 +4311,7 @@
         ],
         "modelId": "candidate/qwen3.5-2b-onnx",
         "options": {
-          "max_new_tokens": 2048,
+          "max_new_tokens": 1536,
           "temperature": 0.2,
           "top_p": 0.8,
           "top_k": 20,
@@ -4340,7 +4340,7 @@
         ],
         "modelId": "candidate/qwen3.5-2b-onnx",
         "options": {
-          "max_new_tokens": 2048,
+          "max_new_tokens": 1536,
           "temperature": 0.2,
           "top_p": 0.8,
           "top_k": 20,
@@ -6595,7 +6595,7 @@
         ],
         "modelId": "candidate/lfm2-2.6b-onnx",
         "options": {
-          "max_new_tokens": 2048,
+          "max_new_tokens": 1536,
           "temperature": 0.2,
           "top_p": 0.85,
           "top_k": 40,
@@ -6624,7 +6624,7 @@
         ],
         "modelId": "candidate/lfm2-2.6b-onnx",
         "options": {
-          "max_new_tokens": 2048,
+          "max_new_tokens": 1536,
           "temperature": 0.2,
           "top_p": 0.85,
           "top_k": 40,

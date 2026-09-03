@@ -227,10 +227,10 @@ const CONTROL_SAMPLING_TODAY: Readonly<Record<string, Readonly<Record<string, st
   },
   expand: {
     "local/qwen3-0.6b": "deep:512/0.6",
-    "candidate/lfm2.5-1.2b-instruct-onnx": "deep:2048/0.3",
-    "candidate/lfm2.5-1.2b-instruct-q4-onnx": "deep:2048/0.3",
+    "candidate/lfm2.5-1.2b-instruct-onnx": "deep:1536/0.3",
+    "candidate/lfm2.5-1.2b-instruct-q4-onnx": "deep:1536/0.3",
     "candidate/lfm2.5-350m-onnx": "deep:384/0.45",
-    "candidate/qwen3.5-2b-onnx": "deep:2048/0.6",
+    "candidate/qwen3.5-2b-onnx": "deep:1536/0.6",
     // R3a lowered this model's generation ceiling from 2048 to 1024: at 2048
     // against its 2048 contextTokens there was no room left for the system
     // prompt or history. deep 1536 -> 1024; the sampling is untouched.
@@ -238,7 +238,7 @@ const CONTROL_SAMPLING_TODAY: Readonly<Record<string, Readonly<Record<string, st
     "candidate/qwen2.5-0.5b-mlc": "deep:2048/0.6",
     "candidate/granite-4.0-350m-onnx": "deep:512/0.6",
     "candidate/smollm2-360m-instruct-onnx": "deep:512/0.6",
-    "candidate/lfm2-2.6b-onnx": "deep:2048/0.3",
+    "candidate/lfm2-2.6b-onnx": "deep:1536/0.3",
   },
   simplify: {
     "local/qwen3-0.6b": "quick:512/0.32",
