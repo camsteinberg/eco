@@ -19,8 +19,6 @@ describe('users table', () => {
     expect(cols.email).toBeDefined()
     expect(cols.passwordHash).toBeDefined()
     expect(cols.name).toBeDefined()
-    expect(cols.subscriptionTier).toBeDefined()
-    expect(cols.stripeCustomerId).toBeDefined()
     expect(cols.createdAt).toBeDefined()
     expect(cols.updatedAt).toBeDefined()
   })
@@ -37,9 +35,10 @@ describe('users table', () => {
     expect(cols.email.notNull).toBe(true)
   })
 
-  it('subscriptionTier defaults to free', () => {
-    const cols = getTableColumns(users)
-    expect(cols.subscriptionTier.hasDefault).toBe(true)
+  it('carries no billing columns', () => {
+    const cols = getTableColumns(users) as Record<string, unknown>
+    expect(cols.subscriptionTier).toBeUndefined()
+    expect(cols.stripeCustomerId).toBeUndefined()
   })
 })
 

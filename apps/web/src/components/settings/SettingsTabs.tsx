@@ -7,15 +7,13 @@ import { useState, useRef, useEffect, useCallback, type KeyboardEvent } from 're
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { AccountTab } from './AccountTab'
-import { BillingTab } from './BillingTab'
 import { ModelsTab } from './ModelsTab'
 import { AppearanceTab } from './AppearanceTab'
 import { SupportTab } from './SupportTab'
-import { SETTINGS_TABS, getVisibleSettingsTabs, buildSettingsHref, resolveSettingsTab } from './settingsNavigation'
+import { SETTINGS_TABS, buildSettingsHref, resolveSettingsTab } from './settingsNavigation'
 import { useSession } from '../../lib/auth'
 import { getViewerMode, isGuestLockedSettingsTab } from '../../lib/access-policy'
 import { LockedSettingsPreview } from '../guest/LockedSettingsPreview'
-import { isBillingUiEnabled } from '../../lib/billing-ui-gate'
 
 type TabId = (typeof SETTINGS_TABS)[number]['id']
 
@@ -24,7 +22,7 @@ function SettingsSkeleton() {
     <div className="animate-pulse" aria-hidden="true">
       {/* Tab bar skeleton */}
       <div className="flex gap-1 border-b border-[var(--eco-border)] pb-0">
-        {Array.from({ length: 5 }).map((_, i) => (
+        {Array.from({ length: SETTINGS_TABS.length }).map((_, i) => (
           <div
             key={i}
             className="h-[52px] px-5 py-4"
@@ -65,7 +63,7 @@ export function SettingsTabs() {
   const tabRefs = useRef<Map<string, HTMLButtonElement>>(new Map())
   const currentSearch = searchParams.toString()
   const callbackUrl = `${pathname}${currentSearch ? `?${currentSearch}` : ''}`
-  const visibleTabs = getVisibleSettingsTabs()
+  const visibleTabs = SETTINGS_TABS
   const activeTabMeta = visibleTabs.find((tab) => tab.id === activeTab) ?? visibleTabs[0]!
   const tabIdFor = useCallback((tabId: TabId) => `settings-tab-${tabId}`, [])
   const panelIdFor = useCallback((tabId: TabId) => `settings-panel-${tabId}`, [])
@@ -215,7 +213,6 @@ export function SettingsTabs() {
         ) : null}
         {viewerMode === 'member' && activeTab === 'account' && <AccountTab />}
         {activeTab === 'support' && <SupportTab />}
-        {viewerMode === 'member' && activeTab === 'billing' && isBillingUiEnabled() && <BillingTab />}
         {activeTab === 'models' && <ModelsTab />}
         {activeTab === 'appearance' && <AppearanceTab />}
       </div>

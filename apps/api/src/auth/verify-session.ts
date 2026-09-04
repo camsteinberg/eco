@@ -5,7 +5,7 @@ import { eq, and, gt } from 'drizzle-orm'
 import type { Db } from '../db/index.js'
 import { sessions } from '../db/schema/sessions.js'
 import { users } from '../db/schema/users.js'
-import type { AuthUser, SubscriptionTier } from '../lib/types/auth.js'
+import type { AuthUser } from '../lib/types/auth.js'
 
 export function createSessionVerifier(db: Db) {
   return async (sessionToken: string): Promise<AuthUser | null> => {
@@ -15,7 +15,6 @@ export function createSessionVerifier(db: Db) {
         userId: users.id,
         email: users.email,
         name: users.name,
-        subscriptionTier: users.subscriptionTier,
       })
       .from(sessions)
       .innerJoin(users, eq(sessions.userId, users.id))
@@ -34,7 +33,6 @@ export function createSessionVerifier(db: Db) {
       id: row.userId,
       email: row.email,
       name: row.name ?? null,
-      subscriptionTier: (row.subscriptionTier as SubscriptionTier) ?? 'free',
     }
   }
 }

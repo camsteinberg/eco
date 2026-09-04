@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Bos Computing LLC
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { Hono } from 'hono'
 import { createProfileRouter } from '../profile.js'
 
 const userId = 'user-abc-123'
 
 function mockUser() {
-  return { id: userId, email: 'test@eco.network', name: 'Old Name', subscriptionTier: 'free' as const }
+  return { id: userId, email: 'test@eco.network', name: 'Old Name' }
 }
 
 let updatedNames: string[] = []
@@ -51,51 +51,24 @@ function createApp() {
 
 describe('Profile routes', () => {
   let app: ReturnType<typeof createApp>
-  const originalStripeSecret = process.env.STRIPE_SECRET_KEY
 
   beforeEach(() => {
     vi.clearAllMocks()
-    delete process.env.STRIPE_SECRET_KEY
     app = createApp()
   })
 
-  afterEach(() => {
-    if (originalStripeSecret === undefined) {
-      delete process.env.STRIPE_SECRET_KEY
-    } else {
-      process.env.STRIPE_SECRET_KEY = originalStripeSecret
-    }
-  })
-
   describe('GET /v1/auth/profile', () => {
-    it('returns subscription tier plus supporter membership billing details', async () => {
+    it('returns the account identity and nothing else', async () => {
       const res = await app.request('/v1/auth/profile')
 
       expect(res.status).toBe(200)
-      const body = await res.json() as {
-        subscriptionTier: string
-        supporterMembership: {
-          supporterPriceMonthlyUsd: number
-          billingConfigured: boolean
-        }
-      }
+      const body = await res.json() as Record<string, unknown>
 
-      expect(body.subscriptionTier).toBe('free')
-      expect(body.supporterMembership).toEqual({
-        supporterPriceMonthlyUsd: 15,
-        billingConfigured: false,
+      expect(body).toEqual({
+        id: userId,
+        email: 'test@eco.network',
+        name: 'Old Name',
       })
-    })
-
-    it('marks billing as configured when Stripe is enabled', async () => {
-      process.env.STRIPE_SECRET_KEY = 'sk_test_configured'
-
-      const res = await app.request('/v1/auth/profile')
-      const body = await res.json() as {
-        supporterMembership: { billingConfigured: boolean }
-      }
-
-      expect(body.supporterMembership.billingConfigured).toBe(true)
     })
   })
 

@@ -78,8 +78,8 @@ describe('createSessionCookieVerifier', () => {
           email: 'frank@eco.network',
           name: 'Frank',
         }],
-        // Second select: app users table for stable app id + subscriptionTier
-        [{ id: 'legacy-user-001', subscriptionTier: 'supporter' }],
+        // Second select: app users table for the stable legacy app id
+        [{ id: 'legacy-user-001' }],
       ],
     })
 
@@ -90,7 +90,6 @@ describe('createSessionCookieVerifier', () => {
       id: 'legacy-user-001',
       email: 'frank@eco.network',
       name: 'Frank',
-      subscriptionTier: 'supporter',
     })
   })
 
@@ -118,7 +117,7 @@ describe('createSessionCookieVerifier', () => {
     expect(mockDb.select).not.toHaveBeenCalled()
   })
 
-  it('defaults to free tier when app users table has no matching user', async () => {
+  it('falls back to the Better Auth id when app users table has no matching user', async () => {
     const { mockDb } = createMockDb({
       selectResults: [
         [{
@@ -138,7 +137,6 @@ describe('createSessionCookieVerifier', () => {
       id: 'ba-user-002',
       email: 'grace@eco.network',
       name: 'Grace',
-      subscriptionTier: 'free',
     })
   })
 
@@ -150,7 +148,7 @@ describe('createSessionCookieVerifier', () => {
           email: 'ivy@eco.network',
           name: 'Old Auth Name',
         }],
-        [{ id: 'legacy-user-004', subscriptionTier: 'supporter', name: 'Fresh App Name' }],
+        [{ id: 'legacy-user-004', name: 'Fresh App Name' }],
       ],
     })
 
@@ -161,11 +159,10 @@ describe('createSessionCookieVerifier', () => {
       id: 'legacy-user-004',
       email: 'ivy@eco.network',
       name: 'Fresh App Name',
-      subscriptionTier: 'supporter',
     })
   })
 
-  it('caps the app-user tier lookup at one row (limit 1)', async () => {
+  it('caps the app-user lookup at one row (limit 1)', async () => {
     const { mockDb, limitSpy } = createMockDb({
       selectResults: [
         [{
@@ -173,18 +170,18 @@ describe('createSessionCookieVerifier', () => {
           email: 'judy@eco.network',
           name: 'Judy',
         }],
-        [{ id: 'legacy-user-005', subscriptionTier: 'supporter' }],
+        [{ id: 'legacy-user-005' }],
       ],
     })
 
     const verify = createSessionCookieVerifier(mockDb as never)
     const result = await verify(sessionToken)
 
-    expect(result?.subscriptionTier).toBe('supporter')
+    expect(result?.id).toBe('legacy-user-005')
     expect(limitSpy).toHaveBeenCalledWith(1)
   })
 
-  it('defaults to free tier when app users lookup throws', async () => {
+  it('falls back to the Better Auth row when the app users lookup throws', async () => {
     const mockDb = {
       select: vi.fn().mockImplementation(() => ({
         from: vi.fn().mockReturnValue({
@@ -211,7 +208,6 @@ describe('createSessionCookieVerifier', () => {
       id: 'ba-user-003',
       email: 'hank@eco.network',
       name: null,
-      subscriptionTier: 'free',
     })
   })
 })

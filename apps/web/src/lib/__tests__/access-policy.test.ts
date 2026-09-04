@@ -32,7 +32,7 @@ describe('access policy', () => {
       canAccessAsGuest: true,
       renderLockedPreview: false,
     });
-    expect(getGuestAccessDecision('/settings', 'billing')).toMatchObject({
+    expect(getGuestAccessDecision('/settings', 'account')).toMatchObject({
       routeClass: 'member-only-preview',
       canAccessAsGuest: true,
       renderLockedPreview: true,
@@ -81,7 +81,7 @@ describe('access policy', () => {
 
   it('accepts only launch-safe callback and return route classes', () => {
     expect(sanitizeLaunchSafeRelativeUrl('/chat?prompt=Hello', '/chat')).toBe('/chat?prompt=Hello');
-    expect(sanitizeLaunchSafeRelativeUrl('/settings?tab=billing', '/chat')).toBe('/settings?tab=billing');
+    expect(sanitizeLaunchSafeRelativeUrl('/settings?tab=account', '/chat')).toBe('/settings?tab=account');
     expect(sanitizeLaunchSafeRelativeUrl('/sign-up?callbackUrl=%2Fchat', '/chat')).toBe('/sign-up?callbackUrl=%2Fchat');
 
     for (const unsafeTarget of [

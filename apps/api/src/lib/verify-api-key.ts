@@ -5,7 +5,7 @@ import { eq, and, gt } from 'drizzle-orm'
 import { users } from '../db/schema/users.js'
 import { session as sessionTable, user as userTable } from '../db/schema/auth.js'
 import type { Db } from '../db/index.js'
-import type { AuthUser, SubscriptionTier } from './types/auth.js'
+import type { AuthUser } from './types/auth.js'
 
 // Note: the former bearer-token verifier (`createApiKeyVerifier`) was removed
 // pre-launch (security-review 2026-07-03, M4). The v1.0 web app authenticates by
@@ -44,15 +44,13 @@ export function createSessionCookieVerifier(db: Db) {
     const row = rows[0]
     if (!row) return null
 
-    // Better Auth's user table doesn't have subscriptionTier.
-    // Look up the app users table for subscription info and stable legacy ids
-    // if available.
+    // Better Auth's user table is separate from the app `users` table. Look the
+    // person up there for stable legacy ids and a preferred name if available.
     let appUserId = row.userId
     let resolvedName = row.name ?? null
-    let subscriptionTier: SubscriptionTier = 'free'
     try {
       const appUserRows = await db
-        .select({ id: users.id, name: users.name, subscriptionTier: users.subscriptionTier })
+        .select({ id: users.id, name: users.name })
         .from(users)
         .where(eq(users.email, row.email))
         .limit(1)
@@ -63,18 +61,14 @@ export function createSessionCookieVerifier(db: Db) {
       if (appUserRows[0]?.name) {
         resolvedName = appUserRows[0].name
       }
-      if (appUserRows[0]?.subscriptionTier) {
-        subscriptionTier = appUserRows[0].subscriptionTier as SubscriptionTier
-      }
     } catch {
-      // If the users table lookup fails, default to free tier
+      // If the users table lookup fails, fall back to the Better Auth row.
     }
 
     return {
       id: appUserId,
       email: row.email,
       name: resolvedName,
-      subscriptionTier,
     }
   }
 }

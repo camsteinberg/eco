@@ -188,14 +188,6 @@ else
 fi
 
 echo ""
-echo "── Billing ────────────────────────────────────"
-echo ""
-
-# Billing checkout (should return 401 without auth, proving the route exists)
-check_status   "Billing checkout"     "POST" "$API_URL/v1/billing/checkout" \
-  '{"tier":"supporter"}' "401"
-
-echo ""
 echo "── Metrics ────────────────────────────────────"
 echo ""
 

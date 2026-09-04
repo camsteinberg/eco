@@ -43,7 +43,6 @@ describe('syncUserToAppTable', () => {
       id: 'auth-user-123',
       email: 'person@example.com',
       name: 'Person Example',
-      subscriptionTier: 'free',
     })
   })
 

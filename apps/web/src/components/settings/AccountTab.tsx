@@ -3,7 +3,6 @@
 
 "use client"
 
-import Link from 'next/link'
 import { useState, useEffect } from 'react'
 import {
   bestEffortSignOut,
@@ -13,12 +12,10 @@ import {
   useSession,
 } from '../../lib/auth'
 import { setAccountDeletionInProgress } from '../../lib/account-lifecycle'
-import { useSupporterMembership } from '../../hooks/useSupporterMembership'
-import { isBillingUiEnabled } from '../../lib/billing-ui-gate'
+import { DONATION_URL } from '../../lib/donation'
 import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { ErrorLine } from '../ui/ErrorNotice'
 import { DataExportButton } from './DataExportButton'
-import { buildSettingsHref } from './settingsNavigation'
 import { SettingsSection } from './SettingsSection'
 
 const DELETE_PROGRESS_VISIBILITY_MS = 900
@@ -57,8 +54,6 @@ async function waitForMinimumDuration(startedAt: number, minimumMs: number): Pro
 export function AccountTab() {
   const { data: session } = useSession()
   const user = session?.user as { name?: string; email?: string } | undefined
-  const billingVisible = isBillingUiEnabled()
-  const { isSupporter } = useSupporterMembership()
   const [name, setName] = useState(user?.name ?? '')
   const [savedName, setSavedName] = useState(user?.name ?? '')
 
@@ -146,17 +141,17 @@ export function AccountTab() {
 
   return (
     <div>
-      {billingVisible && (
+      {DONATION_URL && (
         <p className="text-sm text-[var(--eco-text-secondary)]">
-          {isSupporter
-            ? "You're a Supporter — thank you. Manage your benefits in "
-            : "Membership and Supporter benefits live in "}
-          <Link
-            href={buildSettingsHref('billing')}
+          Eco is free. If it&apos;s useful to you, you can{' '}
+          <a
+            href={DONATION_URL}
+            target="_blank"
+            rel="noopener noreferrer"
             className="text-[var(--eco-primary)] underline underline-offset-2 hover:text-[var(--eco-primary-hover)]"
           >
-            Billing
-          </Link>
+            support it with a donation
+          </a>
           .
         </p>
       )}

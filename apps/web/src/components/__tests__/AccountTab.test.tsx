@@ -36,24 +36,17 @@ vi.mock('../../lib/auth', () => ({
   CLIENT_CLEANUP_BUDGET_MS: 4000,
 }))
 
-vi.mock('../../hooks/useSupporterMembership', () => ({
-  useSupporterMembership: () => ({
-    tier: 'free',
-    isSupporter: false,
-    loading: false,
-    error: null,
-    supporterPriceMonthlyUsd: 15,
-    billingConfigured: true,
-  }),
-}))
-
 vi.mock('../../lib/data-export', () => ({
   exportUserData: exportUserDataMock,
 }))
 
-let mockBillingUiEnabled = true
-vi.mock('../../lib/billing-ui-gate', () => ({
-  isBillingUiEnabled: () => mockBillingUiEnabled,
+// Eco is free; the only money surface is an optional external donation link,
+// which renders nothing until a URL is configured.
+let mockDonationUrl: string | null = null
+vi.mock('../../lib/donation', () => ({
+  get DONATION_URL() {
+    return mockDonationUrl
+  },
 }))
 
 // Mock HTMLDialogElement methods for ConfirmDialog
@@ -96,6 +89,7 @@ async function renderAccountTabAndWaitForInitialEffects() {
 
 describe('AccountTab', () => {
   beforeEach(() => {
+    mockDonationUrl = null
     bestEffortSignOutMock.mockReset()
     bestEffortSignOutMock.mockResolvedValue(undefined)
     clearClientStateMock.mockReset()
@@ -174,24 +168,30 @@ describe('AccountTab', () => {
     )
   })
 
-  it('renders the inline Billing link when billing UI is enabled', async () => {
-    mockBillingUiEnabled = true
+  it('renders no donation link when no donation URL is configured', async () => {
+    mockDonationUrl = null
     await renderAccountTabAndWaitForInitialEffects()
 
-    // Heading "Membership" is gone — replaced with a one-sentence inline link
-    expect(screen.queryByRole('heading', { name: 'Membership' })).toBeNull()
-    const link = screen.getByRole('link', { name: /^billing$/i })
-    expect(link).toHaveAttribute(
-      'href',
-      '/settings?tab=billing',
-    )
+    expect(screen.queryByRole('link', { name: /donation/i })).not.toBeInTheDocument()
+    expect(screen.queryByText(/Eco is free\./)).not.toBeInTheDocument()
   })
 
-  it('hides the inline Billing link when billing UI is disabled', async () => {
-    mockBillingUiEnabled = false
+  it('renders an external donation link when a donation URL is configured', async () => {
+    mockDonationUrl = 'https://donate.example/eco'
+    await renderAccountTabAndWaitForInitialEffects()
+
+    const link = screen.getByRole('link', { name: /support it with a donation/i })
+    expect(link).toHaveAttribute('href', 'https://donate.example/eco')
+    expect(link).toHaveAttribute('target', '_blank')
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+  })
+
+  it('has no billing link — there is no billing tab', async () => {
+    mockDonationUrl = null
     await renderAccountTabAndWaitForInitialEffects()
 
     expect(screen.queryByRole('link', { name: /^billing$/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Membership' })).toBeNull()
   })
 
   // --- Profile Save ---

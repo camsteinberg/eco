@@ -44,4 +44,4 @@ fix ships.
 This policy covers the deployed service at **econetwork.ai** and the code in this
 repository. Because Eco's chat is local-first — inference runs in your own browser — much
 of the interesting surface is client-side; findings there are just as welcome as
-server-side ones in the auth and billing gateway.
+server-side ones in the auth gateway.

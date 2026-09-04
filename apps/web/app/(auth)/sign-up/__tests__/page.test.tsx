@@ -31,11 +31,6 @@ vi.mock("../../../../src/lib/auth", () => ({
   useSession: useSessionMock,
 }));
 
-let mockBillingUiEnabled = false;
-vi.mock("../../../../src/lib/billing-ui-gate", () => ({
-  isBillingUiEnabled: () => mockBillingUiEnabled,
-}));
-
 describe("SignUpPage", () => {
   beforeEach(() => {
     searchParams = new URLSearchParams({
@@ -50,7 +45,6 @@ describe("SignUpPage", () => {
     useSessionMock.mockReturnValue({ data: null, isPending: false });
     signInSocialMock.mockReset();
     signUpEmailMock.mockReset();
-    mockBillingUiEnabled = false;
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({}),
@@ -129,10 +123,6 @@ describe("SignUpPage", () => {
 
     expect(global.fetch).not.toHaveBeenCalledWith(
       expect.stringContaining("/v1/referrals/validate"),
-    );
-    expect(global.fetch).not.toHaveBeenCalledWith(
-      expect.stringContaining("/v1/billing"),
-      expect.anything(),
     );
     expect(sessionStorage.getItem("eco-pending-chat-prompt")).toBe("Keep this local");
     expect(window.location.href).toBe("/chat");
@@ -379,37 +369,24 @@ describe("SignUpPage", () => {
     expect(screen.getByText(/create an account anytime/i)).toBeInTheDocument();
   });
 
-  it("hides the supporter continuation note when billing UI is disabled", () => {
+  it("shows no membership note even for a retired billing callback URL", () => {
     searchParams = new URLSearchParams({
       callbackUrl: "/settings?tab=billing",
     });
 
     render(<SignUpPage />);
 
-    expect(screen.queryByText(/supporter membership/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/supporter/i)).not.toBeInTheDocument();
   });
 
-  it("surfaces the supporter continuation note when billing UI is enabled", () => {
-    mockBillingUiEnabled = true;
-    searchParams = new URLSearchParams({
-      callbackUrl: "/settings?tab=billing",
-    });
-
-    render(<SignUpPage />);
-
-    expect(screen.getByText(/create your account and we'll open billing next/i)).toBeInTheDocument();
-  });
-
-  it("keeps passive supporter billing links out of the default sign-up flow", () => {
+  it("renders the default sign-up flow with no membership or billing surface", () => {
     searchParams = new URLSearchParams({
       prompt: "Keep this local",
     });
 
     render(<SignUpPage />);
 
-    expect(
-      screen.queryByRole("link", { name: /create your account and open billing next/i }),
-    ).not.toBeInTheDocument();
-    expect(screen.queryByText(/want to support eco from day one/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/supporter/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/billing/i)).not.toBeInTheDocument();
   });
 });

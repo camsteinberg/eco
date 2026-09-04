@@ -16,10 +16,6 @@ import {
   toAbsoluteWebUrl,
 } from "../../../src/lib/auth-continuation";
 import { rememberPendingChatPrompt } from "../../../src/lib/pending-chat-prompt";
-import {
-  isSupporterBillingHref,
-} from "../../../src/lib/supporter-membership";
-import { isBillingUiEnabled } from "../../../src/lib/billing-ui-gate";
 
 function getEmailError(value: string): string | null {
   const trimmedValue = value.trim();
@@ -80,7 +76,6 @@ function SignUpForm() {
   const githubEnabled = process.env.NEXT_PUBLIC_OAUTH_GITHUB_ENABLED === 'true';
   const anyOAuthEnabled = googleEnabled || githubEnabled;
   const signInHref = buildAuthPageHref("/sign-in", { callbackUrl, prompt });
-  const supporterIntent = isBillingUiEnabled() && isSupporterBillingHref(callbackUrl);
   const guestChatHref = buildGuestChatHref(promptToResume);
 
   useEffect(() => {
@@ -223,17 +218,6 @@ function SignUpForm() {
           <p className="relative mt-2 text-center text-sm text-[var(--color-text-secondary)]">
             Free forever. No credit card required.
           </p>
-
-          {supporterIntent && (
-            <div className="relative mt-4 rounded-2xl border border-[color-mix(in_srgb,var(--color-primary),var(--color-border)_55%)] bg-[color-mix(in_srgb,var(--color-primary-soft),white_14%)] px-4 py-3">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--color-primary)]">
-                Supporter membership
-              </p>
-              <p className="mt-1 text-sm leading-6 text-[var(--color-text-secondary)]">
-                Create your account and we&apos;ll open Billing next so you can finish supporter membership without hunting for it later.
-              </p>
-            </div>
-          )}
 
           {/* General error banner */}
           {error && (

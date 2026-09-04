@@ -9,7 +9,7 @@ welcome. This guide covers what you need to send a change with confidence.
 The fastest way in is the **zero-service quickstart** in the [README](./README.md): the
 on-device chat runs entirely in the browser, so `pnpm install` and `pnpm dev` are enough
 to start working on the product. You only need Postgres + Redis if you're touching auth
-or billing — the README's "Full-stack development" section covers that.
+— the README's "Full-stack development" section covers that.
 
 ## The QA bar
 

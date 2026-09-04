@@ -27,8 +27,8 @@ export function getAllowedWebOrigins({
   if (nodeEnv === 'production') {
     // Fail closed: never substitute a localhost default in production. A missing
     // WEB_URL on Fly would otherwise silently make the CORS + Better-Auth
-    // allowlist `http://localhost:3000` — breaking every browser auth/account/
-    // billing call and "trusting" an attacker-reachable localhost. Throwing here
+    // allowlist `http://localhost:3000` — breaking every browser auth/account
+    // call and "trusting" an attacker-reachable localhost. Throwing here
     // gates boot (getAllowedWebOrigins runs at module load in index.ts), so the
     // deploy fails safely — same philosophy as the DB connectivity gate.
     const configuredOrigins = splitOriginList(webUrl)

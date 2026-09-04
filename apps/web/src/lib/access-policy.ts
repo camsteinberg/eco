@@ -17,10 +17,7 @@ export type GuestAllowedSettingsTabId = Extract<
   SettingsTabId,
   "appearance" | "support" | "models"
 >;
-export type GuestLockedSettingsTabId = Extract<
-  SettingsTabId,
-  "account" | "billing"
->;
+export type GuestLockedSettingsTabId = Extract<SettingsTabId, "account">;
 export type GuestAccessDecision = {
   pathname: string;
   settingsTab?: SettingsTabId;
@@ -84,10 +81,7 @@ const GUEST_ALLOWED_SETTINGS_TABS = new Set<GuestAllowedSettingsTabId>([
   "models",
 ]);
 
-const GUEST_LOCKED_SETTINGS_TABS = new Set<GuestLockedSettingsTabId>([
-  "account",
-  "billing",
-]);
+const GUEST_LOCKED_SETTINGS_TABS = new Set<GuestLockedSettingsTabId>(["account"]);
 
 function matchesPathPrefix(pathname: string, prefixes: readonly string[]): boolean {
   return prefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));

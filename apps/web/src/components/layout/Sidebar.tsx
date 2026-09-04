@@ -307,7 +307,7 @@ export function Sidebar({
     : isSettingsRoute
       ? resolveSidebarSettingsSection(currentSettingsTab)
       : null
-  const getSettingsCurrentAria = (primaryTab: 'account' | 'support' | 'billing' | 'models' | 'appearance'): 'page' | 'location' | undefined => {
+  const getSettingsCurrentAria = (primaryTab: 'account' | 'support' | 'models' | 'appearance'): 'page' | 'location' | undefined => {
     if (!isSettingsRoute || settingsSection !== primaryTab) {
       return undefined
     }

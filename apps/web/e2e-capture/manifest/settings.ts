@@ -7,13 +7,12 @@ import type { CaptureGap, StateEntry } from "../types";
 /**
  * W5 — the states INSIDE the settings tabs.
  *
- * W1 photographs every tab's default (member and guest) and the two billing
- * return banners; the pilot owns the signed-in account default. This wave is
- * everything a person can make those tabs do once they are there: the Eco tab
- * with and without a model, the storage panel's four outcomes, the eight
- * surfaces of the Switch-your-AI dialog, the account form's dirty / saved /
- * failed / confirming states, an honest Supporter account, and the appearance
- * controls in their non-default positions.
+ * W1 photographs every tab's default (member and guest); the pilot owns the
+ * signed-in account default. This wave is everything a person can make those
+ * tabs do once they are there: the Eco tab with and without a model, the
+ * storage panel's four outcomes, the eight surfaces of the Switch-your-AI
+ * dialog, the account form's dirty / saved / failed / confirming states, and
+ * the appearance controls in their non-default positions.
  *
  * Everything below was reached against the running dev:validation server on
  * 2026-08-18 before it was written down. Four findings are load-bearing:
@@ -351,16 +350,6 @@ async function reloadWith(page: Page, init: () => void): Promise<void> {
 
 /** What this wave deliberately did not capture, in a printable form. */
 export const settingsGaps: CaptureGap[] = [
-  {
-    id: "settings.billing-and-supporter",
-    group: "settings",
-    surface:
-      "The billing tab's Supporter/free plan states and the account tab's Supporter thank-you sentence",
-    reason:
-      "Dormant behind NEXT_PUBLIC_ECO_BILLING_UI since the free-launch decision (PR #218): no supporter-membership "
-      + "surface renders in the launch build. The removed entries (account-supporter, billing-supporter-active, "
-      + "billing-free-with-checkout) live in git history; restore them the day the flag is enabled again.",
-  },
   {
     id: "settings.switch-smoke-failed",
     group: "settings",

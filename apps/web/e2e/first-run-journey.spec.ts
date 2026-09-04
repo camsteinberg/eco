@@ -32,7 +32,7 @@ const FORCED_DESKTOP_PROFILE =
   + "&eco-force-device-memory=16"
   + "&eco-force-opfs=true";
 
-// ─── Auth + API stubs (session + billing only; NOT the model proxy) ──────────
+// ─── Auth + API stubs (session only; NOT the model proxy) ───────────────────
 
 test.beforeEach(async ({ page }) => {
   await page.route("**/api/auth/get-session", (route) =>

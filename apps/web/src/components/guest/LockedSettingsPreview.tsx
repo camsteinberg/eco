@@ -30,13 +30,6 @@ const LOCKED_COPY: Record<GuestLockedSettingsTabId, LockedCopy> = {
     dialogDescription:
       "Profile and account controls live here once this workspace belongs to you.",
   },
-  billing: {
-    title: "Plan & billing",
-    body: "Local AI stays free for everyone. Sign in to see your membership and become a Supporter when you're ready.",
-    dialogTitle: "Sign in to manage billing",
-    dialogDescription:
-      "Membership, invoices, and Supporter benefits stay attached to your account after you sign in.",
-  },
 };
 
 export function LockedSettingsPreview({

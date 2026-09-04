@@ -266,7 +266,9 @@ export default function TermsPage({
             <p>
               Eco is free to use, and the free experience is the complete product
               &mdash; no locked features and no usage limits. There are no paid
-              tiers, subscriptions, or charges.
+              tiers, subscriptions, or charges. Donations, where offered, are
+              entirely optional and are handled on an external site under its
+              own terms; they buy no additional features.
             </p>
           </section>
 

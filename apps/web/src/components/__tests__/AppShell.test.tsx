@@ -341,14 +341,14 @@ describe('AppShell', () => {
     })
   })
 
-  it('keeps guest billing previews mounted instead of forcing auth immediately', () => {
+  it('keeps guest locked settings previews mounted instead of forcing auth immediately', () => {
     mockState.sessionData = null
     mockState.pathname = '/settings'
-    mockState.searchParams = new URLSearchParams('tab=billing')
+    mockState.searchParams = new URLSearchParams('tab=account')
 
-    render(<AppShell><div>Billing preview</div></AppShell>)
+    render(<AppShell><div>Account preview</div></AppShell>)
 
-    expect(screen.getByText('Billing preview')).toBeInTheDocument()
+    expect(screen.getByText('Account preview')).toBeInTheDocument()
     expect(mockState.replace).not.toHaveBeenCalled()
   })
 

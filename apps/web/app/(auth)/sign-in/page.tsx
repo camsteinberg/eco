@@ -17,10 +17,6 @@ import {
   toAbsoluteWebUrl,
 } from "../../../src/lib/auth-continuation";
 import { rememberPendingChatPrompt } from "../../../src/lib/pending-chat-prompt";
-import {
-  isSupporterBillingHref,
-} from "../../../src/lib/supporter-membership";
-import { isBillingUiEnabled } from "../../../src/lib/billing-ui-gate";
 
 function getEmailError(value: string): string | null {
   const trimmedValue = value.trim();
@@ -82,7 +78,6 @@ function SignInForm() {
     callbackUrl,
     prompt,
   });
-  const supporterIntent = isBillingUiEnabled() && isSupporterBillingHref(callbackUrl);
   const guestChatHref = buildGuestChatHref(promptToResume);
 
   useEffect(() => {
@@ -207,17 +202,6 @@ function SignInForm() {
           <p className="relative mt-2 text-center text-sm leading-relaxed text-[var(--color-text-secondary)]">
             Sign in to manage your account. Chats on this browser stay here unless you move or clear them.
           </p>
-
-          {supporterIntent && (
-            <div className="relative mt-4 rounded-2xl border border-[color-mix(in_srgb,var(--color-primary),var(--color-border)_55%)] bg-[color-mix(in_srgb,var(--color-primary-soft),white_14%)] px-4 py-3">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--color-primary)]">
-                Supporter membership
-              </p>
-              <p className="mt-1 text-sm leading-6 text-[var(--color-text-secondary)]">
-                Sign in and we&apos;ll open Billing next so you can manage supporter membership in one calm place.
-              </p>
-            </div>
-          )}
 
           {signedOut && (
             <div className="relative mt-4 rounded-2xl border border-[color-mix(in_srgb,var(--color-primary),var(--color-border)_60%)] bg-[color-mix(in_srgb,var(--color-primary-soft),white_18%)] px-4 py-3">

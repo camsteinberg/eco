@@ -14,7 +14,7 @@ function makeApp(verifyCookieFn: (cookieValue: string) => Promise<AuthUser | nul
   app.use('/protected/*', middleware)
   app.get('/protected/data', (c) => {
     const user = c.get('user')
-    return c.json({ userId: user.id, tier: user.subscriptionTier })
+    return c.json({ userId: user.id, email: user.email })
   })
   return app
 }
@@ -24,7 +24,6 @@ describe('auth middleware (session-cookie only)', () => {
     id: 'user-123',
     email: 'test@eco.network',
     name: 'Test User',
-    subscriptionTier: 'free',
   }
 
   it('authenticates via session cookie', async () => {
@@ -36,7 +35,7 @@ describe('auth middleware (session-cookie only)', () => {
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.userId).toBe('user-123')
-    expect(body.tier).toBe('free')
+    expect(body.email).toBe('test@eco.network')
     expect(verifyCookie).toHaveBeenCalledWith('sess-abc-123')
   })
 

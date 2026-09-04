@@ -25,7 +25,6 @@ import { buildAuthPageHref } from '../../lib/auth-continuation'
 import { rememberGuestLocalContext } from '../../lib/guest-local-context'
 import { startNewChat } from '../../lib/start-new-chat'
 import { rememberPendingConversationSearch } from '../../lib/conversation-navigation'
-import { isSupporterBillingHref } from '../../lib/supporter-membership'
 import { canGuestAccessAppRoute, getViewerMode } from '../../lib/access-policy'
 import { resolveSettingsTab } from '../settings/settingsNavigation'
 import { OPEN_SHARE_CONVERSATION_EVENT } from '../../lib/share-conversation-event'
@@ -98,9 +97,7 @@ export function AppShell({ children }: AppShellProps) {
   const canStayInAppAsGuest = canGuestAccessAppRoute(pathname, currentSettingsTab)
   const requestedCallbackUrl = `${pathname}${currentSearch ? `?${currentSearch}` : ''}`
   const hasGuestChatContext = Boolean(activeId || composerDraft.trim())
-  const protectedRouteCallbackUrl = hasGuestChatContext && !isSupporterBillingHref(requestedCallbackUrl)
-    ? '/chat'
-    : requestedCallbackUrl
+  const protectedRouteCallbackUrl = hasGuestChatContext ? '/chat' : requestedCallbackUrl
   const protectedRouteSignInHref = buildAuthPageHref('/sign-in', {
     callbackUrl: protectedRouteCallbackUrl,
   })
@@ -166,9 +163,7 @@ export function AppShell({ children }: AppShellProps) {
 
     clearUnsafeClientState()
 
-    const callbackUrl = hasGuestChatContext && !isSupporterBillingHref(requestedCallbackUrl)
-      ? '/chat'
-      : requestedCallbackUrl
+    const callbackUrl = hasGuestChatContext ? '/chat' : requestedCallbackUrl
     const signInHref = buildAuthPageHref('/sign-in', { callbackUrl })
 
     void bestEffortSignOut()

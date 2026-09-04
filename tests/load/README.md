@@ -26,7 +26,7 @@ docker pull grafana/k6
 > no server-side inference endpoint to load-test. The legacy `chat-streaming.js`
 > and `rate-limiting.js` scripts (which hit the removed `/v1/chat/completions`
 > route) were deleted. What remains is the `/health` baseline. The v1.0 API
-> surface is auth + billing only; load-testing the auth endpoints (Better Auth
+> surface is auth + sessions only; load-testing the auth endpoints (Better Auth
 > rate limiting) is a separate future exercise.
 
 ## Environment Variables

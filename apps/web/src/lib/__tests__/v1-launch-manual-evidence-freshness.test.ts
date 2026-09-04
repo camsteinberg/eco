@@ -30,7 +30,7 @@
  *      recommender still returns the shipping picks via the predicted-fit lane.
  *   3. MONITOR — a NON-failing advisory. At real wall-clock it warns when the
  *      freshest benchmark row is past the TTL, surfacing rot during normal QA
- *      without red-flaking a (billing-locked) CI for a data-recency chore.
+ *      without red-flaking CI for a data-recency chore.
  *
  * To refresh for real: regenerate the JSON from a fresh Eval Harness export
  * (`pnpm --filter @eco/web seed:evidence`), which re-dates the per-row fields.

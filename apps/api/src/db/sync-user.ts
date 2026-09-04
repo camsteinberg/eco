@@ -48,7 +48,6 @@ export async function syncUserToAppTable(
       id: authUserId,
       email,
       name: name ?? null,
-      subscriptionTier: 'free',
     })
 
   return {
