@@ -67,6 +67,13 @@ export interface GenerationReceipt {
    */
   kvReuse?: KvReuseTelemetry;
   /**
+   * Index of the first conversation message inside the history window, so a
+   * cache miss can be told apart: the window moved (eviction) versus the window
+   * held still and the prompt re-tokenized differently. Absent when the
+   * runtime did not report it.
+   */
+  windowStartIndex?: number;
+  /**
    * CJK-token suppression telemetry (transformers worker only). Answers
    * "was the deterministic CJK guard active on this turn?" — a CJK leak with
    * `applied: false` here points at the gate/scan, with `applied: true` at
