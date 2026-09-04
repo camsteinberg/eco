@@ -13,8 +13,9 @@
  * `countTokens` is reachable, so the estimate is gone.
  *
  * The selection ALGORITHM is deliberately unchanged from the one it replaces —
- * pin system, walk backward over whole turns, quantize the eviction point, never
- * drop the final user turn. Only the counter changed. That keeps this slice's
+ * pin system, walk backward over whole turns, never drop the final user turn.
+ * Only the counter changed (the eviction quantum was later deleted and then
+ * reinstated on measurement; see the eviction block in `selectWindow`). That keeps this slice's
  * observable movement attributable to "estimate → real count" and nothing else.
  */
 
@@ -25,6 +26,9 @@ import type { ChatMessage } from './types';
  * this adapter has no tokenizer to ask (`RuntimeAdapter.countTokens`).
  */
 export type TokenCounter = (text: string) => Promise<number | null>;
+
+/** Eviction moves the window start in steps of this fraction of the history budget. */
+export const EVICTION_QUANTUM_FRACTION = 0.5;
 
 export type WindowInput = {
   /** The model's context window, in tokens. */
@@ -167,20 +171,35 @@ export async function selectWindow<T extends ChatMessage>(
 
   const lastUser = lastUserIndex(conversation);
 
-  // Eviction is minimal and whole-message: the start is the oldest message
-  // that still fits, nothing more is evicted. An earlier version rounded the
-  // eviction point up to a "quantum" (an eighth of the budget) on the theory
-  // that a minimally sliding start would break the strict-prefix KV-reuse gate
-  // on nearly every turn once a chat saturates. Measured on the production
-  // path (2026-09-01, Apple Silicon, LFM2.5-1.2B, a sixty-turn chat at a
-  // 4,096 window, ten further turns per arm): the minimal arm missed the cache
-  // once in nine post-warm turns, the quantized arm twice, first-token latency
-  // on hits identical (~0.46–0.49 s). A message is far larger than a short
-  // turn's growth, so whole-message eviction already holds the start still
-  // for many turns; the quantum bought nothing and cost up to an eighth of
-  // the history budget in unused window.
-
+  // Eviction is quantized: once the history no longer fits, the start moves to
+  // the next multiple of half the budget, measured in cumulative tokens from the
+  // start of the conversation, and then HOLDS STILL until the chat has grown by
+  // another half budget. A minimally sliding start (the R5b rule, 2026-09-01)
+  // re-prefilled the whole window on EVERY turn past the wall: measured on the
+  // production build (2026-09-04, Apple Silicon, LFM2-2.6B, a ten-turn
+  // budgeting chat with 400-800-token replies at a 4,096 window), five window
+  // moves in six turns at 8.9-14.0 s to first token each. The same chat under
+  // this rule: three moves at 4.5-8.7 s (the re-prefilled window is smaller)
+  // and a cache hit on the turns between. R5b's own measurement (LFM2.5-1.2B, a
+  // sixty-turn chat of short turns, an eighth-budget quantum) found no gain
+  // because a short turn's growth was below one message: the quantum only pays
+  // when replies are long relative to the budget, which is the shipping chat.
+  // Cost: right after a move the model sees between half and a full budget of
+  // history instead of a full one; that quality trade is the scorer's to judge.
   let windowStart = startIndex;
+  if (startIndex > 0) {
+    const quantum = Math.max(1, Math.floor(historyBudget * EVICTION_QUANTUM_FRACTION));
+    let total = 0;
+    for (const t of turnTokens) total += t;
+    const target = Math.ceil((total - historyBudget) / quantum) * quantum;
+    let cumulative = 0;
+    let quantized = 0;
+    while (quantized < lastUser && quantized < conversation.length - 1 && cumulative < target) {
+      cumulative += turnTokens[quantized]!;
+      quantized++;
+    }
+    if (quantized > windowStart) windowStart = quantized;
+  }
   // Open the window on a user turn: a leading assistant reply with no question
   // above it reads as a fragment to the model and to the chat template.
   if (conversation[windowStart]!.role === 'assistant') windowStart++;

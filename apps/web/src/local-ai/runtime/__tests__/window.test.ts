@@ -250,8 +250,8 @@ describe('selectWindow — the counter', () => {
   });
 });
 
-describe('selectWindow — minimal whole-message eviction', () => {
-  it('keeps the oldest message that still fits and evicts nothing more', async () => {
+describe('selectWindow — whole-message eviction', () => {
+  it('keeps a window that fits the budget and evicts whole messages only', async () => {
     const budget = { contextTokens: 1024, maxNewTokens: 128, countTokens: wordCounter };
     const messages = [SYSTEM, ...conversation(24)];
     const selection = await selectWindow(messages, budget);
@@ -263,11 +263,12 @@ describe('selectWindow — minimal whole-message eviction', () => {
       for (const m of messages.slice(from)) total += (await wordCounter(m.content)) ?? 0;
       return total;
     };
-    // The kept window fits the budget, and the fit is minimal: two messages
-    // earlier always overflows (one earlier may be an assistant reply skipped
-    // only so the window opens on a user turn).
+    // The kept window fits the budget; the eviction point is quantized, so it
+    // may sit anywhere from half a budget to a full one (see the quantized
+    // suite below), and it is always a message boundary.
     expect(await count(start)).toBeLessThanOrEqual(selection.historyBudgetTokens);
-    expect(await count(start - 2)).toBeGreaterThan(selection.historyBudgetTokens);
+    expect(await count(start)).toBeGreaterThanOrEqual(selection.historyBudgetTokens / 2);
+    expect(selection.messages.slice(1)).toEqual(messages.slice(start));
   });
 
   it('never moves the start backward as a chat grows', async () => {
@@ -308,5 +309,36 @@ describe('selectWindow — degenerate inputs', () => {
     });
     expect(selection.messages).toEqual(turns);
     expect(selection.windowStartIndex).toBe(0);
+  });
+});
+
+describe('selectWindow — quantized eviction holds the start still', () => {
+  const budgetOf = { contextTokens: 1000, maxNewTokens: 200, countTokens: wordCounter };
+  // System is 8 words, so the history budget is 792 tokens and the quantum 396.
+
+  it('keeps the same start across turns until the chat has grown by half a budget', async () => {
+    // 20 pairs of 40-word messages = 1,600 tokens, twice the budget.
+    const turns = conversation(20, 40);
+    const first = await selectWindow([SYSTEM, ...turns], budgetOf);
+    expect(first.windowStartIndex).toBeGreaterThan(1);
+
+    // One more short exchange (below the quantum): the start must not move.
+    const grown = [...turns, msg('user', 'u20 one more question'), msg('assistant', 'a20 a short answer')];
+    const second = await selectWindow([SYSTEM, ...grown, msg('user', 'u21 and another')], budgetOf);
+    expect(second.windowStartIndex).toBe(first.windowStartIndex);
+
+    // Grow by more than half a budget: now the start jumps, by more than one message.
+    const jumped = [...grown, msg('user', 'u21 and another'), ...conversation(6, 40).slice(0, 12)];
+    const third = await selectWindow([SYSTEM, ...jumped], budgetOf);
+    expect(third.windowStartIndex).toBeGreaterThan(first.windowStartIndex + 1);
+  });
+
+  it('leaves at least half a budget of history in the window after a move', async () => {
+    const turns = conversation(20, 40);
+    const selection = await selectWindow([SYSTEM, ...turns], budgetOf);
+    let kept = 0;
+    for (const m of selection.messages.slice(1)) kept += await wordCounter(m.content);
+    expect(kept).toBeGreaterThanOrEqual(selection.historyBudgetTokens / 2);
+    expect(kept).toBeLessThanOrEqual(selection.historyBudgetTokens);
   });
 });
