@@ -9,7 +9,7 @@
  * Eco. The only money surface is this one link, which points at an external
  * site with its own terms and privacy policy.
  *
- * Cam supplies the URL. While it is `null` — the default — no donation link
+ * The maintainer supplies the URL. While it is `null` — the default — no donation link
  * renders anywhere in the app.
  */
 export const DONATION_URL: string | null = null
