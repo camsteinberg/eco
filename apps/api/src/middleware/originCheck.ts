@@ -9,7 +9,7 @@ const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS'])
 
 /**
  * Explicit Origin allowlist check for the custom mutating routes
- * (`PATCH /v1/auth/profile`, `DELETE /v1/auth/account`, `POST /v1/billing/{checkout,portal}`).
+ * (`PATCH /v1/auth/profile`, `DELETE /v1/auth/account`).
  *
  * Defense-in-depth on top of the session cookie's `SameSite=Lax`: the Better
  * Auth `/api/auth/*` routes enforce Origin; these custom ones should too. This

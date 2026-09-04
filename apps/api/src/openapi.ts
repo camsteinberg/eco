@@ -7,7 +7,7 @@ export const openApiSpec = {
     title: 'Eco API',
     version: '0.1.0',
     description:
-      'Eco API gateway for the local-first AI chat app. Covers account auth and sessions (Better Auth), Supporter billing (Stripe), and the on-device model catalog. Chat inference runs entirely on the user’s own device — the API does not perform or proxy inference.',
+      'Eco API gateway for the local-first AI chat app. Covers account auth and sessions (Better Auth) only. Chat inference runs entirely on the user’s own device — the API does not perform or proxy inference.',
     license: {
       name: 'AGPL-3.0-or-later',
       url: 'https://www.gnu.org/licenses/agpl-3.0.html',

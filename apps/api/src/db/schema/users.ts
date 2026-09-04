@@ -8,8 +8,6 @@ export const users = pgTable('users', {
   email: varchar('email', { length: 320 }).notNull().unique(),
   passwordHash: text('password_hash'),
   name: varchar('name', { length: 255 }),
-  subscriptionTier: varchar('subscription_tier', { length: 20 }).notNull().default('free'),
-  stripeCustomerId: varchar('stripe_customer_id', { length: 255 }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 })

@@ -102,74 +102,21 @@ describe('resolveDependencyPolicy', () => {
     })
   })
 
-  describe('stripe billing config (3.4)', () => {
-    it('disables billing with no warning when STRIPE_SECRET_KEY is unset (launch default)', () => {
+  describe('no billing surface', () => {
+    it('emits no warnings for a fully configured production environment', () => {
       const policy = resolveDependencyPolicy(prodEnv())
-      expect(policy.billing).toBeNull()
       expect(policy.warnings).toEqual([])
     })
 
-    it('returns the validated billing config only when secret, webhook secret, and supporter price are all set', () => {
+    it('ignores leftover payment-processor environment variables', () => {
       const policy = resolveDependencyPolicy(
         prodEnv({
           STRIPE_SECRET_KEY: 'sk_live_x',
           STRIPE_WEBHOOK_SECRET: 'whsec_x',
-          STRIPE_PRICE_SUPPORTER: 'price_x',
         }),
       )
-      expect(policy.billing).toEqual({
-        webhookSecret: 'whsec_x',
-        supporterPriceId: 'price_x',
-        enterprisePriceId: '',
-      })
       expect(policy.warnings).toEqual([])
-    })
-
-    it('carries the enterprise price through when set (not required to enable billing)', () => {
-      const policy = resolveDependencyPolicy(
-        prodEnv({
-          STRIPE_SECRET_KEY: 'sk_live_x',
-          STRIPE_WEBHOOK_SECRET: 'whsec_x',
-          STRIPE_PRICE_SUPPORTER: 'price_supporter',
-          STRIPE_PRICE_ENTERPRISE: 'price_enterprise',
-        }),
-      )
-      expect(policy.billing?.enterprisePriceId).toBe('price_enterprise')
-    })
-
-    it('refuses to enable billing (and warns at error level in prod) when the webhook secret is missing', () => {
-      const policy = resolveDependencyPolicy(
-        prodEnv({
-          STRIPE_SECRET_KEY: 'sk_live_x',
-          STRIPE_PRICE_SUPPORTER: 'price_x',
-        }),
-      )
-      expect(policy.billing).toBeNull()
-      const warning = policy.warnings.find((w) => /STRIPE_WEBHOOK_SECRET/.test(w.msg))
-      expect(warning).toBeDefined()
-      expect(warning?.level).toBe('error')
-    })
-
-    it('refuses to enable billing when the supporter price id is missing', () => {
-      const policy = resolveDependencyPolicy(
-        prodEnv({
-          STRIPE_SECRET_KEY: 'sk_live_x',
-          STRIPE_WEBHOOK_SECRET: 'whsec_x',
-        }),
-      )
-      expect(policy.billing).toBeNull()
-      const warning = policy.warnings.find((w) => /STRIPE_PRICE_SUPPORTER/.test(w.msg))
-      expect(warning).toBeDefined()
-    })
-
-    it('warns at warn level (not error) for partial stripe config outside production', () => {
-      const policy = resolveDependencyPolicy({
-        NODE_ENV: 'development',
-        STRIPE_SECRET_KEY: 'sk_test_x',
-      })
-      expect(policy.billing).toBeNull()
-      const warning = policy.warnings.find((w) => /STRIPE_/.test(w.msg))
-      expect(warning?.level).toBe('warn')
+      expect(policy).not.toHaveProperty('billing')
     })
   })
 })

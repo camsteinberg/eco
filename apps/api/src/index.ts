@@ -16,7 +16,6 @@ import { logger } from './lib/logger.js'
 import { register, httpRequestsTotal, httpRequestDuration, routeLabelFromMatchedRoutes } from './lib/metrics.js'
 import { matchedRoutes } from 'hono/route'
 import { docsRouter } from './routes/docs.js'
-import { createAuthMiddleware } from './middleware/auth.js'
 import { createOriginCheck } from './middleware/originCheck.js'
 import { createMetricsHandler } from './middleware/metricsAuth.js'
 import { createRateLimiter, type RateLimitRedis } from './middleware/rateLimit.js'
@@ -39,8 +38,8 @@ if (
 // missing DATABASE_URL or REDIS_URL throws here (the server never boots, so the
 // deploy fails safely and Fly keeps the previous release) unless an explicit
 // break-glass env var is set. Outside production this is a no-op. Emitting the
-// warnings up front means a break-glass or half-configured Stripe deploy is loud
-// in the logs from the first line.
+// warnings up front means a break-glass deploy is loud in the logs from the
+// first line.
 const dependencyPolicy = resolveDependencyPolicy(process.env)
 for (const warning of dependencyPolicy.warnings) {
   logger[warning.level](warning.meta ?? {}, warning.msg)
@@ -58,8 +57,8 @@ type AppEnv = {
 
 const app = new Hono<AppEnv>()
 
-// Body limit on billing, auth, and feedback routes (64 KB)
-for (const routePattern of ['/v1/billing/*', '/v1/auth/*', '/api/auth/*', '/v1/feedback', '/v1/feedback/*']) {
+// Body limit on auth and feedback routes (64 KB)
+for (const routePattern of ['/v1/auth/*', '/api/auth/*', '/v1/feedback', '/v1/feedback/*']) {
   app.use(
     routePattern,
     bodyLimit({
@@ -273,7 +272,7 @@ if (process.env.DATABASE_URL) {
 
   // ── Session cookie verification ─────────────────────────────────────────
   // The web app authenticates via the Better Auth session cookie — the only
-  // client is the browser. This guards the profile/account/billing routes. The
+  // client is the browser. This guards the profile and account routes. The
   // former bearer-token (API-key) auth path was removed pre-launch
   // (security-review 2026-07-03, M4) to shrink authn to one well-understood path.
   const { createSessionCookieVerifier } = await import('./lib/verify-api-key.js')
@@ -322,56 +321,6 @@ if (process.env.DATABASE_URL) {
   )
   app.route('/v1/feedback', createFeedbackRouter({ db }))
   logger.info('Feedback route mounted at /v1/feedback')
-}
-
-// ── Billing routes (conditional on COMPLETE Stripe configuration) ────────────
-// `dependencyPolicy.billing` is non-null only when STRIPE_SECRET_KEY,
-// STRIPE_WEBHOOK_SECRET, and STRIPE_PRICE_SUPPORTER are all set (see
-// resolveDependencyPolicy), and it carries the validated values so we never
-// re-derive an empty webhook secret / price id here. A half-configured Stripe
-// (secret only) refuses to mount and is logged loudly above.
-const billingConfig = dependencyPolicy.billing
-if (billingConfig) {
-  try {
-    const { createBillingRouter } = await import('./routes/billing.js')
-    const { createStripeService } = await import('./lib/stripe.js')
-    const { createUpdateUserTier } = await import('./db/update-user-tier.js')
-
-    const stripe = createStripeService()
-    const db = createDb()
-    const updateUserTier = createUpdateUserTier(db)
-
-    // Auth middleware for billing checkout and portal (not webhook) — session
-    // cookie only (bearer path removed pre-launch, security-review 2026-07-03 M4).
-    const { createSessionCookieVerifier: createBillingSessionVerifier } = await import('./lib/verify-api-key.js')
-    const billingVerifySession = createBillingSessionVerifier(db)
-    const billingAuth = createAuthMiddleware(billingVerifySession)
-
-    const billingRouter = createBillingRouter({
-      stripe,
-      updateUserTier,
-      priceIds: {
-        supporter: billingConfig.supporterPriceId,
-        enterprise: billingConfig.enterprisePriceId,
-      },
-      webhookSecret: billingConfig.webhookSecret,
-      db,
-      ...(rateLimitRedis ? { redis: rateLimitRedis } : {}),
-    })
-
-    // Origin allowlist + auth on checkout and portal only — the webhook is a
-    // Stripe server-to-server call (no/foreign Origin, signature-verified
-    // instead), so it must get NEITHER the Origin check nor session auth.
-    const billingOriginCheck = createOriginCheck(ALLOWED_ORIGINS)
-    app.use('/v1/billing/checkout', billingOriginCheck)
-    app.use('/v1/billing/checkout', billingAuth)
-    app.use('/v1/billing/portal', billingOriginCheck)
-    app.use('/v1/billing/portal', billingAuth)
-    app.route('/v1/billing', billingRouter)
-    logger.info('Billing routes mounted')
-  } catch (err) {
-    logger.error({ err }, 'Failed to initialize billing — continuing without it')
-  }
 }
 
 app.onError((err, c) => {

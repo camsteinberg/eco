@@ -24,11 +24,8 @@ export function createAccountRouter({ db }: { db: Db }) {
   router.delete('/', async (c) => {
     const currentUser = c.get('user')
 
-    // This deletes database rows only. There is no Stripe cleanup anywhere in this
-    // handler, so a deleted account would leave a live customer and subscription
-    // billing an address that no longer has a login. Before billing is enabled,
-    // this handler must cancel any active subscription and delete the Stripe
-    // customer, and also delete Better Auth `verification` rows for the email.
+    // This deletes database rows only. It should also delete Better Auth
+    // `verification` rows for the email.
     await db.transaction(async (tx) => {
       // 1. Delete all API keys belonging to the user
       await tx.delete(apiKeys).where(eq(apiKeys.userId, currentUser.id))

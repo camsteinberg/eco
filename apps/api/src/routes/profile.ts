@@ -17,7 +17,7 @@ type Env = {
 export function createProfileRouter({ db }: { db: Db }) {
   const router = new Hono<Env>()
 
-  // GET / — Get user profile including subscription tier
+  // GET / — Get the user profile
   router.get('/', async (c) => {
     const user = c.get('user')
 
@@ -25,14 +25,6 @@ export function createProfileRouter({ db }: { db: Db }) {
       id: user.id,
       email: user.email,
       name: user.name,
-      subscriptionTier: user.subscriptionTier,
-      // Free and Supporter have identical functionality — Supporter is a values
-      // purchase, not a feature unlock. This object carries only the billing
-      // facts the UI needs, with no tiered allowances or entitlements.
-      supporterMembership: {
-        supporterPriceMonthlyUsd: 15,
-        billingConfigured: Boolean(process.env.STRIPE_SECRET_KEY),
-      },
     })
   })
 

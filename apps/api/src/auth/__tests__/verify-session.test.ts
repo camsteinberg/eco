@@ -27,7 +27,6 @@ describe('createSessionVerifier', () => {
         userId: 'user-42',
         email: 'alice@eco.network',
         name: 'Alice',
-        subscriptionTier: 'supporter',
       },
     ])
     const verify = createSessionVerifier(db)
@@ -37,7 +36,6 @@ describe('createSessionVerifier', () => {
       id: 'user-42',
       email: 'alice@eco.network',
       name: 'Alice',
-      subscriptionTier: 'supporter',
     })
   })
 
@@ -55,40 +53,21 @@ describe('createSessionVerifier', () => {
     expect(user).toBeNull()
   })
 
-  it('defaults subscriptionTier to free when null', async () => {
-    const db = mockDb([
-      {
-        userId: 'user-99',
-        email: 'bob@eco.network',
-        name: null,
-        subscriptionTier: null,
-      },
-    ])
-    const verify = createSessionVerifier(db)
-    const user = await verify('some-token')
-
-    expect(user).toEqual({
-      id: 'user-99',
-      email: 'bob@eco.network',
-      name: null,
-      subscriptionTier: 'free',
-    })
-  })
-
   it('handles name being null', async () => {
     const db = mockDb([
       {
         userId: 'user-77',
         email: 'anon@eco.network',
         name: null,
-        subscriptionTier: 'enterprise',
       },
     ])
     const verify = createSessionVerifier(db)
     const user = await verify('anon-token')
 
-    expect(user).not.toBeNull()
-    expect(user!.name).toBeNull()
-    expect(user!.subscriptionTier).toBe('enterprise')
+    expect(user).toEqual({
+      id: 'user-77',
+      email: 'anon@eco.network',
+      name: null,
+    })
   })
 })

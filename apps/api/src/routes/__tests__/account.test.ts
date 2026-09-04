@@ -8,7 +8,7 @@ import { createAccountRouter } from '../account.js'
 const userId = 'user-abc-123'
 
 function mockUser() {
-  return { id: userId, email: 'test@eco.network', name: 'Test User', subscriptionTier: 'free' as const }
+  return { id: userId, email: 'test@eco.network', name: 'Test User' }
 }
 
 function createMockDb() {

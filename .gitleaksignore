@@ -1,5 +1,0 @@
-# gitleaks: acknowledged false positives (each verified safe to publish).
-#
-# Stripe TEST-MODE placeholder in a unit test, not a real credential.
-# Test-mode keys (sk_test_/pk_test_) are non-sensitive by Stripe design.
-apps/api/src/routes/__tests__/profile.test.ts:stripe-access-token:91

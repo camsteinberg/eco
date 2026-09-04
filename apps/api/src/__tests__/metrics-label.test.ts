@@ -30,7 +30,7 @@ describe('Prometheus path-label cardinality', () => {
 
     // Register some routes with patterns
     app.get('/v1/auth/profile', (c) => c.json({ ok: true }))
-    app.get('/v1/billing/checkout', (c) => c.json({ ok: true }))
+    app.get('/v1/auth/account', (c) => c.json({ ok: true }))
     app.get('/health', (c) => c.json({ status: 'ok' }))
 
     app.notFound((c) => c.json({ error: 'Not found' }, 404))
