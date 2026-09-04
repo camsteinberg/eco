@@ -54,7 +54,9 @@ import { getDeviceProfile } from '../device/profile';
 import { classifyDeviceClass } from '../evidence/seed';
 import { profileKey } from '../evidence/ledger';
 import { bootstrapLocalAi } from '../bootstrap';
-import { loadModel, generate as generateThroughLifecycle } from '../runtime/lifecycle';
+import { loadModel, generate as generateThroughLifecycle, getActiveAdapter } from '../runtime/lifecycle';
+import { replyReserve } from '../runtime/stream';
+import { EVICTION_QUANTUM_FRACTION, selectWindow } from '../runtime/window';
 import type { ModelConfig } from '../types';
 import type { ChatMessage, GenerateOptions, TokenEvent } from '../runtime/types';
 import { getEvalCandidateModel } from './eval-candidates';
@@ -63,6 +65,7 @@ import { saveEvalRun } from './storage';
 import { EVAL_PROMPTS } from './prompts';
 import { CONTEXT_BOUNDARY_PROBES, CONTEXT_STRESS_PROBES } from './context-stress-probes';
 import type {
+  EvalEvictionRule,
   EvalGroundingRecord,
   EvalMessageTopology,
   EvalPromptContractId,
@@ -195,6 +198,19 @@ export type EvalRunConfig = {
    * removed (R1); this field now only gates the Gemma-native contract lane.
    */
   messageTopology?: EvalMessageTopology;
+  /**
+   * Run-wide history-eviction rule. ABSENT (the default, and every run before
+   * this field existed) leaves the harness's long-standing behaviour untouched:
+   * no window is selected at all and the composed probe messages reach the
+   * adapter whole — which is what the context-stress headroom probes measure.
+   *
+   * Set it and the harness applies `selectWindow` to every generation, with
+   * `'quantized'` = the shipped rule (#348) and `'minimal'` = the rule it
+   * replaced. Those are the two arms of the latency-versus-history trade the
+   * blind pairwise scorer has to judge; both are recorded on the run
+   * fingerprint, so an arm can never be mistaken for a full-history run.
+   */
+  evictionRule?: EvalEvictionRule;
   /** Hard cap per generation (default 512 — keeps runs fast). */
   maxTokensCap?: number;
   /** Applies to the TOKEN STREAM only, not load (default 60000). */
@@ -773,6 +789,33 @@ function composeProbeMessages(
   };
 }
 
+/**
+ * Apply the production history window to one probe's composed messages.
+ *
+ * Only the eviction arm calls this. The counter is the LOADED adapter's own
+ * tokenizer, reached through `getActiveAdapter` because `prepareModel` has
+ * already made the model active; an adapter without one (LiteRT) falls back to
+ * `selectWindow`'s conservative character bound, exactly as the chat path does.
+ * The reply reserve is `runtime/stream.ts`'s own `replyReserve`, so the arm
+ * reserves what production reserves rather than a second copy of the rule.
+ */
+async function applyEvictionWindow(
+  model: ModelConfig,
+  messages: ChatMessage[],
+  requestedMaxTokens: number,
+  rule: EvalEvictionRule,
+): Promise<ChatMessage[]> {
+  const adapter = getActiveAdapter();
+  const countTokens = adapter?.countTokens?.bind(adapter);
+  const selection = await selectWindow(messages, {
+    contextTokens: model.capabilities.contextTokens,
+    maxNewTokens: replyReserve(model, requestedMaxTokens),
+    evictionQuantumFraction: rule === 'minimal' ? 0 : EVICTION_QUANTUM_FRACTION,
+    ...(countTokens ? { countTokens } : {}),
+  });
+  return selection.messages;
+}
+
 /** Build a result for a (prompt, modelId) the catalog can't resolve. */
 function buildUnknownModelResult(spec: EvalPromptSpec, modelId: string, sampleIndex?: number): EvalResult {
   return errorResult(spec, modelId, 'unknown', `unknown model: "${modelId}" is not in the catalog`, sampleIndex);
@@ -848,6 +891,7 @@ export async function runEval(config: EvalRunConfig, deps?: EvalRunnerDeps): Pro
   const samplingMode = config.samplingMode ?? DEFAULT_SAMPLING_MODE;
   const samplesPerProbe = normalizeSamplesPerProbe(config.samplesPerProbe);
   const messageTopology = config.messageTopology ?? DEFAULT_MESSAGE_TOPOLOGY;
+  const evictionRule = config.evictionRule;
   const prompts = selectPrompts(config.promptIds, config.extraPrompts, config.includeResearchArms);
   const total = config.modelIds.length * prompts.length * samplesPerProbe;
   const runSignal = config.signal;
@@ -930,6 +974,13 @@ export async function runEval(config: EvalRunConfig, deps?: EvalRunnerDeps): Pro
         messageTopology,
       );
 
+      // The eviction arm, and ONLY the eviction arm, windows the history. The
+      // harness streams through the lifecycle rather than `runtime/stream.ts`,
+      // so no window is selected on any other run — see `evictionRule`.
+      const messagesToSend = evictionRule
+        ? await applyEvictionWindow(model, composed.messages, requestedMaxTokens, evictionRule)
+        : composed.messages;
+
       for (let sampleIndex = 1; sampleIndex <= samplesPerProbe; sampleIndex++) {
         if (runSignal?.aborted) break;
         const resultSampleIndex = samplesPerProbe > 1 ? sampleIndex : undefined;
@@ -939,7 +990,7 @@ export async function runEval(config: EvalRunConfig, deps?: EvalRunnerDeps): Pro
         const outcome = await runStream(
           d.generate,
           model,
-          composed.messages,
+          messagesToSend,
           requestedOptions,
           timeoutMs,
           runSignal,
@@ -972,6 +1023,7 @@ export async function runEval(config: EvalRunConfig, deps?: EvalRunnerDeps): Pro
     maxTokensCap: cap,
     perGenerationTimeoutMs: timeoutMs,
     includeResearchArms: config.includeResearchArms ?? false,
+    ...(evictionRule ? { evictionRule } : {}),
     promptCount: prompts.length,
     promptSetHash: hashPromptSet(prompts),
     compositionEra: COMPOSITION_ERA,

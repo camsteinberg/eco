@@ -37,7 +37,36 @@ export type WindowInput = {
   maxNewTokens: number;
   /** Absent (or returning null) means no tokenizer — see `upperBoundTokens`. */
   countTokens?: TokenCounter;
+  /**
+   * Fraction of the history budget the window start advances by per eviction
+   * step. Absent selects `EVICTION_QUANTUM_FRACTION` — the shipping rule, so
+   * every existing caller is unchanged.
+   *
+   * `0` selects the MINIMAL-SLIDE rule that the quantum replaced (the rule at
+   * `59b4fe7^`): the start is simply the oldest message that still fits, with
+   * no rounding, so it advances on nearly every turn past the wall. That arm
+   * exists because the quantum's latency win costs history right after a move,
+   * and the trade has to be judged blind by the pairwise scorer rather than
+   * asserted. Any other value in (0, 1] selects that fraction.
+   *
+   * Out of range (negative, above 1, or not finite) THROWS rather than falling
+   * back: a silent fallback would let an eval arm quietly measure the control.
+   */
+  evictionQuantumFraction?: number;
 };
+
+/**
+ * Resolve the eviction quantum, rejecting a value the caller cannot have meant.
+ */
+function resolveQuantumFraction(value: number | undefined): number {
+  if (value === undefined) return EVICTION_QUANTUM_FRACTION;
+  if (!Number.isFinite(value) || value < 0 || value > 1) {
+    throw new Error(
+      `selectWindow: evictionQuantumFraction must be a finite number in [0, 1], got ${String(value)}`,
+    );
+  }
+  return value;
+}
 
 export type WindowSelection<T extends ChatMessage> = {
   /** The messages to generate from: the pinned system turn plus the window. */
@@ -128,6 +157,8 @@ export async function selectWindow<T extends ChatMessage>(
   messages: ReadonlyArray<T>,
   input: WindowInput,
 ): Promise<WindowSelection<T>> {
+  const quantumFraction = resolveQuantumFraction(input.evictionQuantumFraction);
+
   if (messages.length === 0) {
     return {
       messages: [],
@@ -186,9 +217,12 @@ export async function selectWindow<T extends ChatMessage>(
   // when replies are long relative to the budget, which is the shipping chat.
   // Cost: right after a move the model sees between half and a full budget of
   // history instead of a full one; that quality trade is the scorer's to judge.
+  //
+  // `evictionQuantumFraction: 0` skips this block entirely, which IS the
+  // minimal-slide rule verbatim (`59b4fe7^` had no block here at all).
   let windowStart = startIndex;
-  if (startIndex > 0) {
-    const quantum = Math.max(1, Math.floor(historyBudget * EVICTION_QUANTUM_FRACTION));
+  if (startIndex > 0 && quantumFraction > 0) {
+    const quantum = Math.max(1, Math.floor(historyBudget * quantumFraction));
     let total = 0;
     for (const t of turnTokens) total += t;
     const target = Math.ceil((total - historyBudget) / quantum) * quantum;
