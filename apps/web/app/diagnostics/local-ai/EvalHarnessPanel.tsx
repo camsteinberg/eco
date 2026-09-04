@@ -10,6 +10,7 @@ import { Button } from '@eco/ui';
 import type { EvalProgress, EvalRunConfig } from '../../../src/local-ai/eval/harness';
 import type { CapturedFailure } from '../../../src/local-ai/eval/capture';
 import type {
+  EvalEvictionRule,
   EvalMessageTopology,
   EvalPromptSpec,
   EvalRun,
@@ -189,6 +190,8 @@ export function EvalHarnessPanel() {
       includeResearchArms?: boolean;
       /** Autorun-only: run-wide message composition topology. */
       messageTopology?: EvalMessageTopology;
+      /** Autorun-only: run-wide history-eviction rule. */
+      evictionRule?: EvalEvictionRule;
       /** Autorun-only: per-generation stream timeout override (ms). */
       perGenerationTimeoutMs?: number;
       /** Autorun-only: session-scoped probes appended to the pool. */
@@ -246,6 +249,7 @@ export function EvalHarnessPanel() {
             : {}),
           ...(override?.includeResearchArms ? { includeResearchArms: true } : {}),
           ...(override?.messageTopology ? { messageTopology: override.messageTopology } : {}),
+          ...(override?.evictionRule ? { evictionRule: override.evictionRule } : {}),
           ...(override?.perGenerationTimeoutMs !== undefined
             ? { perGenerationTimeoutMs: override.perGenerationTimeoutMs }
             : {}),
@@ -349,6 +353,13 @@ export function EvalHarnessPanel() {
             ? 'gemma-native-user-contract'
             : undefined;
 
+    // `eco-eval-eviction=minimal|quantized`: run-wide history-eviction rule.
+    // Absent/invalid = the harness default (no window selection at all — full
+    // history, which is what every run before this arm existed measured).
+    const rawEviction = searchParams.get('eco-eval-eviction');
+    const autoEvictionRule: EvalEvictionRule | undefined =
+      rawEviction === 'minimal' ? 'minimal' : rawEviction === 'quantized' ? 'quantized' : undefined;
+
     // `eco-eval-samples=N`: replicate each prompt/model N times (clamped in the harness).
     const rawSamplesPerProbe = searchParams.get('eco-eval-samples');
     const autoSamplesPerProbe =
@@ -396,12 +407,14 @@ export function EvalHarnessPanel() {
           { CONVERSATION_INTEGRITY_PROBES },
           { CONTEXT_STRESS_PROBES, CONTEXT_BOUNDARY_PROBES },
           { KNOWN_ANSWER_PROBES },
+          { QUANTUM_TRADE_PROBES },
         ] = await Promise.all([
           import('../../../src/local-ai/eval/prompts'),
           import('../../../src/local-ai/eval/everyday-conversation-probes'),
           import('../../../src/local-ai/eval/conversation-integrity-probe'),
           import('../../../src/local-ai/eval/context-stress-probes'),
           import('../../../src/local-ai/eval/known-answer-probes'),
+          import('../../../src/local-ai/eval/quantum-trade-probes'),
         ]);
         return [
           ...EVAL_PROMPTS,
@@ -423,6 +436,12 @@ export function EvalHarnessPanel() {
           // `eco-eval-prompts=everyday-convo-…` can resolve it, and it rides to
           // the harness as extraPrompts below.
           ...EVERYDAY_CONVERSATION_PROBES,
+          // The eviction-arm probes are derived from a captured transcript and
+          // are EMPTY until it carries real replies, so this name resolves
+          // `eco-eval-prompts=qt-5…` the moment the transcript lands and
+          // contributes nothing before then. They carry history, so they ride
+          // to the harness as extraPrompts below.
+          ...QUANTUM_TRADE_PROBES,
         ];
       };
       let promptNote = '';
@@ -473,16 +492,19 @@ export function EvalHarnessPanel() {
           { EVERYDAY_CONVERSATION_PROBES },
           { CONVERSATION_INTEGRITY_PROBES },
           { KNOWN_ANSWER_PROBES },
+          { QUANTUM_TRADE_PROBES },
         ] = await Promise.all([
           import('../../../src/local-ai/eval/everyday-conversation-probes'),
           import('../../../src/local-ai/eval/conversation-integrity-probe'),
           import('../../../src/local-ai/eval/known-answer-probes'),
+          import('../../../src/local-ai/eval/quantum-trade-probes'),
         ]);
         const wanted = new Set(promptIds);
         extraPrompts = [
           ...EVERYDAY_CONVERSATION_PROBES,
           ...CONVERSATION_INTEGRITY_PROBES,
           ...KNOWN_ANSWER_PROBES,
+          ...QUANTUM_TRADE_PROBES,
         ].filter((p) => wanted.has(p.id));
       }
 
@@ -495,6 +517,7 @@ export function EvalHarnessPanel() {
         ...(promptIds ? { promptIds } : {}),
         ...(includeResearchArms ? { includeResearchArms: true } : {}),
         ...(autoMessageTopology ? { messageTopology: autoMessageTopology } : {}),
+        ...(autoEvictionRule ? { evictionRule: autoEvictionRule } : {}),
         ...(autoTimeoutMs !== undefined ? { perGenerationTimeoutMs: autoTimeoutMs } : {}),
         ...(extraPrompts.length > 0 ? { extraPrompts } : {}),
       });
@@ -553,12 +576,14 @@ export function EvalHarnessPanel() {
           { CONVERSATION_INTEGRITY_PROBES },
           { CONTEXT_STRESS_PROBES, CONTEXT_BOUNDARY_PROBES },
           { KNOWN_ANSWER_PROBES },
+          { QUANTUM_TRADE_PROBES },
         ] = await Promise.all([
           import('../../../src/local-ai/eval/prompts'),
           import('../../../src/local-ai/eval/everyday-conversation-probes'),
           import('../../../src/local-ai/eval/conversation-integrity-probe'),
           import('../../../src/local-ai/eval/context-stress-probes'),
           import('../../../src/local-ai/eval/known-answer-probes'),
+          import('../../../src/local-ai/eval/quantum-trade-probes'),
         ]);
         setPwSpecs([
           ...EVAL_PROMPTS,
@@ -567,6 +592,9 @@ export function EvalHarnessPanel() {
           ...CONTEXT_STRESS_PROBES,
           ...CONTEXT_BOUNDARY_PROBES,
           ...EVERYDAY_CONVERSATION_PROBES,
+          // The judging card reads prompt text + replayed history from here, so
+          // the eviction arm's probes must be present or a pair shows no prompt.
+          ...QUANTUM_TRADE_PROBES,
         ]);
       } catch {
         setPwSpecs([]);

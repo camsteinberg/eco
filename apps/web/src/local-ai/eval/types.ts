@@ -569,6 +569,16 @@ export type EvalRunDevice = {
 export type SamplingMode = 'greedy' | 'sampled';
 
 /**
+ * Which history-eviction rule the runtime applies for a run. `'quantized'` is
+ * the shipped rule (PR #348): the window start moves in half-budget steps and
+ * then holds still, which cuts re-prefill stalls but leaves the model with
+ * between half and a full budget of history right after a move. `'minimal'` is
+ * the rule it replaced: the start is the oldest message that still fits, so the
+ * model always sees a full budget and pays a re-prefill on nearly every turn.
+ */
+export type EvalEvictionRule = 'quantized' | 'minimal';
+
+/**
  * A run's configuration fingerprint. Stamped on every run so cross-run diffs
  * are HONEST: a greedy run and a sampled run measure different things and are
  * NOT directly comparable, and a composition change (e.g. hint placement) makes
@@ -601,6 +611,18 @@ export type EvalRunConfigFingerprint = {
    * than relying on the human-typed label.
    */
   dispatchArm?: 'schemas';
+  /**
+   * Which history-eviction rule the runtime applied for this run: `'quantized'`
+   * (the shipped rule — the window start moves in half-budget steps and then
+   * holds still) or `'minimal'` (the pre-#348 rule — the start is the oldest
+   * message that still fits, so it advances on nearly every turn past the wall).
+   *
+   * Absent on every run the harness produced before this field existed. Absent
+   * does NOT mean `'quantized'`: those runs bypassed window selection entirely
+   * and sent full history, so back-filling them would invent a fact. The
+   * pairwise scorer compares two arms that BOTH set it.
+   */
+  evictionRule?: EvalEvictionRule;
   /**
    * Which retrieval arm ran the grounding tool for this run: `'lead'` (the
    * control — today's shipped lead-summary injection) or `'passages'` (the

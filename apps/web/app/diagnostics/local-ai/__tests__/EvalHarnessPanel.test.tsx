@@ -151,6 +151,32 @@ describe('EvalHarnessPanel — W1b enablers', () => {
     expect(runEvalMock.mock.calls[0]![0].messageTopology).toBe('gemma-native-user-contract');
   });
 
+  it('autoruns the minimal eviction rule when eco-eval-eviction=minimal', async () => {
+    currentParams = new URLSearchParams(
+      'eco-diagnostics=1&eco-eval-autorun=1&eco-eval-models=candidate/model-b&eco-eval-eviction=minimal',
+    );
+
+    render(<EvalHarnessPanel />);
+
+    await waitFor(() => {
+      expect(runEvalMock).toHaveBeenCalledTimes(1);
+    });
+    expect(runEvalMock.mock.calls[0]![0].evictionRule).toBe('minimal');
+  });
+
+  it('leaves the eviction rule unset when eco-eval-eviction is absent or unknown', async () => {
+    currentParams = new URLSearchParams(
+      'eco-diagnostics=1&eco-eval-autorun=1&eco-eval-models=candidate/model-b&eco-eval-eviction=sideways',
+    );
+
+    render(<EvalHarnessPanel />);
+
+    await waitFor(() => {
+      expect(runEvalMock).toHaveBeenCalledTimes(1);
+    });
+    expect(runEvalMock.mock.calls[0]![0].evictionRule).toBeUndefined();
+  });
+
   it('autoruns an exact prompt-id subset when eco-eval-prompts is present', async () => {
     currentParams = new URLSearchParams(
       'eco-diagnostics=1&eco-eval-autorun=1&eco-eval-models=local/model-a,candidate/model-b&eco-eval-prompts=if4,if5,if6,st2,rich5',

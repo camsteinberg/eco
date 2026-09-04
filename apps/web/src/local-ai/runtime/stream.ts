@@ -99,8 +99,12 @@ const DEFAULT_MAX_TOKENS = 512;
  * every request (`chat-intent.ts` clamps the request to it), so the window is
  * never under-reserved; `Math.max` keeps that true even for a caller that
  * bypasses the clamp.
+ *
+ * Exported so the eval harness reserves EXACTLY what the chat path reserves
+ * when it applies the window itself (see `harness.ts`, eviction arm) — two
+ * copies of this rule would let the arms drift from production.
  */
-function replyReserve(model: ModelConfig, requested: number | undefined): number {
+export function replyReserve(model: ModelConfig, requested: number | undefined): number {
   const ceiling = model.maxNewTokens?.ceiling;
   if (ceiling === undefined) return requested ?? DEFAULT_MAX_TOKENS;
   return Math.max(ceiling, requested ?? 0);
@@ -130,6 +134,12 @@ export type StreamOptions = {
   noRepeatNgramSize?: number;
   /** Finish the trailing assistant turn instead of restarting the reply. */
   continueFinalMessage?: boolean;
+  /**
+   * Forwarded verbatim to `selectWindow`. Absent = the shipping quantized
+   * eviction rule; `0` = the minimal-slide rule it replaced. The eval harness
+   * sets it to generate the two arms of that trade; the chat path never does.
+   */
+  evictionQuantumFraction?: number;
   /**
    * Forwarded to the load only. The chat path deliberately ignores it — on a
    * cached cold load byte-fractions burn out in ~1s of a much longer
@@ -216,6 +226,9 @@ export function stream(
         contextTokens: model.capabilities.contextTokens,
         maxNewTokens: replyReserve(model, options.maxTokens),
         ...(countTokens ? { countTokens } : {}),
+        ...(options.evictionQuantumFraction !== undefined
+          ? { evictionQuantumFraction: options.evictionQuantumFraction }
+          : {}),
       });
       if (!selection.fits) {
         throw new LocalInferenceStreamError(
