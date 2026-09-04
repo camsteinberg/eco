@@ -500,10 +500,9 @@ describe("runToolStep — options.declineTools (web lookups off: answer from mem
 
   it("lets the model answer from memory with a host 'lookups-off' marker when a disabled lookup tool WOULD have matched — no execute, no network", async () => {
     // "tell me about Paris" matches grounding (a citation tool). With grounding
-    // removed from `tools` but passed in `declineTools`, the step hands the model a
-    // from-memory note (never a "decline" instruction — a small model ignores those
-    // and fabricates a source) and a `lookups-off` verification so the HOST draws
-    // the "not checked against a source" marker deterministically.
+    // removed from `tools` but passed in `declineTools`, the step hands back a
+    // `lookups-off` verification so the HOST draws the "not checked against a
+    // source" marker deterministically, and nothing else.
     groundingMock.wikiResult = {
       found: true,
       title: "Paris",
@@ -516,12 +515,9 @@ describe("runToolStep — options.declineTools (web lookups off: answer from mem
       declineTools: citationTools,
     });
 
-    // The model answers this turn, told to use its own knowledge and qualify it.
-    expect(out.systemNote).toContain("own knowledge");
-    expect(out.systemNote).toContain("web lookups are turned off");
-    // Never a decline instruction, and no example phrasing or URL to echo.
-    expect(out.systemNote?.toLowerCase()).not.toContain("refuse");
-    expect(out.systemNote).not.toMatch(/https?:/);
+    // The model answers this turn as ordinary chat: no system note, so the
+    // cached prompt prefix survives (a per-turn note re-prefilled the window).
+    expect(out.systemNote).toBeNull();
     // The host marker is what the user sees; it does not depend on the prose.
     expect(out.verification).toEqual({ status: "lookups-off" });
     // Detection-only: the disabled tool never executed, so no network lookup ran.

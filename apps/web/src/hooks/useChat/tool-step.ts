@@ -125,24 +125,15 @@ function nextToolCallId(): string {
 }
 
 /**
- * The system note for a turn that WOULD have matched a browser-direct lookup tool
- * while web lookups are OFF — see the `declineTools` branch in {@link runToolStep}.
- *
- * History: the first cut (2026-06-24, F-1) told the model to DECLINE; a 1–2B model
- * treats that as conflicting with the user's question and fabricated a falsely-
- * sourced answer (`pitfall-lookups-off-hallucinated-source`). The second cut was a
- * canned host decline with no generation — which made Eco refuse ordinary questions
- * ("who painted the Mona Lisa?") the moment lookups were off, something the
- * Settings copy never promised (2026-08-27). This cut ALIGNS with the user's ask:
- * answer from memory. Provenance honesty no longer rides on the prose — the host
- * draws the `lookups-off` uncertainty marker deterministically (the same seam the
- * no-source hedge uses). Same constraints as the grounding notes: positive
- * instructions only, no example phrasing to echo, no URLs.
+ * No system note on a lookups-off turn (2026-09-04). Earlier cuts told the model
+ * to decline (it fabricated sources), then answered with a canned host decline
+ * (it refused ordinary questions), then appended a from-memory note to the
+ * system prompt for that turn only. Measured on the production build: every
+ * such turn rewrote the cached prefix and re-prefilled the whole window
+ * (10-13 s to first token on the 2.6B). The host draws the `lookups-off`
+ * marker deterministically, so provenance honesty never rode on the prose;
+ * the note is gone and the system prompt stays identical turn to turn.
  */
-export const WEB_LOOKUPS_OFF_NOTE = [
-  "[Answering from your own knowledge — web lookups are turned off.]",
-  "Answer from your own knowledge if you can, and clearly qualify any specific facts, figures, and dates as from memory rather than confirmed. Do not claim to have looked anything up or name a source you did not read. Keep the rest of your answer natural.",
-].join("\n");
 
 /** The verification carried by every lookups-off turn — the host draws the marker. */
 const VERIFICATION_LOOKUPS_OFF: GroundingVerification = { status: "lookups-off" };
@@ -179,10 +170,10 @@ const VERIFICATION_LOOKUPS_OFF: GroundingVerification = { status: "lookups-off" 
  * @param options.declineTools - OPTIONAL tools that are currently DISABLED (e.g. the
  *   citation tools when web lookups are off). When the enabled `tools` abstain, the
  *   step runs detection over these (pure `match`, no execute, no network); a
- *   would-be match yields {@link WEB_LOOKUPS_OFF_NOTE} as `systemNote` plus a
- *   `lookups-off` `verification`, so the model answers from memory and the host
- *   marks the reply as not checked against a source. Omit it (lookups on) and the
- *   abstain path is exactly as before.
+ *   would-be match yields a `lookups-off` `verification` (and no system note, so
+ *   the cached prompt prefix survives), and the host marks the reply as not
+ *   checked against a source. Omit it (lookups on) and the abstain path is
+ *   exactly as before.
  * @param options.matchContext - OPTIONAL conversation-derived hints forwarded into
  *   detection (each tool's `match`), e.g. the previously grounded subject so a
  *   pronoun follow-up resolves. The caller derives it from the chat store; tools
@@ -242,8 +233,9 @@ export async function runToolStep(
   if (!detection) {
     // Before falling through to normal chat, check whether this turn WOULD have
     // matched a currently-DISABLED browser-direct lookup tool (web lookups off).
-    // If so, let the model answer from memory with the from-memory note, and hand
-    // back the `lookups-off` verification so the host marks the reply as unchecked.
+    // If so, let the model answer from memory and hand back the `lookups-off`
+    // verification so the host marks the reply as unchecked. No system note: a
+    // per-turn note rewrites the cached prompt prefix (measured 2026-09-04).
     // This is detection-ONLY: `match` is a pure heuristic, so nothing executes, no
     // network is hit, no ToolCallBlock renders, and no citation is set. The caller
     // supplies `declineTools` only when the setting is off; omitted ⇒ no-op (the
@@ -255,7 +247,7 @@ export async function runToolStep(
         options.matchContext,
       );
       if (wouldHaveMatched) {
-        return { systemNote: WEB_LOOKUPS_OFF_NOTE, verification: VERIFICATION_LOOKUPS_OFF };
+        return { systemNote: null, verification: VERIFICATION_LOOKUPS_OFF };
       }
     }
     // Common path: abstain → normal chat, zero further work. The phase stays as

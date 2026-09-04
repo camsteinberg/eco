@@ -675,11 +675,11 @@ describe("useChat — web lookup setting gate", () => {
     expect(useChatStore.getState().activeToolCalls).toHaveLength(0);
     expect(lastAssistant()!.citations).toBeUndefined();
 
-    // The model IS called, with the from-memory note in the system prompt.
+    // The model IS called, and the system prompt is the ordinary one: no
+    // per-turn note (one rewrote the cached prompt prefix, measured 2026-09-04).
     expect(generateCalls).toHaveLength(1);
     const sys = systemMessageOf(generateCalls[0]!);
-    expect(sys).toContain("web lookups are turned off");
-    expect(sys).toContain("own knowledge");
+    expect(sys).not.toContain("web lookups are turned off");
 
     const assistant = lastAssistant()!;
     expect(assistant.status).toBe("complete");
