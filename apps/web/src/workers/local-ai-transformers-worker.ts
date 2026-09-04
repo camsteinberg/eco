@@ -36,6 +36,7 @@ import {
   TextStreamer,
   env,
   LogitsProcessorList,
+  Tensor,
 } from '@huggingface/transformers';
 import { ConfidenceAccumulator } from '../local-ai/runtime/confidence';
 import { ConfidenceObserver } from '../local-ai/runtime/confidence-observer';
@@ -59,7 +60,11 @@ import type {
   WorkerOutbound,
 } from '../local-ai/runtime/transformers-adapter';
 import { toTransformersGenerateArgs } from '../local-ai/runtime/transformers-generate-args';
-import { buildKvReuseReport, divergenceWindow } from '../local-ai/runtime/kv-cache';
+import {
+  buildKvReuseReport,
+  divergenceWindow,
+  spliceOnTextPrefix,
+} from '../local-ai/runtime/kv-cache';
 import { appendContinuation, splitContinuation } from '../local-ai/runtime/continue-final-message';
 import { patchChatTemplateForKvReuse } from '../local-ai/runtime/template-patches';
 import {
@@ -214,6 +219,41 @@ async function disposePkv(pkv: unknown): Promise<void> {
 /** Read a TJS int64 token Tensor into a plain number[] (BigInt → Number). */
 function idsOf(tensor: { data: ArrayLike<number | bigint> }): number[] {
   return Array.from(tensor.data, Number);
+}
+
+/**
+ * Decode token ids back to the exact text the model consumed: special tokens
+ * kept, no whitespace cleanup. Both callers compare the result against a chat
+ * template render, which carries every special token verbatim.
+ */
+function decodeTokens(
+  tokenizer: unknown,
+  ids: readonly number[],
+): string {
+  return (
+    tokenizer as { decode: (ids: number[], args?: Record<string, unknown>) => string }
+  ).decode(Array.from(ids), {
+    skip_special_tokens: false,
+    clean_up_tokenization_spaces: false,
+  });
+}
+
+/**
+ * Build the model inputs from a token id array, in the shape the tokenizer's
+ * own `return_tensor: 'pt'` output has: int64 `input_ids` of dims [1, n] and a
+ * matching all-ones `attention_mask` (TJS builds both as int64 BigInt64Array,
+ * `tokenization_utils.js` ~line 485). Used on the splice path, where the ids
+ * come from the cache plus a tail rather than from one tokenizer call.
+ *
+ * `token_type_ids` is deliberately absent: causal-LM generation never uses it,
+ * and the shipping transformers-runtime tokenizers don't emit it.
+ */
+function tokenInputsFromIds(ids: readonly number[]): Record<string, unknown> {
+  const dims = [1, ids.length];
+  return {
+    input_ids: new Tensor('int64', BigInt64Array.from(ids, BigInt), dims),
+    attention_mask: new Tensor('int64', new BigInt64Array(ids.length).fill(1n), dims),
+  };
 }
 
 // ─── Message dispatch ──────────────────────────────────────────────────────
@@ -748,43 +788,91 @@ async function handleGenerate(msg: Extract<WorkerInbound, { type: 'generate' }>)
     // apply_chat_template render above already emits every special token, so the
     // tokenizer's default add_special_tokens:true doubles the BOS on tokenizers
     // that prepend one (LFM2.5's <|startoftext|>). See tokenizeRenderedTemplate.
-    const inputs = await tokenizeRenderedTemplate(tokenizer, inputText, { return_tensor: 'pt' });
+    // ── Token ids for this turn: splice onto the cache, or tokenize whole ──
+    // Preferred path: APPEND to the ids the cache already holds. Re-tokenizing
+    // the whole transcript is not guaranteed to reproduce the ids the model
+    // generated — re-encoding a reply from its text inside the full render can
+    // merge differently (same text, fewer tokens), which showed up on
+    // 2026-09-04 as a `miss/equal-or-shorter` (promptLen 2525 vs cachedLen
+    // 2533) on a turn that evicted NOTHING, costing a 14.0s full reprefill.
+    // See spliceOnTextPrefix. Every guard in it falls back to the full
+    // tokenization below, so edits/regenerates/model switches/window moves are
+    // unchanged.
+    const heldTokenIds = cachedTokenIds ?? [];
+    const splice =
+      heldTokenIds.length > 0
+        ? await spliceOnTextPrefix({
+            cachedIds: heldTokenIds,
+            // Special tokens included and no whitespace cleanup: the render we
+            // compare against carries every special token verbatim.
+            cachedText: decodeTokens(tokenizer, heldTokenIds),
+            renderedText: inputText,
+            tokenizeTail: async (tail) => {
+              // add_special_tokens:false for the same reason as the full
+              // render — and doubly so here, mid-sequence.
+              const tailOut = await tokenizeRenderedTemplate(tokenizer, tail, {
+                return_tensor: 'pt',
+              });
+              const tailTensor = (tailOut as {
+                input_ids?: { data: ArrayLike<number | bigint> };
+              }).input_ids;
+              return tailTensor ? idsOf(tailTensor) : [];
+            },
+          })
+        : ({ spliced: false, ids: null } as const);
+
+    // TJS v4 renamed `return_tensors` → `return_tensor`. The legacy worker
+    // hasn't migrated yet; this is the right shape going forward.
+    //
+    // add_special_tokens:false (via tokenizeRenderedTemplate) is REQUIRED: the
+    // apply_chat_template render above already emits every special token, so the
+    // tokenizer's default add_special_tokens:true doubles the BOS on tokenizers
+    // that prepend one (LFM2.5's <|startoftext|>). See tokenizeRenderedTemplate.
+    //
+    // `newTokenIds` is this turn's FULL token sequence either way: spliced ids
+    // decode to exactly the rendered text, so nothing downstream (the gate,
+    // promptTokens, the completion count) has to care which path produced it.
+    const inputs: Record<string, unknown> = splice.spliced
+      ? tokenInputsFromIds(splice.ids)
+      : ((await tokenizeRenderedTemplate(tokenizer, inputText, {
+          return_tensor: 'pt',
+        })) as Record<string, unknown>);
     const inputIdsTensor = (inputs as {
       input_ids?: { data: ArrayLike<number | bigint>; dims?: number[] };
     }).input_ids;
-    // FULL prompt length — receipts/impact rely on this meaning the whole
-    // rendered prompt, NOT "new tokens only". Do not repurpose it for the KV
-    // delta; the KV math uses `newTokenIds` below instead.
-    promptTokens = inputIdsTensor?.dims?.[1] ?? 0;
 
     // ── KV-cache reuse decision ───────────────────────────────────────
-    // `newTokenIds` is the full tokenization of this turn's render. Reuse is
-    // valid iff the previously-cached sequence is a strict prefix of it; the
-    // pure `decideKvReuse` gate enforces that. Non-prefix renders (edit,
-    // regenerate, model switch, grounded front-injection) automatically miss
-    // and prefill from scratch — identical to the pre-cache behavior — so no
-    // special-casing is needed here. Sampling/option changes do NOT change
-    // `newTokenIds`, so the gate correctly KEEPS the cache across them.
-    const newTokenIds = inputIdsTensor ? idsOf(inputIdsTensor) : [];
+    // Reuse is valid iff the previously-cached sequence is a strict prefix of
+    // `newTokenIds`; the pure `decideKvReuse` gate enforces that. Non-prefix
+    // renders (edit, regenerate, model switch, grounded front-injection) took
+    // the fallback tokenization above and automatically miss here, prefilling
+    // from scratch — identical to the pre-cache behavior — so no special-casing
+    // is needed. Sampling/option changes do NOT change `newTokenIds`, so the
+    // gate correctly KEEPS the cache across them.
+    const newTokenIds = splice.spliced ? splice.ids : inputIdsTensor ? idsOf(inputIdsTensor) : [];
+    // FULL prompt length — receipts/impact rely on this meaning the whole
+    // rendered prompt, NOT "new tokens only". Do not repurpose it for the KV
+    // delta; the KV math uses `newTokenIds`.
+    promptTokens = newTokenIds.length;
     // The report embeds the gate decision (`decision: 'reuse' | 'miss'`) plus
     // the divergence point on a prefix miss. It leaves the worker on the
     // `done` message — receipts/diagnostics need it to tell a template-shaped
     // prefix miss from a runtime that never returned a cache (the two looked
     // identical from outside during the Qwen3.5 swap-gate failure).
-    const kvReuse = buildKvReuseReport(cachedTokenIds ?? [], newTokenIds);
+    const kvReuse = buildKvReuseReport(heldTokenIds, newTokenIds);
+    // Which path produced the ids. A miss with `spliced: false` on a turn that
+    // evicted nothing is the tokenizer-merge signature; without this field the
+    // two paths are indistinguishable in a receipt.
+    kvReuse.spliced = splice.spliced;
     // On a prefix miss, decode the tokens either side of the divergence so a
     // receipt shows WHAT differed, not only where (a 24-token window of the
     // conversation's own text; the receipt never leaves the device).
     if (kvReuse.reason === 'not-strict-prefix' && kvReuse.commonPrefixLen !== undefined) {
       kvReuse.divergence = divergenceWindow(
-        cachedTokenIds ?? [],
+        heldTokenIds,
         newTokenIds,
         kvReuse.commonPrefixLen,
-        (ids) =>
-          (tokenizer as unknown as { decode: (ids: number[], args?: Record<string, unknown>) => string }).decode(
-            Array.from(ids),
-            { skip_special_tokens: false, clean_up_tokenization_spaces: false },
-          ),
+        (ids) => decodeTokens(tokenizer, ids),
       );
     }
 
@@ -848,7 +936,7 @@ async function handleGenerate(msg: Extract<WorkerInbound, { type: 'generate' }>)
     // when a cache is present (spike-confirmed). We do NOT slice input_ids
     // ourselves — getting that off-by-one wrong is silent corruption.
     const generateArgs: Record<string, unknown> = {
-      ...(inputs as Record<string, unknown>),
+      ...inputs,
       ...toTransformersGenerateArgs(msg.options, { maxTokens: 512 }),
       return_dict_in_generate: true,
       streamer,

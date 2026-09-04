@@ -102,6 +102,15 @@ export type KvReuseReport = {
    * position alone. Attached by the worker, which owns the tokenizer.
    */
   divergence?: KvDivergenceWindow;
+  /**
+   * Whether this turn's token ids came from `spliceOnTextPrefix` (appended to
+   * the ids the cache already held) rather than a fresh tokenization of the
+   * whole render. Set by the worker, which owns the tokenizer;
+   * `buildKvReuseReport` cannot know it. A miss with `spliced: false` on a turn
+   * that evicted nothing is the tokenizer-merge signature the splice exists to
+   * remove, so receipts need to show which path a turn took.
+   */
+  spliced?: boolean;
 };
 
 /** A short decoded window around a prefix divergence. */
@@ -182,4 +191,68 @@ export function longestCommonPrefixLen(a: readonly number[], b: readonly number[
     i++;
   }
   return i;
+}
+
+/**
+ * Splice this turn's token ids onto the ids the cache already holds, when the
+ * new render is a TEXT prefix extension of the cached sequence.
+ *
+ * Why this exists (measured 2026-09-04, LFM2-2.6B, ten-turn chat, production
+ * build): re-tokenizing the whole rendered transcript each turn is NOT
+ * guaranteed to reproduce the ids the model actually generated. Re-encoding
+ * the previous assistant reply from its TEXT, inside the full template render,
+ * can merge differently than the ids the sampler emitted one at a time — same
+ * text, fewer tokens. On a turn where nothing was evicted (identical window
+ * start) the gate reported `miss/equal-or-shorter` at promptLen 2525 vs
+ * cachedLen 2533 and the turn re-prefilled from scratch: 14.0s to first token.
+ *
+ * The fix is what every reference runtime does: APPEND to the ids you already
+ * hold instead of re-tokenizing the transcript. If the decode of the cached
+ * ids is a prefix of the new render's text, only the tail is tokenized and the
+ * result is `cachedIds ++ tailIds` — byte-equivalent text, and a strict token
+ * prefix by construction, so `decideKvReuse` reuses.
+ *
+ * Pure over the supplied `tokenizeTail`, so it unit-tests with a fake
+ * tokenizer; the worker owns the real one.
+ *
+ * Refuses (and the caller falls back to tokenizing the whole render, keeping
+ * today's miss reasons intact) whenever the premise does not hold:
+ *   - no cached ids, or their decode is empty (a decode we cannot trust)
+ *   - the render does not start with the cached text — edit, regenerate,
+ *     model switch, a moved context window, or a filtered reply whose stored
+ *     text differs from what was generated. Also covers a cached sequence that
+ *     opens with BOS where the render does not.
+ *   - the tail is empty, or tokenizes to nothing: there would be nothing new
+ *     to generate, which is a real `equal-or-shorter` miss, not a splice.
+ */
+export type TextPrefixSplice =
+  | { spliced: true; ids: number[] }
+  | { spliced: false; ids: null };
+
+export async function spliceOnTextPrefix(args: {
+  cachedIds: readonly number[];
+  cachedText: string;
+  renderedText: string;
+  tokenizeTail: (tail: string) => Promise<readonly number[]>;
+}): Promise<TextPrefixSplice> {
+  const { cachedIds, cachedText, renderedText, tokenizeTail } = args;
+
+  if (cachedIds.length === 0 || cachedText.length === 0) {
+    return { spliced: false, ids: null };
+  }
+  if (!renderedText.startsWith(cachedText)) {
+    return { spliced: false, ids: null };
+  }
+
+  const tail = renderedText.slice(cachedText.length);
+  if (tail.length === 0) {
+    return { spliced: false, ids: null };
+  }
+
+  const tailIds = await tokenizeTail(tail);
+  if (tailIds.length === 0) {
+    return { spliced: false, ids: null };
+  }
+
+  return { spliced: true, ids: [...cachedIds, ...tailIds] };
 }
