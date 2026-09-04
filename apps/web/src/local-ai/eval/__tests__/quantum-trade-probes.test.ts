@@ -59,15 +59,23 @@ describe('buildQuantumTradeProbes', () => {
 });
 
 describe('BUDGET_TRANSCRIPT', () => {
-  it('carries the lane’s ten user turns with replies still to be captured', () => {
+  it('carries the lane’s ten user turns with a real reply after each', () => {
     expect(BUDGET_TRANSCRIPT).toHaveLength(20);
     expect(BUDGET_TRANSCRIPT[0]!.content).toBe('I want to get my monthly budget under control.');
     expect(BUDGET_TRANSCRIPT[18]!.content).toBe('What was my rent again?');
-    expect(BUDGET_TRANSCRIPT.filter((t) => t.role === 'assistant').every((t) => t.content === ''))
-      .toBe(true);
+    expect(
+      BUDGET_TRANSCRIPT.filter((t) => t.role === 'assistant').every((t) => t.content.length > 0),
+    ).toBe(true);
   });
 
-  it('ships an empty pool until those replies land', () => {
-    expect(QUANTUM_TRADE_PROBES).toEqual([]);
+  it('ships the six probes for turns 5..10', () => {
+    expect(QUANTUM_TRADE_PROBES.map((p) => p.id)).toEqual([
+      'qt-5',
+      'qt-6',
+      'qt-7',
+      'qt-8',
+      'qt-9',
+      'qt-10',
+    ]);
   });
 });
