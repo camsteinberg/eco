@@ -13,7 +13,7 @@
  * from the DOM, and the model-switcher flow a person actually uses.
  */
 
-import { expect, type BrowserContext, type Page } from "@playwright/test";
+import { expect, type BrowserContext, type Locator, type Page } from "@playwright/test";
 import type { GenerationReceipt } from "../../src/local-ai/lifecycle/generation-receipt";
 import {
   FORCED_DESKTOP_PROFILE,
@@ -353,22 +353,53 @@ export async function provisionPick(page: Page, pick: Pick): Promise<"downloaded
   });
   await option.locator("button").first().click();
 
-  // A model whose bytes are absent answers the tap with an in-tile confirm
-  // rather than a switch; one whose bytes are present switches immediately.
-  const download = option.getByRole("button", { name: "Download", exact: true });
-  const needsDownload = await download.isVisible().catch(() => false);
-  if (needsDownload) {
-    await download.click();
-    await expect(
-      option.getByRole("button", { name: "Ready. Switch now" }),
-      `${pick.tileName} never finished downloading`,
-    ).toBeVisible({ timeout: DOWNLOAD_TIMEOUT_MS });
-    await option.getByRole("button", { name: "Ready. Switch now" }).click();
-  }
+  const needsDownload = await confirmInTile(option, pick);
 
   await expectTriggerNames(page, pick);
   return needsDownload ? "downloaded" : "present";
 }
+
+/**
+ * Walk the in-tile confirm flow after a tile tap, whatever state the tile is in.
+ *
+ * A model whose bytes are absent answers the tap with "Download", then shows
+ * "Ready. Switch now" once the bytes land; one whose bytes are present switches
+ * immediately and shows neither. A third state exists and bit this lane on a
+ * cold run (2026-09-04): bytes that finished downloading AFTER an earlier
+ * provisioning attempt gave up leave the tile already on "Ready. Switch now"
+ * with no "Download" step first. Clicking only after a "Download" click missed
+ * it and the walk waited on a switch nobody confirmed. So: click "Download" if
+ * it is there, then click "Ready. Switch now" if it is there, and treat neither
+ * as an immediate switch.
+ *
+ * Returns whether this call started a download.
+ */
+async function confirmInTile(option: Locator, pick: Pick): Promise<boolean> {
+  const download = option.getByRole("button", { name: "Download", exact: true });
+  const ready = option.getByRole("button", { name: "Ready. Switch now" });
+
+  // The tile re-renders on the tap; give either confirm a moment to appear.
+  await download
+    .or(ready)
+    .first()
+    .waitFor({ state: "visible", timeout: TILE_CONFIRM_SETTLE_MS })
+    .catch(() => undefined);
+
+  const needsDownload = await download.isVisible().catch(() => false);
+  if (needsDownload) {
+    await download.click();
+    await expect(ready, `${pick.tileName} never finished downloading`).toBeVisible({
+      timeout: DOWNLOAD_TIMEOUT_MS,
+    });
+  }
+  if (await ready.isVisible().catch(() => false)) {
+    await ready.click();
+  }
+  return needsDownload;
+}
+
+/** How long a tapped tile gets to show its confirm button before it counts as an immediate switch. */
+const TILE_CONFIRM_SETTLE_MS = 5_000;
 
 /**
  * Wait for the switcher trigger to claim this model is what's running.
@@ -414,15 +445,7 @@ export async function switchTo(page: Page, pick: Pick): Promise<string> {
   await expect(option).toBeVisible({ timeout: READY_TIMEOUT_MS });
   await option.locator("button").first().click();
 
-  const download = option.getByRole("button", { name: "Download", exact: true });
-  if (await download.isVisible().catch(() => false)) {
-    await download.click();
-    const ready = option.getByRole("button", { name: "Ready. Switch now" });
-    await expect(ready, `${pick.tileName} never finished downloading`).toBeVisible({
-      timeout: DOWNLOAD_TIMEOUT_MS,
-    });
-    await ready.click();
-  }
+  await confirmInTile(option, pick);
 
   await expectTriggerNames(page, pick);
   return (await modelSelectorTrigger(page).getAttribute("aria-label")) ?? "";
