@@ -133,20 +133,8 @@ function gateStatus(configured: boolean) {
   };
 }
 
-/** The three surfaces this file's header explains at length, in a printable form. */
+/** The surfaces this file's header explains at length, in a printable form. */
 export const routesGaps: CaptureGap[] = [
-  {
-    id: "routes.settings-billing",
-    group: "routes",
-    surface:
-      "The billing settings tab (signed-in and guest-locked) and the checkout return banners "
-      + "(?billing=success / ?billing=canceled)",
-    reason:
-      "Dormant behind NEXT_PUBLIC_ECO_BILLING_UI since the free-launch decision (PR #218): the tab, its locked guest "
-      + "preview, and the return banners do not render in the launch build, so a capture would photograph nothing. The "
-      + "removed entries (settings-billing, settings-guest-billing-locked, settings-billing-success, "
-      + "settings-billing-canceled) live in git history; restore them the day the flag is enabled again.",
-  },
   {
     id: "routes.loading-skeleton",
     group: "routes",

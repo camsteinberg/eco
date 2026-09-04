@@ -323,18 +323,18 @@ describe("public trust and coming-later surfaces", () => {
   });
 
   it("public trust surfaces return to the current app route when returnTo is present", () => {
-    mockSearchParams = new URLSearchParams("returnTo=%2Fsettings%3Ftab%3Dbilling");
+    mockSearchParams = new URLSearchParams("returnTo=%2Fsettings%3Ftab%3Dappearance");
 
     render(<PublicNav />);
     render(<PublicFooter />);
 
     expect(screen.getAllByRole("link", { name: /start chatting/i })[0]).toHaveAttribute(
       "href",
-      "/settings?tab=billing",
+      "/settings?tab=appearance",
     );
     expect(screen.getByRole("link", { name: /^chat$/i })).toHaveAttribute(
       "href",
-      "/settings?tab=billing",
+      "/settings?tab=appearance",
     );
 
     mockSearchParams = new URLSearchParams();

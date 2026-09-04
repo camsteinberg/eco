@@ -2,7 +2,6 @@
 // Copyright (C) 2026 Bos Computing LLC
 
 import type { ReactNode } from "react";
-import { isBillingUiEnabled } from "../../lib/billing-ui-gate";
 
 export const DEFAULT_SETTINGS_TAB = "account" as const;
 
@@ -23,7 +22,6 @@ export const MANAGE_STORAGE_HREF = "/settings?tab=models&manage=storage";
 export type SettingsTabId =
   | "account"
   | "support"
-  | "billing"
   | "models"
   | "appearance";
 
@@ -35,14 +33,16 @@ export type SettingsTabId =
  * - `privacy` retired — the dedicated /privacy + /transparency pages tell that
  *   story; a brief on-device note lives in the Eco tab.
  * - `integrations` retired — every toggle was dead, deferred-feature surface.
+ * - `billing` retired — Eco is free, so there is nothing to bill for.
  */
 const RETIRED_SETTINGS_TAB_REDIRECTS: Readonly<Record<string, SettingsTabId>> = {
   instructions: "models",
   privacy: "models",
   integrations: "models",
+  billing: DEFAULT_SETTINGS_TAB,
 };
 
-export type SidebarSettingsSection = "account" | "support" | "billing" | "models" | "appearance";
+export type SidebarSettingsSection = "account" | "support" | "models" | "appearance";
 
 export const SETTINGS_TABS: ReadonlyArray<{
   id: SettingsTabId;
@@ -71,16 +71,6 @@ export const SETTINGS_TABS: ReadonlyArray<{
     ),
   },
   {
-    id: "billing",
-    label: "Billing",
-    sidebarSection: "billing",
-    icon: (
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 shrink-0">
-        <path d="M2.5 4A1.5 1.5 0 001 5.5V6h18v-.5A1.5 1.5 0 0017.5 4h-15zM19 8.5H1v6A1.5 1.5 0 002.5 16h15a1.5 1.5 0 001.5-1.5v-6zM3 13.25a.75.75 0 01.75-.75h1.5a.75.75 0 010 1.5h-1.5a.75.75 0 01-.75-.75zm4.75-.75a.75.75 0 000 1.5h3.5a.75.75 0 000-1.5h-3.5z" />
-      </svg>
-    ),
-  },
-  {
     id: "models",
     label: "Eco",
     sidebarSection: "models",
@@ -105,26 +95,12 @@ export const SETTINGS_TABS: ReadonlyArray<{
   },
 ] as const;
 
-/** The full tab list, including billing — used for type validation. */
 export function isSettingsTab(value: string | null | undefined): value is SettingsTabId {
   return SETTINGS_TABS.some((tab) => tab.id === value);
 }
 
-/**
- * The subset of tabs that should be rendered in the current build.
- * When billing UI is disabled, the billing tab is omitted entirely.
- */
-export function getVisibleSettingsTabs(): ReadonlyArray<(typeof SETTINGS_TABS)[number]> {
-  if (isBillingUiEnabled()) return SETTINGS_TABS;
-  return SETTINGS_TABS.filter((tab) => tab.id !== "billing");
-}
-
 export function resolveSettingsTab(value: string | null | undefined): SettingsTabId {
   if (isSettingsTab(value)) {
-    // When billing UI is hidden, deep links to ?tab=billing degrade to account.
-    if (value === "billing" && !isBillingUiEnabled()) {
-      return DEFAULT_SETTINGS_TAB;
-    }
     return value;
   }
   if (value && value in RETIRED_SETTINGS_TAB_REDIRECTS) {

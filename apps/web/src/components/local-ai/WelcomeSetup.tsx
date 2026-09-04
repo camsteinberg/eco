@@ -9,7 +9,6 @@ import { useNetworkStatus } from '../../hooks/useNetworkStatus';
 import { BotanicalAnimation } from './BotanicalAnimation';
 import { ProgressBar } from '../ui/ProgressBar';
 import { VALUE_PILLARS } from '../../lib/value-pillars';
-import { isBillingUiEnabled } from '../../lib/billing-ui-gate';
 
 /**
  * Welcome + setup wait — the v1.0 first-touch surface.
@@ -83,9 +82,7 @@ const REASSURANCE_COPY_BASE = [
   'You only wait like this once. After today, Eco opens in seconds and works offline.',
 ] as const;
 
-const REASSURANCE_COPY: string[] = isBillingUiEnabled()
-  ? [...REASSURANCE_COPY_BASE, 'Everything Eco does is free. Supporters chip in because they want to.']
-  : [...REASSURANCE_COPY_BASE, 'Everything Eco does is free.'];
+const REASSURANCE_COPY: string[] = [...REASSURANCE_COPY_BASE, 'Everything Eco does is free.'];
 
 export function WelcomeSetup({
   phase,

@@ -1,12 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Bos Computing LLC
 
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/react';
-
-vi.mock('../../../lib/billing-ui-gate', () => ({
-  isBillingUiEnabled: () => false,
-}));
 
 import { WelcomeSetup } from '../WelcomeSetup';
 

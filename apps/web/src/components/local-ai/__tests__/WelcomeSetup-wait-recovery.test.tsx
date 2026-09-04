@@ -4,10 +4,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
-vi.mock('../../../lib/billing-ui-gate', () => ({
-  isBillingUiEnabled: () => false,
-}));
-
 import { WelcomeSetup, WAIT_RECOVERY_MS } from '../WelcomeSetup';
 
 describe('WelcomeSetup — wait-bucket recovery', () => {

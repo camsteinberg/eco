@@ -13,7 +13,7 @@ const supportChannels = [
   {
     label: "Email us",
     href: "mailto:support@econetwork.ai",
-    description: "Chat, models, privacy, billing, legal, or account questions.",
+    description: "Chat, models, privacy, legal, or account questions.",
   },
 ] as const;
 

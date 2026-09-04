@@ -27,11 +27,6 @@ vi.mock("../../../../src/lib/auth", () => ({
   useSession: useSessionMock,
 }));
 
-let mockBillingUiEnabled = false;
-vi.mock("../../../../src/lib/billing-ui-gate", () => ({
-  isBillingUiEnabled: () => mockBillingUiEnabled,
-}));
-
 describe("SignInPage", () => {
   beforeEach(() => {
     searchParams = new URLSearchParams({
@@ -41,7 +36,6 @@ describe("SignInPage", () => {
     useSessionMock.mockReturnValue({ data: null, isPending: false });
     signInEmailMock.mockReset();
     signInSocialMock.mockReset();
-    mockBillingUiEnabled = false;
     Object.defineProperty(window, "location", {
       configurable: true,
       value: {
@@ -62,42 +56,25 @@ describe("SignInPage", () => {
     vi.restoreAllMocks();
   });
 
-  it("keeps passive supporter billing links out of the default sign-in flow", () => {
+  it("renders the default sign-in flow with no membership or billing surface", () => {
     render(<SignInPage />);
 
     expect(screen.getByRole("main")).toBeInTheDocument();
     expect(
       screen.getByRole("heading", { level: 1, name: /welcome back/i }),
     ).toBeInTheDocument();
-    expect(
-      screen.queryByRole("link", { name: /sign in and open billing next/i }),
-    ).not.toBeInTheDocument();
-    expect(screen.queryByText(/want supporter membership/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/supporter/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/billing/i)).not.toBeInTheDocument();
   });
 
-  it("hides the supporter continuation note when billing UI is disabled", () => {
+  it("shows no membership note even for a retired billing callback URL", () => {
     searchParams = new URLSearchParams({
       callbackUrl: "/settings?tab=billing",
     });
 
     render(<SignInPage />);
 
-    expect(
-      screen.queryByText(/supporter membership/i),
-    ).not.toBeInTheDocument();
-  });
-
-  it("surfaces the supporter continuation note when billing UI is enabled", () => {
-    mockBillingUiEnabled = true;
-    searchParams = new URLSearchParams({
-      callbackUrl: "/settings?tab=billing",
-    });
-
-    render(<SignInPage />);
-
-    expect(
-      screen.getByText(/sign in and we'll open billing next so you can manage supporter membership/i),
-    ).toBeInTheDocument();
+    expect(screen.queryByText(/supporter/i)).not.toBeInTheDocument();
   });
 
   it("offers a direct guest path back to chat with the pending prompt", () => {

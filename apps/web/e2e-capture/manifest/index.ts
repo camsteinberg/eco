@@ -107,9 +107,8 @@ export const KNOWN_ROUTE_PARAMS: ReadonlySet<string> = new Set([
   // Auth + gate continuation and result params. Each one is read by a shipping
   // route: `callbackUrl`/`prompt` by the auth pages (auth-continuation.ts),
   // `returnTo` by /gate, `signedOut` by /sign-in, `token` and `error` by
-  // /reset-password, `billing` by the billing settings tab.
+  // /reset-password.
   "returnTo",
-  "billing",
   "signedOut",
   "error",
   "token",

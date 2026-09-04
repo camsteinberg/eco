@@ -378,17 +378,6 @@ describe('Sidebar', () => {
     mockSearchParams = new URLSearchParams()
   })
 
-  it('keeps billing out of the sidebar even when the billing settings tab is selected', () => {
-    mockPathname = '/settings'
-    mockSearchParams = new URLSearchParams('tab=billing')
-    render(<Sidebar onNewChat={vi.fn()} />)
-
-    expect(screen.queryByText('Billing')).not.toBeInTheDocument()
-
-    mockPathname = '/chat'
-    mockSearchParams = new URLSearchParams()
-  })
-
   it('keeps the active route obvious when collapsed', () => {
     mockPathname = '/settings'
     mockSearchParams = new URLSearchParams('tab=models')
@@ -442,20 +431,20 @@ describe('Sidebar', () => {
 
   it('preserves the current app location when trust links leave the shell', () => {
     mockPathname = '/settings'
-    mockSearchParams = new URLSearchParams('tab=billing')
+    mockSearchParams = new URLSearchParams('tab=appearance')
     render(<Sidebar onNewChat={vi.fn()} viewerMode="guest" />)
 
     expect(screen.getByText('Privacy').closest('a')).toHaveAttribute(
       'href',
-      '/privacy?returnTo=%2Fsettings%3Ftab%3Dbilling',
+      '/privacy?returnTo=%2Fsettings%3Ftab%3Dappearance',
     )
     expect(screen.getByText('Transparency').closest('a')).toHaveAttribute(
       'href',
-      '/transparency?returnTo=%2Fsettings%3Ftab%3Dbilling',
+      '/transparency?returnTo=%2Fsettings%3Ftab%3Dappearance',
     )
     expect(screen.getByText('Terms').closest('a')).toHaveAttribute(
       'href',
-      '/terms?returnTo=%2Fsettings%3Ftab%3Dbilling',
+      '/terms?returnTo=%2Fsettings%3Ftab%3Dappearance',
     )
 
     mockPathname = '/chat'

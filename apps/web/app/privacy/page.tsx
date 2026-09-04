@@ -399,9 +399,9 @@ export default function PrivacyPage({
               </li>
             </ul>
             <p className="mt-3">
-              If we ever offer a paid plan, Stripe would process your payment
-              and receive your account email; no payment data is stored on
-              Eco&apos;s servers. Beyond the processors listed above, we do not
+              Eco processes no payments. If a donation link is shown, it
+              leads to an external site with its own privacy policy; we never
+              receive or store payment data. Beyond the processors listed above, we do not
               sell, rent, or share your personal data with third parties. We
               do not share data with advertisers. We may disclose data if
               required by law, regulation, or valid legal process.
