@@ -3,9 +3,9 @@
 # Copyright (C) 2026 Bos Computing LLC
 #
 # End-to-end staging validation script.
-# Tests the surviving user journey: sign-up → sign-in → billing → account deletion.
+# Tests the surviving user journey: sign-up → sign-in → account deletion.
 # (Chat is now 100% on-device; the chat/model-registry/governance API flows were
-# removed in Wave D. This script exercises only the auth + billing surface.)
+# removed in Wave D. This script exercises only the auth + sessions surface.)
 
 set -euo pipefail
 
@@ -109,40 +109,11 @@ fi
 # server-side /v1/chat/completions endpoint to exercise — it was removed in
 # Wave D. The "Removed legacy routes" block below confirms it returns 404.
 
-# ── 4. Billing ──────────────────────────────────────────────────────────────
-
-echo ""
-echo "── Billing ────────────────────────────────────"
-echo ""
-
-if [ "$auth_available" = true ]; then
-  billing_response=$(curl -s -w "\n%{http_code}" -H "Cookie: $session_cookie" \
-    -X POST "$API_URL/v1/billing/checkout" \
-    -H "Content-Type: application/json" \
-    -d '{"tier":"supporter"}' 2>/dev/null)
-
-  billing_status=$(echo "$billing_response" | tail -1)
-  billing_body=$(echo "$billing_response" | sed '$d')
-
-  if [ "$billing_status" = "200" ]; then
-    if echo "$billing_body" | grep -q '"url"'; then
-      pass "Billing checkout session"
-    else
-      fail "Billing checkout" "missing URL in response"
-    fi
-  elif [ "$billing_status" = "404" ]; then
-    skip "Billing checkout" "Stripe not configured"
-  else
-    fail "Billing checkout" "HTTP $billing_status"
-  fi
-else
-  skip "Billing checkout" "auth unavailable"
-fi
-
-# ── 5. Removed legacy routes (must be 404) ──────────────────────────────────
+# ── 4. Removed legacy routes (must be 404) ──────────────────────────────────
 #
-# The decentralized-inference / network surface was removed in Wave D. These
-# probes actively verify the removal stuck — each must return 404.
+# The decentralized-inference / network surface was removed in Wave D, and the
+# billing surface with it: Eco is free, so there is no payment processing. These
+# probes actively verify the removals stuck — each must return 404.
 
 echo ""
 echo "── Removed legacy routes ──────────────────────"
@@ -162,8 +133,9 @@ assert_removed() {
 assert_removed "Chat completions" "POST" "$API_URL/v1/chat/completions"
 assert_removed "Model registry"   "GET"  "$API_URL/v1/models/registry"
 assert_removed "Governance"       "GET"  "$API_URL/v1/governance/proposals"
+assert_removed "Billing checkout" "POST" "$API_URL/v1/billing/checkout"
 
-# ── 6. Account deletion (cleanup) ──────────────────────────────────────────
+# ── 5. Account deletion (cleanup) ──────────────────────────────────────────
 
 echo ""
 echo "── Cleanup ────────────────────────────────────"

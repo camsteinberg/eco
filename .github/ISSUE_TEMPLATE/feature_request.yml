@@ -8,8 +8,8 @@ body:
         Thanks for the idea. Eco is opinionated about staying calm, private, and focused —
         so the best requests explain the underlying need, not just the feature. A couple of
         things worth knowing up front: Eco is **text and code only** (no image/audio/video
-        generation), and the Free and Supporter tiers always have **identical
-        functionality** (no feature gating). Ideas that fit those bounds are very welcome.
+        generation), and Eco is **free with no tiers, plans or feature gates**. Ideas that
+        fit those bounds are very welcome.
   - type: textarea
     id: problem
     attributes:

@@ -7,18 +7,18 @@
 
 Eco is a **local-first AI chat app**: the model runs in the user's browser, so chat
 never touches a server. The web app is the product; a small API gateway handles auth
-and billing only. Live at `econetwork.ai`.
+and sessions only. Live at `econetwork.ai`.
 
 ## Repo scope
 
 This repository is the **v1.0 web app**: the Next.js web app plus a minimal API gateway
-for auth and billing. A separate desktop/network product lives in its own repository and
+for auth and sessions. A separate desktop/network product lives in its own repository and
 is not part of this tree — if you find lingering references to miners, distributed
 inference, on-chain anything, or P2P networking, that's stale and should be cleaned up,
 not extended.
 
-- `apps/web/` — Next.js 16 app: landing, `/chat` (on-device AI), settings, auth, billing, content pages.
-- `apps/api/` — Hono API gateway: auth + sessions (Better Auth) and Stripe billing only. Chat never routes through it.
+- `apps/web/` — Next.js 16 app: landing, `/chat` (on-device AI), settings, auth, content pages.
+- `apps/api/` — Hono API gateway: auth + sessions (Better Auth) only. Chat never routes through it.
 - `packages/ui/` — shared component library used by the web app.
 - `packages/config/` — shared tsconfig + ESLint flat config.
 
@@ -94,8 +94,9 @@ quickstart. **Ports:** web 3000, api 3001. Postgres `127.0.0.1:5432`, Redis
 - **AGPL-3.0** SPDX header on every source file.
 - **Privacy claims must be accurate.** Never overclaim what "local-first" or "on-device"
   means: inference runs on-device, but conversations can persist locally (OPFS /
-  IndexedDB) and auth/billing are genuinely server-side. Be explicit about what stays where.
-- **Free and Supporter have identical functionality.** No feature gates.
+  IndexedDB) and auth is genuinely server-side. Be explicit about what stays where.
+- **Eco is free. There are no tiers, plans or feature gates.** Donations, if offered, are
+  optional, external, and buy nothing.
 
 ## For AI coding agents
 

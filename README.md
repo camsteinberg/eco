@@ -14,11 +14,10 @@ Privacy here is a property of the architecture, not a policy. Inference happens
 on-device via WebGPU; there is no server in the loop for chat. Conversations can
 persist locally in the browser (OPFS / IndexedDB) so you can pick up where you left
 off, and they stay there. The only parts that touch a server are the ones that need
-one — signing in and, if you choose to support the project, billing.
+one — signing in.
 
-Eco is free and open source under AGPL-3.0. There's a Supporter tier for people who
-want to help fund the work; free and Supporter have identical functionality — there
-are no feature gates.
+Eco is free and open source under AGPL-3.0. There are no tiers, plans, or feature
+gates, and no payments are processed by Eco.
 
 Live at [econetwork.ai](https://econetwork.ai).
 
@@ -52,9 +51,9 @@ path; the app falls back to a small CPU model where WebGPU isn't available).
 
 ## Full-stack development
 
-You only need this if you're working on **auth or billing** — the server-side surfaces.
-The API gateway (`apps/api`) provides authentication and Stripe billing; it needs
-PostgreSQL and Redis.
+You only need this if you're working on **auth** — the server-side surface. The API
+gateway (`apps/api`) provides authentication and sessions; it needs PostgreSQL and
+Redis.
 
 1. Bring up Postgres (`127.0.0.1:5432`) and Redis (`127.0.0.1:6379`) however you prefer
    (Docker, Homebrew, a managed instance — anything reachable at those addresses).
@@ -66,9 +65,8 @@ PostgreSQL and Redis.
    ```
 
    Both example files document every variable inline. Sensible defaults point the web
-   app at the API on `http://localhost:3001`. Billing routes stay unmounted unless all
-   three Stripe variables are set; email verification and password reset stay off unless
-   `RESEND_API_KEY` is set. None of that is required to run auth locally.
+   app at the API on `http://localhost:3001`. Email verification and password reset stay
+   off unless `RESEND_API_KEY` is set. None of that is required to run auth locally.
 
 3. Run everything together:
 
@@ -90,9 +88,9 @@ Eco is a pnpm + Turborepo monorepo.
 ```
 apps/
   web/        Next.js 16 (App Router) web app — landing, on-device chat,
-              settings, auth, billing, content pages. This is the product.
-  api/        Hono API gateway — auth + sessions (Better Auth) and Stripe
-              billing only. No chat traffic passes through it.
+              settings, auth, content pages. This is the product.
+  api/        Hono API gateway — auth + sessions (Better Auth) only. No chat
+              traffic passes through it.
 packages/
   ui/         Shared component library used by the web app.
   config/     Shared TypeScript + ESLint configuration.
