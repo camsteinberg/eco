@@ -24,6 +24,21 @@ import {
   ScorecardTable,
   type AbResult,
 } from './EvalScorecard';
+import { PairwiseJudge } from './PairwiseJudge';
+// Pure + storage-only (no catalog, no runtime, no model), so unlike the eval
+// engine this is safe at module scope; the panel keeps it out of an effect so
+// pairing can be a `useMemo`.
+import {
+  buildPairs,
+  exportPairwiseSession,
+  loadPairwiseSessions,
+  orderForJudge,
+  savePairwiseSession,
+  sessionIdFor,
+  tally as tallyPairs,
+  verdictFromSide,
+} from '../../../src/local-ai/eval/pairwise';
+import type { PairArm, PairwiseSession } from '../../../src/local-ai/eval/pairwise';
 
 // ─── Static metadata (no heavy imports at module scope) ──────────────────────
 //
@@ -90,6 +105,17 @@ export function EvalHarnessPanel() {
   const [abRunId, setAbRunId] = useState<string | null>(null);
   const [abModelA, setAbModelA] = useState<string | null>(null);
   const [abModelB, setAbModelB] = useState<string | null>(null);
+
+  // Blind pairwise judging (arms are (runId, modelId); verdicts live under their
+  // own storage key, so nothing here touches the eval-run schema)
+  const [pwArmA, setPwArmA] = useState<PairArm | null>(null);
+  const [pwArmB, setPwArmB] = useState<PairArm | null>(null);
+  const [pwJudge, setPwJudge] = useState('');
+  const [pwSession, setPwSession] = useState<PairwiseSession | null>(null);
+  const [pwIndex, setPwIndex] = useState(0);
+  // Persisted results carry no prompt text (EvalPromptTrace is deliberately
+  // content-free), so the judging card gets prompt + history from the pool.
+  const [pwSpecs, setPwSpecs] = useState<EvalPromptSpec[]>([]);
 
   // Derived scorecards (built off the main thread of the render via effects)
   const [scorecards, setScorecards] = useState<{
@@ -510,7 +536,130 @@ export function EvalHarnessPanel() {
     setBeforeRunId(null);
     setAfterRunId(null);
     setAbRunId(null);
+    setPwArmA(null);
+    setPwArmB(null);
+    setPwSession(null);
   }, []);
+
+  // ── Blind pairwise judging ──
+
+  // The prompt pool, for prompt text + replayed history on the judging card.
+  useEffect(() => {
+    void (async () => {
+      try {
+        const [
+          { EVAL_PROMPTS },
+          { EVERYDAY_CONVERSATION_PROBES },
+          { CONVERSATION_INTEGRITY_PROBES },
+          { CONTEXT_STRESS_PROBES, CONTEXT_BOUNDARY_PROBES },
+          { KNOWN_ANSWER_PROBES },
+        ] = await Promise.all([
+          import('../../../src/local-ai/eval/prompts'),
+          import('../../../src/local-ai/eval/everyday-conversation-probes'),
+          import('../../../src/local-ai/eval/conversation-integrity-probe'),
+          import('../../../src/local-ai/eval/context-stress-probes'),
+          import('../../../src/local-ai/eval/known-answer-probes'),
+        ]);
+        setPwSpecs([
+          ...EVAL_PROMPTS,
+          ...CONVERSATION_INTEGRITY_PROBES,
+          ...KNOWN_ANSWER_PROBES,
+          ...CONTEXT_STRESS_PROBES,
+          ...CONTEXT_BOUNDARY_PROBES,
+          ...EVERYDAY_CONVERSATION_PROBES,
+        ]);
+      } catch {
+        setPwSpecs([]);
+      }
+    })();
+  }, []);
+
+  const pwPairing = useMemo(() => {
+    const sameArm =
+      pwArmA !== null &&
+      pwArmB !== null &&
+      pwArmA.runId === pwArmB.runId &&
+      pwArmA.modelId === pwArmB.modelId;
+    if (!pwArmA?.modelId || !pwArmB?.modelId || sameArm) return { pairs: [], excluded: [] };
+    return buildPairs(runs, pwArmA, pwArmB, pwSpecs);
+  }, [runs, pwArmA, pwArmB, pwSpecs]);
+
+  // One session per (armA, armB, judge): re-select the same three and the
+  // verdicts already recorded come back rather than starting over.
+  const pwExcludedCount = pwPairing.excluded.length;
+  useEffect(() => {
+    if (!pwArmA?.modelId || !pwArmB?.modelId) {
+      setPwSession(null);
+      return;
+    }
+    const sessionId = sessionIdFor(pwArmA, pwArmB, pwJudge);
+    const existing = loadPairwiseSessions().find((s) => s.sessionId === sessionId);
+    const now = new Date().toISOString();
+    const session: PairwiseSession = existing
+      ? { ...existing, excludedCount: pwExcludedCount }
+      : {
+          schemaVersion: 1,
+          sessionId,
+          createdAt: now,
+          updatedAt: now,
+          judge: pwJudge,
+          armA: pwArmA,
+          armB: pwArmB,
+          verdicts: {},
+          excludedCount: pwExcludedCount,
+          revealedEarly: false,
+        };
+    setPwSession(session);
+    const firstUnjudged = pwPairing.pairs.findIndex((p) => session.verdicts[p.pairId] === undefined);
+    setPwIndex(firstUnjudged === -1 ? pwPairing.pairs.length : firstUnjudged);
+  }, [pwArmA, pwArmB, pwJudge, pwPairing, pwExcludedCount]);
+
+  const pwPair = pwPairing.pairs[pwIndex];
+  const pwView = pwPair ? orderForJudge(pwPair) : null;
+  const pwTally = pwSession ? tallyPairs(pwSession, pwPairing.pairs) : null;
+  const pwAllDecided = pwTally !== null && pwTally.pairs > 0 && pwTally.decided === pwTally.pairs;
+
+  const handlePwVerdict = useCallback(
+    (side: 'left' | 'right' | 'tie') => {
+      if (!pwSession || !pwView) return;
+      const next: PairwiseSession = {
+        ...pwSession,
+        verdicts: { ...pwSession.verdicts, [pwView.pairId]: verdictFromSide(pwView, side) },
+      };
+      savePairwiseSession(next);
+      setPwSession(next);
+      setPwIndex((i) => i + 1);
+    },
+    [pwSession, pwView],
+  );
+
+  const handlePwSkip = useCallback(() => {
+    setPwIndex((i) => i + 1);
+  }, []);
+
+  const handlePwReveal = useCallback(() => {
+    if (!pwSession) return;
+    // An early reveal is recorded, not prevented — the exported session has to
+    // say whether the judge saw the identities before finishing.
+    const next: PairwiseSession = { ...pwSession, revealedEarly: !pwAllDecided };
+    savePairwiseSession(next);
+    setPwSession(next);
+  }, [pwSession, pwAllDecided]);
+
+  const handlePwDownload = useCallback(() => {
+    if (!pwSession) return;
+    const blob = new Blob([exportPairwiseSession(pwSession, pwPairing.pairs)], {
+      type: 'application/json',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `eco-pairwise-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, [pwSession, pwPairing.pairs]);
 
   // ── Captured-failure actions ──
   const toggleCapture = useCallback((captureId: string) => {
@@ -1331,6 +1480,42 @@ export function EvalHarnessPanel() {
         )}
         {ab && <AbCompare ab={ab} />}
         {!ab && !abError && <EmptyHint>Pick a run and two different models.</EmptyHint>}
+      </PanelSection>
+
+      {/* ── Blind pairwise scorer ── */}
+      <PanelSection title="Blind pairwise">
+        <PairwiseJudge
+          runs={runs}
+          armA={pwArmA}
+          armB={pwArmB}
+          onArmChange={(side, arm) => {
+            if (side === 'A') setPwArmA(arm);
+            else setPwArmB(arm);
+          }}
+          judge={pwJudge}
+          onJudgeChange={setPwJudge}
+          view={pwView}
+          position={Math.min(pwIndex + 1, pwPairing.pairs.length)}
+          pairCount={pwPairing.pairs.length}
+          excludedCount={pwExcludedCount}
+          onVerdict={handlePwVerdict}
+          onSkip={handlePwSkip}
+          tally={pwTally}
+          revealed={pwAllDecided || (pwSession?.revealedEarly ?? false)}
+          onReveal={handlePwReveal}
+          onDownload={handlePwDownload}
+          notice={
+            pwSession === null
+              ? 'Pick two arms — a run and a model on each side.'
+              : pwArmA?.runId === pwArmB?.runId && pwArmA?.modelId === pwArmB?.modelId
+                ? 'Both arms name the same model in the same run — pick a different model or a different run.'
+                : pwPairing.pairs.length === 0
+                  ? 'No judgeable pairs: the two arms share no prompt with a usable reply on both sides.'
+                  : pwView === null
+                    ? 'Every pair has a verdict.'
+                    : null
+          }
+        />
       </PanelSection>
 
       {/* ── Saved runs ── */}
