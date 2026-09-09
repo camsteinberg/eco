@@ -64,12 +64,16 @@ describe('getOnDeviceSystemPrompt', () => {
   // -- Length bound: lean prompt, now with the richness directive (chat #7) --
   // Widened from 250 → 700 chars when the depth-matching directive replaced
   // "as short as the question allows" (which overcorrected into terse replies).
-  // Still a bloat guard: ~700 chars ≈ 160 tokens of a 4096 context.
+  // Widened again 700 → 950 chars (2026-09-09) for the no-live-data sentence,
+  // after the real-time probe set measured the models inventing traffic, weather
+  // and schedules without it. Still a bloat guard: ~950 chars ≈ 210 tokens of
+  // a 4096 context, paid once per conversation (the prompt is identical turn to
+  // turn, so the cached prefix holds).
 
-  it('prompt length stays lean (100-700 chars)', () => {
+  it('prompt length stays lean (100-950 chars)', () => {
     const prompt = getOnDeviceSystemPrompt();
     expect(prompt.length).toBeGreaterThan(100);
-    expect(prompt.length).toBeLessThan(700);
+    expect(prompt.length).toBeLessThan(950);
   });
 
   // -- Richness directive (chat #7): depth matched to the question --
