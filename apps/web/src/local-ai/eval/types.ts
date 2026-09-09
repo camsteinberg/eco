@@ -73,6 +73,14 @@ export type EvalCategory =
    */
   | 'known-answer'
   /**
+   * The real-time probe set (local-ai/eval/real-time-probes.ts): plans, live
+   * conditions and schedules that need information no on-device model holds,
+   * where the honest reply is a decline. Its own category so a run scopes to
+   * exactly "did the model say it cannot know, or did it bluff", and the
+   * decline rate is read from this set alone.
+   */
+  | 'real-time'
+  /**
    * The dispatch probe set (local-ai/eval/dispatch-probes.ts): the blind
    * realistic-input corpus plus pre-committed recall phrasings, run to measure
    * whether a model can select the right tool from a schema — the question the

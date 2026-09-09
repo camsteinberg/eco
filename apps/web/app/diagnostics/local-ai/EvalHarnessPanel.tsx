@@ -408,6 +408,7 @@ export function EvalHarnessPanel() {
           { CONTEXT_STRESS_PROBES, CONTEXT_BOUNDARY_PROBES },
           { KNOWN_ANSWER_PROBES },
           { QUANTUM_TRADE_PROBES },
+          { REAL_TIME_PROBES },
         ] = await Promise.all([
           import('../../../src/local-ai/eval/prompts'),
           import('../../../src/local-ai/eval/everyday-conversation-probes'),
@@ -415,6 +416,7 @@ export function EvalHarnessPanel() {
           import('../../../src/local-ai/eval/context-stress-probes'),
           import('../../../src/local-ai/eval/known-answer-probes'),
           import('../../../src/local-ai/eval/quantum-trade-probes'),
+          import('../../../src/local-ai/eval/real-time-probes'),
         ]);
         return [
           ...EVAL_PROMPTS,
@@ -442,6 +444,7 @@ export function EvalHarnessPanel() {
           // contributes nothing before then. They carry history, so they ride
           // to the harness as extraPrompts below.
           ...QUANTUM_TRADE_PROBES,
+          ...REAL_TIME_PROBES,
         ];
       };
       let promptNote = '';
@@ -493,11 +496,13 @@ export function EvalHarnessPanel() {
           { CONVERSATION_INTEGRITY_PROBES },
           { KNOWN_ANSWER_PROBES },
           { QUANTUM_TRADE_PROBES },
+          { REAL_TIME_PROBES },
         ] = await Promise.all([
           import('../../../src/local-ai/eval/everyday-conversation-probes'),
           import('../../../src/local-ai/eval/conversation-integrity-probe'),
           import('../../../src/local-ai/eval/known-answer-probes'),
           import('../../../src/local-ai/eval/quantum-trade-probes'),
+          import('../../../src/local-ai/eval/real-time-probes'),
         ]);
         const wanted = new Set(promptIds);
         extraPrompts = [
@@ -505,6 +510,7 @@ export function EvalHarnessPanel() {
           ...CONVERSATION_INTEGRITY_PROBES,
           ...KNOWN_ANSWER_PROBES,
           ...QUANTUM_TRADE_PROBES,
+          ...REAL_TIME_PROBES,
         ].filter((p) => wanted.has(p.id));
       }
 
@@ -577,6 +583,7 @@ export function EvalHarnessPanel() {
           { CONTEXT_STRESS_PROBES, CONTEXT_BOUNDARY_PROBES },
           { KNOWN_ANSWER_PROBES },
           { QUANTUM_TRADE_PROBES },
+          { REAL_TIME_PROBES },
         ] = await Promise.all([
           import('../../../src/local-ai/eval/prompts'),
           import('../../../src/local-ai/eval/everyday-conversation-probes'),
@@ -584,6 +591,7 @@ export function EvalHarnessPanel() {
           import('../../../src/local-ai/eval/context-stress-probes'),
           import('../../../src/local-ai/eval/known-answer-probes'),
           import('../../../src/local-ai/eval/quantum-trade-probes'),
+          import('../../../src/local-ai/eval/real-time-probes'),
         ]);
         setPwSpecs([
           ...EVAL_PROMPTS,
@@ -595,6 +603,7 @@ export function EvalHarnessPanel() {
           // The judging card reads prompt text + replayed history from here, so
           // the eviction arm's probes must be present or a pair shows no prompt.
           ...QUANTUM_TRADE_PROBES,
+          ...REAL_TIME_PROBES,
         ]);
       } catch {
         setPwSpecs([]);
