@@ -48,6 +48,7 @@ const EVAL_CATEGORY_RECORD: Record<EvalCategory, true> = {
   'capability-probe': true,
   'conversation-integrity': true,
   'known-answer': true,
+  'real-time': true,
   dispatch: true,
   retrieval: true,
   captured: true,
