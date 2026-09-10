@@ -33,6 +33,7 @@ import type {
   GroundingVerification,
   ToolMatchContext,
 } from "../../lib/tools";
+import { isRealTimeAsk } from "../../lib/real-time/detect-real-time";
 import type { ToolCallDisplay } from "../../lib/tool-parser";
 import type { StreamPhase } from "../../stores/chatStore";
 
@@ -139,6 +140,19 @@ function nextToolCallId(): string {
 const VERIFICATION_LOOKUPS_OFF: GroundingVerification = { status: "lookups-off" };
 
 /**
+ * The verification carried by a real-time ask. Same posture as the lookups-off
+ * marker above and for the same measured reason: NO system note, so the cached
+ * prompt prefix survives and the reply is generated exactly as it is today. Only
+ * what the host draws underneath changes — an honest line plus a search link the
+ * user may click.
+ *
+ * It carries the user's question because the note's link is built from it.
+ */
+function verificationNoLiveData(query: string): GroundingVerification {
+  return { status: "no-live-data", query };
+}
+
+/**
  * Run the host-driven tool step for the current turn.
  *
  * Always clears prior-turn tool state first (so a previous turn's call never
@@ -169,7 +183,8 @@ const VERIFICATION_LOOKUPS_OFF: GroundingVerification = { status: "lookups-off" 
  *   store-agnostic — the gate decision is made by the caller, not here.
  * @param options.declineTools - OPTIONAL tools that are currently DISABLED (e.g. the
  *   citation tools when web lookups are off). When the enabled `tools` abstain, the
- *   step runs detection over these (pure `match`, no execute, no network); a
+ *   step runs detection over these (pure `match`, no execute, no network) — after
+ *   the real-time check, which wins when both would fire; a
  *   would-be match yields a `lookups-off` `verification` (and no system note, so
  *   the cached prompt prefix survives), and the host marks the reply as not
  *   checked against a source. Omit it (lookups on) and the abstain path is
@@ -240,6 +255,15 @@ export async function runToolStep(
     // network is hit, no ToolCallBlock renders, and no citation is set. The caller
     // supplies `declineTools` only when the setting is off; omitted ⇒ no-op (the
     // abstain path is exactly as before).
+    // A real-time ask wins over the lookups-off marker, and is checked whether
+    // lookups are on or off. The old marker said "answered from memory — web
+    // lookups are off", which on a live question is both misleading (turning
+    // them on would fetch an encyclopedia article, never live data) and drawn
+    // only where the Wikipedia matcher happened to claim the turn — five of the
+    // seven measured inventions rendered with no marker at all (2026-09-09).
+    if (isRealTimeAsk(latestUserText)) {
+      return { systemNote: null, verification: verificationNoLiveData(latestUserText) };
+    }
     if (options?.declineTools && options.declineTools.length > 0) {
       const wouldHaveMatched = detectToolFrom(
         latestUserText,
@@ -273,6 +297,19 @@ export async function runToolStep(
   // `"citation"` tools (grounding) render no ToolCallBlock — the model phrases the
   // answer and the source is a citation chip; absent ⇒ "tool-block" (default).
   const isCitation = tool.presentation === "citation";
+
+  // A live question never gets an encyclopedia article. The grounding matcher
+  // claims most real-time asks ("weather in chicago", "the next yankees home
+  // game") and, with lookups on, would fetch the Wikipedia page for the extracted
+  // entity and present it as a source for a question about right now. So we stop
+  // BEFORE `execute`: nothing leaves the device, no citation is set, and the host
+  // draws the honest note instead. The deterministic tools are unaffected — they
+  // matched above and returned, which is the "a calculator/date answer still
+  // wins" rule.
+  if (isCitation && isRealTimeAsk(latestUserText)) {
+    return { systemNote: null, verification: verificationNoLiveData(latestUserText) };
+  }
+
   const id = nextToolCallId();
 
   if (!isCitation) {

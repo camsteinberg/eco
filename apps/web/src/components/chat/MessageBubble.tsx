@@ -381,7 +381,7 @@ export function MessageBubble({
                     counterpart to the source chip, shown when grounding gave an
                     answer it couldn't back with a source. */}
                 {showUncertaintyNote && verification && (
-                  <UncertaintyNote status={verification.status} />
+                  <UncertaintyNote verification={verification} />
                 )}
                 {/* One-time grounding disclosure under the latest grounded answer */}
                 {showGroundingNotice && <GroundingNotice />}

@@ -80,10 +80,23 @@ export type EcoCitation = {
  * hard-decline). `"unreachable"` = the sources couldn't be reached (transient/network;
  * soft-degrade). `"lookups-off"` = the user turned web lookups off, so the model
  * answered from its own knowledge and nothing was checked.
+ *
+ * `"no-live-data"` is categorically different from the other three, which are all
+ * outcomes of a lookup that could in principle have succeeded. This one says the
+ * question needed information from RIGHT NOW — live conditions, what is on in a
+ * place tonight, a schedule or a result — and no on-device model holds any of that,
+ * whatever the lookup setting is. Because there is nothing Eco can check, the note
+ * it draws offers the person the one thing that helps: a link they may click to
+ * search the web themselves. That is why this status alone carries the `query` —
+ * the user's own question, used to build the outbound URL. Nothing leaves the
+ * device unless the person clicks it.
+ *
+ * A discriminated union rather than a widened `status`, so `query` exists exactly
+ * where it is meaningful and cannot be read off a status that never carries it.
  */
-export type GroundingVerification = {
-  status: "unverified" | "unreachable" | "lookups-off";
-};
+export type GroundingVerification =
+  | { status: "unverified" | "unreachable" | "lookups-off" }
+  | { status: "no-live-data"; query: string };
 
 /**
  * Optional conversation-derived hints passed to a tool's `match`. Lets a tool

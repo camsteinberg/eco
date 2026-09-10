@@ -54,7 +54,7 @@ describe("UncertaintyNote", () => {
   });
 
   it("renders the unverified copy and is an accessible note", () => {
-    render(<UncertaintyNote status="unverified" />);
+    render(<UncertaintyNote verification={{ status: "unverified" }} />);
 
     const note = screen.getByTestId("uncertainty-note");
     expect(note).toBeInTheDocument();
@@ -73,7 +73,7 @@ describe("UncertaintyNote", () => {
   });
 
   it("renders the lookups-off copy: answered from memory, not checked", () => {
-    render(<UncertaintyNote status="lookups-off" />);
+    render(<UncertaintyNote verification={{ status: "lookups-off" }} />);
 
     const note = screen.getByTestId("uncertainty-note");
     expect(note).toHaveAttribute("data-status", "lookups-off");
@@ -88,7 +88,7 @@ describe("UncertaintyNote", () => {
   });
 
   it("renders the distinct unreachable (transient) copy", () => {
-    render(<UncertaintyNote status="unreachable" />);
+    render(<UncertaintyNote verification={{ status: "unreachable" }} />);
 
     const note = screen.getByTestId("uncertainty-note");
     // Transient state gets a state-accurate prefix ("Couldn’t verify"), not a flat
@@ -105,9 +105,42 @@ describe("UncertaintyNote", () => {
     expect(note).not.toHaveTextContent(/confirm this against a source/i);
   });
 
+  it("renders the no-live-data copy with an outbound search link", () => {
+    render(
+      <UncertaintyNote
+        verification={{ status: "no-live-data", query: "is the L train running right now" }}
+      />,
+    );
+
+    const note = screen.getByTestId("uncertainty-note");
+    expect(note).toHaveAttribute("data-status", "no-live-data");
+    expect(note).toHaveTextContent(/can.t check live information, so this is from memory/i);
+    // Never implies a setting would fix it — nothing Eco can turn on gives a
+    // small local model live data.
+    expect(note).not.toHaveTextContent(/web lookups are off/i);
+
+    const link = screen.getByTestId("uncertainty-note-search-link");
+    expect(link).toHaveTextContent("Search the web for this");
+    expect(link).toHaveAttribute(
+      "href",
+      "https://duckduckgo.com/?q=is%20the%20L%20train%20running%20right%20now",
+    );
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    // The accessible name says both what the link does and that nothing is sent
+    // until it is clicked — consent stated, not implied.
+    expect(link.getAttribute("aria-label")).toMatch(/opens duckduckgo in a new tab/i);
+    expect(link.getAttribute("aria-label")).toMatch(/only when you click/i);
+  });
+
+  it("draws no search link on the statuses that carry no query", () => {
+    render(<UncertaintyNote verification={{ status: "unverified" }} />);
+    expect(screen.queryByTestId("uncertainty-note-search-link")).toBeNull();
+  });
+
   it("carries no internal jargon in the user-facing copy", () => {
     // Principle (Cam): write what the user wants (reliability), not the architecture.
-    render(<UncertaintyNote status="unverified" />);
+    render(<UncertaintyNote verification={{ status: "unverified" }} />);
     const note = screen.getByTestId("uncertainty-note");
     expect(note).not.toHaveTextContent(
       /wikipedia|wikidata|open-meteo|hedge|grounding|source-routing/i,
@@ -115,7 +148,7 @@ describe("UncertaintyNote", () => {
   });
 
   it("marks the botanical glyph as decorative", () => {
-    render(<UncertaintyNote status="unverified" />);
+    render(<UncertaintyNote verification={{ status: "unverified" }} />);
     const note = screen.getByTestId("uncertainty-note");
     const sprout = note.querySelector("svg");
     expect(sprout).toBeTruthy();
@@ -124,7 +157,7 @@ describe("UncertaintyNote", () => {
 
   it("still renders under prefers-reduced-motion", () => {
     reducedMotion.value = true;
-    render(<UncertaintyNote status="unreachable" />);
+    render(<UncertaintyNote verification={{ status: "unreachable" }} />);
 
     const note = screen.getByTestId("uncertainty-note");
     expect(note).toBeInTheDocument();

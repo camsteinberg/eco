@@ -710,3 +710,101 @@ describe("runToolStep — forceMatch (Check a source)", () => {
     expect(groundingMock.lookupCalls[0]!.signal).toBe(controller.signal);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Real-time asks — the honest handoff (2026-09-10)
+//
+// A question about right now cannot be answered by any on-device model and must
+// not be answered with an encyclopedia article either. The step returns a
+// `no-live-data` verification carrying the question, and the host draws the note
+// plus a search link. Three orderings are pinned here: a deterministic tool still
+// wins, grounding is stopped BEFORE it executes, and the real-time check beats
+// the lookups-off marker on the abstain path.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("runToolStep — real-time asks", () => {
+  const enabledTools = DEFAULT_TOOLS.filter((tool) => tool.presentation !== "citation");
+  const citationTools = DEFAULT_TOOLS.filter((tool) => tool.presentation === "citation");
+
+  it("stops a claimed real-time ask before grounding executes — no network, no citation", async () => {
+    // "what's the weather in chicago today" is claimed by the grounding matcher.
+    // With lookups ON it would have fetched a Wikipedia article for a question
+    // about right now; instead nothing leaves the device.
+    groundingMock.wikiResult = {
+      found: true,
+      title: "Chicago",
+      extract: "Chicago is a city in Illinois.",
+      url: "https://en.wikipedia.org/wiki/Chicago",
+    };
+    const { store, calls, phases } = makeStore();
+    const out = await runToolStep("what's the weather in chicago today", store);
+
+    expect(out.verification).toEqual({
+      status: "no-live-data",
+      query: "what's the weather in chicago today",
+    });
+    // No prompt change: a per-turn system note re-prefills the whole window.
+    expect(out.systemNote).toBeNull();
+    expect(groundingMock.lookupCalls).toHaveLength(0);
+    expect(out.citation).toBeUndefined();
+    expect(calls).toHaveLength(0);
+    // "Looking it up…" never flashes for a lookup that does not happen.
+    expect(phases).toEqual([]);
+  });
+
+  it("marks an UNCLAIMED real-time ask too — the note no longer follows the matcher", async () => {
+    // "is jfk having delays right now" is one of the seven prompts the grounding
+    // matcher does not claim, so before this change it rendered with no marker.
+    const { store } = makeStore();
+    const out = await runToolStep("is jfk having delays right now", store);
+
+    expect(out.verification).toEqual({
+      status: "no-live-data",
+      query: "is jfk having delays right now",
+    });
+    expect(out.systemNote).toBeNull();
+  });
+
+  it("wins over the lookups-off marker when web lookups are off", async () => {
+    const { store } = makeStore();
+    const out = await runToolStep("what's the weather in chicago today", store, undefined, {
+      tools: enabledTools,
+      declineTools: citationTools,
+    });
+
+    // Not `lookups-off`: turning lookups on would not have produced live data,
+    // so that marker would have misled.
+    expect(out.verification).toEqual({
+      status: "no-live-data",
+      query: "what's the weather in chicago today",
+    });
+    expect(groundingMock.lookupCalls).toHaveLength(0);
+  });
+
+  it("lets a deterministic tool answer win over the real-time check", async () => {
+    // "what date is 6 weeks from today" mentions today but the date tool answers
+    // it exactly; a "can't check live information" note would contradict it.
+    const { store, calls } = makeStore();
+    const out = await runToolStep("what date is 6 weeks from today", store);
+
+    expect(out.verification).toBeUndefined();
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.name).toBe("datetime");
+    expect(out.canonicalAnswer).toBeTruthy();
+  });
+
+  it("leaves an ordinary factual turn on the normal grounding path", async () => {
+    groundingMock.wikiResult = {
+      found: true,
+      title: "Paris",
+      extract: "Paris is the capital of France.",
+      url: "https://en.wikipedia.org/wiki/Paris",
+    };
+    const { store } = makeStore();
+    const out = await runToolStep("tell me about Paris", store);
+
+    expect(out.verification).toBeUndefined();
+    expect(out.citation).toBeDefined();
+    expect(groundingMock.lookupCalls).toHaveLength(1);
+  });
+});
