@@ -42,10 +42,10 @@ vi.mock("../ModelSelector", () => ({
   ModelSelector: () => <div data-testid="model-selector" />,
 }));
 
-vi.mock("../ResearchToggle", () => ({
-  ResearchToggle: () => (
-    <button type="button" data-testid="research-toggle" disabled aria-disabled="true">
-      Research off
+vi.mock("../WebSearchToggle", () => ({
+  WebSearchToggle: () => (
+    <button type="button" role="switch" aria-checked={false} data-testid="web-search-toggle">
+      Web
     </button>
   ),
 }));
@@ -115,17 +115,17 @@ describe("ChatInput", () => {
     expect(screen.queryByRole("button", { name: /send message/i })).not.toBeInTheDocument();
   });
 
-  it("renders the inline research pill and composer model selector in the input row", () => {
+  it("renders the inline Web switch and composer model selector in the input row", () => {
     const { container } = render(<ChatInput onSubmit={vi.fn()} />);
     const inputRow = container.querySelector("form > div");
     const messageInput = screen.getByLabelText("Message input");
 
-    // The old composer controls are back: a disabled "coming soon" research
-    // pill and the model selector, whose only mount this is.
-    const researchToggle = screen.getByTestId("research-toggle");
+    // The composer controls: the Web search switch and the model selector,
+    // whose only mount this is.
+    const webSearchToggle = screen.getByTestId("web-search-toggle");
     const modelSelector = screen.getByTestId("model-selector");
-    expect(researchToggle).toBeInTheDocument();
-    expect(researchToggle).toBeDisabled();
+    expect(webSearchToggle).toBeInTheDocument();
+    expect(webSearchToggle).toHaveAttribute("role", "switch");
     expect(modelSelector).toBeInTheDocument();
 
     // Privacy-tier selection stays gone — every turn is on-device in v1.0.
