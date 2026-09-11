@@ -9,6 +9,7 @@ import type { ChatMessage, ChatRouteRecommendationSnapshot, FileAttachment } fro
 import { useConversationStore } from "../stores/conversationStore";
 import {
   canUseExternalLookups,
+  canUseWebSearch,
   isExternalLookupExplicitlyOff,
   useSettingsStore,
 } from "../stores/settingsStore";
@@ -946,6 +947,10 @@ export function useChat() {
     // to normal on-device chat. Deterministic tools remain unaffected.
     const settingsSnapshot = useSettingsStore.getState();
     const externalLookupsAllowed = canUseExternalLookups(settingsSnapshot);
+    // The person's Web switch (slice 2), resolved once for this turn. Same
+    // fail-closed rule as the lookups gate: unhydrated settings mean we do not
+    // know their standing choice, so nothing is searched.
+    const webSearchAllowed = canUseWebSearch(settingsSnapshot);
     const effectiveTools = externalLookupsAllowed
       ? DEFAULT_TOOLS
       : DEFAULT_TOOLS.filter((tool) => tool.presentation !== "citation");
@@ -997,6 +1002,10 @@ export function useChat() {
         // Never when lookups are off or not yet loaded — the button is hidden then,
         // but the network must not be reachable through this path regardless.
         ...(overrides?.forceGrounding && externalLookupsAllowed ? { forceMatch: true } : {}),
+        // Web switch: when on, a live question is searched through Eco's relay
+        // before the reply instead of getting the "can't check live information"
+        // note. Off ⇒ the step's no-live-data path is byte-identical to before.
+        webSearch: webSearchAllowed,
       },
     );
 
@@ -1091,6 +1100,24 @@ export function useChat() {
             : {}),
         },
       ]);
+    }
+
+    // Carry the web-search sources onto the message so the "Searched the web at
+    // HH:MM · n sources" chip renders with every result's title as a link. The
+    // store holds a Citation[], so all of them travel; `asOf` carries the relay's
+    // ISO `fetchedAt` (the chip renders the local time from it) because a small
+    // local model cannot be trusted to date its own answer.
+    if (toolStep.citations && toolStep.citations.length > 0) {
+      updateMessageCitations(
+        assistantId,
+        toolStep.citations.map((citation, index) => ({
+          id: index + 1,
+          title: citation.title,
+          url: citation.url,
+          source: citation.source,
+          asOf: citation.asOf,
+        })),
+      );
     }
 
     // Carry a grounding uncertainty signal (hedge/decline/degrade) onto the message
