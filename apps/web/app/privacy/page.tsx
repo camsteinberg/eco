@@ -114,7 +114,9 @@ export default function PrivacyPage({
                 for reliability and security. Your chat activity (how often you
                 chat, timing, and the model you use) is measured on your device
                 and never sent to Eco unless you choose to submit
-                feedback (see Section 6)
+                feedback (see Section 6) or turn on Web search, which sends the
+                search terms of a question about right now &mdash; and nothing
+                else &mdash; to our relay (see Section 4)
               </li>
               <li>
                 <strong className="text-[var(--eco-text)]">Device information:</strong>{" "}
