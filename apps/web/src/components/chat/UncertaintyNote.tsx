@@ -36,10 +36,15 @@ import type { GroundingVerification } from "../../lib/tools";
  *
  * `"no-live-data"` is the honest handoff. The question needed information from right
  * now and no on-device model holds any, so the note says that plainly and then offers
- * the one thing that helps: a link the person can click to search the web themselves.
- * That link is the ONLY outbound path — the question reaches DuckDuckGo when, and
- * only when, they click it, and the accessible name says so out loud rather than
- * leaving it to be discovered.
+ * the two things that help: the Web search switch, and a link the person can click to
+ * search the web themselves. Nothing has left the device at the moment this renders —
+ * the question reaches DuckDuckGo when, and only when, they click the link, and the
+ * accessible name says so out loud rather than leaving it to be discovered.
+ *
+ * Naming the switch is accurate BECAUSE of where this status comes from: with Web
+ * search on, a live question is searched before the reply, so the turn lands on a
+ * source chip or on `"unreachable"` and never here. Reaching `"no-live-data"` at all
+ * means the switch was off, which is exactly the one thing the person can change.
  */
 export function UncertaintyNote({
   verification,
@@ -55,7 +60,7 @@ export function UncertaintyNote({
       : status === "lookups-off"
         ? "Answered from memory — web lookups are off, so this was not checked against a source."
         : status === "no-live-data"
-          ? "Eco can’t check live information, so this is from memory."
+          ? "Eco can’t check live information, so this is from memory. Turn on Web search to let it look."
           : "Eco couldn’t confirm this against a source.";
 
   // Screen-reader prefix matches the state: "unverified" is the epistemic case (no
@@ -68,7 +73,7 @@ export function UncertaintyNote({
       : status === "lookups-off"
         ? "From memory: web lookups are off, so this wasn’t checked against a source"
         : status === "no-live-data"
-          ? "From memory: Eco can’t check live information"
+          ? "From memory: Eco can’t check live information — turn on Web search to let it look"
           : "Unverified: Eco couldn’t confirm this against a source";
 
   // The outbound link, built only on the status that carries a query. The URL is

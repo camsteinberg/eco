@@ -31,8 +31,20 @@ import { buildSettingsHref } from "../settings/settingsNavigation";
  * celebration. It shares the elevated-surface + hairline-border vocabulary of
  * the source chip just above it so the two read as one family, with a single
  * botanical motif (a leaf inside a shield — "grounded, on your device").
+ *
+ * Two paths can ground a turn and their privacy stories are NOT the same, so the
+ * note has two variants. `"direct"` is the Wikipedia/Wikidata lookup: the request
+ * goes straight from the device to the source and Eco's servers never see it.
+ * `"web-search"` is the Web switch: the search terms go through a relay Eco runs,
+ * which is a weaker claim and has to be said as such. The caller decides, from
+ * the citation it is already holding (`source === "Web search"`); this component
+ * never guesses.
  */
-export function GroundingNotice() {
+export type GroundingNoticeVariant = "direct" | "web-search";
+
+export function GroundingNotice({
+  variant = "direct",
+}: { variant?: GroundingNoticeVariant } = {}) {
   const setGroundingNoticeSeen = useSettingsStore((s) => s.setGroundingNoticeSeen);
   const shouldReduce = useReducedMotion();
 
@@ -111,9 +123,18 @@ export function GroundingNotice() {
                 fontFamily: "var(--eco-font-body)",
               }}
             >
-              Eco looked this up from a real source, so the answer isn&rsquo;t
-              guesswork. The lookup went straight from your device to the source —
-              Eco&rsquo;s servers never saw it.{" "}
+              {variant === "web-search" ? (
+                <>
+                  Eco searched the web for this through its own relay. The relay
+                  does not log successful searches or connect them to you.{" "}
+                </>
+              ) : (
+                <>
+                  Eco looked this up from a real source, so the answer isn&rsquo;t
+                  guesswork. The lookup went straight from your device to the source —
+                  Eco&rsquo;s servers never saw it.{" "}
+                </>
+              )}
               <a
                 href={buildSettingsHref("models")}
                 onClick={markSeen}
