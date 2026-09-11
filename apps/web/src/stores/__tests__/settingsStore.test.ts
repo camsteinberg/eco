@@ -30,6 +30,7 @@ vi.mock("../../lib/settings-db", () => ({
 
 import {
   canUseExternalLookups,
+  canUseWebSearch,
   isExternalLookupExplicitlyOff,
   MAX_CUSTOM_INSTRUCTIONS_LENGTH,
   useSettingsStore,
@@ -65,6 +66,7 @@ function resetStore() {
     showTechnicalDetails: false,
     groundingEnabled: false,
     groundingNoticeSeen: false,
+    webSearchEnabled: false,
   });
 }
 
@@ -461,5 +463,85 @@ describe("useSettingsStore writes", () => {
     expect(useSettingsStore.getState().groundingNoticeSeen).toBe(true);
     // Only the first call writes; the guard short-circuits the second.
     expect(db.put).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("web search setting", () => {
+  it("is off by default and blocks the search until settings hydrate", () => {
+    expect(useSettingsStore.getState().webSearchEnabled).toBe(false);
+    expect(canUseWebSearch({ hasLoaded: false, webSearchEnabled: false })).toBe(false);
+    // Fails closed on the unhydrated race even when the value in memory is on.
+    expect(canUseWebSearch({ hasLoaded: false, webSearchEnabled: true })).toBe(false);
+    expect(canUseWebSearch({ hasLoaded: true, webSearchEnabled: true })).toBe(true);
+  });
+
+  it("persists the switch under its own encrypted key", async () => {
+    const db = makeFakeDb();
+    openSettingsDB.mockResolvedValue(db);
+
+    useSettingsStore.getState().setWebSearchEnabled(true);
+    expect(useSettingsStore.getState().webSearchEnabled).toBe(true);
+
+    await flushAsyncWork();
+    expect(db.put).toHaveBeenCalledWith("settings", {
+      key: "web-search-enabled",
+      ciphertext: "enc:true",
+      nonce: "nonce",
+    });
+    expect(db.close).toHaveBeenCalled();
+  });
+
+  it("rehydrates a persisted on switch", async () => {
+    const db = makeFakeDb();
+    db.get.mockImplementation(async (_store: string, key: string) =>
+      key === "web-search-enabled" ? { ciphertext: "enc:true", nonce: "nonce" } : undefined,
+    );
+    openSettingsDB.mockResolvedValue(db);
+
+    await useSettingsStore.getState().loadFromDB();
+
+    expect(useSettingsStore.getState().webSearchEnabled).toBe(true);
+    expect(canUseWebSearch(useSettingsStore.getState())).toBe(true);
+  });
+
+  it("repairs a corrupted persisted switch to durable fail-closed false", async () => {
+    const db = makeFakeDb();
+    let record: { key: string; ciphertext: string; nonce: string } | undefined = {
+      key: "web-search-enabled",
+      ciphertext: "bad",
+      nonce: "nonce",
+    };
+    db.get.mockImplementation(async (_store: string, key: string) =>
+      key === "web-search-enabled" ? record : undefined,
+    );
+    db.put.mockImplementation(async (_store: string, value: typeof record) => {
+      if (value?.key === "web-search-enabled") record = value;
+    });
+    openSettingsDB.mockResolvedValue(db);
+
+    await useSettingsStore.getState().loadFromDB();
+
+    expect(useSettingsStore.getState().webSearchEnabled).toBe(false);
+    expect(db.put).toHaveBeenCalledWith("settings", {
+      key: "web-search-enabled",
+      ciphertext: "enc:false",
+      nonce: "nonce",
+    });
+
+    resetStore();
+    await useSettingsStore.getState().loadFromDB();
+    expect(canUseWebSearch(useSettingsStore.getState())).toBe(false);
+  });
+
+  it("resets the switch to off when the whole load fails", async () => {
+    openSettingsDB.mockRejectedValue(new Error("no db"));
+    useSettingsStore.setState({ webSearchEnabled: true });
+
+    await useSettingsStore.getState().loadFromDB();
+
+    expect(useSettingsStore.getState()).toMatchObject({
+      hasLoaded: true,
+      webSearchEnabled: false,
+    });
   });
 });
