@@ -24,6 +24,7 @@ import { createAuth } from './auth/index.js'
 import { createDb, probeDatabase } from './db/index.js'
 import { getAllowedWebOrigins } from './lib/auth-origins.js'
 import { resolveDependencyPolicy } from './lib/production-guards.js'
+import { resolveSearchConfig } from './routes/search.js'
 
 // ── Simulated TEE production guard ──────────────────────────────────────────
 if (
@@ -71,6 +72,21 @@ for (const routePattern of ['/v1/auth/*', '/api/auth/*', '/v1/feedback', '/v1/fe
     }),
   )
 }
+
+// Tighter body limit on the search relay (4 KB). Its only field is a query
+// capped at 200 characters — 64 KB would be three orders of magnitude of slack
+// on an unauthenticated endpoint.
+app.use(
+  '/v1/search',
+  bodyLimit({
+    maxSize: 4 * 1024, // 4 KB
+    onError: (c) =>
+      c.json(
+        { error: { message: 'Request body too large', type: 'payload_too_large' } },
+        413,
+      ),
+  }),
+)
 
 // CORS — whitelist the web frontend origin(s)
 app.use(
@@ -225,6 +241,10 @@ const RATE_LIMIT_WINDOW_MS = parsePositiveIntEnv('RATE_LIMIT_WINDOW_MS', process
 const RATE_LIMIT_AUTH_MAX = parsePositiveIntEnv('RATE_LIMIT_AUTH_MAX', process.env.RATE_LIMIT_AUTH_MAX, 10)
 const RATE_LIMIT_API_MAX = parsePositiveIntEnv('RATE_LIMIT_API_MAX', process.env.RATE_LIMIT_API_MAX, 100)
 const RATE_LIMIT_FEEDBACK_MAX = parsePositiveIntEnv('RATE_LIMIT_FEEDBACK_MAX', process.env.RATE_LIMIT_FEEDBACK_MAX, 5)
+const RATE_LIMIT_SEARCH_MAX = parsePositiveIntEnv('RATE_LIMIT_SEARCH_MAX', process.env.RATE_LIMIT_SEARCH_MAX, 20)
+// A GLOBAL ceiling across all callers, not a per-IP one: the per-IP tier bounds
+// one abuser, this bounds the total load Eco puts on its own search instance.
+const RATE_LIMIT_SEARCH_DAILY_MAX = parsePositiveIntEnv('RATE_LIMIT_SEARCH_DAILY_MAX', process.env.RATE_LIMIT_SEARCH_DAILY_MAX, 5000)
 
 app.use(
   '/api/auth/*',
@@ -321,6 +341,46 @@ if (process.env.DATABASE_URL) {
   )
   app.route('/v1/feedback', createFeedbackRouter({ db }))
   logger.info('Feedback route mounted at /v1/feedback')
+}
+
+// ── Web-search relay ─────────────────────────────────────────────────────────
+// Independent of the database block above: the relay has no user, no session and
+// no row to write, so it must not inherit auth's mounting condition. It DOES need
+// Redis — the global daily ceiling is a Redis counter, and mounting an unbounded
+// relay because Redis happens to be missing is the wrong failure. Chat inference
+// still runs entirely on the device; this route only fetches public search
+// snippets on the browser's behalf so the engine never sees the user's IP.
+const searchConfig = resolveSearchConfig(process.env)
+for (const warning of searchConfig.warnings) {
+  logger[warning.level](warning.msg)
+}
+if (rateLimitRedis && searchConfig.enabled) {
+  const { createSearchRouter } = await import('./routes/search.js')
+  const searchOriginCheck = createOriginCheck(ALLOWED_ORIGINS)
+  app.use('/v1/search', searchOriginCheck)
+  app.use(
+    '/v1/search',
+    createRateLimiter({
+      redis: rateLimitRedis,
+      tier: 'search',
+      limit: RATE_LIMIT_SEARCH_MAX,
+      windowMs: RATE_LIMIT_WINDOW_MS,
+      logger,
+    }),
+  )
+  app.route(
+    '/v1/search',
+    createSearchRouter({
+      searxngUrl: searchConfig.searxngUrl,
+      redis: rateLimitRedis,
+      dailyMax: RATE_LIMIT_SEARCH_DAILY_MAX,
+    }),
+  )
+  logger.info('Search relay mounted at /v1/search')
+} else if (!rateLimitRedis) {
+  logger.warn(
+    'Search relay NOT mounted: no Redis client (REDIS_URL unset), so the global daily ceiling cannot be enforced.',
+  )
 }
 
 app.onError((err, c) => {
