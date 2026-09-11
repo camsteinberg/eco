@@ -248,7 +248,7 @@ export default function PrivacyPage({
                 <p>
                   To help the AI answer factual questions with real sources
                   instead of guessing, Eco includes an optional &ldquo;Look up
-                  facts from the web&rdquo; feature, on by default. When it is on,
+                  facts from the web&rdquo; feature, off by default. When you turn it on,
                   your browser contacts Wikipedia and Wikidata directly to fetch
                   the search terms from your question. These requests go straight
                   from your device to those providers &mdash; they are not routed
@@ -256,7 +256,7 @@ export default function PrivacyPage({
                   only the search terms are sent, never your full conversation.
                   Each provider receives the request (including your IP address
                   and the terms) under its own privacy policy, as it would if you
-                  visited the site yourself. You can turn this off at any time in
+                  visited the site yourself. You can turn it on or off at any time in
                   Settings &rarr; Eco; with it off, lookups stop and your requests
                   stay entirely on your device.
                 </p>

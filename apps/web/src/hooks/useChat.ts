@@ -938,9 +938,9 @@ export function useChat() {
     const latestUserText = [...apiMessages]
       .reverse()
       .find((message) => message.role === "user")?.content ?? "";
-    // Gate browser-direct lookups on hydrated settings (#5 S5). Default-ON after
-    // settings load, but unknown/unhydrated settings fail closed: a persisted web
-    // lookup opt-out must not be bypassed during reload or pending-prompt races.
+    // Gate browser-direct lookups on hydrated settings (#5 S5). Off by default and
+    // opt-in; unknown/unhydrated settings also fail closed, so a persisted web
+    // lookup choice is never bypassed during reload or pending-prompt races.
     // When off/unhydrated we drop citation tools entirely, so factual turns never
     // detect/execute browser-direct lookups (no network, no chip) and fall through
     // to normal on-device chat. Deterministic tools remain unaffected.
