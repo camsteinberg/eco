@@ -25,6 +25,7 @@ import {
   getFixtureEntry,
 } from '../real-time-fixture';
 import type { WebSnippetEntry } from '../real-time-fixture';
+import { REAL_TIME_PROBE_IDS } from '../real-time-probes';
 
 const ENTRY: WebSnippetEntry = {
   fetchedAt: '2026-09-11T18:05:00.000Z',
@@ -121,11 +122,15 @@ describe('buildWebSnippetNote', () => {
 });
 
 describe('the checked-in fixture', () => {
-  it('validates at load and carries the example entry the seam test needs', () => {
+  it('validates at load and covers every real-time probe with at least one result', () => {
     expect(REAL_TIME_FIXTURE.capturedAt.length).toBeGreaterThan(0);
-    // The placeholder caveat must stay legible until a real capture replaces it.
-    expect(REAL_TIME_FIXTURE.source).toContain('PLACEHOLDER');
-    expect(getFixtureEntry('rt-live-1')).not.toBeNull();
+    // A real capture, not the placeholder the seam shipped with.
+    expect(REAL_TIME_FIXTURE.source).not.toContain('PLACEHOLDER');
+    for (const id of REAL_TIME_PROBE_IDS) {
+      const entry = getFixtureEntry(id);
+      expect(entry, id).not.toBeNull();
+      expect(entry?.results.length ?? 0, id).toBeGreaterThan(0);
+    }
   });
 
   // Deliberately an id no capture pass will ever add, so this stays true once
