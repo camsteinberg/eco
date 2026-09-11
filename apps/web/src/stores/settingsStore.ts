@@ -24,7 +24,7 @@ type SettingsState = {
   showTechnicalDetails: boolean;
   /**
    * Whether on-device grounding (Wikipedia/Wikidata fact lookups, #5) is allowed.
-   * Default-ON with an easy off switch (locked decision). When false, the chat
+   * Off by default — opt in from Settings → Eco. When false, the chat
    * pipeline drops the citation tool so a factual turn never hits the network and
    * falls through to normal on-device generation — keeping every request fully on
    * this device.
@@ -32,7 +32,7 @@ type SettingsState = {
   groundingEnabled: boolean;
   /**
    * Whether the one-time "first grounded answer" disclosure (#5 S5-notice) has
-   * been shown. Grounding ships default-ON, so the first time a turn actually
+   * been shown. Grounding is opt-in, so the first time a turn actually
    * produces a grounded answer we surface a calm, dismissible note under it that
    * honestly discloses the device fetched from Wikipedia directly. It appears
    * once ever — once true (on dismiss or "Manage"), it never returns. One-way.

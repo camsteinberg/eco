@@ -228,8 +228,8 @@ beforeEach(() => {
   groundingMock.lookupCalls.length = 0;
   groundingMock.gate = null;
   groundingMock.fulltextPages = null;
-  // Web lookups default ON only after settings hydrate (the locked default). Reset
-  // before each test so the gate is in its default state; fail-closed tests flip it.
+  // Web lookups are off by default and opt-in, and the gate only opens once settings
+  // hydrate. Turn them on before each test so the tool path runs; fail-closed tests flip it.
   useSettingsStore.setState({ hasLoaded: true, groundingEnabled: true });
   resetChatStore();
 });

@@ -142,8 +142,8 @@ describe('SettingsEcoTab — default state', () => {
 
 describe('SettingsEcoTab — grounding toggle (#5 S5)', () => {
   afterEach(() => {
-    // Restore the default (on) so the gate state doesn't leak between tests.
-    useSettingsStore.setState({ groundingEnabled: true });
+    // Restore the default (off) so the gate state doesn't leak between tests.
+    useSettingsStore.setState({ groundingEnabled: false });
   });
 
   it('renders the web-lookups row with the accurate privacy copy', () => {
@@ -164,7 +164,8 @@ describe('SettingsEcoTab — grounding toggle (#5 S5)', () => {
     ).toBeInTheDocument();
   });
 
-  it('reflects the store value: ON by default (switch checked)', () => {
+  it('reflects the store value: ON when groundingEnabled is true (switch checked)', () => {
+    useSettingsStore.setState({ groundingEnabled: true });
     render(
       <SettingsEcoTab
         currentModel={MODEL}
@@ -196,6 +197,7 @@ describe('SettingsEcoTab — grounding toggle (#5 S5)', () => {
   });
 
   it('flipping the toggle updates the store (ON → OFF)', () => {
+    useSettingsStore.setState({ groundingEnabled: true });
     render(
       <SettingsEcoTab
         currentModel={MODEL}

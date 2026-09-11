@@ -11,7 +11,7 @@ import { buildSettingsHref } from "../settings/settingsNavigation";
 /**
  * One-time "first grounded answer" disclosure (#5 S5-notice).
  *
- * Web lookups ship default-ON. The first time a turn actually produces an answer
+ * Web lookups are off by default and opt-in. The first time a turn actually produces an answer
  * backed by a web source (Wikipedia/Wikidata for facts), this calm, dismissible
  * note appears once under that message.
  *

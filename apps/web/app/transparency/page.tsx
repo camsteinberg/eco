@@ -180,7 +180,7 @@ export default function TransparencyPage({
             </p>
             <p className="mt-3 rounded-xl border border-[var(--eco-border)] bg-[var(--eco-surface-elevated)] p-4 text-[var(--eco-text)]">
               <strong className="text-[var(--eco-text)]">
-                Web lookups (optional, on by default).
+                Web lookups (optional, off by default).
               </strong>{" "}
               For factual questions, Eco can check Wikipedia and Wikidata so it
               cites a real source instead of guessing. When this is on, your browser
@@ -188,8 +188,8 @@ export default function TransparencyPage({
               Wikimedia. Eco&apos;s servers never see or store any of this, and your
               full conversation is never sent; only those search terms reach the
               provider, subject to its own privacy policy, much like visiting the
-              site yourself. Turn it off in Settings &rarr; Eco to keep every
-              request fully on your device.
+              site yourself. Turn it on in Settings &rarr; Eco if you want it;
+              left off, every request stays fully on your device.
             </p>
           </section>
 
