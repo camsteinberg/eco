@@ -20,8 +20,8 @@ primary_region = "iad"
   # that is the only address this instance has.
   SEARXNG_BASE_URL = "http://eco-searxng.internal:8080/"
   # Granian (the WSGI server in the image) has access logging OFF by default;
-  # set it explicitly so a future image default can't quietly turn on a log line
-  # containing the request path — which for /search carries the user's query.
+  # set it explicitly so a future image default can't quietly turn it on.
+  # (Granian's path field excludes the query string; this is belt and braces.)
   GRANIAN_LOG_ACCESS_ENABLED = "false"
 
 [[vm]]

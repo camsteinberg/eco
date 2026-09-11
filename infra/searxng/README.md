@@ -25,8 +25,10 @@ still runs entirely on the person's own device.
   image, has access logging **disabled by default** (`--access-log /
   --no-access-log [env var: GRANIAN_LOG_ACCESS_ENABLED; default: (disabled)]`,
   verified in the Granian README on 2026-09-11). `fly.toml` sets
-  `GRANIAN_LOG_ACCESS_ENABLED = "false"` explicitly anyway, because the default
-  access-log format includes `%(path)s` — which for `/search` carries the query.
+  `GRANIAN_LOG_ACCESS_ENABLED = "false"` explicitly anyway, so a future image
+  default cannot quietly turn it on. (Granian's `%(path)s` field excludes the
+  query string, so even the default format would not carry the query; the
+  explicit setting is belt and braces, not the fix.)
   **UNVERIFIED:** whether SearXNG itself writes anything query-shaped at
   `info` level independent of Granian's access log. To check, deploy and read
   `flyctl logs --app eco-searxng` while issuing a query with a distinctive
