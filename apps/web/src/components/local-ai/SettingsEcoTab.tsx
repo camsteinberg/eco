@@ -18,7 +18,7 @@ import { SettingsRow } from '../settings/SettingsRow';
 import { SettingsSwitch } from '../settings/SettingsSwitch';
 import { CustomInstructionsSection } from '../settings/CustomInstructionsSection';
 import { GuestDataExportSection } from '../settings/GuestDataExportSection';
-import { WEB_SEARCH_PRIVATE_BY_DESIGN_CLAUSE } from './web-search-copy';
+import { WEB_SEARCH_PRIVATE_BY_DESIGN_CLAUSE, WEB_SEARCH_SETTING_DESCRIPTION } from './web-search-copy';
 
 /**
  * Settings → AI tab.
@@ -163,11 +163,10 @@ export function SettingsEcoTab({
             />
           }
         />
-        {/* The SAME setting as the composer's Web switch — one setting, two
-            switches. The description is a placeholder; the copy PR writes it. */}
+        {/* The SAME setting as the composer's Web switch — one setting, two switches. */}
         <SettingsRow
           label="Search the web for live questions"
-          description="When on, Eco searches the web for questions about right now, automatically, before it answers."
+          description={WEB_SEARCH_SETTING_DESCRIPTION}
           divider={false}
           control={
             <SettingsSwitch
