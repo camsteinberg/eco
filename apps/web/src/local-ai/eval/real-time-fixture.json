@@ -1,0 +1,512 @@
+{
+  "capturedAt": "2026-09-11T19:09:33.447Z",
+  "source": "DuckDuckGo web results (duckduckgo.com, ia=web), top 3 organic results per prompt, captured by hand in a real Chrome session on 2026-09-11; the self-hosted-metasearch-equivalent result set. No instant answers were present for any prompt.",
+  "entries": {
+    "rt-plan-1": {
+      "fetchedAt": "2026-09-11T19:07:13.762Z",
+      "results": [
+        {
+          "title": "TOP 10 BEST Fun Things to Do on a Friday Night in Brooklyn, NY ... - Yelp",
+          "snippet": "What are people saying about fun things to do on a friday night in Brooklyn, NY? This is a review for fun things to do on a friday night in Brooklyn, NY: \"Whoa! WOW! Who knew, that the most friendly neighborhood Tiki Bar called ZOMBIE HUT, drinks will get you in a transfixed calm mood for sure. The electrifying atmosphere was sizzling with happy, high & harmonious friendly people. ZOMBIE HUT ...",
+          "domain": "yelp.com"
+        },
+        {
+          "title": "TOP 10 BEST Things to Do on a Friday Night in Brooklyn, NY - Yelp",
+          "snippet": "See more things to do on a friday night in Brooklyn. What are people saying about things to do in Brooklyn, NY? This is a review for things to do in Brooklyn, NY: \"Where to start with Bembe... reimagined from years ago... not the Bembe that Dj Gringo cultivated through the years but a new vibe with Reggae/dancehall, afrobeats and other themed ...",
+          "domain": "yelp.com"
+        },
+        {
+          "title": "25 FUN Things to do in Brooklyn at Night! Night Owl's Guide!",
+          "snippet": "Night Owl's guide to the best things to do in Brooklyn at night from shows, performances, night clubs, secret parties, cool bars & more!",
+          "domain": "yourbrooklynguide.com"
+        }
+      ]
+    },
+    "rt-plan-2": {
+      "fetchedAt": "2026-09-11T19:07:19.998Z",
+      "results": [
+        {
+          "title": "Events & Things To Do In Williamsburg This Weekend | September 11-13 ...",
+          "snippet": "Williamsburg is a city full of experiences, activities and events. Explore some of the best things to do in Williamsburg this weekend and make your Friday, Saturday and Sunday full of fun and excitement.",
+          "domain": "allevents.in",
+          "published": "Today"
+        },
+        {
+          "title": "Live Music in Williamsburg | Gigs, Bands & Nights Out",
+          "snippet": "Find live music in Williamsburg tonight, tomorrow and this weekend. Discover gigs, bands and open-mic nights at bars and venues near you.",
+          "domain": "allevents.in"
+        },
+        {
+          "title": "Things to Do in Williamsburg This Weekend - Events & Nightlife",
+          "snippet": "Whether you're planning a stylish night out or a group celebration, MTS Productions brings you the hottest Williamsburg events this weekend all in one place. From rooftop parties with skyline views to underground nightlife spots, this guide covers what to do in Williamsburg this weekend, including parties, nightlife events, birthday ...",
+          "domain": "mtsproductions.com"
+        }
+      ]
+    },
+    "rt-plan-3": {
+      "fetchedAt": "2026-09-11T19:07:25.685Z",
+      "results": [
+        {
+          "title": "32 Best Hikes 30 Minutes from Denver Colorado - Day Hikes Near Denver",
+          "snippet": "Looking for hiking trails near Denver, Colorado? We've assembled more than 30 of the best hikes within about 30 minutes of Denver. Explore Dayhikes Near Denver for more than 200 full hiking trail profiles along the Front Range of Colorado--jiked and reviewed by a local who knows the trails.",
+          "domain": "dayhikesneardenver.com"
+        },
+        {
+          "title": "52 of the Most Beautiful Hikes Near Denver with Local Secret Hikes",
+          "snippet": "A comprehensive list of amazing hikes near Denver. Get a local list of the best day hikes near Denver for all abilities.",
+          "domain": "foxintheforest.net"
+        },
+        {
+          "title": "14 Best Day Hikes Near Denver: The Definitive Guide for 2026",
+          "snippet": "The complete guide to day hiking near Denver. 14 trails from easy nature walks to challenging 14er scrambles, plus seasonal tips and altitude advice.",
+          "domain": "coloradounited.com"
+        }
+      ]
+    },
+    "rt-plan-4": {
+      "fetchedAt": "2026-09-11T19:07:31.295Z",
+      "results": [
+        {
+          "title": "The Hit List: New Austin Restaurants To Try Right Now",
+          "snippet": "The Hit List is where you'll find all of the best new restaurants in Austin. As long as it opened within the past several months and we're still talking about it, it's on this guide.",
+          "domain": "theinfatuation.com",
+          "published": "Sep 3, 2026"
+        },
+        {
+          "title": "Best New Restaurants in Austin, July 2026 | Eater Austin",
+          "snippet": "Where to eat in Austin right now, including the best pastries, lobster rolls, oysters, pho, and some excellent new barbecue.",
+          "domain": "austin.eater.com",
+          "published": "Jul 23, 2026"
+        },
+        {
+          "title": "TOP 10 BEST New Restaurants in Austin, TX - Updated 2026 - Yelp",
+          "snippet": "What are people saying about new restaurants in Austin, TX? This is a review for new restaurants in Austin, TX: \"This review is for the new RDB! I don't like it that much when I went the first time, but damn it's climbed its way up. I think I just didn't like the mole or chilaquiles men. However the pozole ramen was so herby and fragrant and not heavy. It was fantastic. The carnitas tonkotsu ...",
+          "domain": "yelp.com"
+        }
+      ]
+    },
+    "rt-plan-5": {
+      "fetchedAt": "2026-09-11T19:07:37.604Z",
+      "results": [
+        {
+          "title": "Chicago this month | Concerts, Festivals, Tickets & Tour Dates - Songkick",
+          "snippet": "Concerts in Chicago this month Find tickets to all live music, concerts, tour dates and festivals in and around Chicago. Currently there are 811 upcoming events.",
+          "domain": "songkick.com",
+          "published": "Sep 2, 2026"
+        },
+        {
+          "title": "Concerts & Events this month in Chicago, IL | Bandsintown",
+          "snippet": "Get personalized recommendations for upcoming concerts in Chicago, IL. Browse tour dates, venue details, reviews and more from your favorite artists.",
+          "domain": "bandsintown.com",
+          "published": "Today"
+        },
+        {
+          "title": "Concerts this month in Chicago - Live Music 312",
+          "snippet": "Browse concerts happening this month in Chicago. Updated regularly as new events are added. Includes venues like Reggie's Rock Club, Nederlander Theatre at Ford Center for the Performing Arts, Broadway Playhouse at Water Tower Place, and more. Updated September 11, 2026",
+          "domain": "livemusic312.com",
+          "published": "Today"
+        }
+      ]
+    },
+    "rt-plan-6": {
+      "fetchedAt": "2026-09-11T19:07:43.572Z",
+      "results": [
+        {
+          "title": "15 Best Rooftop Bars on Manhattan - 2026",
+          "snippet": "From super luxurios rooftop lounges, to more urban and relaxed terraces, there are literally hundreds of great rooftop bars on Manhattan, which makes it hard to find the very best ones. And that's just what we will help you with. While we haven't been to all the Manhattan rooftops, we have visited quite a few, and we will share all you need to know about our favorite ones below.",
+          "domain": "therooftopguide.com",
+          "published": "Dec 15, 2025"
+        },
+        {
+          "title": "NYC Rooftop Bars: 40 Best Picks for 2026 - The Rooftop Guide",
+          "snippet": "That's our favourite part of every NYC visit, and that's why we love the city's huge and sprawling rooftop scene. Are you flying to NYC? Then, check out the best 2026 flight promos to NYC. Absolutely packed with amazing rooftop bars, NYC could easily be considered the 'rooftop-capital' of the world.",
+          "domain": "therooftopguide.com",
+          "published": "Apr 27, 2026"
+        },
+        {
+          "title": "16 Best Rooftop Bars in NYC to Drink With a View - Time Out",
+          "snippet": "The 16 best rooftop bars in NYC to check out right now Raise a glass to spectacular views and elevated libations at the city's best rooftop bars.",
+          "domain": "timeout.com",
+          "published": "Feb 24, 2026"
+        }
+      ]
+    },
+    "rt-plan-7": {
+      "fetchedAt": "2026-09-11T19:07:50.156Z",
+      "results": [
+        {
+          "title": "21 Best Day Trips From Boston, Massachusetts",
+          "snippet": "The best day trips from Boston that are easy and convenient! From beaches, mountains, and parks to cities and charming New England towns.",
+          "domain": "budgettravelwithgabby.com",
+          "published": "Jan 9, 2026"
+        },
+        {
+          "title": "25 Best Day Trips from Boston, MA: Local's Guide (2026)",
+          "snippet": "A born-and-raised local's guide to the 25 best day trips from Boston, from Cape Ann and the South Shore to Provincetown, Salem, Newport, Portsmouth, and farther New England escapes.",
+          "domain": "purewander.com",
+          "published": "Apr 2, 2026"
+        },
+        {
+          "title": "A Local's Favorite Day Trips from Boston - Travel Lemming",
+          "snippet": "Planning day trips from Boston can be overwhelming if you don't know where to start. But with this guide, you'll be able to easily experience New England's charm, nature, and the rich history that lies just outside the city. I'm a Boston area local who loves exploring nearby destinations.",
+          "domain": "travellemming.com",
+          "published": "Aug 31, 2026"
+        }
+      ]
+    },
+    "rt-plan-8": {
+      "fetchedAt": "2026-09-11T19:07:55.210Z",
+      "results": [
+        {
+          "title": "Movie Showtimes and Theaters near Hartford, CT | Fandango",
+          "snippet": "Discover showtimes and movie theaters near you with Fandango! Find showtimes, tickets, and more for your favorite cinema experience in Hartford, CT",
+          "domain": "fandango.com",
+          "published": "Today"
+        },
+        {
+          "title": "Movies Near Me in Hartford, CT | Showtimes & Trailers | CinemaClock",
+          "snippet": "Discover every movie now playing in Hartford, CT: browse showtimes, trailers, ratings. Plan your cinema night with CinemaClock.",
+          "domain": "cinemaclock.com"
+        },
+        {
+          "title": "Movie Showtimes and Theaters near , | Fandango",
+          "snippet": "Discover showtimes and movie theaters near you with Fandango! Find showtimes, tickets, and more for your favorite cinema experience in ,",
+          "domain": "fandango.com",
+          "published": "Today"
+        }
+      ]
+    },
+    "rt-live-1": {
+      "fetchedAt": "2026-09-11T19:08:01.521Z",
+      "results": [
+        {
+          "title": "Driving directions, live traffic & road conditions updates - Waze",
+          "snippet": "Realtime driving directions based on live traffic updates from Waze - Get the best route to your destination from fellow drivers",
+          "domain": "waze.com"
+        },
+        {
+          "title": "Crossing Time App | B&T",
+          "snippet": "CrossingTime provides you with real-time traffic conditions at all bridge and tunnel crossings operated by The Port Authority of New York and New Jersey. Port Authority crossings include the George Washington Bridge, Lincoln Tunnel, Holland Tunnel, Bayonne Bridge, Goethals Bridge and Outerbridge Crossing.",
+          "domain": "panynj.gov"
+        },
+        {
+          "title": "Lincoln Tunnel Traffic And Weather - turnpikes.com",
+          "snippet": "Travel weather and traffic conditions for The Lincoln Tunnel in Weehawken, Union City, and New York City. Get local conditions and extended forecasts. Select camera markers to see on-road traffic conditions, where available.",
+          "domain": "turnpikes.com"
+        }
+      ]
+    },
+    "rt-live-2": {
+      "fetchedAt": "2026-09-11T19:08:06.673Z",
+      "results": [
+        {
+          "title": "NYC L train status and delays - Subwaystats",
+          "snippet": "Is the L train running? Find out what the current status, delays and statistics are by hour",
+          "domain": "subwaystats.com",
+          "published": "Today"
+        },
+        {
+          "title": "Is the L Train Down? Live L Train Status & Delays",
+          "snippet": "Is the L train running right now? Live L train status from the MTA's real-time feed — positions, delays, and service alerts, updated every 15 seconds.",
+          "domain": "istheldown.com"
+        },
+        {
+          "title": "L Train Live Status, Delays & Map · AP Transit",
+          "snippet": "Right now, L trains are arriving approximately every 3 minutes on average. In our current measurement window, the longest gaps between L trains reach about 3 minutes (worst-case spacing—your station and direction may differ).",
+          "domain": "aptransit.co"
+        }
+      ]
+    },
+    "rt-live-3": {
+      "fetchedAt": "2026-09-11T19:08:12.816Z",
+      "results": [
+        {
+          "title": "Today's Weather in Chicago - Hourly Forecast and Conditions",
+          "snippet": "Get the latest hourly weather updates for Chicago today. Detailed forecast including temperature, wind, rain, snow, and UV index. Stay informed about today's weather conditions in Chicago.",
+          "domain": "easeweather.com",
+          "published": "Today"
+        },
+        {
+          "title": "Chicago, IL Hourly Weather | AccuWeather",
+          "snippet": "Hourly weather forecast in Chicago, IL. Check current conditions in Chicago, IL with radar, hourly, and more.",
+          "domain": "accuweather.com"
+        },
+        {
+          "title": "Weather Forecast and Conditions for Chicago, Illinois - The Weather ...",
+          "snippet": "Today's and tonight's Chicago, Illinois weather forecast, weather conditions and Doppler radar from The Weather Channel and Weather.com",
+          "domain": "weather.com"
+        }
+      ]
+    },
+    "rt-live-4": {
+      "fetchedAt": "2026-09-11T19:08:18.560Z",
+      "results": [
+        {
+          "title": "DMV Offices in Brooklyn, NY — Wait Times",
+          "snippet": "Find real-time DMV wait times and predictions for all 50 US states. Avoid long lines, get alerts when wait times drop, and save hours with intelligent forecasts nationwide.",
+          "domain": "dmvwaittimes.com"
+        },
+        {
+          "title": "Brooklyn Atlantic Center DMV Wait Times & Hours | BookDMV",
+          "snippet": "Brooklyn Atlantic Center in 625 Atlantic Avenue, 2nd Floor, Brooklyn, NY 11217. Current avg wait: 5 days. See current wait times, office hours, and how busy this New York DMV gets before you go.",
+          "domain": "bookdmv.app"
+        },
+        {
+          "title": "Brooklyn DMV Appointments: 3-Day Average Wait (2026)",
+          "snippet": "Find and book DMV appointments in Brooklyn, New York. Current average wait: 3 days across 2 offices. Get alerts when earlier slots open up.",
+          "domain": "bookdmv.app"
+        }
+      ]
+    },
+    "rt-live-5": {
+      "fetchedAt": "2026-09-11T19:08:24.580Z",
+      "results": [
+        {
+          "title": "John F Kennedy International Airport - fly.faa.gov",
+          "snippet": "John F Kennedy International Airport (JFK) Real-time Status The status information provided on this site indicates general airport conditions; it is not flight-specific. Check with your airline to determine if your flight is affected. Delays by Destination: No destination-specific delays are being reported. General Departure Delays: Traffic is experiencing gate hold and taxi delays lasting 15 ...",
+          "domain": "fly.faa.gov",
+          "published": "Today"
+        },
+        {
+          "title": "JFK Delays Right Now — Live New York Flight Delay Status (Kennedy ...",
+          "snippet": "Live flight delays at John F. Kennedy International (JFK), Kennedy Airport. Current FAA ground stops and delay advisories, average delay length, worst airlines for delays, and why New York flights are running late today.",
+          "domain": "flightcheck.live"
+        },
+        {
+          "title": "FlightView (JFK) New_York Flight Tracker & Airport Delays",
+          "snippet": "Check New_York Airport (JFK) airport delay status, JFK flight arrivals and JFK flight departures with OAG's JFK flight tracker and JFK airport tracker tools.",
+          "domain": "flightview.com"
+        }
+      ]
+    },
+    "rt-live-6": {
+      "fetchedAt": "2026-09-11T19:08:30.822Z",
+      "results": [
+        {
+          "title": "Bitcoin price today, BTC to USD live price, marketcap and chart | CoinDesk",
+          "snippet": "Live Bitcoin price movements from all markets and BTC market cap, use our charts and see when there is an opportunity to buy or sell.",
+          "domain": "coindesk.com"
+        },
+        {
+          "title": "Bitcoin price today, BTC to USD live price, marketcap and chart ...",
+          "snippet": "The live Bitcoin price today is $77,137.64 USD with a 24-hour trading volume of $36,726,888,739.32 USD. We update our BTC to USD price in real-time.",
+          "domain": "coinmarketcap.com"
+        },
+        {
+          "title": "Live Bitcoin Price (BTC/USD) & Historical Chart | Bitcoin.now",
+          "snippet": "Bitcoin price, right now. Follow a live BTC/USD reference, inspect the historical path, compare real dollar venues, and learn what the number can—and cannot—tell you.",
+          "domain": "bitcoin.now"
+        }
+      ]
+    },
+    "rt-live-7": {
+      "fetchedAt": "2026-09-11T19:08:37.252Z",
+      "results": [
+        {
+          "title": "NYC DOT - Weekly Traffic Advisory",
+          "snippet": "Brooklyn Bridge Starting 1am Saturday through 5am Monday one lane will be available on the Staten Island-bound BQE from Cadman Plaza/Brooklyn Bridge exit ramp to Vine Street on the next two weekends from September 12-14, 2026, and September 19-21, 2026.",
+          "domain": "nyc.gov"
+        },
+        {
+          "title": "Street, Highway, Bridge, and Tunnel Closures - NYC311",
+          "snippet": "You can get a list of streets, bridges, highways, and tunnels that are temporarily closed for: Planned construction activities Special events Parades This information is limited and does not reflect closures due to emergency situations or long-term construction projects. All event dates, times and routes are subject to change at any time. Information is updated every week. Get the current list ...",
+          "domain": "portal.311.nyc.gov"
+        },
+        {
+          "title": "NYPD shoots and kills man with knife who claimed to have bomb during ...",
+          "snippet": "The Brooklyn bound lanes of the Brooklyn Bridge were closed for several hours after a man armed with a knife was shot by police on Friday. (Theodore Parisienne / New York Daily News)",
+          "domain": "nydailynews.com",
+          "published": "6 days ago"
+        }
+      ]
+    },
+    "rt-live-8": {
+      "fetchedAt": "2026-09-11T19:08:43.527Z",
+      "results": [
+        {
+          "title": "TRADER JOE'S - Updated August 2026 - 541 Photos - Yelp",
+          "snippet": "Specialties: At Trader Joe's in Brooklyn , we see ourselves as your neighborhood grocery store. Step inside and you'll find unconventional and interesting products in the Trader Joe's label like Mandarin Orange Chicken and Cold Brew Coffee Concentrate, as well as everyday basics like milk, eggs, meat, bakery items, and fresh produce. We are a good source for great cheese, and we offer a ...",
+          "domain": "yelp.com"
+        },
+        {
+          "title": "TRADER JOE'S - 130 Court St, Brooklyn NY - Hours, Directions, Reviews ...",
+          "snippet": "Trader Joe's at 130 Court St, Brooklyn NY 11201 - hours, address, map, directions, phone number, customer ratings and reviews.",
+          "domain": "loc8nearme.com"
+        },
+        {
+          "title": "TRADER JOE'S - Updated November 2024 - 521 Photos & 708 Reviews - Yelp",
+          "snippet": "Specialties: At Trader Joe's, we see ourselves as your neighborhood grocery store. Step inside and you'll find unconventional and interesting products in the Trader Joe's label like Mandarin Orange Chicken and Cold Brew Coffee Concentrate, as well as everyday basics like milk, eggs, meat, and fresh produce. We are a good source for great cheese, beer and bakery items, and we offer a vibrant ...",
+          "domain": "yelp.com"
+        }
+      ]
+    },
+    "rt-sched-1": {
+      "fetchedAt": "2026-09-11T19:08:49.851Z",
+      "results": [
+        {
+          "title": "Schedule | New York Knicks",
+          "snippet": "Check the New York Knicks schedule for game times and opponents for the season, as well as where to watch or radio broadcast the games",
+          "domain": "nba.com"
+        },
+        {
+          "title": "New York Knicks Team Info and News | NBA.com",
+          "snippet": "View the New York Knicks's Official NBA Schedule, Roster & Standings. Watch New York Knicks's Games with NBA League Pass.",
+          "domain": "nba.com"
+        },
+        {
+          "title": "2026 New York Knicks Schedule & Scores - NBA | FOX Sports",
+          "snippet": "View the New York Knicks schedule and scores on FOXSports.com.",
+          "domain": "foxsports.com"
+        }
+      ]
+    },
+    "rt-sched-2": {
+      "fetchedAt": "2026-09-11T19:08:56.156Z",
+      "results": [
+        {
+          "title": "New York Yankees Schedule |2026 Yankees Games | SeatGeek",
+          "snippet": "Check out the 2026 New York Yankees schedule and never miss an upcoming game or event. Find tickets on SeatGeek, backed by our Buyer Guarantee.",
+          "domain": "seatgeek.com",
+          "published": "Today"
+        },
+        {
+          "title": "New York Yankees Home Game Schedule 2026 | SeatGeek",
+          "snippet": "Check out the 2026 New York Yankees home game schedule and find out when the Yankees are playing at Yankee Stadium next. Get the best prices on Yankees games on SeatGeek. Buyer Guarantee protected.",
+          "domain": "seatgeek.com",
+          "published": "Today"
+        },
+        {
+          "title": "New York Yankees Tickets & 2026 Yankees Schedule | Vivid Seats",
+          "snippet": "Buy New York Yankees tickets at Vivid Seats and experience it live! Use our interactive stadium seating charts and price filters to find the cheapest Yankees tickets available for upcoming 2026 home and away games.",
+          "domain": "vividseats.com",
+          "published": "Today"
+        }
+      ]
+    },
+    "rt-sched-3": {
+      "fetchedAt": "2026-09-11T19:09:02.425Z",
+      "results": [
+        {
+          "title": "NFL Scores and Highlights: Live Updates, Results & Recaps",
+          "snippet": "See final scores and results. View game recaps, official stats, highlights, and key moments from every matchup.",
+          "domain": "nfl.com"
+        },
+        {
+          "title": "Who won NFL game last night? Patriots vs Seahawks Super Bowl ... - MSN",
+          "snippet": "Who won NFL game last night? The Seattle Seahawks opened their Super Bowl title defense the hard way.",
+          "domain": "msn.com"
+        },
+        {
+          "title": "NFL Scores, 2026 Season - ESPN",
+          "snippet": "Live scores for every 2026 NFL season game on ESPN. Includes box scores, video highlights, play breakdowns and updated odds.",
+          "domain": "espn.com"
+        }
+      ]
+    },
+    "rt-sched-4": {
+      "fetchedAt": "2026-09-11T19:09:08.507Z",
+      "results": [
+        {
+          "title": "New York Yankees Schedule | New York Yankees - MLB.com",
+          "snippet": "All Times ET unless otherwise noted. Game times subject to determination by, among others, MLB and its television partners. Any future start-time changes to these games will also be accompanied by a change in the television partner.",
+          "domain": "mlb.com"
+        },
+        {
+          "title": "New York Yankees TV Schedule — Channels, Start Times & Streaming",
+          "snippet": "Where to watch every New York Yankees game on TV and streaming — channel, start time and how to stream each Yankees game, home and away.",
+          "domain": "baseballontv.net"
+        },
+        {
+          "title": "New York Yankees Game Today — Channel, Time, Stream",
+          "snippet": "Today's New York Yankees game: TV channel, start time, and streaming options matched to your services. Schedule + live updates.",
+          "domain": "find-my-sports.com"
+        }
+      ]
+    },
+    "rt-sched-5": {
+      "fetchedAt": "2026-09-11T19:09:13.679Z",
+      "results": [
+        {
+          "title": "Super Bowl LXI odds: All 32 teams' odds to win the championship",
+          "snippet": "Every NFL team's win total, as well as odds to win their division, the conference and Super Bowl LXI.",
+          "domain": "espn.com"
+        },
+        {
+          "title": "So, who's going to win the Super Bowl? - by Nate Silver",
+          "snippet": "Before the year began, Vegas odds posited what were essentially six Super Bowl co-favorites: in alphabetical order, the Bills, Chiefs, Eagles, Lions, Packers and Ravens. Let's throw in the Commanders here too, since they had the next-best odds and played for the NFC Championship last season. Of those seven teams, only three even made the ...",
+          "domain": "natesilver.net",
+          "published": "Jan 7, 2026"
+        },
+        {
+          "title": "2026 NFL predictions: Final record for all 32 teams, Super Bowl LXI ...",
+          "snippet": "After spending the past three days locked in a windowless room trying to figure out who's going to win the Super Bowl this year, I am ready to share my predictions with the world. Will you hate them?",
+          "domain": "cbssports.com",
+          "published": "4 days ago"
+        }
+      ]
+    },
+    "rt-sched-6": {
+      "fetchedAt": "2026-09-11T19:09:19.552Z",
+      "results": [
+        {
+          "title": "New York Mets Game Today: Time, TV Channel & Score",
+          "snippet": "Are the New York Mets playing today? Start time, TV channel, probable pitchers and live score updates.",
+          "domain": "nycsportswire.com",
+          "published": "4 days ago"
+        },
+        {
+          "title": "New York Mets Schedule | New York Mets - MLB.com",
+          "snippet": "Completed Games @ SS @ vs. (SS) - Buy Tickets *if necessary Watch on: Listen on: Wrap watch Watch live Watch live Tickets icon Booking icon Promotions Tickets icon More Info >> Promotions More Info >> Promotions Tickets icon More Info >> Promotions Tickets icon More Info >> Promotions More Info >> View all promotions Booking icon @ SS @ vs. (SS ...",
+          "domain": "mlb.com"
+        },
+        {
+          "title": "New York Mets Today — Lineup, Starting Pitcher & Odds | FTA",
+          "snippet": "What time does New York Mets play today? The Schedule tab shows today's game information including opponent, first pitch time, and stadium. When available, it also displays the confirmed starting lineup, starting pitcher, and pregame odds from DraftKings, FanDuel, and other sportsbooks. Where can I find New York Mets' confirmed lineup?",
+          "domain": "fantasyteamadvice.com"
+        }
+      ]
+    },
+    "rt-sched-7": {
+      "fetchedAt": "2026-09-11T19:09:24.879Z",
+      "results": [
+        {
+          "title": "Giants 2026 Schedule | New York Giants - Giants.com",
+          "snippet": "New York Giants: The official source of the latest Giants headlines, news, videos, photos, tickets, rosters, stats, schedule, and gameday information",
+          "domain": "giants.com"
+        },
+        {
+          "title": "New York Giants Schedule: Ways to Watch Every New York Giants Game Live ...",
+          "snippet": "View the New York Giants full schedule and find out how to watch every game. Get TV channels, streaming options, kickoff times, and matchup details.",
+          "domain": "nfl.com"
+        },
+        {
+          "title": "2026 New York Giants TV Schedule: Dates & Kickoff Times",
+          "snippet": "Follow the New York Giants TV schedule with game times, channel listings, NFC East matchups, plus updates as late-season assignments change.",
+          "domain": "cabletv.com",
+          "published": "Aug 12, 2026"
+        }
+      ]
+    },
+    "rt-sched-8": {
+      "fetchedAt": "2026-09-11T19:09:30.466Z",
+      "results": [
+        {
+          "title": "Los Angeles Lakers Scores, Stats and Highlights - ESPN",
+          "snippet": "Visit ESPN for Los Angeles Lakers live scores, video highlights, and latest news. Find standings and the full 2026-27 season schedule.",
+          "domain": "espn.com"
+        },
+        {
+          "title": "Los Angeles Lakers: Livescore, Games and Schedule - 365Scores",
+          "snippet": "On 365Scores' Los Angeles Lakers page you can find more squad details, as well as the most updated information including live scores, results, fixtures, stats, and trends. What competitions does Los Angeles Lakers compete in? Los Angeles Lakers competes in NBA, Emirates NBA Cup and NBA Summer League.",
+          "domain": "365scores.com",
+          "published": "Jul 19, 2026"
+        },
+        {
+          "title": "Los Angeles Lakers live scores, results, fixtures | Basketball, USA",
+          "snippet": "Flashscore offers Los Angeles Lakers livescore, final and partial results, standings and match details. Besides Los Angeles Lakers scores you can follow 150+ basketball competitions from 30+ countries around the world on Flashscore.",
+          "domain": "flashscoreusa.com"
+        }
+      ]
+    }
+  }
+}

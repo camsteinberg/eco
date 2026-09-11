@@ -556,6 +556,13 @@ export type EvalResult = {
    * says for itself whether a tool ran rather than relying on the typed label.
    */
   grounding?: EvalGroundingRecord;
+  /**
+   * Which grounding arm produced this row. Stamped on EVERY row of a run that
+   * set the arm — including error rows — so a row is self-describing about
+   * whether source text was in front of the model. Absent only on runs
+   * persisted before the arm existed.
+   */
+  groundingArm?: EvalGroundingArm;
   error: string | null;
 };
 
@@ -585,6 +592,19 @@ export type SamplingMode = 'greedy' | 'sampled';
  * model always sees a full budget and pays a re-prefill on nearly every turn.
  */
 export type EvalEvictionRule = 'quantized' | 'minimal';
+
+/**
+ * Whether a run put source text in front of the model. `'none'` is the default
+ * and everything the harness has ever measured: the shipped system prompt and
+ * the question, nothing else. `'fixture'` appends the checked-in web snippets
+ * (`real-time-fixture.ts`) to the system prompt for `real-time` probes ONLY,
+ * so the same run can carry an un-grounded control in every other category.
+ *
+ * Every result row records it, because a reply that answers a "right now"
+ * question means opposite things in the two arms: an invention in `'none'`, a
+ * correct read of the sources in `'fixture'`.
+ */
+export type EvalGroundingArm = 'none' | 'fixture';
 
 /**
  * A run's configuration fingerprint. Stamped on every run so cross-run diffs
@@ -632,13 +652,14 @@ export type EvalRunConfigFingerprint = {
    */
   evictionRule?: EvalEvictionRule;
   /**
-   * Which retrieval arm ran the grounding tool for this run: `'lead'` (the
-   * control — today's shipped lead-summary injection) or `'passages'` (the
-   * treatment). Absent when the run ran NO tool at all, which is every other run
-   * the harness has ever produced — so a stored run always says whether a tool
-   * touched its prompts, and a lead run can never be mistaken for a tool-free one.
+   * Which grounding arm this run used: `'none'` (the default — the model sees
+   * only the shipped system prompt and the question) or `'fixture'` (the
+   * real-time probes additionally see the checked-in web snippets in
+   * `real-time-fixture.json`). Absent on every run persisted before this field
+   * existed; absent does NOT mean `'none'`, because those runs predate the arm
+   * and never recorded the question.
    */
-  groundingArm?: 'lead' | 'passages';
+  groundingArm?: EvalGroundingArm;
   /** Number of prompt specs run per model. */
   promptCount: number;
   /** Deterministic non-content hash of selected prompt IDs, categories, topology metadata, and scoring flags. */

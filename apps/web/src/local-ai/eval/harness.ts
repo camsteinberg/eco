@@ -57,6 +57,7 @@ import { bootstrapLocalAi } from '../bootstrap';
 import { loadModel, generate as generateThroughLifecycle, getActiveAdapter } from '../runtime/lifecycle';
 import { replyReserve } from '../runtime/stream';
 import { EVICTION_QUANTUM_FRACTION, selectWindow } from '../runtime/window';
+import { buildWebSnippetNote, getFixtureEntry } from './real-time-fixture';
 import type { ModelConfig } from '../types';
 import type { ChatMessage, GenerateOptions, TokenEvent } from '../runtime/types';
 import { getEvalCandidateModel } from './eval-candidates';
@@ -66,6 +67,7 @@ import { EVAL_PROMPTS } from './prompts';
 import { CONTEXT_BOUNDARY_PROBES, CONTEXT_STRESS_PROBES } from './context-stress-probes';
 import type {
   EvalEvictionRule,
+  EvalGroundingArm,
   EvalGroundingRecord,
   EvalMessageTopology,
   EvalPromptContractId,
@@ -211,6 +213,22 @@ export type EvalRunConfig = {
    * fingerprint, so an arm can never be mistaken for a full-history run.
    */
   evictionRule?: EvalEvictionRule;
+  /**
+   * Run-wide grounding arm (default `'none'` — every run before this field
+   * existed, and the only thing the shipped chat path does today).
+   *
+   * `'fixture'` appends the checked-in web snippets (`real-time-fixture.ts`) to
+   * the system prompt for `real-time` probes ONLY, through `assemble`'s
+   * production `toolSystemNote` seam — so the composed prompt is the one a real
+   * lookup feature would build, not a harness-local concatenation. Probes in
+   * every other category are composed identically in both arms, which makes
+   * them the run's own control. A real-time probe with no fixture entry is
+   * recorded as a row ERROR rather than quietly running un-grounded.
+   *
+   * Meaningful only in the default message topology: the Gemma-native contract
+   * lane discards the system prompt entirely, note included.
+   */
+  groundingArm?: EvalGroundingArm;
   /** Hard cap per generation (default 512 — keeps runs fast). */
   maxTokensCap?: number;
   /** Applies to the TOKEN STREAM only, not load (default 60000). */
@@ -755,6 +773,7 @@ function composeProbeMessages(
   baseSystemPrompt: string,
   modelId: string,
   messageTopology: EvalMessageTopology,
+  toolSystemNote?: string,
 ): ComposedProbeMessages {
   if (messageTopology === 'gemma-native-user-contract') {
     return composeGemmaNativeMessages(spec);
@@ -772,7 +791,8 @@ function composeProbeMessages(
   // what users get" is a fact about the call graph rather than a claim in a
   // comment. Recaps derive from the RAW branch (history + this turn), which is
   // what `assemble` expects. `systemPrompt` is passed pre-composed because the
-  // caller has already applied the prompt arms and any grounding note.
+  // caller has already applied the prompt arms; a grounding note arrives
+  // separately as `toolSystemNote`.
   const messages = assemble({
     modelId,
     messages: branch,
@@ -781,6 +801,11 @@ function composeProbeMessages(
     // fidelity note in this file's header.
     customInstructions: '',
     systemPrompt: baseSystemPrompt,
+    // The grounding arm's note rides the SAME seam a host tool uses in
+    // production (`assemble` joins it onto the system prompt), so the
+    // grounded prompt is the one the product would build rather than a
+    // harness-local string concatenation.
+    ...(toolSystemNote !== undefined ? { toolSystemNote } : {}),
     allowValidationModel: true,
   }).messages;
   return {
@@ -892,6 +917,13 @@ export async function runEval(config: EvalRunConfig, deps?: EvalRunnerDeps): Pro
   const samplesPerProbe = normalizeSamplesPerProbe(config.samplesPerProbe);
   const messageTopology = config.messageTopology ?? DEFAULT_MESSAGE_TOPOLOGY;
   const evictionRule = config.evictionRule;
+  const groundingArm: EvalGroundingArm = config.groundingArm ?? 'none';
+  /**
+   * Stamp the run's arm on EVERY row, error rows included, so a stored row says
+   * for itself whether source text was in front of the model rather than
+   * relying on the run-level fingerprint being carried along with it.
+   */
+  const withArm = (result: EvalResult): EvalResult => ({ ...result, groundingArm });
   const prompts = selectPrompts(config.promptIds, config.extraPrompts, config.includeResearchArms);
   const total = config.modelIds.length * prompts.length * samplesPerProbe;
   const runSignal = config.signal;
@@ -919,7 +951,7 @@ export async function runEval(config: EvalRunConfig, deps?: EvalRunnerDeps): Pro
       for (const spec of prompts) {
         for (let sampleIndex = 1; sampleIndex <= samplesPerProbe; sampleIndex++) {
           const resultSampleIndex = samplesPerProbe > 1 ? sampleIndex : undefined;
-          results.push(buildUnknownModelResult(spec, modelId, resultSampleIndex));
+          results.push(withArm(buildUnknownModelResult(spec, modelId, resultSampleIndex)));
           completed++;
           emit({ phase: 'scoring', modelId, promptId: spec.id, completed, total });
         }
@@ -942,7 +974,7 @@ export async function runEval(config: EvalRunConfig, deps?: EvalRunnerDeps): Pro
       for (const spec of prompts) {
         for (let sampleIndex = 1; sampleIndex <= samplesPerProbe; sampleIndex++) {
           const resultSampleIndex = samplesPerProbe > 1 ? sampleIndex : undefined;
-          results.push(buildPrepareFailedResult(spec, model, message, resultSampleIndex));
+          results.push(withArm(buildPrepareFailedResult(spec, model, message, resultSampleIndex)));
           completed++;
           emit({ phase: 'scoring', modelId, promptId: spec.id, completed, total });
         }
@@ -953,6 +985,36 @@ export async function runEval(config: EvalRunConfig, deps?: EvalRunnerDeps): Pro
 
     for (const spec of prompts) {
       if (runSignal?.aborted) break;
+
+      // The grounding arm touches `real-time` probes only; every other category
+      // is composed identically in both arms and is the run's own control. A
+      // real-time probe with no capture is an ERROR row, never a silent
+      // un-grounded generation that would look like a `none` row.
+      let toolSystemNote: string | undefined;
+      if (groundingArm === 'fixture' && spec.category === 'real-time') {
+        const entry = getFixtureEntry(spec.id);
+        if (!entry) {
+          emit({ phase: 'error', modelId, promptId: spec.id, completed, total, note: 'no fixture entry' });
+          for (let sampleIndex = 1; sampleIndex <= samplesPerProbe; sampleIndex++) {
+            const resultSampleIndex = samplesPerProbe > 1 ? sampleIndex : undefined;
+            results.push(
+              withArm(
+                errorResult(
+                  spec,
+                  model.id,
+                  runtimeAdapterFor(model),
+                  `fixture missing: real-time-fixture.json has no entry for "${spec.id}"`,
+                  resultSampleIndex,
+                ),
+              ),
+            );
+            completed++;
+            emit({ phase: 'scoring', modelId, promptId: spec.id, completed, total });
+          }
+          continue;
+        }
+        toolSystemNote = buildWebSnippetNote(entry);
+      }
 
       const profileOptions = buildOptions(modelId, spec.intent);
       // Greedy mode collapses to deterministic argmax for a reproducible arm;
@@ -972,6 +1034,7 @@ export async function runEval(config: EvalRunConfig, deps?: EvalRunnerDeps): Pro
         buildSystemPrompt(modelId),
         modelId,
         messageTopology,
+        toolSystemNote,
       );
 
       // The eviction arm, and ONLY the eviction arm, windows the history. The
@@ -999,14 +1062,16 @@ export async function runEval(config: EvalRunConfig, deps?: EvalRunnerDeps): Pro
 
         emit({ phase: 'scoring', modelId, promptId: spec.id, completed, total });
         results.push(
-          buildResult(
-            spec,
-            model,
-            requestedOptions,
-            requestedMaxTokens,
-            outcome,
-            composed.promptTrace,
-            resultSampleIndex,
+          withArm(
+            buildResult(
+              spec,
+              model,
+              requestedOptions,
+              requestedMaxTokens,
+              outcome,
+              composed.promptTrace,
+              resultSampleIndex,
+            ),
           ),
         );
         completed++;
@@ -1024,6 +1089,7 @@ export async function runEval(config: EvalRunConfig, deps?: EvalRunnerDeps): Pro
     perGenerationTimeoutMs: timeoutMs,
     includeResearchArms: config.includeResearchArms ?? false,
     ...(evictionRule ? { evictionRule } : {}),
+    groundingArm,
     promptCount: prompts.length,
     promptSetHash: hashPromptSet(prompts),
     compositionEra: COMPOSITION_ERA,
