@@ -156,3 +156,81 @@ describe("CitationBlock", () => {
     expect(chip).toHaveTextContent("as of 2023");
   });
 });
+
+// ── Web search chip ────────────────────────────────────────────────────────
+// A searched turn must be legible AS a searched turn: the time the sources were
+// read (the host states it — a small local model cannot date its own answer) and
+// every title it read, as a link the person can check.
+
+const FETCHED_AT = "2026-09-11T18:05:00.000Z";
+
+function webCitation(index: number, overrides: Partial<Citation> = {}): Citation {
+  return {
+    id: index + 1,
+    title: `Result ${String(index + 1)}`,
+    url: `https://example-${String(index + 1)}.test/page`,
+    source: "Web search",
+    asOf: FETCHED_AT,
+    ...overrides,
+  };
+}
+
+describe("CitationBlock — web search", () => {
+  afterEach(() => {
+    reducedMotion.value = false;
+  });
+
+  it("names the fetch time and the number of sources", () => {
+    const { getByTestId } = render(
+      <CitationBlock citations={[webCitation(0), webCitation(1), webCitation(2)]} />,
+    );
+
+    const chip = getByTestId("web-search-citation");
+    const localTime = new Date(FETCHED_AT).toLocaleTimeString(undefined, {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    expect(chip).toHaveTextContent(`Searched the web at ${localTime} · 3 sources`);
+    // The ISO instant travels verbatim for anything reading the DOM.
+    expect(chip).toHaveAttribute("data-fetched-at", FETCHED_AT);
+  });
+
+  it("says 'source' for a single result", () => {
+    const { getByTestId } = render(<CitationBlock citations={[webCitation(0)]} />);
+    expect(getByTestId("web-search-citation")).toHaveTextContent("· 1 source");
+  });
+
+  it("links every title out safely", () => {
+    render(<CitationBlock citations={[webCitation(0), webCitation(1)]} />);
+
+    const links = screen.getAllByRole("link");
+    expect(links).toHaveLength(2);
+    expect(links[0]).toHaveAttribute("href", "https://example-1.test/page");
+    expect(links[1]).toHaveAttribute("href", "https://example-2.test/page");
+    for (const link of links) {
+      expect(link).toHaveAttribute("target", "_blank");
+      expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    }
+    expect(screen.getByText("Result 1")).toBeTruthy();
+  });
+
+  it("drops the time rather than invent one when `asOf` is unusable", () => {
+    const { getByTestId } = render(
+      <CitationBlock citations={[webCitation(0, { asOf: "not a date" })]} />,
+    );
+    const chip = getByTestId("web-search-citation");
+    expect(chip).toHaveTextContent("Searched the web · 1 source");
+    expect(chip).not.toHaveAttribute("data-fetched-at", "");
+  });
+
+  it("never renders the grounding chip for a searched turn", () => {
+    render(<CitationBlock citations={[webCitation(0)]} />);
+    expect(screen.queryByTestId("grounding-citation")).toBeNull();
+  });
+
+  it("keeps the grounding chip for a grounded turn", () => {
+    const { getByTestId } = render(<CitationBlock citations={[groundingCitation()]} />);
+    expect(getByTestId("grounding-citation")).toBeTruthy();
+    expect(screen.queryByTestId("web-search-citation")).toBeNull();
+  });
+});
