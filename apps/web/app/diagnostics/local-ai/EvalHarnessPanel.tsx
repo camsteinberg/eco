@@ -11,6 +11,7 @@ import type { EvalProgress, EvalRunConfig } from '../../../src/local-ai/eval/har
 import type { CapturedFailure } from '../../../src/local-ai/eval/capture';
 import type {
   EvalEvictionRule,
+  EvalGroundingArm,
   EvalMessageTopology,
   EvalPromptSpec,
   EvalRun,
@@ -192,6 +193,8 @@ export function EvalHarnessPanel() {
       messageTopology?: EvalMessageTopology;
       /** Autorun-only: run-wide history-eviction rule. */
       evictionRule?: EvalEvictionRule;
+      /** Autorun-only: run-wide grounding arm (fixture web snippets, or none). */
+      groundingArm?: EvalGroundingArm;
       /** Autorun-only: per-generation stream timeout override (ms). */
       perGenerationTimeoutMs?: number;
       /** Autorun-only: session-scoped probes appended to the pool. */
@@ -250,6 +253,7 @@ export function EvalHarnessPanel() {
           ...(override?.includeResearchArms ? { includeResearchArms: true } : {}),
           ...(override?.messageTopology ? { messageTopology: override.messageTopology } : {}),
           ...(override?.evictionRule ? { evictionRule: override.evictionRule } : {}),
+          ...(override?.groundingArm ? { groundingArm: override.groundingArm } : {}),
           ...(override?.perGenerationTimeoutMs !== undefined
             ? { perGenerationTimeoutMs: override.perGenerationTimeoutMs }
             : {}),
@@ -359,6 +363,12 @@ export function EvalHarnessPanel() {
     const rawEviction = searchParams.get('eco-eval-eviction');
     const autoEvictionRule: EvalEvictionRule | undefined =
       rawEviction === 'minimal' ? 'minimal' : rawEviction === 'quantized' ? 'quantized' : undefined;
+
+    // `eco-eval-grounding=none|fixture`: run-wide grounding arm. `fixture` puts
+    // the checked-in web snippets (real-time-fixture.json) in front of the model
+    // on `real-time` probes only. Absent/invalid = `none`, today's behaviour.
+    const rawGrounding = searchParams.get('eco-eval-grounding');
+    const autoGroundingArm: EvalGroundingArm = rawGrounding === 'fixture' ? 'fixture' : 'none';
 
     // `eco-eval-samples=N`: replicate each prompt/model N times (clamped in the harness).
     const rawSamplesPerProbe = searchParams.get('eco-eval-samples');
@@ -524,6 +534,7 @@ export function EvalHarnessPanel() {
         ...(includeResearchArms ? { includeResearchArms: true } : {}),
         ...(autoMessageTopology ? { messageTopology: autoMessageTopology } : {}),
         ...(autoEvictionRule ? { evictionRule: autoEvictionRule } : {}),
+        groundingArm: autoGroundingArm,
         ...(autoTimeoutMs !== undefined ? { perGenerationTimeoutMs: autoTimeoutMs } : {}),
         ...(extraPrompts.length > 0 ? { extraPrompts } : {}),
       });
@@ -1631,6 +1642,7 @@ export function EvalHarnessPanel() {
                       {run.config
                         ? ` · ${run.config.samplingMode} · n=${String(run.config.samplesPerProbe)} · ${run.config.promptSetHash}`
                         : ''}
+                      {run.config?.groundingArm ? ` · grounding=${run.config.groundingArm}` : ''}
                     </span>
                     <span className="text-xs" style={{ color: 'var(--eco-text-muted)' }}>
                       {formatTimestamp(run.startedAt)}

@@ -1,0 +1,22 @@
+{
+  "capturedAt": "2026-09-11T00:00:00.000Z",
+  "source": "PLACEHOLDER — one hand-written example entry so the seam and its tests are non-vacuous. Nothing here was captured from a real search engine. Replace the whole file with snippets captured by hand, one entry per real-time probe id, before reading any number off a `fixture` run.",
+  "entries": {
+    "rt-live-1": {
+      "fetchedAt": "2026-09-11T18:05:00.000Z",
+      "results": [
+        {
+          "title": "Lincoln Tunnel traffic conditions",
+          "snippet": "Westbound into New Jersey is running about 25 minutes over normal, with delays from the helix back to Dyer Avenue. Eastbound into Manhattan is clear.",
+          "domain": "example-traffic.test",
+          "published": "2026-09-11"
+        },
+        {
+          "title": "Port Authority tunnel advisories",
+          "snippet": "One westbound tube is closed for scheduled maintenance until 8 p.m. Expect residual delays in the approach lanes.",
+          "domain": "example-transit.test"
+        }
+      ]
+    }
+  }
+}
