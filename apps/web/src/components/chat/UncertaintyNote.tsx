@@ -33,20 +33,30 @@ import type { GroundingVerification } from "../../lib/tools";
  * `"unreachable"` reads as transient/retryable — distinct from `"unverified"` (no
  * source confirmed the claim). `"lookups-off"` says plainly why nothing was checked
  * (the user's own setting) so they know where the switch is.
+ *
+ * `"no-live-data"` is the honest handoff. The question needed information from right
+ * now and no on-device model holds any, so the note says that plainly and then offers
+ * the one thing that helps: a link the person can click to search the web themselves.
+ * That link is the ONLY outbound path — the question reaches DuckDuckGo when, and
+ * only when, they click it, and the accessible name says so out loud rather than
+ * leaving it to be discovered.
  */
 export function UncertaintyNote({
-  status,
+  verification,
 }: {
-  status: GroundingVerification["status"];
+  verification: GroundingVerification;
 }) {
   const shouldReduce = useReducedMotion();
+  const { status } = verification;
 
   const text =
     status === "unreachable"
       ? "Eco couldn’t reach its sources to check this just now — try again in a moment."
       : status === "lookups-off"
         ? "Answered from memory — web lookups are off, so this was not checked against a source."
-        : "Eco couldn’t confirm this against a source.";
+        : status === "no-live-data"
+          ? "Eco can’t check live information, so this is from memory."
+          : "Eco couldn’t confirm this against a source.";
 
   // Screen-reader prefix matches the state: "unverified" is the epistemic case (no
   // source confirmed the claim); "unreachable" is transient (sources couldn't be
@@ -57,7 +67,17 @@ export function UncertaintyNote({
       ? "Couldn’t verify: Eco couldn’t reach its sources to check this just now"
       : status === "lookups-off"
         ? "From memory: web lookups are off, so this wasn’t checked against a source"
-        : "Unverified: Eco couldn’t confirm this against a source";
+        : status === "no-live-data"
+          ? "From memory: Eco can’t check live information"
+          : "Unverified: Eco couldn’t confirm this against a source";
+
+  // The outbound link, built only on the status that carries a query. The URL is
+  // never fetched here and the anchor is inert until clicked — the question leaves
+  // the device on the click and at no other moment.
+  const searchHref =
+    verification.status === "no-live-data"
+      ? `https://duckduckgo.com/?q=${encodeURIComponent(verification.query)}`
+      : null;
 
   return (
     <motion.aside
@@ -108,6 +128,22 @@ export function UncertaintyNote({
           }}
         >
           {text}
+          {searchHref !== null && (
+            <>
+              {" "}
+              <a
+                href={searchHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                data-testid="uncertainty-note-search-link"
+                aria-label="Search the web for this — opens DuckDuckGo in a new tab; your question is sent to DuckDuckGo only when you click"
+                className="underline decoration-dotted underline-offset-2 transition-colors hover:decoration-solid"
+                style={{ color: "var(--eco-amber)" }}
+              >
+                Search the web for this
+              </a>
+            </>
+          )}
         </p>
       </div>
     </motion.aside>
