@@ -21,6 +21,9 @@ describe("acceptancePlan", () => {
     const plan = acceptancePlan({});
     expect(plan.smoke).toBe(false);
     expect(plan.tasks).toEqual(ACCEPTANCE_TASKS);
+    // The count is asserted, not just the identity: a task added to the lane
+    // without being added here would otherwise pass silently.
+    expect(plan.tasks).toHaveLength(11);
     expect(plan.wipesOrigin).toBe(true);
   });
 
@@ -47,7 +50,7 @@ describe("acceptancePlan", () => {
 });
 
 describe("planWalksTask", () => {
-  it("walks all ten tasks in a full run", () => {
+  it("walks every task in a full run", () => {
     const plan = acceptancePlan({});
     for (const task of ACCEPTANCE_TASKS) {
       expect(planWalksTask(plan, task), `task ${task}`).toBe(true);

@@ -65,6 +65,16 @@ export const canonicalToolAnswers = (page: Page) =>
   chatLog(page).locator('[data-testid="canonical-tool-answer"]');
 export const citations = (page: Page) =>
   chatLog(page).locator('[data-testid="grounding-citation"]');
+export const webSearchCitations = (page: Page) =>
+  chatLog(page).locator('[data-testid="web-search-citation"]');
+/** The honest "couldn't confirm this" notes, optionally narrowed to one status. */
+export const uncertaintyNotes = (page: Page, status?: string) =>
+  chatLog(page).locator(
+    status === undefined
+      ? '[data-testid="uncertainty-note"]'
+      : `[data-testid="uncertainty-note"][data-status="${status}"]`,
+  );
+export const webSearchToggle = (page: Page) => page.getByTestId("web-search-toggle");
 export const contextDivider = (page: Page) =>
   chatLog(page).getByRole("note", { name: "Context window boundary" });
 export const contextWindowNotice = (page: Page) =>
@@ -474,14 +484,49 @@ export async function setWebLookupsInTab(
   enabled: boolean,
   pick: Pick,
 ): Promise<boolean> {
+  return setSettingSwitchInTab(page, enabled, pick, {
+    switchName: "Toggle web fact lookups",
+    describe: "the web-lookups switch",
+  });
+}
+
+/**
+ * Turn Web search on or off the same way, on the same tab, with the same
+ * read-back.
+ *
+ * Same mechanics as the lookups switch and for the same reasons — the control
+ * lives on the Eco tab of Settings, the preference is hydrated per tab at
+ * mount, and the write is encrypted and asynchronous, so "the switch moved" and
+ * "the setting is on" are two different claims. It is a DIFFERENT setting from
+ * web lookups, though: that one fetches Wikipedia straight from the browser,
+ * this one sends search terms to Eco's relay. A task that confuses them would
+ * pass while measuring the wrong path.
+ */
+export async function setWebSearchInTab(
+  page: Page,
+  enabled: boolean,
+  pick: Pick,
+): Promise<boolean> {
+  return setSettingSwitchInTab(page, enabled, pick, {
+    switchName: "Toggle web search",
+    describe: "the Web search switch",
+  });
+}
+
+async function setSettingSwitchInTab(
+  page: Page,
+  enabled: boolean,
+  pick: Pick,
+  control: { switchName: string; describe: string },
+): Promise<boolean> {
   const want = String(enabled);
   const switchOn = (target: Page) =>
-    target.getByRole("switch", { name: "Toggle web fact lookups" });
+    target.getByRole("switch", { name: control.switchName });
 
   await page.goto(`${getWebBaseUrl()}/settings?tab=models`, { waitUntil: "commit" });
   await expect(
     switchOn(page),
-    "the web-lookups switch was not on the Eco tab of Settings",
+    `${control.describe} was not on the Eco tab of Settings`,
   ).toBeVisible({ timeout: READY_TIMEOUT_MS });
   if ((await switchOn(page).getAttribute("aria-checked")) !== want) {
     await switchOn(page).click();
@@ -551,6 +596,79 @@ export async function startNewConversation(page: Page): Promise<void> {
  * went to Wikipedia. A card with no request, or a request with no card, are
  * different findings and the row should be able to tell them apart.
  */
+/** The fetched-at the stubbed relay reports, so the chip's value is checkable. */
+export const WEB_SEARCH_STUB_FETCHED_AT = "2026-09-11T14:32:00.000Z";
+
+/** Three results in the relay's own shape (`apps/api/src/routes/search.ts`). */
+export const WEB_SEARCH_STUB_RESULTS = [
+  {
+    title: "Chicago weather — current conditions",
+    url: "https://example.invalid/chicago-weather",
+    snippet: "Light rain is falling across the Chicago area this afternoon.",
+    domain: "example.invalid",
+  },
+  {
+    title: "Chicago radar",
+    url: "https://example.invalid/chicago-radar",
+    snippet: "Radar shows a band of showers moving east over the city.",
+    domain: "example.invalid",
+  },
+  {
+    title: "Illinois forecast",
+    url: "https://example.invalid/illinois-forecast",
+    snippet: "Showers taper off this evening with clearing overnight.",
+    domain: "example.invalid",
+  },
+] as const;
+
+/** One call the app made to the relay, as the route handler saw it. */
+export type SearchRelayCall = {
+  method: string;
+  /** The raw request body, so a task can assert what was in it, not just that it went. */
+  body: string | null;
+};
+
+/**
+ * Stand in for the search relay, and record every call to it.
+ *
+ * The lane must never reach a real relay. Not for politeness: a live engine
+ * makes the task's evidence depend on the weather in Chicago and on whether an
+ * engine rate-limited us, and neither of those is the product behaviour the
+ * task is asking about. A fixed payload makes "the chip showed the fetched-at
+ * time" and "the note was joined onto the prompt" mechanical checks.
+ *
+ * Recording the body matters as much as fulfilling it. The whole privacy claim
+ * for this feature is that a search carries the search terms and nothing else,
+ * so the task asserts the parsed body's key set — and an interception is the
+ * only place that can see it.
+ */
+export async function stubSearchRelay(context: BrowserContext): Promise<{
+  reset: () => void;
+  calls: () => SearchRelayCall[];
+  dispose: () => Promise<void>;
+}> {
+  let calls: SearchRelayCall[] = [];
+  const pattern = "**/v1/search";
+  await context.route(pattern, async (route) => {
+    calls.push({ method: route.request().method(), body: route.request().postData() });
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        fetchedAt: WEB_SEARCH_STUB_FETCHED_AT,
+        results: WEB_SEARCH_STUB_RESULTS,
+      }),
+    });
+  });
+  return {
+    reset: () => {
+      calls = [];
+    },
+    calls: () => [...calls],
+    dispose: () => context.unroute(pattern),
+  };
+}
+
 export function watchLookupRequests(context: BrowserContext): {
   reset: () => void;
   urls: () => string[];
