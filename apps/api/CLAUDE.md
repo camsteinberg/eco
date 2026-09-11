@@ -26,6 +26,7 @@ remaining authenticated routes.)
 | `/v1/auth/profile` | GET/PATCH | User profile |
 | `/v1/auth/account` | DELETE | Account deletion |
 | `/v1/feedback` | POST | Anonymous in-app feedback (no auth; Origin check + tight `feedback` rate-limit tier) |
+| `/v1/search` | POST | Web-search relay to a self-hosted SearXNG instance (no auth; Origin check + `search` tier + a global daily ceiling) |
 | `/api/auth/*` | * | Better Auth routes (session cookies, OAuth) |
 | `/health` | GET | Health check (DB + Redis probes when configured) |
 | `/metrics` | GET | Prometheus metrics — requires `METRICS_TOKEN` bearer auth; disabled (404) in production when `METRICS_TOKEN` is unset |
@@ -34,7 +35,7 @@ remaining authenticated routes.)
 
 ## Middleware Stack
 
-Applied in order: body size limit (64 KB on auth/feedback) ->
+Applied in order: body size limit (64 KB on auth/feedback, 4 KB on search) ->
 CORS (WEB_URL origins) -> secure headers
 (HSTS, CSP, X-Frame-Options) -> request ID propagation (X-Request-Id) ->
 request logging (pino) -> rate limiting (Redis fixed-window: tight `auth` tier
@@ -42,7 +43,7 @@ on `/api/auth/*`, looser `api` tier on `/v1/*`) -> auth (Better Auth sessions +
 API keys).
 
 The custom mutating routes (`PATCH /v1/auth/profile`, `DELETE /v1/auth/account`,
-`POST /v1/feedback`) additionally enforce an
+`POST /v1/feedback`, `POST /v1/search`) additionally enforce an
 explicit **Origin allowlist** (`createOriginCheck`, same `WEB_URL`-derived origins
 as CORS) as CSRF defense-in-depth on top of the session cookie's `SameSite=Lax` —
 matching the Origin check the Better Auth `/api/auth/*` routes already do. It
@@ -72,6 +73,20 @@ for the `auth` tier (returns 503) and fails open otherwise.
 - `RATE_LIMIT_API_MAX` -- Max requests/window/client on `/v1/*` (default `100`).
 - `RATE_LIMIT_FEEDBACK_MAX` -- Max requests/window/client on `POST /v1/feedback`
   (default `5`; its own `feedback` tier on top of the general `api` tier).
+- `RATE_LIMIT_SEARCH_MAX` -- Max requests/window/client on `POST /v1/search`
+  (default `20`; its own `search` tier on top of the general `api` tier).
+- `RATE_LIMIT_SEARCH_DAILY_MAX` -- GLOBAL search requests allowed per UTC day
+  across all callers (default `5000`). Over it the route returns 503
+  `search_unavailable`. Backed by one Redis key (`ratelimit:search:daily:<date>`),
+  incremented and expired in a single atomic `EVAL`. Fails OPEN when Redis is
+  unreachable, matching the limiter's non-`auth` tiers.
+- `SEARXNG_URL` -- Base URL of the self-hosted SearXNG instance backing
+  `POST /v1/search`, e.g. `http://eco-searxng.internal:8080` (Fly private
+  networking; the instance has no public address). Config and deploy live in
+  `infra/searxng/`. Unset in dev: the route mounts and answers with an empty
+  result set. Unset in production: the route is NOT mounted and the gap is logged
+  at `error` level -- deliberately NOT a boot failure, so the API can ship before
+  the search instance exists.
 - `METRICS_TOKEN` -- Bearer token required to scrape `/metrics` (timing-safe
   compared). When unset, `/metrics` is open in dev and disabled (404) in
   production (fail closed). Prometheus scrapers must send

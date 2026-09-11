@@ -1,0 +1,52 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Bos Computing LLC
+#
+# Overlay on the image defaults — see
+# https://docs.searxng.org/admin/settings/ for the full set.
+
+use_default_settings: true
+
+general:
+  debug: false
+  instance_name: "Eco search relay"
+
+server:
+  # Overridden at runtime by the SEARXNG_SECRET env var, which is set as a Fly
+  # secret (`flyctl secrets set SEARXNG_SECRET=...`). This literal must never be
+  # the live value; it exists so the file is valid without the secret.
+  secret_key: "CHANGE_ME_VIA_SEARXNG_SECRET"
+  # The limiter is SearXNG's own bot/abuse throttle. Off here because the only
+  # client is Eco's API relay on the private network — there is no public
+  # traffic to throttle, and the limiter would need its own Valkey/Redis. Abuse
+  # control lives in the relay instead (per-IP `search` tier + a global daily
+  # ceiling), where the actual callers are.
+  limiter: false
+  # Not a public instance: this asserts the instance is private, which is what
+  # keeps the JSON format usable and the public-instance hardening off.
+  public_instance: false
+  # Eco is text and code only — never proxy images.
+  image_proxy: false
+
+search:
+  # `json` is the format the relay parses. `html` stays enabled so an operator
+  # can open the instance through a Fly proxy tunnel to debug an engine.
+  formats:
+    - html
+    - json
+  safe_search: 1
+  default_lang: "en"
+
+outgoing:
+  # Tighter than the relay's own 4 s budget, so upstream gives up before the
+  # relay's AbortSignal does and we get a real error rather than a cut stream.
+  request_timeout: 3.0
+  max_request_timeout: 6.0
+
+# ── Engines ──────────────────────────────────────────────────────────────────
+# NOT hand-picked yet, on purpose. Which engines answer at all from a Fly
+# datacenter IP is an empirical question (several block datacenter ranges or
+# serve captchas), and guessing here would bake a wrong list into the first
+# deploy. Until the day-one measurement in README.md is run, this instance uses
+# the image's default engine set.
+#
+# engines: measured on day one (s47 brief §4); until then image defaults.

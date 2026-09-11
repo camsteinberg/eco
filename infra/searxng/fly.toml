@@ -1,0 +1,41 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Bos Computing LLC
+
+# Eco's private search backend. Deliberately has NO [http_service] and no
+# [[services]] block: without one, Fly's public proxy never routes to this app
+# and it has no public address at all. The only way in is Fly private
+# networking (6PN), where the API app reaches it as `eco-searxng.internal:8080`.
+# Adding a service block here would put a search engine on the public internet
+# under Eco's name — don't.
+
+app = "eco-searxng"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+  # Dockerfile path is relative to this fly.toml's directory.
+
+[env]
+  # SearXNG builds absolute URLs from this. It is the private address, because
+  # that is the only address this instance has.
+  SEARXNG_BASE_URL = "http://eco-searxng.internal:8080/"
+  # Granian (the WSGI server in the image) has access logging OFF by default;
+  # set it explicitly so a future image default can't quietly turn it on.
+  # (Granian's path field excludes the query string; this is belt and braces.)
+  GRANIAN_LOG_ACCESS_ENABLED = "false"
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 512
+
+# Machine-level check: it does not need a [[services]] block, which is the whole
+# point here. /healthz is SearXNG's own liveness route (searx/webapp.py).
+[checks]
+  [checks.health]
+    type = "http"
+    port = 8080
+    path = "/healthz"
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "20s"

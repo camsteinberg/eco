@@ -284,6 +284,23 @@ describe('createRateLimiter', () => {
   })
 
   describe('(e) transient Redis failure: fail-closed in prod, fail-open in dev', () => {
+    it('the search tier has its own key namespace and a default limit of 20', async () => {
+      const redis = makeFakeRedis()
+      const limiter = createRateLimiter({
+        redis,
+        tier: 'search',
+        windowMs: 60_000,
+        getClientIp: () => '9.9.9.9',
+      })
+      const app = makeApp(limiter, '/v1/search', '/v1/search')
+
+      for (let i = 0; i < 20; i += 1) {
+        expect((await app.request('/v1/search', { method: 'POST' })).status).toBe(200)
+      }
+      expect((await app.request('/v1/search', { method: 'POST' })).status).toBe(429)
+      expect([...redis.counts.keys()]).toEqual(['rl:search:9.9.9.9'])
+    })
+
     it('auth tier fails CLOSED (rejects) in production AND counts the rejection', async () => {
       process.env.NODE_ENV = 'production'
       const limiter = createRateLimiter({
