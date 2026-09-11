@@ -20,11 +20,10 @@ import {
 } from '../../../lib/grounding/fence';
 import {
   NOTE_MAX_CHARS,
-  REAL_TIME_FIXTURE,
   buildWebSnippetNote,
-  getFixtureEntry,
-} from '../real-time-fixture';
-import type { WebSnippetEntry } from '../real-time-fixture';
+} from '../../../lib/grounding/web-snippet-note';
+import type { WebSnippetEntry } from '../../../lib/grounding/web-snippet-note';
+import { REAL_TIME_FIXTURE, getFixtureEntry } from '../real-time-fixture';
 import { REAL_TIME_PROBE_IDS } from '../real-time-probes';
 
 const ENTRY: WebSnippetEntry = {
