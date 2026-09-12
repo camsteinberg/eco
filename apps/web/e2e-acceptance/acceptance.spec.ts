@@ -738,7 +738,7 @@ test.describe("eleven-task acceptance walk", () => {
           const on = await sendTurn(page, question, LONG_TURN_TIMEOUT_MS);
 
           // The privacy claim, as a mechanical check: exactly one POST, and its
-          // body carries the search terms and NOTHING else. A body that grew a
+          // body carries the question as typed and NOTHING else. A body that grew a
           // second key is what this row exists to catch.
           const calls = relay.calls();
           const [call] = calls;
@@ -763,7 +763,7 @@ test.describe("eleven-task acceptance walk", () => {
             rowFor(
               11,
               2,
-              "Web search on: one request, carrying only the search terms",
+              "Web search on: one request, carrying only the question as typed",
               on,
               onlyQuery ? "PASS" : settledOn ? "FAIL" : "RECORDED",
               `${calls.length} request(s) to the relay; method ${call?.method ?? "(none)"}; `
