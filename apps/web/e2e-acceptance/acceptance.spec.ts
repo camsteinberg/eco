@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Bos Computing LLC
 
 /**
- * The ten-task acceptance walk, on both shipping models, in a real browser.
+ * The eleven-task acceptance walk, on both shipping models, in a real browser.
  *
  * Run at session open whenever a serving-path or tool change merged last
  * session, and at every phase end.
@@ -11,9 +11,10 @@
  * product is usable — a cold first run, a ten-turn conversation that has to
  * remember a number, a pasted document, the exact-answer tools, an edit
  * request, a conversation long enough to move the context window, an offline
- * reload, a model switch, a factual question with and without web lookups, and
- * a tab killed mid-reply. It runs against a PRODUCTION build with real
- * inference on the machine's own GPU.
+ * reload, a model switch, a factual question with and without web lookups, a
+ * question about right now with and without Web search, and a tab killed
+ * mid-reply. It runs against a PRODUCTION build with real inference on the
+ * machine's own GPU.
  *
  * The run's exit status follows the report: any FAIL row ends the run red.
  * Only an EXPECTED-FAIL is allowed to pass, because it names a gap that is
@@ -63,12 +64,18 @@ import {
   provisionPick,
   sendTurn,
   setWebLookupsInTab,
+  setWebSearchInTab,
   startNewConversation,
   stopButton,
+  stubSearchRelay,
   switchTo,
+  uncertaintyNotes,
   waitForUsableChat,
   watchLookupRequests,
+  webSearchCitations,
+  webSearchToggle,
   wipeOrigin,
+  WEB_SEARCH_STUB_FETCHED_AT,
   type Pick,
   type TurnOutcome,
 } from "./lib/walk";
@@ -155,7 +162,7 @@ const contains = (text: string, ...needles: string[]): boolean =>
  * same defect as a green run with failures in its table.
  */
 
-test.describe("ten-task acceptance walk", () => {
+test.describe("eleven-task acceptance walk", () => {
   let context: BrowserContext;
   /** The walk currently running, so a death outside a task can still be recorded. */
   let currentWalk: PickReport | null = null;
@@ -266,8 +273,8 @@ test.describe("ten-task acceptance walk", () => {
   for (const pick of WALK_PICKS) {
     const others = PICKS.filter((entry) => entry.modelId !== pick.modelId);
 
-    // The title says what actually ran; a smoke run is not a ten-task walk.
-    test(`${pick.tileName} — ${PLAN.smoke ? "smoke subset" : "ten-task"} walk`, async () => {
+    // The title says what actually ran; a smoke run is not an eleven-task walk.
+    test(`${pick.tileName} — ${PLAN.smoke ? "smoke subset" : "eleven-task"} walk`, async () => {
       test.setTimeout(5_400_000);
       const pickReport: PickReport = {
         order: PICKS.indexOf(pick),
@@ -685,6 +692,121 @@ test.describe("ten-task acceptance walk", () => {
             `reply after reopening: ${clip(outcome.replyText)}`,
           ),
         );
+      });
+
+      // ── 11. A live question, Web search off then on ───────────────────────
+      // The relay is STUBBED for both arms. A live engine would make this
+      // task's evidence depend on the weather in Chicago and on whether an
+      // engine rate-limited us, and neither is the product behaviour being
+      // asked about. The off arm goes through the stub too, so a request the
+      // switch should have prevented is caught here rather than sent.
+      await task(11, "a live question, Web search off then on", async () => {
+        const question = "is it raining in Chicago right now";
+        const relay = await stubSearchRelay(context);
+        try {
+          // ── off ──────────────────────────────────────────────────────────
+          const page = await open();
+          const settledOff = await setWebSearchInTab(page, false, pick);
+          relay.reset();
+          const off = await sendTurn(page, question, LONG_TURN_TIMEOUT_MS);
+          const offNotes = await uncertaintyNotes(page, "no-live-data").count();
+          const offCalls = relay.calls();
+          const offChips = await webSearchCitations(page).count();
+          const offClean = offNotes > 0 && offCalls.length === 0 && offChips === 0;
+          push(
+            rowFor(
+              11,
+              1,
+              "Web search off: the honest note, and nothing sent",
+              off,
+              offClean ? "PASS" : "FAIL",
+              offClean
+                ? "no-live-data note shown, 0 search requests, no chip; setting read back as "
+                  + `${settledOff ? "ON (wrong)" : "OFF"}; answer: ${clip(off.replyText, 160)}`
+                : `expected the no-live-data note and no request: ${offNotes} note(s), `
+                  + `${offCalls.length} search request(s), ${offChips} chip(s); `
+                  + `answer: ${clip(off.replyText, 160)}`,
+            ),
+          );
+
+          // ── on ───────────────────────────────────────────────────────────
+          const settledOn = await setWebSearchInTab(page, true, pick);
+          const composerSwitch =
+            (await webSearchToggle(page).getAttribute("aria-checked")) ?? "(absent)";
+          await startNewConversation(page);
+          relay.reset();
+          const on = await sendTurn(page, question, LONG_TURN_TIMEOUT_MS);
+
+          // The privacy claim, as a mechanical check: exactly one POST, and its
+          // body carries the search terms and NOTHING else. A body that grew a
+          // second key is what this row exists to catch.
+          const calls = relay.calls();
+          const [call] = calls;
+          let bodyKeys: string[] = [];
+          let parsed = false;
+          try {
+            const json: unknown = JSON.parse(call?.body ?? "");
+            if (json !== null && typeof json === "object") {
+              bodyKeys = Object.keys(json as Record<string, unknown>).sort();
+              parsed = true;
+            }
+          } catch {
+            parsed = false;
+          }
+          const onlyQuery =
+            calls.length === 1
+            && call?.method === "POST"
+            && parsed
+            && bodyKeys.length === 1
+            && bodyKeys[0] === "q";
+          push(
+            rowFor(
+              11,
+              2,
+              "Web search on: one request, carrying only the search terms",
+              on,
+              onlyQuery ? "PASS" : settledOn ? "FAIL" : "RECORDED",
+              `${calls.length} request(s) to the relay; method ${call?.method ?? "(none)"}; `
+                + `body keys [${bodyKeys.join(", ")}]${parsed ? "" : " (unparsed)"}; `
+                + `setting read back as ${settledOn ? "ON" : "OFF"}, `
+                + `composer switch aria-checked=${composerSwitch}`,
+            ),
+          );
+
+          // The chip is how a person tells a searched turn from an unsearched
+          // one, so its absence is a product failure even when the search ran.
+          const chips = webSearchCitations(page);
+          const chipCount = await chips.count();
+          const fetchedAt =
+            chipCount > 0 ? await chips.last().getAttribute("data-fetched-at") : null;
+          // A receipt carries no prompt TEXT — only `systemPromptHash` — so
+          // "the snippet note reached the prompt" is witnessed by that hash
+          // differing from the unsearched turn's, not by reading the note back.
+          const offHash = outcomeReceipt(off)?.systemPromptHash ?? null;
+          const onHash = outcomeReceipt(on)?.systemPromptHash ?? null;
+          const promptMoved =
+            offHash !== null && onHash !== null && offHash !== onHash
+              ? "changed, so the searched turn carried a different system prompt"
+              : "unchanged or unknown";
+          const chipOk = chipCount > 0 && fetchedAt === WEB_SEARCH_STUB_FETCHED_AT;
+          push(
+            rowFor(
+              11,
+              3,
+              "Web search on: the reply is marked with a fetched-at chip",
+              on,
+              chipOk ? "PASS" : settledOn ? "FAIL" : "RECORDED",
+              `${chipCount} chip(s), data-fetched-at ${fetchedAt ?? "(absent)"}; `
+                + `system prompt hash ${offHash ?? "?"} → ${onHash ?? "?"} (${promptMoved}); `
+                + `answer: ${clip(on.replyText, 160)}`,
+            ),
+          );
+
+          // Leave the device as we found it — Web search is off by default.
+          await setWebSearchInTab(page, false, pick);
+        } finally {
+          await relay.dispose();
+        }
       });
 
       // ── 7. Offline reload — LAST, because it ends the page ────────────────

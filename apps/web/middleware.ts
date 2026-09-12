@@ -33,11 +33,21 @@ const MODEL_CONNECT_SRC = [
   // already listed above — so no model asset needs a third-party fetch origin.
 ].join(' ')
 
-// Phase 5 grounding talks DIRECTLY from the browser to Wikimedia's public REST
-// endpoints (Wikipedia article search/summary + Wikidata statements) — no proxy,
-// by design, so Eco's servers never see grounding queries. Without these origins
-// the lookups are CSP-blocked and every factual question silently falls back to
-// the "couldn't reach reference sources" degraded path. English-only for v1.
+// Two lookup paths leave the device, and only ONE of them needs a CSP origin here.
+//
+// 1. Web lookups (Wikipedia/Wikidata) talk DIRECTLY from the browser to
+//    Wikimedia's public REST endpoints (article search/summary + Wikidata
+//    statements) — no proxy, by design, so Eco's servers never see those
+//    queries. That is what the origins below are for: without them the lookups
+//    are CSP-blocked and every factual question silently falls back to the
+//    "couldn't reach reference sources" degraded path. English-only for v1.
+// 2. Web search goes the other way round. The browser POSTs SAME-ORIGIN to
+//    `/v1/search`, which `next.config.ts` rewrites to the api's relay, and the
+//    relay is what talks to Eco's search instance and the public engines. A
+//    same-origin request is already covered by `connect-src 'self'`, so it needs
+//    no entry here, and adding the api origin would only widen the policy for
+//    nothing. If that call is ever made cross-origin, this is the comment that
+//    has to stop being true first.
 const GROUNDING_CONNECT_SRC = [
   'https://en.wikipedia.org',
   'https://www.wikidata.org',

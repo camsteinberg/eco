@@ -20,7 +20,7 @@ import { EditMessage } from "./EditMessage";
 import { FileBlock, parseFileBlocks } from "./FileBlock";
 import { ToolCallBlock } from "./ToolCallBlock";
 import { CitationBlock } from "./CitationBlock";
-import { GroundingNotice } from "./GroundingNotice";
+import { GroundingNotice, type GroundingNoticeVariant } from "./GroundingNotice";
 import { UncertaintyNote } from "./UncertaintyNote";
 import { ThinkingBlock } from "./ThinkingBlock";
 
@@ -206,6 +206,13 @@ export function MessageBubble({
     isFirstGrounded === true &&
     !groundingNoticeSeen;
 
+  // Which privacy story the disclosure tells. A Web-search turn went through a
+  // relay Eco runs; a Wikipedia/Wikidata lookup went straight from the device to
+  // the source. Read off the citation the chip is already keyed on, so the note
+  // can never claim the stronger of the two for the weaker path.
+  const groundingNoticeVariant: GroundingNoticeVariant =
+    citations?.some((c) => c.source === "Web search") ? "web-search" : "direct";
+
   // Parse <think>...</think> blocks from assistant content
   const { thinkContent, displayContent } = useMemo(() => {
     if (isUser) return { thinkContent: null, displayContent: content };
@@ -384,7 +391,7 @@ export function MessageBubble({
                   <UncertaintyNote verification={verification} />
                 )}
                 {/* One-time grounding disclosure under the latest grounded answer */}
-                {showGroundingNotice && <GroundingNotice />}
+                {showGroundingNotice && <GroundingNotice variant={groundingNoticeVariant} />}
                 {/* Tool call blocks */}
                 {toolCalls && toolCalls.length > 0 && (
                   <div className="space-y-1 mt-2">

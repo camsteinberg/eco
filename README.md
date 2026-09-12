@@ -11,7 +11,9 @@ It's an alternative to ChatGPT, Claude, and Gemini for people who want a good pr
 without trading away their privacy to get it.
 
 Privacy here is a property of the architecture, not a policy. Inference happens
-on-device via WebGPU; there is no server in the loop for chat. Conversations can
+on-device via WebGPU; there is no server in the loop for chat. An optional web
+search, off by default, sends only the search terms of live questions to a relay Eco
+runs; successful searches are not logged or linked to you. Conversations can
 persist locally in the browser (OPFS / IndexedDB) so you can pick up where you left
 off, and they stay there. The only parts that touch a server are the ones that need
 one — signing in.

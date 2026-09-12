@@ -115,9 +115,16 @@ describe("UncertaintyNote", () => {
     const note = screen.getByTestId("uncertainty-note");
     expect(note).toHaveAttribute("data-status", "no-live-data");
     expect(note).toHaveTextContent(/can.t check live information, so this is from memory/i);
-    // Never implies a setting would fix it — nothing Eco can turn on gives a
-    // small local model live data.
+    // Points at the one switch that does change this. With Web search ON a live
+    // question is searched before the reply, so the turn never reaches this
+    // status — seeing it means the switch is off, and the note says what to do.
+    expect(note).toHaveTextContent(/turn on web search to let it look/i);
+    // But not at the OTHER switch: "Look up facts from the web" is the
+    // Wikipedia/Wikidata path and would not have answered a live question.
     expect(note).not.toHaveTextContent(/web lookups are off/i);
+    // The accessible name carries the same hint, so the note does not say one
+    // thing to the eye and another to a screen reader.
+    expect(note.getAttribute("aria-label")).toMatch(/turn on web search/i);
 
     const link = screen.getByTestId("uncertainty-note-search-link");
     expect(link).toHaveTextContent("Search the web for this");

@@ -4,7 +4,7 @@
 /**
  * Which tasks and which picks this acceptance run walks.
  *
- * The full lane is the product verdict: ten tasks, both shipping models, the
+ * The full lane is the product verdict: eleven tasks, both shipping models, the
  * better part of an hour each. That cost is the right price for a verdict and
  * the wrong price for the question "is the lane itself still working?" — which
  * is asked far more often, usually right after someone edits the walk.
@@ -24,7 +24,7 @@
  */
 
 /** The lane's tasks, in the order the README lists them. */
-export const ACCEPTANCE_TASKS: readonly number[] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+export const ACCEPTANCE_TASKS: readonly number[] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
 
 /** The three tasks the smoke subset walks. */
 export const SMOKE_TASKS: readonly number[] = [1, 4, 8];

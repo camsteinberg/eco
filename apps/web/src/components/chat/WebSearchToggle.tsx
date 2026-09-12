@@ -4,6 +4,7 @@
 "use client";
 
 import { useSettingsStore } from "../../stores/settingsStore";
+import { WEB_SEARCH_TOGGLE_TOOLTIP } from "../local-ai/web-search-copy";
 
 /**
  * The composer's **Web** switch — the person's standing decision about whether
@@ -31,7 +32,7 @@ export function WebSearchToggle() {
       aria-checked={webSearchEnabled}
       data-testid="web-search-toggle"
       aria-label={webSearchEnabled ? "Web search: on" : "Web search: off"}
-      title="When on, Eco searches the web for questions about right now. Only the search terms go to Eco's relay."
+      title={WEB_SEARCH_TOGGLE_TOOLTIP}
       onClick={() => {
         setWebSearchEnabled(!webSearchEnabled);
       }}

@@ -5,7 +5,7 @@ Copyright (C) 2026 Bos Computing LLC
 
 # Acceptance lane
 
-The ten-task walkthrough a person would do before saying the product is usable,
+The eleven-task walkthrough a person would do before saying the product is usable,
 driven in a real browser against a production build with real on-device
 inference, on both shipping models.
 
@@ -53,8 +53,14 @@ provisioned, because task 8 has to have somewhere to switch to.
 | 8 | Switch faster ↔ smarter and check the state and copy stay truthful |
 | 9 | A factual question with web lookups off, then on |
 | 10 | Kill the tab mid-reply and reopen — no wedge |
+| 11 | A question about right now with Web search off, then on |
 
 Task 7 runs last because reloading offline ends the page.
+
+Task 11 stubs the search relay in the browser, in both arms. Nothing in this lane
+ever reaches a real search engine: the fixed payload is what makes the chip's
+fetched-at time and the request body checkable, and the interception is also what
+catches a request the OFF arm should never have made.
 
 ## What it reports
 

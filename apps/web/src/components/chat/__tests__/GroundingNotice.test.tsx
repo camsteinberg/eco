@@ -129,6 +129,24 @@ describe("GroundingNotice", () => {
     expect(notice).not.toHaveTextContent(/wikipedia|wikidata|open-meteo/i);
   });
 
+  it("tells the relay story, not the direct-lookup one, on a web-search turn", () => {
+    render(<GroundingNotice variant="web-search" />);
+
+    const notice = screen.getByTestId("grounding-notice");
+    expect(notice).toHaveTextContent(/searched the web for this through its own relay/i);
+    expect(notice).toHaveTextContent(
+      /does not log successful searches or connect them to you/i,
+    );
+    // The claim the OTHER path earns and this one does not: a web search goes
+    // through a relay Eco runs, so "straight from your device to the source" and
+    // "our servers never saw it" would both be false here. Guarded on purpose.
+    expect(notice).not.toHaveTextContent(/straight from your device/i);
+    expect(notice).not.toHaveTextContent(/servers never saw it/i);
+    // And never the stronger claim we cannot make yet: a failed engine call can
+    // still leave a short-lived server log line.
+    expect(notice).not.toHaveTextContent(/keeps no record|never logged/i);
+  });
+
   it("dismiss button marks the notice seen once its exit completes", async () => {
     const user = userEvent.setup();
     render(<GroundingNotice />);
