@@ -87,26 +87,14 @@ const nextConfig: NextConfig = {
       { source: '/developers', destination: '/chat', permanent: true },
     ]
   },
-  async rewrites() {
-    // `/v1/:path*` used to be rewritten here too. It is now a route handler
-    // (`app/v1/[...path]/route.ts`) because a rewrite is an opaque server-side
-    // fetch: the api saw Vercel's egress IP as the caller and rate-limited every
-    // user of a region in one shared bucket. A handler can read the edge's
-    // `x-real-ip` and pass it on under a shared secret. Both forms are
-    // same-origin from the browser's point of view, so no client call and no CSP
-    // entry changes.
-    //
-    // `/api/auth/:path*` is deliberately still a rewrite: Better Auth's
-    // `Set-Cookie` path is load-bearing and moving it is its own change. It
-    // therefore still has the shared-bucket property on the `auth` tier.
-    const apiUrl = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001').trim()
-    return [
-      {
-        source: '/api/auth/:path*',
-        destination: `${apiUrl}/api/auth/:path*`,
-      },
-    ]
-  },
+  // There are no rewrites left. Both proxied paths — `/v1/:path*` and
+  // `/api/auth/:path*` — are route handlers now (`app/v1/[...path]/route.ts`,
+  // `app/api/auth/[...path]/route.ts`), because a rewrite is an opaque
+  // server-side fetch: the api saw Vercel's egress IP as the caller and
+  // rate-limited every user of a region in one shared bucket. A handler reads
+  // the edge's `x-real-ip` and passes it on under a shared secret. Both forms
+  // are same-origin from the browser's point of view, so no client call and no
+  // CSP entry changed.
 };
 
 export default withBundleAnalyzer(nextConfig);

@@ -2,9 +2,10 @@
 // Copyright (C) 2026 Bos Computing LLC
 
 /**
- * Same-origin proxy for `/v1/*` → the API gateway.
+ * Same-origin proxy for `/v1/*` and `/api/auth/*` → the API gateway, shared by
+ * `app/v1/[...path]/route.ts` and `app/api/auth/[...path]/route.ts`.
  *
- * This replaces the `next.config.ts` `/v1/:path*` rewrite. The rewrite was
+ * This replaces the `next.config.ts` rewrites of those paths. A rewrite was
  * functionally fine but it made the API's view of the caller useless: on
  * production (web on Vercel, api on Fly) the rewrite is a server-side fetch, so
  * the api's TCP peer and its `Fly-Client-IP` header are Vercel's egress
@@ -25,8 +26,8 @@
  *
  * The request body is streamed straight through and never read, buffered or
  * logged: chat never routes through the api, but `/v1/search` carries the user's
- * question verbatim and `/v1/feedback` carries free text, and neither belongs in
- * a Vercel function log.
+ * question verbatim, `/v1/feedback` carries free text and `/api/auth/*` carries
+ * passwords, and none of them belongs in a Vercel function log.
  */
 
 /**
@@ -139,7 +140,8 @@ function buildDownstreamHeaders(upstream: Response): Headers {
 }
 
 /**
- * Forward one `/v1/*` request to the api and return its response unchanged.
+ * Forward one proxied request (`/v1/*` or `/api/auth/*`) to the api and return
+ * its response unchanged.
  *
  * An upstream failure becomes a 502 with a fixed body: the cause (DNS, refused
  * connection, the upstream's own hostname) is operator information, not
