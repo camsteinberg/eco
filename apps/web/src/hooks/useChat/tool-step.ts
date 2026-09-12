@@ -574,8 +574,8 @@ function withRequestBudget(signal: AbortSignal | undefined, ms: number): {
  * Runs only where the host already decided the turn is a question about right now
  * AND the person's Web switch is on. The request body is `{ q }` and nothing else
  * — no conversation, no message ids, no model, nothing that could identify the
- * person or the chat. The call is same-origin (`next.config.ts` rewrites `/v1/*`
- * to the api), so it carries no third-party anything.
+ * person or the chat. The call is same-origin (`app/v1/[...path]/route.ts`
+ * forwards `/v1/*` to the api), so it carries no third-party anything.
  *
  * On success the results become the SAME fenced note the s46 fixture arm
  * measured, plus one citation per result for the chip. On ANY failure the turn
