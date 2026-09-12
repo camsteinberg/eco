@@ -42,12 +42,14 @@ const MODEL_CONNECT_SRC = [
 //    are CSP-blocked and every factual question silently falls back to the
 //    "couldn't reach reference sources" degraded path. English-only for v1.
 // 2. Web search goes the other way round. The browser POSTs SAME-ORIGIN to
-//    `/v1/search`, which `next.config.ts` rewrites to the api's relay, and the
-//    relay is what talks to Eco's search instance and the public engines. A
-//    same-origin request is already covered by `connect-src 'self'`, so it needs
-//    no entry here, and adding the api origin would only widen the policy for
-//    nothing. If that call is ever made cross-origin, this is the comment that
-//    has to stop being true first.
+//    `/v1/search`, which the `app/v1/[...path]/route.ts` handler forwards to the
+//    api's relay, and the relay is what talks to Eco's search instance and the
+//    public engines. (It was a `next.config.ts` rewrite until the handler
+//    replaced it so the api could see the real client IP — same-origin either
+//    way.) A same-origin request is already covered by `connect-src 'self'`, so
+//    it needs no entry here, and adding the api origin would only widen the
+//    policy for nothing. If that call is ever made cross-origin, this is the
+//    comment that has to stop being true first.
 const GROUNDING_CONNECT_SRC = [
   'https://en.wikipedia.org',
   'https://www.wikidata.org',
