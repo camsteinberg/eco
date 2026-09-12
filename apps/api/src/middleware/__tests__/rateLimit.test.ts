@@ -447,6 +447,122 @@ describe('createRateLimiter', () => {
     })
   })
 
+  // ── (h) The web app's trusted client-IP header ──────────────────────────────
+  // The web app proxies `/v1/*` server-side, so without this the api keys every
+  // user of a Vercel region on one egress address. The header is only as
+  // trustworthy as the shared secret that accompanies it, which is what these
+  // tests pin: honoured with the right key, ignored in every other case.
+  describe('(h) trusted X-Eco-Client-IP from the web proxy', () => {
+    const PROXY_SECRET = 'proxy-secret-value'
+    const BROWSER_IP = '198.51.100.22'
+
+    // `noSecret: true` omits the option entirely rather than passing `undefined`:
+    // the factory's destructuring default would turn an explicit `undefined` back
+    // into `process.env.API_PROXY_SECRET`, so "unset" has to mean absent.
+    async function keysAfter(
+      headers: Record<string, string>,
+      opts: { noSecret?: boolean } = {},
+    ): Promise<string[]> {
+      const redis = makeFakeRedis()
+      const limiter = createRateLimiter({
+        redis,
+        tier: 'api',
+        limit: 5,
+        windowMs: 60_000,
+        ...(opts.noSecret ? {} : { proxySecret: PROXY_SECRET }),
+      })
+      const app = makeApp(limiter, '/v1/*', '/v1/search')
+      const res = await app.request('/v1/search', { method: 'POST', headers })
+      expect(res.status).toBe(200)
+      return [...redis.counts.keys()]
+    }
+
+    it('keys on the header when the proxy key matches', async () => {
+      const keys = await keysAfter({
+        'X-Eco-Proxy-Key': PROXY_SECRET,
+        'X-Eco-Client-IP': BROWSER_IP,
+        'Fly-Client-IP': '203.0.113.7',
+      })
+      expect(keys).toContain(`rl:api:${BROWSER_IP}`)
+      expect(keys.some((k) => k.includes('203.0.113.7'))).toBe(false)
+    })
+
+    it('accepts an IPv6 client address', async () => {
+      const keys = await keysAfter({
+        'X-Eco-Proxy-Key': PROXY_SECRET,
+        'X-Eco-Client-IP': '2001:db8::1',
+      })
+      expect(keys).toContain('rl:api:2001:db8::1')
+    })
+
+    it('ignores the header when the key is wrong, and falls back to Fly-Client-IP', async () => {
+      const keys = await keysAfter({
+        'X-Eco-Proxy-Key': 'wrong-secret-value',
+        'X-Eco-Client-IP': BROWSER_IP,
+        'Fly-Client-IP': '203.0.113.7',
+      })
+      expect(keys).toContain('rl:api:203.0.113.7')
+      expect(keys.some((k) => k.includes(BROWSER_IP))).toBe(false)
+    })
+
+    it('ignores the header when the key is absent', async () => {
+      const keys = await keysAfter({
+        'X-Eco-Client-IP': BROWSER_IP,
+        'Fly-Client-IP': '203.0.113.7',
+      })
+      expect(keys).toContain('rl:api:203.0.113.7')
+      expect(keys.some((k) => k.includes(BROWSER_IP))).toBe(false)
+    })
+
+    it('ignores the header when the key differs only in length', async () => {
+      // timingSafeEqual throws on unequal lengths; the length guard must catch
+      // this before it reaches the compare.
+      const keys = await keysAfter({
+        'X-Eco-Proxy-Key': `${PROXY_SECRET}extra`,
+        'X-Eco-Client-IP': BROWSER_IP,
+        'Fly-Client-IP': '203.0.113.7',
+      })
+      expect(keys).toContain('rl:api:203.0.113.7')
+    })
+
+    it('ignores both headers when no secret is configured (local dev unchanged)', async () => {
+      const keys = await keysAfter(
+        {
+          'X-Eco-Proxy-Key': PROXY_SECRET,
+          'X-Eco-Client-IP': BROWSER_IP,
+          'Fly-Client-IP': '203.0.113.7',
+        },
+        { noSecret: true },
+      )
+      expect(keys).toContain('rl:api:203.0.113.7')
+      expect(keys.some((k) => k.includes(BROWSER_IP))).toBe(false)
+    })
+
+    it.each([
+      ['a list', '1.2.3.4, 5.6.7.8'],
+      ['a hostname', 'evil'],
+      ['an empty value', ''],
+      ['whitespace', '   '],
+      ['a port suffix', '1.2.3.4:9999'],
+      ['a CIDR range', '1.2.3.0/24'],
+    ])('falls through on a malformed client IP (%s)', async (_label, claimed) => {
+      const keys = await keysAfter({
+        'X-Eco-Proxy-Key': PROXY_SECRET,
+        'X-Eco-Client-IP': claimed,
+        'Fly-Client-IP': '203.0.113.7',
+      })
+      expect(keys).toEqual(['rl:api:203.0.113.7'])
+    })
+
+    it('falls through to "unknown" on a malformed IP with no Fly header either', async () => {
+      const keys = await keysAfter({
+        'X-Eco-Proxy-Key': PROXY_SECRET,
+        'X-Eco-Client-IP': 'not-an-ip',
+      })
+      expect(keys).toEqual(['rl:api:unknown'])
+    })
+  })
+
   describe('skips OPTIONS preflight', () => {
     it('does not count OPTIONS requests against the limit', async () => {
       const redis = makeFakeRedis()
