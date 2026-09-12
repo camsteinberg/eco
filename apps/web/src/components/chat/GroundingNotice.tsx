@@ -35,7 +35,7 @@ import { buildSettingsHref } from "../settings/settingsNavigation";
  * Two paths can ground a turn and their privacy stories are NOT the same, so the
  * note has two variants. `"direct"` is the Wikipedia/Wikidata lookup: the request
  * goes straight from the device to the source and Eco's servers never see it.
- * `"web-search"` is the Web switch: the search terms go through a relay Eco runs,
+ * `"web-search"` is the Web switch: the question as typed goes through a relay Eco runs,
  * which is a weaker claim and has to be said as such. The caller decides, from
  * the citation it is already holding (`source === "Web search"`); this component
  * never guesses.

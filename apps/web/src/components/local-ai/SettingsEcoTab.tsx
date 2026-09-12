@@ -128,8 +128,8 @@ export function SettingsEcoTab({
         description={
           "Eco runs the AI entirely in your browser — your prompts and replies are never sent to Eco's servers. "
           + "For a chat, the only things that leave your device are the one-time model download and, when a lookup "
-          + "switch is on (below), the search terms from your question. Wikipedia and Wikidata lookups go straight "
-          + `to the source, never to us. ${WEB_SEARCH_PRIVATE_BY_DESIGN_CLAUSE} `
+          + "switch is on (below), what that switch sends. Wikipedia and Wikidata lookups send search terms from "
+          + `your question, straight to the source, never to us. ${WEB_SEARCH_PRIVATE_BY_DESIGN_CLAUSE} `
           + "Signing in uses a normal account session, kept separate from your chats. "
           + "Read the full story on the privacy and transparency pages."
         }

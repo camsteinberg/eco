@@ -197,13 +197,14 @@ export default function TransparencyPage({
               </strong>{" "}
               A model on your device holds nothing about right now, so Eco has a
               separate Web switch for questions about right now. While it is on,
-              and only for those questions, the search terms go to a relay Eco
+              and only for those questions, your question &mdash; as you typed
+              it, and nothing else &mdash; goes to a relay Eco
               runs, then to Eco&apos;s own search instance, then to the public
               search engines &mdash; which see Eco&apos;s server&apos;s address,
               never yours, and no cookie of yours. Your conversation never
               leaves the device. A successful search is not logged and nothing is
               linked to your account; a search engine that fails or refuses does
-              currently leave a short-lived server log line with the terms in it,
+              currently leave a short-lived server log line with the question in it,
               carrying no account and no identity, and removing that is queued
               work. Every searched reply is marked with a chip showing the time
               it was fetched, so you can see which turns went out.

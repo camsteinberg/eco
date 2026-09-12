@@ -42,8 +42,9 @@ type SettingsState = {
    * Whether the optional web search is allowed (slice 2, 2026-09-11). Off by
    * default — opt in from the composer's Web switch or Settings → Eco (one
    * setting, two switches). When on, a turn the host reads as a question about
-   * right now is searched through Eco's own relay BEFORE the reply, and only
-   * that question's search terms leave the device. When off, nothing leaves:
+   * right now is searched through Eco's own relay BEFORE the reply, and that
+   * question — the turn's text as typed — is the only thing that leaves the
+   * device. When off, nothing leaves:
    * the turn gets the honest "can't check live information" note exactly as
    * before.
    */
