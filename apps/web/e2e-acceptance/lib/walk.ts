@@ -499,7 +499,7 @@ export async function setWebLookupsInTab(
  * mount, and the write is encrypted and asynchronous, so "the switch moved" and
  * "the setting is on" are two different claims. It is a DIFFERENT setting from
  * web lookups, though: that one fetches Wikipedia straight from the browser,
- * this one sends search terms to Eco's relay. A task that confuses them would
+ * this one sends the question as typed to Eco's relay. A task that confuses them would
  * pass while measuring the wrong path.
  */
 export async function setWebSearchInTab(
@@ -638,7 +638,7 @@ export type SearchRelayCall = {
  * time" and "the note was joined onto the prompt" mechanical checks.
  *
  * Recording the body matters as much as fulfilling it. The whole privacy claim
- * for this feature is that a search carries the search terms and nothing else,
+ * for this feature is that a search carries the question as typed and nothing else,
  * so the task asserts the parsed body's key set — and an interception is the
  * only place that can see it.
  */

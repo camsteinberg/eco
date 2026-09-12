@@ -9,8 +9,10 @@
  * the sentences that appear in more than one surface live here rather than being
  * retyped. The claim is deliberately bounded and no stronger:
  *
- * - what leaves: the search terms of a question about right now, and only while
- *   the switch is on;
+ * - what leaves: the question itself, exactly as the person typed it, for a
+ *   question about right now, and only while the switch is on. The client sends
+ *   `{ q: <the turn's text> }` and extracts no keywords, so no surface may say
+ *   "search terms" of this path;
  * - the path: Eco's relay → Eco's own search instance → the public engines,
  *   which see Eco's server's address, never the person's;
  * - what is kept: a successful search is not logged and is not linked to any
@@ -29,17 +31,17 @@
 /** Settings → Eco, the row under "Search the web for live questions". */
 export const WEB_SEARCH_SETTING_DESCRIPTION =
   "When on, Eco searches the web for questions about right now, automatically, "
-  + "before it answers. Only the search terms from that question go to Eco's relay; "
-  + "they are not logged on success or linked to your account, and the engines never "
+  + "before it answers. That question goes to Eco's relay as you typed it, and nothing "
+  + "else; it is not logged on success or linked to your account, and the engines never "
   + "see you. Every searched reply shows a chip with the time.";
 
 /** The composer switch's tooltip — the same claim, at hover length. */
 export const WEB_SEARCH_TOGGLE_TOOLTIP =
-  "When on, Eco searches the web for questions about right now. Only the search "
-  + "terms go to Eco's relay.";
+  "When on, Eco searches the web for questions about right now. That question goes "
+  + "to Eco's relay as you typed it.";
 
 /** "Private by design" (Settings → Eco), appended after the Wikipedia clause. */
 export const WEB_SEARCH_PRIVATE_BY_DESIGN_CLAUSE =
-  "With Web search on, questions about right now send only their search terms to "
-  + "Eco's relay, which does not log successful searches or link them to you; the "
-  + "search engines see Eco's server, never you.";
+  "With Web search on, a question about right now goes to Eco's relay as you typed "
+  + "it, and nothing else; the relay does not log successful searches or link them to "
+  + "you, and the search engines see Eco's server, never you.";

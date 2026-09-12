@@ -56,7 +56,7 @@ describe("WebSearchToggle", () => {
     expect(toggle).toHaveAccessibleName("Web search: off");
     expect(toggle).toHaveAttribute(
       "title",
-      "When on, Eco searches the web for questions about right now. Only the search terms go to Eco's relay.",
+      "When on, Eco searches the web for questions about right now. That question goes to Eco's relay as you typed it.",
     );
     expect(toggle).toHaveTextContent("Web");
   });

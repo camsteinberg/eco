@@ -114,8 +114,8 @@ export default function PrivacyPage({
                 for reliability and security. Your chat activity (how often you
                 chat, timing, and the model you use) is measured on your device
                 and never sent to Eco unless you choose to submit
-                feedback (see Section 6) or turn on Web search, which sends the
-                search terms of a question about right now &mdash; and nothing
+                feedback (see Section 6) or turn on Web search, which sends a
+                question about right now, as you typed it &mdash; and nothing
                 else &mdash; to our relay (see Section 4)
               </li>
               <li>
@@ -274,9 +274,9 @@ export default function PrivacyPage({
                   device holds that. Eco has a separate &ldquo;Web search&rdquo;
                   switch, off by default, for those. While it is on, and only for
                   a question Eco reads as being about right now, your browser
-                  sends the search terms of that question to a relay Eco runs.
-                  Nothing else goes with them: not your conversation, not the
-                  reply, not your account.
+                  sends that question to a relay Eco runs, as you typed it, so
+                  anything you put in that question goes with it. Nothing else
+                  does: not your conversation, not the reply, not your account.
                 </p>
                 <p className="mt-3">
                   The path is Eco&apos;s relay, then Eco&apos;s own search
@@ -290,7 +290,7 @@ export default function PrivacyPage({
                   to your account. We will not overclaim here: when a search
                   engine fails or refuses a request, our search instance
                   currently records a short-lived server log line that includes
-                  the search terms. It carries no account and no identity, and
+                  the question as sent. It carries no account and no identity, and
                   removing it is work we have queued, but it exists today and you
                   should know that. Nothing in either case is connected to you.
                 </p>
