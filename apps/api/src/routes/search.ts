@@ -30,7 +30,7 @@
 
 import { Hono } from 'hono'
 import type { Context } from 'hono'
-import { defaultGetClientIp, type RateLimitRedis } from '../middleware/rateLimit.js'
+import { createClientIpResolver, type RateLimitRedis } from '../middleware/rateLimit.js'
 
 // ── Bounds ───────────────────────────────────────────────────────────────────
 /** Shorter than this is not a search, it is a typo. */
@@ -370,7 +370,9 @@ export function createSearchRouter(options: CreateSearchRouterOptions) {
     redis,
     dailyMax,
     dailyPerIpMax = DEFAULT_DAILY_PER_IP_MAX,
-    getClientIp = defaultGetClientIp,
+    // Same resolver as the per-minute limiter (trusted proxy header, then
+    // Fly-Client-IP, then the TCP peer), so both controls agree on "one caller".
+    getClientIp = createClientIpResolver(process.env.API_PROXY_SECRET),
     fetchImpl = fetch,
     now = () => new Date(),
   } = options

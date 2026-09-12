@@ -53,10 +53,25 @@ present-but-non-allowlisted Origin.
 
 The rate limiter sits after CORS (so OPTIONS preflight is short-circuited and
 never counted) and after secure-headers + logging (so a 429 still gets security
-headers and is logged), but before the route mounts. It keys on the trusted
-`Fly-Client-IP` header (falling back to the TCP peer address for local/dev —
-never the spoofable `X-Forwarded-For`), increments `rate_limit_hits_total{tier}`
-on each rejection, and returns 429 with `Retry-After` + `X-RateLimit-*` headers.
+headers and is logged), but before the route mounts. It increments
+`rate_limit_hits_total{tier}` on each rejection, and returns 429 with
+`Retry-After` + `X-RateLimit-*` headers.
+
+**What it keys on.** Three sources, most specific first: `X-Eco-Client-IP` when
+it arrives with an `X-Eco-Proxy-Key` matching `API_PROXY_SECRET`
+(`timingSafeEqual`, and the value must parse as an IP); then the trusted
+`Fly-Client-IP` header; then the TCP peer address for local/dev. The spoofable
+`X-Forwarded-For` is still never trusted — nothing in front of this API
+authenticates it. `X-Eco-Client-IP` is the one authenticated exception, and it
+exists because the web app proxies `/v1/*` server-side
+(`apps/web/app/v1/[...path]/route.ts`): without it the API's view of the caller
+is the web host's egress address, so every user of a Vercel region shares one
+per-IP bucket while a caller hitting the API domain directly gets a private one.
+With `API_PROXY_SECRET` unset, or on a key mismatch, or on a malformed IP, the
+resolver falls through to `Fly-Client-IP`/peer exactly as before. `/api/auth/*`
+is still a plain Next rewrite, so the `auth` tier keeps the shared-bucket
+property until that moves too.
+
 When `REDIS_URL` is unset it is a no-op pass-through (local dev/tests/unconfigured
 deploy). When Redis is configured but a call fails, it fails CLOSED in production
 for the `auth` tier (returns 503) and fails open otherwise.
@@ -71,6 +86,9 @@ for the `auth` tier (returns 503) and fails open otherwise.
 - `RATE_LIMIT_WINDOW_MS` -- Fixed-window length in ms (default `60000`).
 - `RATE_LIMIT_AUTH_MAX` -- Max requests/window/client on `/api/auth/*` (default `10`).
 - `RATE_LIMIT_API_MAX` -- Max requests/window/client on `/v1/*` (default `100`).
+- `API_PROXY_SECRET` -- Shared secret that makes the web app's `X-Eco-Client-IP`
+  header trustworthy (see above). Must match the web app's `API_PROXY_SECRET`.
+  Unset -> the header is ignored.
 - `RATE_LIMIT_FEEDBACK_MAX` -- Max requests/window/client on `POST /v1/feedback`
   (default `5`; its own `feedback` tier on top of the general `api` tier).
 - `RATE_LIMIT_SEARCH_MAX` -- Max requests/window/client on `POST /v1/search`

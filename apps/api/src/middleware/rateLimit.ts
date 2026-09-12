@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Bos Computing LLC
 
+import { timingSafeEqual } from 'node:crypto'
+import { isIP } from 'node:net'
 import type { Context, MiddlewareHandler } from 'hono'
 import { getConnInfo } from '@hono/node-server/conninfo'
 import { rateLimitHitsTotal } from '../lib/metrics.js'
@@ -77,11 +79,19 @@ export type CreateRateLimiterOptions = {
   windowMs?: number
   /**
    * Resolve the trusted client identifier. Injectable for tests. When omitted,
-   * the limiter prefers the `Fly-Client-IP` header (set by Fly's proxy, not
-   * client-spoofable) and falls back to Hono connection info for local/dev.
+   * the limiter trusts, in order: `X-Eco-Client-IP` when it arrives with a
+   * matching `X-Eco-Proxy-Key` (see `proxySecret`), then `Fly-Client-IP` (set by
+   * Fly's proxy, not client-spoofable), then Hono connection info for local/dev.
    * Raw `X-Forwarded-For` is deliberately NOT trusted (client-spoofable).
    */
   getClientIp?: (c: Context) => string
+  /**
+   * Shared secret the web app's `/v1/*` proxy presents in `X-Eco-Proxy-Key` to
+   * vouch for the `X-Eco-Client-IP` it sets. Defaults to `API_PROXY_SECRET`,
+   * read once here; injectable for tests. Unset (the local-dev and
+   * single-host cases) → both headers are ignored entirely.
+   */
+  proxySecret?: string
   logger?: RateLimitLogger
 }
 
@@ -92,29 +102,70 @@ const noopLogger: RateLimitLogger = {
   error: () => undefined,
 }
 
-/**
- * Resolve a TRUSTED client identifier. `Fly-Client-IP` is injected by Fly's
- * edge proxy and cannot be spoofed by the client, so it is preferred. For
- * local/dev (no Fly proxy) we fall back to the TCP peer address via Hono's
- * connection-info helper. We never key on raw `X-Forwarded-For` — a client can
- * set it to any value and trivially evade the limit.
- *
- * Exported because the search relay's per-IP daily counter must bucket callers
- * the SAME way this limiter does — two different notions of "the client" would
- * let one of the two controls be evaded while the other held.
- */
-export function defaultGetClientIp(c: Context): string {
-  const flyIp = c.req.header('Fly-Client-IP')
-  if (flyIp) return flyIp
+/** Header the web app's `/v1/*` proxy uses to name the real browser client. */
+const CLIENT_IP_HEADER = 'X-Eco-Client-IP'
+/** Header carrying the shared secret that makes `CLIENT_IP_HEADER` trustworthy. */
+const PROXY_KEY_HEADER = 'X-Eco-Proxy-Key'
 
-  try {
-    const info = getConnInfo(c)
-    if (info.remote.address) return info.remote.address
-  } catch {
-    // getConnInfo reads the underlying Node socket, which is absent in
-    // Web-Fetch contexts (e.g. Vitest's app.request). Degrade safely.
+/**
+ * Constant-time compare of a presented key against the configured secret.
+ * `timingSafeEqual` throws on unequal lengths, so the length check happens
+ * first — it leaks only the length, which the caller chose anyway.
+ */
+function keyMatches(presented: string, secret: string): boolean {
+  const a = Buffer.from(presented)
+  const b = Buffer.from(secret)
+  if (a.length !== b.length) return false
+  return timingSafeEqual(a, b)
+}
+
+/**
+ * Build the trusted client-IP resolver.
+ *
+ * Three sources, most specific first:
+ *
+ * 1. `X-Eco-Client-IP`, but ONLY when `X-Eco-Proxy-Key` matches the configured
+ *    secret. This exists because the web app proxies `/v1/*` server-side
+ *    (`apps/web/app/v1/[...path]/route.ts`): without it the api's idea of the
+ *    caller is Vercel's egress address, so every user of a region shares one
+ *    per-IP bucket while a direct caller gets a private one. The proxy runs on
+ *    Vercel, which overwrites `x-real-ip`/`x-forwarded-for` with the real client
+ *    address, so the value it passes on is sound at its source; the shared
+ *    secret is what makes it sound here, since any peer can send the header.
+ * 2. `Fly-Client-IP`, injected by Fly's edge proxy and not client-settable.
+ * 3. The TCP peer address via Hono's connection-info helper (local/dev).
+ *
+ * Raw `X-Forwarded-For` is still never trusted at this layer — nothing in front
+ * of the api authenticates it, so a client could set it to any value and evade
+ * the limit. `X-Eco-Client-IP` is the narrow, authenticated exception: with no
+ * secret configured, or on a key mismatch, or on an IP that is not an IP, the
+ * resolver falls through to (2) and (3) exactly as before.
+ */
+export function createClientIpResolver(proxySecret: string | undefined) {
+  return function getClientIp(c: Context): string {
+    if (proxySecret) {
+      const presentedKey = c.req.header(PROXY_KEY_HEADER)
+      if (presentedKey && keyMatches(presentedKey, proxySecret)) {
+        // A list (`1.2.3.4, 5.6.7.8`), a hostname or junk is a misconfigured or
+        // hostile proxy; `isIP` rejects all three and we fall through rather
+        // than key the limiter on an attacker-chosen string.
+        const claimedIp = c.req.header(CLIENT_IP_HEADER)?.trim()
+        if (claimedIp && isIP(claimedIp) !== 0) return claimedIp
+      }
+    }
+
+    const flyIp = c.req.header('Fly-Client-IP')
+    if (flyIp) return flyIp
+
+    try {
+      const info = getConnInfo(c)
+      if (info.remote.address) return info.remote.address
+    } catch {
+      // getConnInfo reads the underlying Node socket, which is absent in
+      // Web-Fetch contexts (e.g. Vitest's app.request). Degrade safely.
+    }
+    return FALLBACK_CLIENT_IP
   }
-  return FALLBACK_CLIENT_IP
 }
 
 /**
@@ -150,9 +201,10 @@ export function createRateLimiter(options: CreateRateLimiterOptions): Middleware
     redis,
     tier,
     windowMs = DEFAULT_WINDOW_MS,
-    getClientIp = defaultGetClientIp,
+    proxySecret = process.env.API_PROXY_SECRET,
     logger = noopLogger,
   } = options
+  const getClientIp = options.getClientIp ?? createClientIpResolver(proxySecret)
   const limit =
     options.limit ??
     (tier === 'auth'
