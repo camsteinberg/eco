@@ -71,6 +71,8 @@ export function SettingsEcoTab({
   const showTechnicalDetails = useSettingsStore((s) => s.showTechnicalDetails);
   const groundingEnabled = useSettingsStore((s) => s.groundingEnabled);
   const setGroundingEnabled = useSettingsStore((s) => s.setGroundingEnabled);
+  const webSearchEnabled = useSettingsStore((s) => s.webSearchEnabled);
+  const setWebSearchEnabled = useSettingsStore((s) => s.setWebSearchEnabled);
 
   if (!currentModel) {
     return (
@@ -145,12 +147,25 @@ export function SettingsEcoTab({
         <SettingsRow
           label="Look up facts from the web"
           description="When on, Eco can check trusted sources like Wikipedia for facts so it answers from real information instead of guessing. Your device fetches the search terms directly — Eco's servers never see your questions. Turn this off to keep every request fully on your device."
-          divider={false}
           control={
             <SettingsSwitch
               checked={groundingEnabled}
               onChange={setGroundingEnabled}
               ariaLabel="Toggle web fact lookups"
+            />
+          }
+        />
+        {/* The SAME setting as the composer's Web switch — one setting, two
+            switches. The description is a placeholder; the copy PR writes it. */}
+        <SettingsRow
+          label="Search the web for live questions"
+          description="When on, Eco searches the web for questions about right now, automatically, before it answers."
+          divider={false}
+          control={
+            <SettingsSwitch
+              checked={webSearchEnabled}
+              onChange={setWebSearchEnabled}
+              ariaLabel="Toggle web search"
             />
           }
         />

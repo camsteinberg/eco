@@ -34,6 +34,8 @@ import type {
   ToolMatchContext,
 } from "../../lib/tools";
 import { isRealTimeAsk } from "../../lib/real-time/detect-real-time";
+import { buildWebSnippetNote } from "../../lib/grounding/web-snippet-note";
+import type { WebSnippet } from "../../lib/grounding/web-snippet-note";
 import type { ToolCallDisplay } from "../../lib/tool-parser";
 import type { StreamPhase } from "../../stores/chatStore";
 
@@ -77,6 +79,15 @@ export type ToolStepResult = {
    */
   citation?: EcoCitation;
   /**
+   * The sources of a WEB SEARCH turn (slice 2): one entry per result the relay
+   * returned, in the order the model saw them in the note. Separate from
+   * {@link citation} because a search returns several sources and the chip names
+   * all of them, where grounding's invariant is a single article. Mutually
+   * exclusive with `citation` by construction — the two paths never both fire on
+   * one turn.
+   */
+  citations?: readonly WebSearchCitation[];
+  /**
    * Set by a grounding tool's no-source outcomes, and by the lookups-off path
    * (`status:"lookups-off"`); the caller maps it onto the assistant message so the
    * host renders the uncertainty marker. Absent on FOUND (which carries `citation`)
@@ -116,6 +127,48 @@ export type ToolStepResult = {
    */
   hostAnswer?: string;
 };
+
+/**
+ * One source of a web-searched turn. Deliberately NOT an {@link EcoCitation}:
+ * that type's `source` names the two browser-direct encyclopedia surfaces, and a
+ * relayed search result is a different provenance claim — the person's device
+ * never talked to the engine, Eco's relay did.
+ */
+/**
+ * One relay result: a {@link WebSnippet} (what the note builder reads — the note
+ * deliberately carries NO urls) plus the url the chip links to.
+ */
+type SearchResult = WebSnippet & { readonly url: string };
+
+export type WebSearchCitation = {
+  readonly source: "Web search";
+  readonly title: string;
+  readonly url: string;
+  /** The relay's `fetchedAt`, ISO 8601 — what the chip's time is read from. */
+  readonly asOf: string;
+};
+
+/** The minimal `fetch` this module needs; injectable so tests never touch the network. */
+export type WebSearchFetch = (
+  input: string,
+  init: { method: string; headers: Record<string, string>; body: string; signal: AbortSignal },
+) => Promise<Response>;
+
+/**
+ * Whole-request budget for the search, generously above the relay's own (4 s plus
+ * one retry). This is the backstop for a relay that accepts the connection and
+ * then says nothing: past it we stop waiting and answer honestly from memory
+ * rather than leave the person watching "Looking it up…" indefinitely.
+ */
+const WEB_SEARCH_TIMEOUT_MS = 10_000;
+
+/**
+ * Every web-search failure — relay down, rate-limited, timed out, garbage body,
+ * nothing found — lands on the EXISTING "couldn't reach its sources just now"
+ * marker. One honest outcome, no new copy, and nothing invented: the model still
+ * answers from memory and the host says the sources were not reached.
+ */
+const VERIFICATION_UNREACHABLE: GroundingVerification = { status: "unreachable" };
 
 let toolCallSeq = 0;
 
@@ -196,6 +249,14 @@ function verificationNoLiveData(query: string): GroundingVerification {
  * @param options.forceMatch - when `true`, bypass all candidacy detection and force
  *   the grounding tool with args built from the user text via
  *   {@link buildForcedGroundingArgs}. Used by the "Check a source" user action.
+ * @param options.webSearch - the person's Web switch, resolved by the caller
+ *   (loaded settings AND on). When `true`, a turn the host reads as a question
+ *   about right now is SEARCHED through Eco's relay before the reply instead of
+ *   being answered with the "can't check live information" note. When `false` or
+ *   omitted, this module behaves exactly as it did: no request is made and the
+ *   no-live-data path is untouched.
+ * @param options.webSearchFetch - test seam for the search request. Omitted in
+ *   production, where the global same-origin `fetch` is used.
  */
 export async function runToolStep(
   latestUserText: string,
@@ -206,6 +267,8 @@ export async function runToolStep(
     declineTools?: readonly AnyEcoTool[];
     matchContext?: ToolMatchContext;
     forceMatch?: boolean;
+    webSearch?: boolean;
+    webSearchFetch?: WebSearchFetch;
   },
 ): Promise<ToolStepResult> {
   // Clear any tool calls from a prior turn BEFORE detection. This is the single
@@ -262,6 +325,11 @@ export async function runToolStep(
     // only where the Wikipedia matcher happened to claim the turn — five of the
     // seven measured inventions rendered with no marker at all (2026-09-09).
     if (isRealTimeAsk(latestUserText)) {
+      // Web switch on: look it up instead of declining. Same detection, same
+      // turn — only what the host does about it changes.
+      if (options?.webSearch) {
+        return await webSearchStep(latestUserText, store, signal, options.webSearchFetch);
+      }
       return { systemNote: null, verification: verificationNoLiveData(latestUserText) };
     }
     if (options?.declineTools && options.declineTools.length > 0) {
@@ -307,6 +375,11 @@ export async function runToolStep(
   // matched above and returned, which is the "a calculator/date answer still
   // wins" rule.
   if (isCitation && isRealTimeAsk(latestUserText)) {
+    // With the Web switch on the live question gets a real search (through Eco's
+    // relay) rather than the encyclopedia article the grounding matcher wanted.
+    if (options?.webSearch) {
+      return await webSearchStep(latestUserText, store, signal, options.webSearchFetch);
+    }
     return { systemNote: null, verification: verificationNoLiveData(latestUserText) };
   }
 
@@ -391,6 +464,144 @@ export async function runToolStep(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+/**
+ * Read the relay's response into the shape the note builder takes, or `null` when
+ * the body is not what we expect.
+ *
+ * Defensive on purpose: this is the one place third-party text enters the prompt,
+ * so a result missing any of its fields is DROPPED rather than rendered as a
+ * half-line, and a body that yields nothing usable is a failure (the caller turns
+ * it into the honest "couldn't reach" marker), never a silent empty note.
+ */
+function parseSearchResponse(
+  payload: unknown,
+): { fetchedAt: string; results: SearchResult[] } | null {
+  if (!isRecord(payload)) return null;
+  if (!isNonEmptyString(payload.fetchedAt)) return null;
+  if (!Array.isArray(payload.results)) return null;
+
+  const results: SearchResult[] = [];
+  for (const raw of payload.results) {
+    if (!isRecord(raw)) continue;
+    if (
+      !isNonEmptyString(raw.title) ||
+      !isNonEmptyString(raw.url) ||
+      !isNonEmptyString(raw.snippet) ||
+      !isNonEmptyString(raw.domain)
+    ) {
+      continue;
+    }
+    results.push({
+      title: raw.title,
+      url: raw.url,
+      snippet: raw.snippet,
+      domain: raw.domain,
+      ...(isNonEmptyString(raw.published) ? { published: raw.published } : {}),
+    });
+  }
+  if (results.length === 0) return null;
+  return { fetchedAt: payload.fetchedAt, results };
+}
+
+/**
+ * Combine the generation's abort signal with the request budget, without relying
+ * on `AbortSignal.any` (absent in some of the environments this runs under).
+ */
+function withRequestBudget(signal: AbortSignal | undefined, ms: number): {
+  signal: AbortSignal;
+  release: () => void;
+} {
+  const controller = new AbortController();
+  const timer = setTimeout(() => {
+    controller.abort(new Error("web search timed out"));
+  }, ms);
+  const onAbort = () => {
+    controller.abort(signal?.reason);
+  };
+  if (signal) {
+    if (signal.aborted) onAbort();
+    else signal.addEventListener("abort", onAbort, { once: true });
+  }
+  return {
+    signal: controller.signal,
+    release: () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+    },
+  };
+}
+
+/**
+ * Search the web for a live question, through Eco's own relay, BEFORE the reply.
+ *
+ * Runs only where the host already decided the turn is a question about right now
+ * AND the person's Web switch is on. The request body is `{ q }` and nothing else
+ * — no conversation, no message ids, no model, nothing that could identify the
+ * person or the chat. The call is same-origin (`next.config.ts` rewrites `/v1/*`
+ * to the api), so it carries no third-party anything.
+ *
+ * On success the results become the SAME fenced note the s46 fixture arm
+ * measured, plus one citation per result for the chip. On ANY failure the turn
+ * falls back to the existing `unreachable` marker and the model answers from
+ * memory — never an invented live answer.
+ *
+ * On a user stop mid-search there is nothing to say: the caller's post-step
+ * `signal.aborted` check finalizes the message and skips generation, exactly as
+ * it does for a stopped Wikipedia lookup.
+ */
+async function webSearchStep(
+  query: string,
+  store: ToolStepStore,
+  signal?: AbortSignal,
+  fetchImpl?: WebSearchFetch,
+): Promise<ToolStepResult> {
+  store.setStreamPhase("looking-up");
+
+  const doFetch: WebSearchFetch =
+    fetchImpl ?? ((input, init) => fetch(input, init));
+  const budget = withRequestBudget(signal, WEB_SEARCH_TIMEOUT_MS);
+
+  try {
+    const response = await doFetch("/v1/search", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ q: query }),
+      signal: budget.signal,
+    });
+    if (!response.ok) return { systemNote: null, verification: VERIFICATION_UNREACHABLE };
+
+    let payload: unknown;
+    try {
+      payload = await response.json();
+    } catch {
+      return { systemNote: null, verification: VERIFICATION_UNREACHABLE };
+    }
+
+    const parsed = parseSearchResponse(payload);
+    if (!parsed) return { systemNote: null, verification: VERIFICATION_UNREACHABLE };
+
+    return {
+      systemNote: buildWebSnippetNote(parsed),
+      citations: parsed.results.map((result) => ({
+        source: "Web search" as const,
+        title: result.title,
+        url: result.url,
+        asOf: parsed.fetchedAt,
+      })),
+    };
+  } catch {
+    // The user pressed Stop: the caller will not generate, so say nothing.
+    if (signal?.aborted) return { systemNote: null };
+    return { systemNote: null, verification: VERIFICATION_UNREACHABLE };
+  } finally {
+    budget.release();
+  }
 }
 
 /**

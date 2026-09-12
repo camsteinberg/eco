@@ -19,7 +19,8 @@ import { runEval } from '../harness';
 import type { EvalGenerationFn, EvalRunnerDeps } from '../harness';
 import { KNOWN_ANSWER_PROBES } from '../known-answer-probes';
 import { REAL_TIME_PROBES } from '../real-time-probes';
-import { buildWebSnippetNote, getFixtureEntry } from '../real-time-fixture';
+import { buildWebSnippetNote } from '../../../lib/grounding/web-snippet-note';
+import { getFixtureEntry } from '../real-time-fixture';
 import type { EvalPromptSpec } from '../types';
 import type { ChatMessage, TokenEvent } from '../../runtime/types';
 

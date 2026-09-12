@@ -7,7 +7,7 @@ import { useRef, useState, useCallback, useEffect } from "react";
 import { FileChip } from "./FileChip";
 import { ErrorLine } from "../ui/ErrorNotice";
 import { ModelSelector } from "./ModelSelector";
-import { ResearchToggle } from "./ResearchToggle";
+import { WebSearchToggle } from "./WebSearchToggle";
 import { useChatStore } from "../../stores/chatStore";
 import {
   validateFile,
@@ -267,7 +267,7 @@ export function ChatInput({
           aria-label="Message input"
         />
 
-        <ResearchToggle />
+        <WebSearchToggle />
 
         <ModelSelector />
 

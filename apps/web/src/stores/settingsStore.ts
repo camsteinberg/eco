@@ -38,6 +38,16 @@ type SettingsState = {
    * once ever — once true (on dismiss or "Manage"), it never returns. One-way.
    */
   groundingNoticeSeen: boolean;
+  /**
+   * Whether the optional web search is allowed (slice 2, 2026-09-11). Off by
+   * default — opt in from the composer's Web switch or Settings → Eco (one
+   * setting, two switches). When on, a turn the host reads as a question about
+   * right now is searched through Eco's own relay BEFORE the reply, and only
+   * that question's search terms leave the device. When off, nothing leaves:
+   * the turn gets the honest "can't check live information" note exactly as
+   * before.
+   */
+  webSearchEnabled: boolean;
 };
 
 type SettingsActions = {
@@ -47,6 +57,7 @@ type SettingsActions = {
   setShowTechnicalDetails: (enabled: boolean) => void;
   setGroundingEnabled: (enabled: boolean) => void;
   setGroundingNoticeSeen: () => void;
+  setWebSearchEnabled: (enabled: boolean) => void;
   loadFromDB: () => Promise<void>;
   incrementLifetimeQueryCount: () => void;
 };
@@ -74,6 +85,19 @@ export function isExternalLookupExplicitlyOff(
   settings: ExternalLookupSettings,
 ): boolean {
   return settings.hasLoaded && !settings.groundingEnabled;
+}
+
+type WebSearchSettings = Pick<SettingsState, "hasLoaded" | "webSearchEnabled">;
+
+/**
+ * The web search may run only after settings hydrate and the user has the Web
+ * switch on. Same fail-closed posture as {@link canUseExternalLookups}: an
+ * unhydrated store means we do not yet know the user's standing choice, and a
+ * search that leaves the device on a guess is exactly what the switch exists to
+ * prevent.
+ */
+export function canUseWebSearch(settings: WebSearchSettings): boolean {
+  return settings.hasLoaded && settings.webSearchEnabled;
 }
 
 /** Safe IndexedDB write — ensures db.close() is called even if the operation throws */
@@ -137,6 +161,7 @@ export const useSettingsStore = create<SettingsState & SettingsActions>()(
     showTechnicalDetails: false,
     groundingEnabled: false,
     groundingNoticeSeen: false,
+    webSearchEnabled: false,
 
     setCustomInstructions(text: string) {
       const clamped = text.slice(0, MAX_CUSTOM_INSTRUCTIONS_LENGTH);
@@ -194,6 +219,14 @@ export const useSettingsStore = create<SettingsState & SettingsActions>()(
       }, "grounding-notice-seen");
     },
 
+    setWebSearchEnabled(enabled: boolean) {
+      set({ webSearchEnabled: enabled });
+      void safeSettingsWrite(async (db) => {
+        const encrypted = encryptSetting(String(enabled));
+        await db.put("settings", { key: "web-search-enabled", ciphertext: encrypted.ciphertext, nonce: encrypted.nonce });
+      }, "web-search-enabled");
+    },
+
     async loadFromDB() {
       let db: SettingsDatabase | undefined;
       try {
@@ -247,6 +280,17 @@ export const useSettingsStore = create<SettingsState & SettingsActions>()(
           false,
           "false",
         );
+        // Fail-closed like grounding: a value we cannot decrypt is repaired to
+        // "false" on disk, so a corrupt record can never read as consent to search.
+        const webSearchEnabled = await readSettingValue(
+          db,
+          "web-search-enabled",
+          "web-search-enabled",
+          false,
+          parseStrictBooleanSetting,
+          false,
+          "false",
+        );
         const groundingNoticeSeen = await readSettingValue(
           db,
           "grounding-notice-seen",
@@ -257,12 +301,12 @@ export const useSettingsStore = create<SettingsState & SettingsActions>()(
 
         set({
           customInstructions, lifetimeQueryCount, soundsEnabled, autoAcceptTools,
-          showTechnicalDetails, groundingEnabled, groundingNoticeSeen,
+          showTechnicalDetails, groundingEnabled, groundingNoticeSeen, webSearchEnabled,
           hasLoaded: true,
         });
       } catch (err) {
         logger.warn("Failed to load settings from DB:", err);
-        set({ groundingEnabled: false, hasLoaded: true });
+        set({ groundingEnabled: false, webSearchEnabled: false, hasLoaded: true });
       } finally {
         db?.close();
       }
