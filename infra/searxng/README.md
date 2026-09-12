@@ -28,12 +28,30 @@ still runs entirely on the person's own device.
   `GRANIAN_LOG_ACCESS_ENABLED = "false"` explicitly anyway, so a future image
   default cannot quietly turn it on. (Granian's `%(path)s` field excludes the
   query string, so even the default format would not carry the query; the
-  explicit setting is belt and braces, not the fix.)
-  **UNVERIFIED:** whether SearXNG itself writes anything query-shaped at
-  `info` level independent of Granian's access log. To check, deploy and read
-  `flyctl logs --app eco-searxng` while issuing a query with a distinctive
-  token; if the token appears, set `GRANIAN_LOG_LEVEL = "warning"` and re-check.
-  Do this before the relay is put in front of real traffic.
+  explicit setting is belt and braces, not the fix.) SearXNG's own logging is
+  a separate matter — see the next section.
+
+## What the logs contain after an engine failure
+
+SearXNG itself did write the query. When an upstream engine returns an error,
+`searx/network/network.py:258` logs the full outgoing URL at `WARNING` —
+`HTTP Request failed: GET https://…/search?q=<the person's question>` — and the
+production root logger is hardcoded to `WARNING` in `searx/__init__.py`, so no
+settings knob turns that off. `sitecustomize.py`, installed on `PYTHONPATH` by
+the `Dockerfile`, replaces the process's log record factory before searx
+imports; it rewrites `q=` and `query=` parameters to `<redacted>` in every log
+message, every string argument, and every formatted traceback. What still
+reaches Fly's log stream on a failure is the engine name, the upstream host and
+path, the HTTP status and the timing — enough to diagnose a broken engine,
+without the question. Verified on 2026-09-12 against the real SearXNG code with
+a forced engine failure: the canary phrase appeared once in the unmodified run
+and zero times with the filter in place. Unit tests for the filter:
+`python3 -m unittest test_sitecustomize -v` from this directory.
+
+This is a redaction, not an absence of logs: Fly keeps whatever the container
+prints for its own retention window, and that remains the outer bound on how
+long anything about a search lives on Eco's side. The claim to make in copy is
+"the relay does not log your question", not "Eco keeps no record".
 
 The honest statement of the privacy boundary, for copy: the search engine never
 sees the user. Eco's own servers do see the query for the lifetime of the

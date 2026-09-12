@@ -15,3 +15,17 @@ FROM searxng/searxng:2026.9.10-931fd9787
 COPY settings.yml /etc/searxng/settings.yml
 
 EXPOSE 8080
+
+# Redact the user's question from the container's log stream. On an upstream
+# engine failure SearXNG logs the full outgoing URL, query string included
+# (`searx/network/network.py:258`), and the production root logger is hardcoded
+# to WARNING with no settings knob below it. `sitecustomize` is imported by
+# Python's `site` module at interpreter start, before searx, so the log record
+# factory it installs covers every logger in the process.
+#
+# It goes on PYTHONPATH rather than into the venv's site-packages because the
+# site-packages path carries the image's Python minor version
+# (.venv/lib/pythonX.Y/site-packages) and would silently stop matching on an
+# image bump; PYTHONPATH is version-independent.
+COPY sitecustomize.py /usr/local/searxng/eco/sitecustomize.py
+ENV PYTHONPATH="/usr/local/searxng/eco"
