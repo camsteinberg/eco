@@ -928,6 +928,88 @@ describe('TransformersAdapter — watchdogs (RT-3)', () => {
     await a.unload().catch(() => undefined);
   });
 
+  // A model loaded WITHOUT a progress_callback (Qwen3.5 text-only exports) posts
+  // no 'progress' at all, so the stall window degenerates into a fixed ceiling on
+  // total load time — s45 read a healthy 1.4 GB load as a 120s "stall".
+  const NO_SIGNAL_MODEL: ModelConfig = {
+    ...MODEL,
+    id: 'candidate/qwen3.5-2b-onnx',
+    artifact: {
+      hfId: 'onnx-community/Qwen3.5-2B-ONNX-OPT',
+      revision: 'abc123',
+      files: [
+        'onnx/decoder_model_merged_q4f16.onnx',
+        'onnx/decoder_model_merged_q4f16.onnx_data',
+        'onnx/embed_tokens_q4f16.onnx',
+        'onnx/embed_tokens_q4f16.onnx_data',
+        'config.json',
+      ],
+    },
+  };
+
+  it('gives a model that reports no load progress the larger no-signal ceiling, not the stall window', async () => {
+    vi.useFakeTimers();
+    const a = new TransformersAdapter({
+      storage,
+      workerFactory: () => worker,
+      generateId: () => 'test-gen-id',
+      loadStallTimeoutMs: 1_000,
+      noSignalLoadTimeoutMs: 5_000,
+    });
+    let rejected: unknown = null;
+    const loadPromise = a.load(NO_SIGNAL_MODEL).catch((err: unknown) => { rejected = err; });
+
+    // Well past the stall window: a silent worker here is expected, not a stall.
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(rejected).toBeNull();
+
+    // At the ceiling it fails, and says what it actually measured.
+    await vi.advanceTimersByTimeAsync(2_001);
+    await loadPromise;
+    expect(rejected).toMatchObject({ code: 'timeout' });
+    expect((rejected as Error).message).toBe(
+      'Model load exceeded 5s (this model reports no progress while loading).',
+    );
+    await a.unload().catch(() => undefined);
+  });
+
+  it('keeps the stall window and its message for a model that does report progress', async () => {
+    vi.useFakeTimers();
+    const a = new TransformersAdapter({
+      storage,
+      workerFactory: () => worker,
+      generateId: () => 'test-gen-id',
+      loadStallTimeoutMs: 1_000,
+      noSignalLoadTimeoutMs: 5_000,
+    });
+    let rejected: unknown = null;
+    const loadPromise = a.load(MODEL).catch((err: unknown) => { rejected = err; });
+    await vi.advanceTimersByTimeAsync(1_001);
+    await loadPromise;
+    expect(rejected).toMatchObject({ code: 'timeout' });
+    expect((rejected as Error).message).toBe(
+      'Model load timed out after 1s with no progress from the worker.',
+    );
+    await a.unload().catch(() => undefined);
+  });
+
+  it('resolves a no-signal load that becomes ready before the ceiling and leaves no timer armed', async () => {
+    vi.useFakeTimers();
+    const a = new TransformersAdapter({
+      storage,
+      workerFactory: () => worker,
+      generateId: () => 'test-gen-id',
+      loadStallTimeoutMs: 1_000,
+      noSignalLoadTimeoutMs: 5_000,
+    });
+    const loadPromise = a.load(NO_SIGNAL_MODEL);
+    await vi.advanceTimersByTimeAsync(3_000);
+    worker.emit({ type: 'ready', backend: 'webgpu' });
+    await expect(loadPromise).resolves.toBeUndefined();
+    expect(vi.getTimerCount()).toBe(0);
+    await a.unload().catch(() => undefined);
+  });
+
   it('ends generation with a timeout error when streaming stalls between tokens (the #28 net)', async () => {
     vi.useFakeTimers();
     const a = new TransformersAdapter({
