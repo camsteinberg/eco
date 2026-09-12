@@ -356,7 +356,10 @@ for (const warning of searchConfig.warnings) {
 }
 if (rateLimitRedis && searchConfig.enabled) {
   const { createSearchRouter } = await import('./routes/search.js')
-  const searchOriginCheck = createOriginCheck(ALLOWED_ORIGINS)
+  // `requireOrigin`: unlike the cookie-authenticated routes, this one has no
+  // session cookie, so `SameSite=Lax` protects nothing — an absent Origin here is
+  // a non-browser caller taking a free search relay, not a client to preserve.
+  const searchOriginCheck = createOriginCheck(ALLOWED_ORIGINS, { requireOrigin: true })
   app.use('/v1/search', searchOriginCheck)
   app.use(
     '/v1/search',

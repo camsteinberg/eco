@@ -124,7 +124,7 @@ function createApp(options: AppOptions = {}) {
     })
   }
   if (withMiddleware) {
-    app.use('/v1/search', createOriginCheck([ALLOWED_ORIGIN]))
+    app.use('/v1/search', createOriginCheck([ALLOWED_ORIGIN], { requireOrigin: true }))
     app.use(
       '/v1/search',
       createRateLimiter({
@@ -211,6 +211,15 @@ describe('POST /v1/search', () => {
       expect(res.status).toBe(403)
     })
 
+    it('403s a request with NO Origin header at all — the route requires one', async () => {
+      // The route is cookie-less, so `SameSite=Lax` protects nothing here: an
+      // absent Origin is a non-browser caller helping itself to a free relay.
+      const app = createApp({ withMiddleware: true })
+      const res = await search(app, { q: 'hello there' })
+      expect(res.status).toBe(403)
+      expect((await res.json()).error.code).toBe('forbidden')
+    })
+
     it('allows the allowlisted Origin', async () => {
       const app = createApp({ withMiddleware: true })
       const res = await search(app, { q: 'hello there' }, { Origin: ALLOWED_ORIGIN })
@@ -220,10 +229,10 @@ describe('POST /v1/search', () => {
     it('429s the 21st request in a window at the default search limit of 20', async () => {
       const app = createApp({ withMiddleware: true, perIpLimit: 20 })
       for (let i = 0; i < 20; i += 1) {
-        const res = await search(app, { q: 'query number ' + String(i) })
+        const res = await search(app, { q: 'query number ' + String(i) }, { Origin: ALLOWED_ORIGIN })
         expect(res.status).toBe(200)
       }
-      const rejected = await search(app, { q: 'one too many' })
+      const rejected = await search(app, { q: 'one too many' }, { Origin: ALLOWED_ORIGIN })
       expect(rejected.status).toBe(429)
       expect((await rejected.json()).error.type).toBe('rate_limited')
     })
@@ -231,7 +240,7 @@ describe('POST /v1/search', () => {
     it('keys the search tier separately from the api tier', async () => {
       const redis = makeFakeRedis()
       const app = createApp({ withMiddleware: true, redis })
-      await search(app, { q: 'hello there' })
+      await search(app, { q: 'hello there' }, { Origin: ALLOWED_ORIGIN })
       expect([...redis.counts.keys()]).toContain('rl:search:1.2.3.4')
     })
   })
