@@ -163,10 +163,26 @@ function cleanSpan(text: string, max: number): string {
   return neutralizeFenceMarkers(truncate(text, max))
 }
 
-/** Hostname without a leading `www.`; `null` when the URL will not parse. */
+/** The only schemes a search result may carry. */
+const ALLOWED_URL_PROTOCOLS = new Set(['http:', 'https:'])
+
+/**
+ * Hostname without a leading `www.`; `null` when the URL will not parse, carries
+ * a scheme other than http(s), or has no host at all.
+ *
+ * The scheme check is the point, not a nicety. `new URL` happily parses
+ * `javascript://example.com/%0aalert(1)` — a valid URL whose "hostname" is
+ * `example.com`, so a bare host check waved it through to the citation chip's
+ * `href`. React 19's URL sanitizer and the production CSP stop it from
+ * executing, but a result URL that is not a web page has no business reaching
+ * the client, and the dev CSP is looser. Hostless forms (`mailto:`, `data:`)
+ * fall out of the same check.
+ */
 export function domainOf(url: string): string | null {
   try {
-    const { hostname } = new URL(url)
+    const { protocol, hostname } = new URL(url)
+    if (!ALLOWED_URL_PROTOCOLS.has(protocol)) return null
+    if (hostname === '') return null
     return hostname.replace(/^www\./i, '')
   } catch {
     return null
@@ -200,6 +216,8 @@ export function parseSearxngResults(payload: unknown): SearchResult[] {
     const url = nonEmptyString(row.url)
     const title = nonEmptyString(row.title)
     if (url === null || title === null) continue
+    // Length-cap before parsing: a multi-kilobyte URL is a payload, not a link.
+    if (url.length > MAX_URL_CHARS) continue
 
     const domain = domainOf(url)
     if (domain === null) continue
@@ -214,7 +232,9 @@ export function parseSearxngResults(payload: unknown): SearchResult[] {
       domain,
       // `published` is present only when upstream gave a non-empty string — an
       // absent key is honest about "we do not know when this was written".
-      ...(published === null ? {} : { published: truncate(published, MAX_TITLE_CHARS) }),
+      // `cleanSpan`, not a bare truncate: `publishedDate` is upstream text like any
+      // other field, so a forged fence marker in it must be neutralised too.
+      ...(published === null ? {} : { published: cleanSpan(published, MAX_PUBLISHED_CHARS) }),
     })
   }
   return out
