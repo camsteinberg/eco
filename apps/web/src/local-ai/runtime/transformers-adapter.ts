@@ -203,6 +203,20 @@ const NON_RECOVERABLE_CODES: ReadonlySet<ErrorCode> = new Set(['init-failed', 't
 
 /** Reject a load that gets NO worker response at all within this window (covers a cold load of multi-GB weights on a slow device). */
 const DEFAULT_LOAD_STALL_TIMEOUT_MS = 120_000;
+/**
+ * Total load ceiling for a model that reports NO progress at all while loading.
+ *
+ * `shouldSkipModelProgressPreflight` models (Qwen3.5 text-only exports) are
+ * loaded without a `progress_callback`, so the worker never posts
+ * `{type:'progress'}` and the stall watchdog has nothing to re-arm on. Against
+ * such a model the 120s stall window is not a stall detector at all — it is a
+ * fixed ceiling on total load time, and it fires at exactly 120s on a load that
+ * is progressing normally (s45: Qwen3.5-2B, 1.4 GB, reported as a load failure
+ * when a switcher-provisioned load of the same model took 155s + 3.9s).
+ * This budget is the ceiling for that arm, deliberately far above any healthy
+ * cold load, because with no signal the only thing left to bound is wall clock.
+ */
+const DEFAULT_NO_SIGNAL_LOAD_TIMEOUT_MS = 600_000;
 /** Fail a generation if the FIRST token never arrives within this window. Prefill is compute-bound like load, so this is generous. */
 const DEFAULT_FIRST_TOKEN_TIMEOUT_MS = 120_000;
 /** Fail a generation if streaming stalls this long BETWEEN tokens — the #28 stall signature. Tighter than the first-token window by design. */
@@ -218,6 +232,11 @@ export type TransformersAdapterOptions = {
   generateId?: () => string;
   /** Override the load-stall watchdog window (ms). Defaults to 120s (RT-3). */
   loadStallTimeoutMs?: number;
+  /**
+   * Override the total load ceiling (ms) used for models that report no load
+   * progress (`shouldSkipModelProgressPreflight`). Defaults to 600s.
+   */
+  noSignalLoadTimeoutMs?: number;
   /** Override the first-token watchdog window (ms). Defaults to 120s (RT-3). */
   firstTokenTimeoutMs?: number;
   /** Override the inter-token watchdog window (ms). Defaults to 30s (RT-3). */
@@ -281,6 +300,20 @@ export class TransformersAdapter implements RuntimeAdapter {
     emit?.({ phase: 'load-start', at: now(), note: model.id });
 
     const loadStallMs = this.options.loadStallTimeoutMs ?? DEFAULT_LOAD_STALL_TIMEOUT_MS;
+    // No progress_callback reaches the worker for these models, so there is no
+    // stall signal — only a wall-clock ceiling. Keep the two budgets distinct so
+    // the error can say which one it measured.
+    const noProgressSignal = shouldSkipModelProgressPreflight(model);
+    const noSignalCeilingMs = this.options.noSignalLoadTimeoutMs ?? DEFAULT_NO_SIGNAL_LOAD_TIMEOUT_MS;
+    const loadWindowMs = noProgressSignal ? noSignalCeilingMs : loadStallMs;
+
+    if (noProgressSignal) {
+      emit?.({
+        phase: 'load-start',
+        at: now(),
+        note: `${model.id} (no progress signal; ceiling ${Math.round(loadWindowMs / 1000)}s)`,
+      });
+    }
 
     return new Promise<void>((resolve, reject) => {
       let settled = false;
@@ -314,13 +347,19 @@ export class TransformersAdapter implements RuntimeAdapter {
         if (settled) return;
         if (stallTimer !== null) clearTimeout(stallTimer);
         stallTimer = setTimeout(() => {
-          emit?.({ phase: 'load-fail', at: now(), error: { message: 'load stalled', name: 'timeout' } });
+          emit?.({
+            phase: 'load-fail',
+            at: now(),
+            error: { message: noProgressSignal ? 'load ceiling exceeded' : 'load stalled', name: 'timeout' },
+          });
           settleReject(new AdapterError(
-            `Model load timed out after ${Math.round(loadStallMs / 1000)}s with no progress from the worker.`,
+            noProgressSignal
+              ? `Model load exceeded ${Math.round(loadWindowMs / 1000)}s (this model reports no progress while loading).`
+              : `Model load timed out after ${Math.round(loadWindowMs / 1000)}s with no progress from the worker.`,
             'timeout',
             true,
           ));
-        }, loadStallMs);
+        }, loadWindowMs);
       };
 
       const handler = (event: MessageEvent<WorkerOutbound>): void => {
