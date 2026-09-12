@@ -20,7 +20,12 @@
 
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 
-import { runToolStep, type ToolStepStore, type WebSearchFetch } from "../tool-step";
+import {
+  runToolStep,
+  WEB_SEARCH_MAX_QUERY_CHARS,
+  type ToolStepStore,
+  type WebSearchFetch,
+} from "../tool-step";
 import type { ToolCallDisplay } from "../../../lib/tool-parser";
 import type { StreamPhase } from "../../../stores/chatStore";
 
@@ -341,5 +346,101 @@ describe("runToolStep — web search on", () => {
 
     expect(seenAborted).toBe(true);
     expect(out).toEqual({ systemNote: null });
+  });
+});
+
+describe("runToolStep — a question too long for the relay", () => {
+  /** Pad the live ask to exactly `chars`, keeping the live phrase intact. */
+  function liveAskOfLength(chars: number): string {
+    const filler = "a".repeat(chars - UNCLAIMED_LIVE_ASK.length - 1);
+    const ask = `${filler} ${UNCLAIMED_LIVE_ASK}`;
+    expect(ask).toHaveLength(chars);
+    return ask;
+  }
+
+  it("pins the mirrored cap to the relay's MAX_QUERY_LENGTH", () => {
+    // apps/api/src/routes/search.ts — MAX_QUERY_LENGTH. If that moves, this fails.
+    expect(WEB_SEARCH_MAX_QUERY_CHARS).toBe(200);
+  });
+
+  it("fires no request for a question one character over the cap", async () => {
+    const { store, phases } = makeStore();
+    const { impl, recorded } = stubFetch(() => jsonResponse(RELAY_BODY));
+
+    const out = await runToolStep(liveAskOfLength(201), store, undefined, {
+      webSearch: true,
+      webSearchFetch: impl,
+    });
+
+    expect(recorded).toHaveLength(0);
+    // The existing honest marker, reached without spending a 400 on the relay.
+    expect(out).toEqual({ systemNote: null, verification: { status: "unreachable" } });
+    // No "Looking it up…" for a lookup that never happens.
+    expect(phases).toEqual([]);
+  });
+
+  it("still fires for a question exactly at the cap", async () => {
+    const { store } = makeStore();
+    const { impl, recorded } = stubFetch(() => jsonResponse(RELAY_BODY));
+
+    const out = await runToolStep(liveAskOfLength(200), store, undefined, {
+      webSearch: true,
+      webSearchFetch: impl,
+    });
+
+    expect(recorded).toHaveLength(1);
+    expect(out.systemNote).not.toBeNull();
+  });
+});
+
+describe("runToolStep — a relay result url that is not a web page", () => {
+  it("drops a javascript: url and keeps the ordinary results", async () => {
+    const { store } = makeStore();
+    const { impl } = stubFetch(() =>
+      jsonResponse({
+        fetchedAt: FETCHED_AT,
+        results: [
+          {
+            title: "Click me",
+            url: "javascript://example.com/%0aalert(1)",
+            snippet: "Nothing good.",
+            domain: "example.com",
+          },
+          ...RELAY_BODY.results,
+        ],
+      }),
+    );
+
+    const out = await runToolStep(UNCLAIMED_LIVE_ASK, store, undefined, {
+      webSearch: true,
+      webSearchFetch: impl,
+    });
+
+    expect(out.citations?.map((citation) => citation.url)).toEqual([
+      "https://example-weather.test/chicago",
+      "https://example-forecast.test/il/chicago",
+      "https://example-radar.test/il",
+    ]);
+    expect(out.systemNote).not.toContain("javascript:");
+  });
+
+  it("falls back to the unreachable marker when every result url is unusable", async () => {
+    const { store } = makeStore();
+    const { impl } = stubFetch(() =>
+      jsonResponse({
+        fetchedAt: FETCHED_AT,
+        results: [
+          { title: "A", url: "mailto:someone@example.com", snippet: "s", domain: "example.com" },
+          { title: "B", url: "ftp://files.example.com/x", snippet: "s", domain: "example.com" },
+        ],
+      }),
+    );
+
+    const out = await runToolStep(UNCLAIMED_LIVE_ASK, store, undefined, {
+      webSearch: true,
+      webSearchFetch: impl,
+    });
+
+    expect(out).toEqual({ systemNote: null, verification: { status: "unreachable" } });
   });
 });

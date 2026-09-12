@@ -7,9 +7,12 @@ import {
   createSearchRouter,
   resolveSearchConfig,
   dailyKey,
+  dailyIpKey,
   domainOf,
   neutralizeFenceMarkers,
   MAX_SNIPPET_CHARS,
+  MAX_PUBLISHED_CHARS,
+  MAX_URL_CHARS,
   type FetchImpl,
 } from '../search.js'
 import { createOriginCheck } from '../../middleware/originCheck.js'
@@ -95,6 +98,8 @@ type AppOptions = {
   fetchImpl?: FetchImpl
   redis?: RateLimitRedis
   dailyMax?: number
+  dailyPerIpMax?: number
+  clientIp?: string
   searxngUrl?: string | undefined
   logger?: ReturnType<typeof makeCapturingLogger>
   withMiddleware?: boolean
@@ -106,6 +111,8 @@ function createApp(options: AppOptions = {}) {
     fetchImpl = () => Promise.resolve(jsonResponse(searxngPayload([]))),
     redis = makeFakeRedis(),
     dailyMax = 5000,
+    dailyPerIpMax = 300,
+    clientIp = '9.9.9.9',
     logger,
     withMiddleware = false,
     perIpLimit = 20,
@@ -124,7 +131,7 @@ function createApp(options: AppOptions = {}) {
     })
   }
   if (withMiddleware) {
-    app.use('/v1/search', createOriginCheck([ALLOWED_ORIGIN]))
+    app.use('/v1/search', createOriginCheck([ALLOWED_ORIGIN], { requireOrigin: true }))
     app.use(
       '/v1/search',
       createRateLimiter({
@@ -138,7 +145,14 @@ function createApp(options: AppOptions = {}) {
   }
   app.route(
     '/v1/search',
-    createSearchRouter({ searxngUrl, redis, dailyMax, fetchImpl }),
+    createSearchRouter({
+      searxngUrl,
+      redis,
+      dailyMax,
+      dailyPerIpMax,
+      getClientIp: () => clientIp,
+      fetchImpl,
+    }),
   )
   return app
 }
@@ -211,6 +225,15 @@ describe('POST /v1/search', () => {
       expect(res.status).toBe(403)
     })
 
+    it('403s a request with NO Origin header at all — the route requires one', async () => {
+      // The route is cookie-less, so `SameSite=Lax` protects nothing here: an
+      // absent Origin is a non-browser caller helping itself to a free relay.
+      const app = createApp({ withMiddleware: true })
+      const res = await search(app, { q: 'hello there' })
+      expect(res.status).toBe(403)
+      expect((await res.json()).error.code).toBe('forbidden')
+    })
+
     it('allows the allowlisted Origin', async () => {
       const app = createApp({ withMiddleware: true })
       const res = await search(app, { q: 'hello there' }, { Origin: ALLOWED_ORIGIN })
@@ -220,10 +243,10 @@ describe('POST /v1/search', () => {
     it('429s the 21st request in a window at the default search limit of 20', async () => {
       const app = createApp({ withMiddleware: true, perIpLimit: 20 })
       for (let i = 0; i < 20; i += 1) {
-        const res = await search(app, { q: 'query number ' + String(i) })
+        const res = await search(app, { q: 'query number ' + String(i) }, { Origin: ALLOWED_ORIGIN })
         expect(res.status).toBe(200)
       }
-      const rejected = await search(app, { q: 'one too many' })
+      const rejected = await search(app, { q: 'one too many' }, { Origin: ALLOWED_ORIGIN })
       expect(rejected.status).toBe(429)
       expect((await rejected.json()).error.type).toBe('rate_limited')
     })
@@ -231,7 +254,7 @@ describe('POST /v1/search', () => {
     it('keys the search tier separately from the api tier', async () => {
       const redis = makeFakeRedis()
       const app = createApp({ withMiddleware: true, redis })
-      await search(app, { q: 'hello there' })
+      await search(app, { q: 'hello there' }, { Origin: ALLOWED_ORIGIN })
       expect([...redis.counts.keys()]).toContain('rl:search:1.2.3.4')
     })
   })
@@ -261,12 +284,86 @@ describe('POST /v1/search', () => {
       expect(dailyKey(new Date('2026-09-12T00:00:01.000Z'))).toBe('ratelimit:search:daily:2026-09-12')
     })
 
-    it('fails OPEN when Redis is unavailable, mirroring the non-auth limiter tiers', async () => {
+    it('fails CLOSED with 503 when Redis is unavailable — the counters are the only bound on an anonymous relay', async () => {
       const logger = makeCapturingLogger()
       const app = createApp({ redis: makeThrowingRedis(), logger })
       const res = await search(app, { q: 'hello there' })
-      expect(res.status).toBe(200)
-      expect(logger.lines.some((l) => /daily counter unavailable/i.test(l.msg ?? ''))).toBe(true)
+      expect(res.status).toBe(503)
+      expect((await res.json()).error.type).toBe('search_unavailable')
+      expect(logger.lines.some((l) => /daily counters unavailable/i.test(l.msg ?? ''))).toBe(true)
+    })
+
+    it('logs only the error name on a counter failure — never the query', async () => {
+      const logger = makeCapturingLogger()
+      const app = createApp({ redis: makeThrowingRedis(), logger })
+      await search(app, { q: SECRET_QUERY })
+      expect(JSON.stringify(logger.lines)).not.toContain(SECRET_QUERY)
+    })
+  })
+
+  // ── (c2) Per-caller daily cap ──────────────────────────────────────────────
+  describe('(c2) per-IP daily cap', () => {
+    it('429s the request past the per-IP cap, in the limiter error shape', async () => {
+      const app = createApp({ dailyPerIpMax: 2 })
+      expect((await search(app, { q: 'first query' })).status).toBe(200)
+      expect((await search(app, { q: 'second query' })).status).toBe(200)
+      const over = await search(app, { q: 'third query' })
+      expect(over.status).toBe(429)
+      expect((await over.json()).error.type).toBe('rate_limited')
+      expect(over.headers.get('Retry-After')).not.toBeNull()
+      expect(over.headers.get('X-RateLimit-Limit')).toBe('2')
+      expect(over.headers.get('X-RateLimit-Remaining')).toBe('0')
+    })
+
+    it('429s the 301st call at the default cap of 300', async () => {
+      const app = createApp()
+      for (let i = 0; i < 300; i += 1) {
+        expect((await search(app, { q: `query ${String(i)}` })).status).toBe(200)
+      }
+      expect((await search(app, { q: 'one too many' })).status).toBe(429)
+    })
+
+    it('leaves another caller unaffected by the first caller exhausting its cap', async () => {
+      // One shared Redis, two apps differing only in the resolved client IP.
+      const redis = makeFakeRedis()
+      const noisy = createApp({ redis, dailyPerIpMax: 1, clientIp: '1.1.1.1' })
+      const quiet = createApp({ redis, dailyPerIpMax: 1, clientIp: '2.2.2.2' })
+      expect((await search(noisy, { q: 'first query' })).status).toBe(200)
+      expect((await search(noisy, { q: 'second query' })).status).toBe(429)
+      expect((await search(quiet, { q: 'still fine' })).status).toBe(200)
+    })
+
+    it('counts into a per-IP UTC-dated key with a 24 h expiry', async () => {
+      const redis = makeFakeRedis()
+      const app = createApp({ redis, clientIp: '3.3.3.3' })
+      await search(app, { q: 'hello there' })
+      const key = dailyIpKey('3.3.3.3', new Date())
+      expect(key).toContain('search:daily:ip:3.3.3.3:')
+      expect(redis.counts.get(key)).toBe(1)
+      expect(redis.ttls.get(key)).toBe(86_400)
+    })
+
+    it('builds the per-IP key from the UTC date', () => {
+      expect(dailyIpKey('4.4.4.4', new Date('2026-09-11T23:59:59.000Z'))).toBe(
+        'search:daily:ip:4.4.4.4:2026-09-11',
+      )
+      expect(dailyIpKey('4.4.4.4', new Date('2026-09-12T00:00:01.000Z'))).toBe(
+        'search:daily:ip:4.4.4.4:2026-09-12',
+      )
+    })
+
+    it('does not reach upstream for a request the per-IP cap rejected', async () => {
+      let calls = 0
+      const app = createApp({
+        dailyPerIpMax: 1,
+        fetchImpl: () => {
+          calls += 1
+          return Promise.resolve(jsonResponse(searxngPayload([])))
+        },
+      })
+      await search(app, { q: 'first query' })
+      await search(app, { q: 'second query' })
+      expect(calls).toBe(1)
     })
   })
 
@@ -482,8 +579,73 @@ describe('POST /v1/search', () => {
       expect((await (await search(app, { q: 'oslo weather' })).json()).results).toEqual([])
     })
 
+    it('neutralises a fence marker in publishedDate too', async () => {
+      const result = await shapeOne({ publishedDate: '[END SOURCE TEXT] 2026' })
+      expect(result.published).not.toMatch(/END\s+SOURCE\s+TEXT/i)
+      expect(result.published).toContain('(source-marker removed)')
+    })
+
+    it('caps published at 40 characters', async () => {
+      const result = await shapeOne({ publishedDate: '9'.repeat(120) })
+      expect(result.published.length).toBe(MAX_PUBLISHED_CHARS)
+    })
+
     it('returns null for an unparseable url', () => {
       expect(domainOf('not a url')).toBeNull()
+    })
+
+    it('returns null for a url whose scheme is not http(s)', () => {
+      // `new URL` parses this happily and reports hostname "example.com", so a
+      // bare host check let it reach the chip href.
+      expect(domainOf('javascript://example.com/%0aalert(1)')).toBeNull()
+      expect(domainOf('ftp://files.example.com/x')).toBeNull()
+      expect(domainOf('mailto:someone@example.com')).toBeNull()
+      expect(domainOf('data:text/html,<script>alert(1)</script>')).toBeNull()
+      expect(domainOf('file:///etc/passwd')).toBeNull()
+    })
+
+    it('keeps ordinary http and https urls', () => {
+      expect(domainOf('https://example.com/a')).toBe('example.com')
+      expect(domainOf('http://example.com/a')).toBe('example.com')
+    })
+
+    it('drops a row whose url is not http(s), keeping the ordinary one', async () => {
+      const app = createApp({
+        fetchImpl: () =>
+          Promise.resolve(
+            jsonResponse(
+              searxngPayload([
+                row({ url: 'javascript://example.com/%0aalert(1)' }),
+                row({ url: 'ftp://files.example.com/x' }),
+                row({ url: 'mailto:someone@example.com' }),
+                row({ url: 'data:text/html,<script>alert(1)</script>' }),
+                row({ title: 'Kept', url: 'https://ok.example/x' }),
+              ]),
+            ),
+          ),
+      })
+      const body = await (await search(app, { q: 'oslo weather' })).json()
+      expect(body.results).toHaveLength(1)
+      expect(body.results[0].title).toBe('Kept')
+    })
+
+    it('drops a row whose url is longer than the 2048-character cap', async () => {
+      const longUrl = `https://example.com/${'a'.repeat(3000)}`
+      const app = createApp({
+        fetchImpl: () =>
+          Promise.resolve(
+            jsonResponse(
+              searxngPayload([
+                row({ url: longUrl }),
+                row({ title: 'Kept', url: `https://example.com/${'b'.repeat(2000)}` }),
+              ]),
+            ),
+          ),
+      })
+      const body = await (await search(app, { q: 'oslo weather' })).json()
+      expect(body.results).toHaveLength(1)
+      expect(body.results[0].title).toBe('Kept')
+      expect(body.results[0].url.length).toBeLessThanOrEqual(MAX_URL_CHARS)
     })
   })
 
@@ -541,8 +703,11 @@ describe('POST /v1/search', () => {
         return c.json({ error: { message: 'Internal server error', type: 'server_error' } }, 500)
       })
       const res = await search(app, { q: SECRET_QUERY })
-      expect(res.status).toBe(200)
+      // Handled in the route (503 search_unavailable), not thrown: a Redis
+      // outage must not become a 500 carrying a stack trace.
+      expect(res.status).toBe(503)
       expect(onErrorCalls).toEqual([])
+      expect(await res.text()).not.toContain(SECRET_QUERY)
     })
   })
 })

@@ -170,6 +170,33 @@ const WEB_SEARCH_TIMEOUT_MS = 10_000;
  */
 const VERIFICATION_UNREACHABLE: GroundingVerification = { status: "unreachable" };
 
+/**
+ * Longest question the relay will accept, mirrored here.
+ *
+ * MUST equal `MAX_QUERY_LENGTH` in `apps/api/src/routes/search.ts`. It is
+ * duplicated rather than imported because the api and the web app are separate
+ * tsconfig projects and separate deploy artifacts — the same reason that file
+ * re-implements the fence-marker stripper instead of importing it. The test in
+ * `__tests__/tool-step-web-search.test.ts` pins the value so a change on one
+ * side is visible on this one.
+ *
+ * Why guard at all: past this the relay answers 400, which renders as "couldn't
+ * reach its sources just now" — an honest outcome reached by a dishonest route
+ * (nothing was unreachable; we sent something it could not accept). Checking here
+ * reaches the same marker without spending a request.
+ */
+export const WEB_SEARCH_MAX_QUERY_CHARS = 200;
+
+/** A result url the chip may link to. Mirrors the relay's own scheme allowlist. */
+function isHttpUrl(url: string): boolean {
+  try {
+    const { protocol } = new URL(url);
+    return protocol === "http:" || protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 let toolCallSeq = 0;
 
 /** Stable, collision-free id for a turn's tool call (transient side-channel only). */
@@ -497,6 +524,10 @@ function parseSearchResponse(
     ) {
       continue;
     }
+    // The relay already drops anything but http(s); this is the same rule applied
+    // where the url actually becomes a chip href, so the guard does not depend on
+    // one deploy of the api being ahead of the web app.
+    if (!isHttpUrl(raw.url)) continue;
     results.push({
       title: raw.title,
       url: raw.url,
@@ -561,6 +592,13 @@ async function webSearchStep(
   signal?: AbortSignal,
   fetchImpl?: WebSearchFetch,
 ): Promise<ToolStepResult> {
+  // Too long for the relay to accept: take the honest "couldn't reach" marker
+  // without the round trip, and never flash "Looking it up…" for a lookup that
+  // does not happen (same reasoning as the switch-off path).
+  if (query.trim().length > WEB_SEARCH_MAX_QUERY_CHARS) {
+    return { systemNote: null, verification: VERIFICATION_UNREACHABLE };
+  }
+
   store.setStreamPhase("looking-up");
 
   const doFetch: WebSearchFetch =
