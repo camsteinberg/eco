@@ -19,6 +19,13 @@
  * models and no ten-minute run survives that. So a smoke run is a self-test of
  * the lane, never an acceptance verdict — the report says so in its header.
  *
+ * `ECO_ACCEPTANCE_TASKS=2,4` narrows further still, to exactly the tasks named,
+ * for the case "I changed one task and want to see it walk" — about four
+ * minutes for a single task (s42, measured 5×). It implies a smoke run and it
+ * likewise leaves the origin alone, so the profile stays warm and the models
+ * stay downloaded. When both `ECO_ACCEPTANCE_TASKS` and `ECO_ACCEPTANCE_SMOKE`
+ * are set, the explicit task list WINS: it is the more specific instruction.
+ *
  * Everything here is pure and env-injected so it can be unit-tested without a
  * browser; the spec reads `process.env` once and passes the plan around.
  */
@@ -31,6 +38,9 @@ export const SMOKE_TASKS: readonly number[] = [1, 4, 8];
 
 export const SMOKE_ENV_VAR = "ECO_ACCEPTANCE_SMOKE";
 
+/** Comma-separated task numbers, e.g. `ECO_ACCEPTANCE_TASKS=2,4`. */
+export const TASKS_ENV_VAR = "ECO_ACCEPTANCE_TASKS";
+
 export type AcceptancePlan = {
   /** True when the run is the ten-minute self-test rather than the full walk. */
   smoke: boolean;
@@ -42,11 +52,31 @@ export type AcceptancePlan = {
 
 const AFFIRMATIVE = new Set(["1", "true", "yes", "on"]);
 
+/**
+ * Parse an explicit task list: positive integers, in the order given, deduped.
+ * Anything that is not a positive integer is ignored rather than fatal — a
+ * stray space or a typo should narrow the run, not abort it minutes in.
+ */
+function parseTasks(raw: string | undefined): number[] {
+  const seen = new Set<number>();
+  const tasks: number[] = [];
+  for (const part of (raw ?? "").split(",")) {
+    const value = Number(part.trim());
+    if (!Number.isInteger(value) || value <= 0 || part.trim() === "" || seen.has(value)) continue;
+    seen.add(value);
+    tasks.push(value);
+  }
+  return tasks;
+}
+
 /** Read the plan from an environment. Anything but an affirmative flag is the full walk. */
 export function acceptancePlan(
   env: Record<string, string | undefined> = process.env,
 ): AcceptancePlan {
   const smoke = AFFIRMATIVE.has((env[SMOKE_ENV_VAR] ?? "").trim().toLowerCase());
+  // The explicit list beats the smoke flag: it is the more specific request.
+  const only = parseTasks(env[TASKS_ENV_VAR]);
+  if (only.length > 0) return { smoke: true, tasks: only, wipesOrigin: false };
   return {
     smoke,
     tasks: smoke ? SMOKE_TASKS : ACCEPTANCE_TASKS,

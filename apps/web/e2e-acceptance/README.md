@@ -39,6 +39,29 @@ NOT wiped — a wipe would re-download both models. **Read a smoke report as "th
 walk still works", never as "the product passed."** Both models are still
 provisioned, because task 8 has to have somewhere to switch to.
 
+### Narrowing further: one task, one model
+
+```bash
+ECO_ACCEPTANCE_TASKS=2 ECO_ACCEPTANCE_SLOT=eco-smart pnpm --filter @eco/web test:acceptance
+```
+
+`ECO_ACCEPTANCE_TASKS` takes a comma-separated list of task numbers and walks
+exactly those, in the order given; `ECO_ACCEPTANCE_SLOT` (`eco-fast` or
+`eco-smart`) chooses which model walks them instead of the default everyday
+pick. A task list implies a smoke run and beats `ECO_ACCEPTANCE_SMOKE` when
+both are set. Like the smoke subset it does **not** wipe the origin, so the
+profile stays warm and the models stay downloaded — that is what makes a single
+task about four minutes (s42, measured 5×) rather than the better part of an
+hour. It is an instrument for "did the change I just made to this task work?",
+never a product verdict: one task on one model, on a profile carrying whatever
+the last run left behind.
+
+The ten-turn chat (task 2) prefixes every row's evidence with that turn's
+counts — prompt and completion tokens, the KV gate's `cachedLen`/`promptLen`,
+the common prefix, the duration, the window start, and the decoded divergence
+when there was one — which is what makes a lost figure diagnosable after the
+fact.
+
 ## What it does
 
 | # | Task |

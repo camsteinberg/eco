@@ -6,6 +6,7 @@ import {
   ACCEPTANCE_TASKS,
   SMOKE_ENV_VAR,
   SMOKE_TASKS,
+  TASKS_ENV_VAR,
   acceptancePlan,
   planPicks,
   planWalksTask,
@@ -46,6 +47,50 @@ describe("acceptancePlan", () => {
     for (const value of ["true", "TRUE", " 1 ", "yes"]) {
       expect(acceptancePlan({ [SMOKE_ENV_VAR]: value }).smoke, value).toBe(true);
     }
+  });
+});
+
+describe("acceptancePlan with an explicit task list", () => {
+  it("walks exactly the tasks named, in the order given", () => {
+    const plan = acceptancePlan({ [TASKS_ENV_VAR]: "2,4" });
+    expect(plan.tasks).toEqual([2, 4]);
+    expect(plan.smoke).toBe(true);
+  });
+
+  it("keeps the caller's order rather than sorting", () => {
+    expect(acceptancePlan({ [TASKS_ENV_VAR]: "8,1" }).tasks).toEqual([8, 1]);
+  });
+
+  it("dedupes and ignores anything that is not a positive integer", () => {
+    expect(acceptancePlan({ [TASKS_ENV_VAR]: " 2 , 2 ,x" }).tasks).toEqual([2]);
+    expect(acceptancePlan({ [TASKS_ENV_VAR]: "0,-1,2.5,,3" }).tasks).toEqual([3]);
+  });
+
+  it("is the full walk when the list parses to nothing", () => {
+    for (const value of ["", "   ", "x,y", "0"]) {
+      expect(acceptancePlan({ [TASKS_ENV_VAR]: value }).tasks, value).toEqual(ACCEPTANCE_TASKS);
+    }
+  });
+
+  it("beats the smoke flag when both are set", () => {
+    const plan = acceptancePlan({ [TASKS_ENV_VAR]: "2", [SMOKE_ENV_VAR]: "1" });
+    expect(plan.tasks).toEqual([2]);
+  });
+
+  it("falls back to the smoke subset when the list is empty and the flag is on", () => {
+    const plan = acceptancePlan({ [TASKS_ENV_VAR]: "", [SMOKE_ENV_VAR]: "1" });
+    expect(plan.tasks).toEqual(SMOKE_TASKS);
+  });
+
+  it("leaves the origin alone, so the profile stays warm", () => {
+    // The whole point of a single-task run is ~4 min on already-downloaded
+    // models; a wipe would re-download ~2.5 GB first.
+    expect(acceptancePlan({ [TASKS_ENV_VAR]: "2" }).wipesOrigin).toBe(false);
+  });
+
+  it("walks only the tasks named", () => {
+    const plan = acceptancePlan({ [TASKS_ENV_VAR]: "2,4" });
+    expect(ACCEPTANCE_TASKS.filter((task) => planWalksTask(plan, task))).toEqual([2, 4]);
   });
 });
 

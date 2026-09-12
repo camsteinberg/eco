@@ -110,14 +110,59 @@ const ECO_DEEPER: Pick = {
 const PICKS: readonly Pick[] = [ECO_FAST, ECO_DEEPER];
 
 /**
- * Full walk, or the ten-minute self-test (`ECO_ACCEPTANCE_SMOKE=1`).
+ * Full walk, the ten-minute self-test (`ECO_ACCEPTANCE_SMOKE=1`), or an
+ * explicit task list (`ECO_ACCEPTANCE_TASKS=2,4`).
  *
  * Both models are still PROVISIONED either way — task 8 needs somewhere to
- * switch to — but a smoke run walks only `WALK_PICKS` and only the tasks the
- * plan names. See `lib/subset`.
+ * switch to — but a narrowed run walks only `WALK_PICKS` and only the tasks
+ * the plan names. See `lib/subset`.
+ *
+ * `ECO_ACCEPTANCE_SLOT=eco-smart` picks WHICH model walks, instead of the
+ * plan's default of the everyday pick; an unknown slot walks nothing, which is
+ * the visible failure we want rather than a silent fallback to both.
  */
 const PLAN = acceptancePlan();
-const WALK_PICKS: readonly Pick[] = planPicks(PLAN, PICKS);
+const SLOT_FILTER = process.env.ECO_ACCEPTANCE_SLOT?.trim();
+const WALK_LABEL = process.env.ECO_ACCEPTANCE_TASKS?.trim()
+  ? `tasks ${PLAN.tasks.join(",")}`
+  : PLAN.smoke
+    ? "smoke subset"
+    : "eleven-task";
+const WALK_PICKS: readonly Pick[] = SLOT_FILTER
+  ? PICKS.filter((pick) => pick.slot === SLOT_FILTER)
+  : planPicks(PLAN, PICKS);
+
+/**
+ * The numeric side of one turn, for the evidence column: what the prompt and
+ * reply cost, what the KV gate saw, and where the history window started.
+ *
+ * A ten-turn chat that loses a figure is only diagnosable with these: the same
+ * `windowStart` as the previous turn with an `equal-or-shorter` miss is
+ * re-tokenization, a moved `windowStart` is eviction, and the decoded
+ * divergence says which tokens differed. Missing fields print as `?` rather
+ * than being omitted, so the columns line up across turns.
+ */
+function turnCounts(outcome: TurnOutcome): string {
+  const receipt = outcomeReceipt(outcome);
+  const kv = receipt?.kvReuse;
+  const parts = [
+    `prompt=${receipt?.promptTokens ?? "?"}`,
+    `completion=${receipt?.completionTokens ?? "?"}`,
+    `cachedLen=${kv?.cachedLen ?? "?"}`,
+    `promptLen=${kv?.promptLen ?? "?"}`,
+    `commonPrefix=${kv?.commonPrefixLen ?? "-"}`,
+    `durationMs=${receipt?.durationMs ?? "?"}`,
+    `windowStart=${receipt?.windowStartIndex ?? "?"}`,
+  ];
+  const divergence = kv?.divergence;
+  if (divergence) {
+    parts.push(
+      `DIV cached=${JSON.stringify(clip(divergence.cached, 80))}`,
+      `next=${JSON.stringify(clip(divergence.next, 80))}`,
+    );
+  }
+  return parts.join(" ");
+}
 
 /** ~4,400 chars ≈ 1,100 estimator-tokens. Plain prose, not a token-stuffer. */
 const PASTE_BLOCK = (
@@ -273,8 +318,9 @@ test.describe("eleven-task acceptance walk", () => {
   for (const pick of WALK_PICKS) {
     const others = PICKS.filter((entry) => entry.modelId !== pick.modelId);
 
-    // The title says what actually ran; a smoke run is not an eleven-task walk.
-    test(`${pick.tileName} — ${PLAN.smoke ? "smoke subset" : "eleven-task"} walk`, async () => {
+    // The title says what actually ran; a smoke run is not an eleven-task walk,
+    // and an explicit task list is neither — it names its tasks.
+    test(`${pick.tileName} — ${WALK_LABEL} walk`, async () => {
       test.setTimeout(5_400_000);
       const pickReport: PickReport = {
         order: PICKS.indexOf(pick),
@@ -416,20 +462,24 @@ test.describe("eleven-task acceptance walk", () => {
           // model if the app stored the sentence we meant to send.
           const inputIntact = stored === null || stored.trim() === prompt.trim();
           let result: RowResult = "RECORDED";
-          let evidence = `reply: ${clip(outcome.replyText)}`;
+          // The counts are the point of this task as an instrument: a lost
+          // figure is diagnosable only alongside what the window held and
+          // whether the cache was reused on the turn that lost it.
+          const counts = turnCounts(outcome);
+          let evidence = `${counts}; reply: ${clip(outcome.replyText)}`;
           if (!inputIntact) {
             result = "FAIL";
             evidence = `stored input differs from what was typed: ${clip(stored ?? "")}`;
           } else if (turn === RUNNING_TOTAL_TURN) {
             const ok = contains(outcome.replyText, "2,065", "2065");
             result = ok ? "PASS" : "FAIL";
-            evidence = `running total 2,065 ${ok ? "present" : "absent"}; reply: ${clip(
+            evidence = `${counts}; running total 2,065 ${ok ? "present" : "absent"}; reply: ${clip(
               outcome.replyText,
             )}`;
           } else if (turn === RENT_RECALL_TURN) {
             const ok = contains(outcome.replyText, "1,450", "1450");
             result = ok ? "PASS" : "FAIL";
-            evidence = `rent figure from turn 2 ${ok ? "recalled" : "lost"}; reply: ${clip(
+            evidence = `${counts}; rent figure from turn 2 ${ok ? "recalled" : "lost"}; reply: ${clip(
               outcome.replyText,
             )}`;
           }
