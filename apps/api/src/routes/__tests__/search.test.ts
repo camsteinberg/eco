@@ -7,6 +7,7 @@ import {
   createSearchRouter,
   resolveSearchConfig,
   dailyKey,
+  dailyIpKey,
   domainOf,
   neutralizeFenceMarkers,
   MAX_SNIPPET_CHARS,
@@ -95,6 +96,8 @@ type AppOptions = {
   fetchImpl?: FetchImpl
   redis?: RateLimitRedis
   dailyMax?: number
+  dailyPerIpMax?: number
+  clientIp?: string
   searxngUrl?: string | undefined
   logger?: ReturnType<typeof makeCapturingLogger>
   withMiddleware?: boolean
@@ -106,6 +109,8 @@ function createApp(options: AppOptions = {}) {
     fetchImpl = () => Promise.resolve(jsonResponse(searxngPayload([]))),
     redis = makeFakeRedis(),
     dailyMax = 5000,
+    dailyPerIpMax = 300,
+    clientIp = '9.9.9.9',
     logger,
     withMiddleware = false,
     perIpLimit = 20,
@@ -138,7 +143,14 @@ function createApp(options: AppOptions = {}) {
   }
   app.route(
     '/v1/search',
-    createSearchRouter({ searxngUrl, redis, dailyMax, fetchImpl }),
+    createSearchRouter({
+      searxngUrl,
+      redis,
+      dailyMax,
+      dailyPerIpMax,
+      getClientIp: () => clientIp,
+      fetchImpl,
+    }),
   )
   return app
 }
@@ -270,12 +282,86 @@ describe('POST /v1/search', () => {
       expect(dailyKey(new Date('2026-09-12T00:00:01.000Z'))).toBe('ratelimit:search:daily:2026-09-12')
     })
 
-    it('fails OPEN when Redis is unavailable, mirroring the non-auth limiter tiers', async () => {
+    it('fails CLOSED with 503 when Redis is unavailable — the counters are the only bound on an anonymous relay', async () => {
       const logger = makeCapturingLogger()
       const app = createApp({ redis: makeThrowingRedis(), logger })
       const res = await search(app, { q: 'hello there' })
-      expect(res.status).toBe(200)
-      expect(logger.lines.some((l) => /daily counter unavailable/i.test(l.msg ?? ''))).toBe(true)
+      expect(res.status).toBe(503)
+      expect((await res.json()).error.type).toBe('search_unavailable')
+      expect(logger.lines.some((l) => /daily counters unavailable/i.test(l.msg ?? ''))).toBe(true)
+    })
+
+    it('logs only the error name on a counter failure — never the query', async () => {
+      const logger = makeCapturingLogger()
+      const app = createApp({ redis: makeThrowingRedis(), logger })
+      await search(app, { q: SECRET_QUERY })
+      expect(JSON.stringify(logger.lines)).not.toContain(SECRET_QUERY)
+    })
+  })
+
+  // ── (c2) Per-caller daily cap ──────────────────────────────────────────────
+  describe('(c2) per-IP daily cap', () => {
+    it('429s the request past the per-IP cap, in the limiter error shape', async () => {
+      const app = createApp({ dailyPerIpMax: 2 })
+      expect((await search(app, { q: 'first query' })).status).toBe(200)
+      expect((await search(app, { q: 'second query' })).status).toBe(200)
+      const over = await search(app, { q: 'third query' })
+      expect(over.status).toBe(429)
+      expect((await over.json()).error.type).toBe('rate_limited')
+      expect(over.headers.get('Retry-After')).not.toBeNull()
+      expect(over.headers.get('X-RateLimit-Limit')).toBe('2')
+      expect(over.headers.get('X-RateLimit-Remaining')).toBe('0')
+    })
+
+    it('429s the 301st call at the default cap of 300', async () => {
+      const app = createApp()
+      for (let i = 0; i < 300; i += 1) {
+        expect((await search(app, { q: `query ${String(i)}` })).status).toBe(200)
+      }
+      expect((await search(app, { q: 'one too many' })).status).toBe(429)
+    })
+
+    it('leaves another caller unaffected by the first caller exhausting its cap', async () => {
+      // One shared Redis, two apps differing only in the resolved client IP.
+      const redis = makeFakeRedis()
+      const noisy = createApp({ redis, dailyPerIpMax: 1, clientIp: '1.1.1.1' })
+      const quiet = createApp({ redis, dailyPerIpMax: 1, clientIp: '2.2.2.2' })
+      expect((await search(noisy, { q: 'first query' })).status).toBe(200)
+      expect((await search(noisy, { q: 'second query' })).status).toBe(429)
+      expect((await search(quiet, { q: 'still fine' })).status).toBe(200)
+    })
+
+    it('counts into a per-IP UTC-dated key with a 24 h expiry', async () => {
+      const redis = makeFakeRedis()
+      const app = createApp({ redis, clientIp: '3.3.3.3' })
+      await search(app, { q: 'hello there' })
+      const key = dailyIpKey('3.3.3.3', new Date())
+      expect(key).toContain('search:daily:ip:3.3.3.3:')
+      expect(redis.counts.get(key)).toBe(1)
+      expect(redis.ttls.get(key)).toBe(86_400)
+    })
+
+    it('builds the per-IP key from the UTC date', () => {
+      expect(dailyIpKey('4.4.4.4', new Date('2026-09-11T23:59:59.000Z'))).toBe(
+        'search:daily:ip:4.4.4.4:2026-09-11',
+      )
+      expect(dailyIpKey('4.4.4.4', new Date('2026-09-12T00:00:01.000Z'))).toBe(
+        'search:daily:ip:4.4.4.4:2026-09-12',
+      )
+    })
+
+    it('does not reach upstream for a request the per-IP cap rejected', async () => {
+      let calls = 0
+      const app = createApp({
+        dailyPerIpMax: 1,
+        fetchImpl: () => {
+          calls += 1
+          return Promise.resolve(jsonResponse(searxngPayload([])))
+        },
+      })
+      await search(app, { q: 'first query' })
+      await search(app, { q: 'second query' })
+      expect(calls).toBe(1)
     })
   })
 
@@ -550,8 +636,11 @@ describe('POST /v1/search', () => {
         return c.json({ error: { message: 'Internal server error', type: 'server_error' } }, 500)
       })
       const res = await search(app, { q: SECRET_QUERY })
-      expect(res.status).toBe(200)
+      // Handled in the route (503 search_unavailable), not thrown: a Redis
+      // outage must not become a 500 carrying a stack trace.
+      expect(res.status).toBe(503)
       expect(onErrorCalls).toEqual([])
+      expect(await res.text()).not.toContain(SECRET_QUERY)
     })
   })
 })

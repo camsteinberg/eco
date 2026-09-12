@@ -245,6 +245,13 @@ const RATE_LIMIT_SEARCH_MAX = parsePositiveIntEnv('RATE_LIMIT_SEARCH_MAX', proce
 // A GLOBAL ceiling across all callers, not a per-IP one: the per-IP tier bounds
 // one abuser, this bounds the total load Eco puts on its own search instance.
 const RATE_LIMIT_SEARCH_DAILY_MAX = parsePositiveIntEnv('RATE_LIMIT_SEARCH_DAILY_MAX', process.env.RATE_LIMIT_SEARCH_DAILY_MAX, 5000)
+// Per-CALLER daily cap, well under the global ceiling above: without it the
+// per-minute tier alone lets one IP drain the whole day's budget in ~4 hours.
+const RATE_LIMIT_SEARCH_DAILY_PER_IP_MAX = parsePositiveIntEnv(
+  'RATE_LIMIT_SEARCH_DAILY_PER_IP_MAX',
+  process.env.RATE_LIMIT_SEARCH_DAILY_PER_IP_MAX,
+  300,
+)
 
 app.use(
   '/api/auth/*',
@@ -377,6 +384,7 @@ if (rateLimitRedis && searchConfig.enabled) {
       searxngUrl: searchConfig.searxngUrl,
       redis: rateLimitRedis,
       dailyMax: RATE_LIMIT_SEARCH_DAILY_MAX,
+      dailyPerIpMax: RATE_LIMIT_SEARCH_DAILY_PER_IP_MAX,
     }),
   )
   logger.info('Search relay mounted at /v1/search')

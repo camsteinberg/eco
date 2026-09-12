@@ -98,8 +98,12 @@ const noopLogger: RateLimitLogger = {
  * local/dev (no Fly proxy) we fall back to the TCP peer address via Hono's
  * connection-info helper. We never key on raw `X-Forwarded-For` — a client can
  * set it to any value and trivially evade the limit.
+ *
+ * Exported because the search relay's per-IP daily counter must bucket callers
+ * the SAME way this limiter does — two different notions of "the client" would
+ * let one of the two controls be evaded while the other held.
  */
-function defaultGetClientIp(c: Context): string {
+export function defaultGetClientIp(c: Context): string {
   const flyIp = c.req.header('Fly-Client-IP')
   if (flyIp) return flyIp
 
