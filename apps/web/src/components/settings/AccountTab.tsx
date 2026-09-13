@@ -227,7 +227,7 @@ export function AccountTab() {
         title="Your data"
         description={
           "Download your conversations, settings, and memories. "
-          + "It is stored in this browser's own storage without extra encryption, protected by your device login; clearing Eco's data or the browser profile removes it."
+          + "Your conversations are stored in this browser's own storage without extra encryption, protected by your device login; clearing Eco's data or the browser profile removes them."
         }
       >
         <DataExportButton />
