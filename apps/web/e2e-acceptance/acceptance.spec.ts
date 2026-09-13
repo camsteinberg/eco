@@ -265,7 +265,7 @@ test.describe("eleven-task acceptance walk", () => {
   test.afterAll(async () => {
     // Assembled from the fragments on disk, so this is the WHOLE run even when
     // an earlier walk ran in a worker that has since been replaced.
-    const paths = assembleReport({ smoke: PLAN.smoke });
+    const paths = assembleReport({ smoke: PLAN.smoke, tasks: PLAN.tasks });
     console.log(`\nacceptance report: ${paths.jsonPath}\n                   ${paths.markdownPath}`);
     await context?.close();
   });
@@ -912,7 +912,7 @@ test.describe("eleven-task acceptance walk", () => {
   test("every walked model produced a table, and nothing failed that was not expected to", () => {
     // Read from disk, not from memory: a walk that ran in a worker Playwright
     // has since replaced left its rows in a fragment, and nowhere else.
-    const { report } = assembleReport({ smoke: PLAN.smoke });
+    const { report } = assembleReport({ smoke: PLAN.smoke, tasks: PLAN.tasks });
     expect(
       report.picks.length,
       `the report carries ${report.picks.length} model table(s), not ${WALK_PICKS.length}`,

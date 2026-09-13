@@ -63,6 +63,8 @@ export type AcceptanceReport = {
    * artefacts are unchanged by this field existing.
    */
   smoke?: true;
+  /** The tasks a smoke run walked, so the header names what actually ran. */
+  tasks?: readonly number[];
   picks: PickReport[];
 };
 
@@ -100,6 +102,15 @@ function renderTable(pick: PickReport): string {
   return `${header}\n${body}`;
 }
 
+function describeTasks(tasks: readonly number[] | undefined): string {
+  if (!tasks || tasks.length === 0) return "one model, a subset of tasks,";
+  const list =
+    tasks.length === 1
+      ? `task ${tasks[0]}`
+      : `tasks ${tasks.slice(0, -1).join(", ")} and ${tasks[tasks.length - 1]}`;
+  return `one model, ${list} only,`;
+}
+
 export function renderMarkdown(report: AcceptanceReport): string {
   const parts = [
     "# Acceptance run",
@@ -108,10 +119,10 @@ export function renderMarkdown(report: AcceptanceReport): string {
     "",
     ...(report.smoke
       ? [
-          "**Smoke subset (`ECO_ACCEPTANCE_SMOKE=1`): one model, tasks 1, 4 and",
-          "8 only, on whatever the profile already had.** This run is a self-test",
-          "of the lane, not an acceptance verdict — read it as \"the walk still",
-          "works\", never as \"the product passed\".",
+          `**Subset run (\`ECO_ACCEPTANCE_SMOKE=1\` or \`ECO_ACCEPTANCE_TASKS\`): ${describeTasks(report.tasks)}`,
+          "on whatever the profile already had.** This run is a self-test of the",
+          "lane or a narrowed instrument, not an acceptance verdict — read it as",
+          "\"the walk still works\", never as \"the product passed\".",
           "",
         ]
       : []),
@@ -226,7 +237,9 @@ export function resetReportArtefacts(): void {
  * Assemble every fragment into the report and write both artefacts.
  * Idempotent, so every worker can call it as it finishes.
  */
-export function assembleReport(options: { smoke?: boolean } = {}): {
+export function assembleReport(
+  options: { smoke?: boolean; tasks?: readonly number[] } = {},
+): {
   report: AcceptanceReport;
   jsonPath: string;
   markdownPath: string;
@@ -238,7 +251,7 @@ export function assembleReport(options: { smoke?: boolean } = {}): {
       picks.map((pick) => pick.finishedAt).filter(Boolean).sort().pop()
       ?? new Date().toISOString(),
     // Omitted rather than set false, so a full run's JSON is byte-identical.
-    ...(options.smoke ? { smoke: true as const } : {}),
+    ...(options.smoke ? { smoke: true as const, tasks: [...options.tasks ?? []] } : {}),
     picks,
   };
   const markdownPath = REPORT_JSON_PATH.replace(/\.json$/, ".md");
