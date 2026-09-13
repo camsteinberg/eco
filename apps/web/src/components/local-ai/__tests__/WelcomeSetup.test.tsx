@@ -175,6 +175,25 @@ describe('WelcomeSetup', () => {
     expect(screen.getByRole('main')).toHaveAttribute('data-eco-setup-surface');
   });
 
+  // Desktop Safari and Firefox only ever reach the catalog's small entries
+  // (every `capable`/`laptop` entry is chromium-only), so the wait surface says
+  // where Eco runs best rather than letting a slow reply read as a fault.
+  it('tells a non-Chromium browser where Eco runs best', () => {
+    render(
+      <WelcomeSetup phase="downloading" percent={20} etaSeconds={90} reassuranceIndex={0} slowBrowser />,
+    );
+    expect(
+      screen.getByText(
+        /Eco runs best in Chrome or Edge on this device\. In this browser it will work, but replies take longer\./,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('says nothing about the browser on Chrome or Edge (slowBrowser defaults off)', () => {
+    render(<WelcomeSetup phase="downloading" percent={20} etaSeconds={90} reassuranceIndex={0} />);
+    expect(screen.queryByText(/runs best in Chrome or Edge/i)).toBeNull();
+  });
+
   // The setup surface is a single calm column: no composer ghost while the
   // model isn't usable yet. A disabled input read as broken, not as promise —
   // the real composer arrives with the real chat surface.

@@ -43,6 +43,11 @@ export function LocalAiSetupGate({
   // of the standard first-load copy (Every-Device program Phase 0, Finding E).
   const deviceProfile = useDeviceProfile();
   const lightweightDevice = deviceProfile.webgpuSupport === 'wasm-only';
+  // Every `capable` and `laptop` entry in catalog-data.json is
+  // `allowedBrowsers: ["chromium"]`, so Safari and Firefox only ever reach the
+  // small floor/light/phone entries — the browser alone settles the tier.
+  const slowBrowser =
+    deviceProfile.browserClass === 'safari' || deviceProfile.browserClass === 'firefox';
 
   useEffect(() => {
     // Fire the pipeline on mount. The hook is idempotent.
@@ -112,6 +117,7 @@ export function LocalAiSetupGate({
         findingFit={setup.findingFit}
         lightweightDevice={lightweightDevice}
         resuming={setup.resuming}
+        slowBrowser={slowBrowser}
       />
     );
   }

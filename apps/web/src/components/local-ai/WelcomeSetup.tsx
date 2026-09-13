@@ -63,6 +63,11 @@ export type WelcomeSetupProps = {
    * download that a reload left mid-flight). Frames the wait as finishing an
    * existing download rather than a first-run setup, so the copy stays honest. */
   resuming?: boolean;
+  /** True on desktop Safari or Firefox, where the catalog can only offer the
+   * small models (see the derivation in LocalAiSetupGate). Renders one honest
+   * line about where Eco runs best, so a slower reply reads as the browser's
+   * envelope rather than as Eco being broken. */
+  slowBrowser?: boolean;
 };
 
 // Five lines at the 8s rotation interval is a ~40s loop. That repeats over a
@@ -79,7 +84,11 @@ const REASSURANCE_COPY_BASE = [
   'The model saves into this browser. No copy lands on a server.',
   // — what it means for you —
   'You can use all of Eco without an account.',
-  'You only wait like this once. After today, Eco opens in seconds and works offline.',
+  // No "and works offline": there is no service worker in production (its
+  // registration sits behind NEXT_PUBLIC_ENABLE_SERVICE_WORKER, which is set in
+  // no environment), so a cold open with no connection never reaches the app.
+  // The model itself is on the device, which is what the other lines claim.
+  'You only wait like this once. After today, Eco opens in seconds.',
 ] as const;
 
 const REASSURANCE_COPY: string[] = [...REASSURANCE_COPY_BASE, 'Everything Eco does is free.'];
@@ -93,6 +102,7 @@ export function WelcomeSetup({
   findingFit = false,
   lightweightDevice = false,
   resuming = false,
+  slowBrowser = false,
 }: WelcomeSetupProps) {
   const reducedMotion = useReducedMotion();
   const online = useNetworkStatus();
@@ -215,6 +225,22 @@ export function WelcomeSetup({
               </motion.span>
             </AnimatePresence>
           </div>
+
+          {/* Not a rotation entry: the reassurance index is taken modulo
+              REASSURANCE_COUNT (5) in useEcoSetup, so a sixth line in that array
+              would never be selected. This is a stable fact about the browser,
+              so it stays put under the rotating line in the same reading
+              column and the same muted style. */}
+          {slowBrowser && (
+            <p
+              role="status"
+              className="max-w-md text-center text-[13px] leading-relaxed"
+              style={{ color: 'var(--eco-text-muted)' }}
+            >
+              Eco runs best in Chrome or Edge on this device. In this browser it will work,
+              but replies take longer.
+            </p>
+          )}
         </div>
 
         {(priorAttemptFailed || resuming) && (

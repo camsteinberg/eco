@@ -225,7 +225,10 @@ export function AccountTab() {
 
       <SettingsSection
         title="Your data"
-        description="Download your conversations, settings, and memories."
+        description={
+          "Download your conversations, settings, and memories. "
+          + "Your conversations are stored in this browser's own storage without extra encryption, protected by your device login; clearing Eco's data or the browser profile removes them."
+        }
       >
         <DataExportButton />
       </SettingsSection>
