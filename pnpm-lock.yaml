@@ -58,13 +58,13 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: '>=2.0.5'
-        version: 2.0.11(hono@4.12.34)
+        version: 2.0.11(hono@4.13.5)
       '@neondatabase/serverless':
         specifier: ^1.0.2
         version: 1.0.2
       '@scalar/hono-api-reference':
         specifier: ^0.5.0
-        version: 0.5.184(hono@4.12.34)
+        version: 0.5.184(hono@4.13.5)
       '@sentry/node':
         specifier: ^10.67.0
         version: 10.67.0(@opentelemetry/core@2.10.0(@opentelemetry/api@1.9.1))
@@ -76,7 +76,7 @@ importers:
         version: 0.45.2(@neondatabase/serverless@1.0.2)(@opentelemetry/api@1.9.1)(@types/pg@8.16.0)(kysely@0.29.2)(postgres@3.4.8)
       hono:
         specifier: '>=4.12.27'
-        version: 4.12.34
+        version: 4.13.5
       ioredis:
         specifier: ^5.9.3
         version: 5.9.3
@@ -3631,8 +3631,8 @@ packages:
     resolution: {integrity: sha512-Xwwo44whKBVCYoliBQwaPvtd/2tYFkRQtXDWj1nackaV2JPXx3L0+Jvd8/qCJ2p+ML0/XVkJ2q+Mr+UVdpJK5w==}
     engines: {node: '>=12.0.0'}
 
-  hono@4.12.34:
-    resolution: {integrity: sha512-GqXJqY/xJkJmuloTrnV1ZEXG3fqte+VjkUqoRNZXcrUidiUOP4fMSIHHY4tsqZBK++kVyWmt/AAfSUuy57/eSA==}
+  hono@4.13.5:
+    resolution: {integrity: sha512-O6+/eCYRkzzzy0rPWwKLiGBR1nFuUPZynnwjxN1MBA62NNqbT0wQEzQyK2gSO5yDIDB336sXQleAhOHrzlYyKw==}
     engines: {node: '>=16.9.0'}
 
   hookable@5.5.3:
@@ -5866,9 +5866,9 @@ snapshots:
 
   '@floating-ui/utils@0.2.11': {}
 
-  '@hono/node-server@2.0.11(hono@4.12.34)':
+  '@hono/node-server@2.0.11(hono@4.13.5)':
     dependencies:
-      hono: 4.12.34
+      hono: 4.13.5
 
   '@huggingface/jinja@0.5.6': {}
 
@@ -7079,10 +7079,10 @@ snapshots:
     dependencies:
       '@scalar/types': 0.0.40
 
-  '@scalar/hono-api-reference@0.5.184(hono@4.12.34)':
+  '@scalar/hono-api-reference@0.5.184(hono@4.13.5)':
     dependencies:
       '@scalar/core': 0.1.1
-      hono: 4.12.34
+      hono: 4.13.5
 
   '@scalar/openapi-types@0.1.9': {}
 
@@ -8525,7 +8525,7 @@ snapshots:
 
   highlight.js@11.11.1: {}
 
-  hono@4.12.34: {}
+  hono@4.13.5: {}
 
   hookable@5.5.3: {}
 
