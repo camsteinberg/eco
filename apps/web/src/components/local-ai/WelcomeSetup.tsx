@@ -79,7 +79,11 @@ const REASSURANCE_COPY_BASE = [
   'The model saves into this browser. No copy lands on a server.',
   // — what it means for you —
   'You can use all of Eco without an account.',
-  'You only wait like this once. After today, Eco opens in seconds and works offline.',
+  // No "and works offline": there is no service worker in production (its
+  // registration sits behind NEXT_PUBLIC_ENABLE_SERVICE_WORKER, which is set in
+  // no environment), so a cold open with no connection never reaches the app.
+  // The model itself is on the device, which is what the other lines claim.
+  'You only wait like this once. After today, Eco opens in seconds.',
 ] as const;
 
 const REASSURANCE_COPY: string[] = [...REASSURANCE_COPY_BASE, 'Everything Eco does is free.'];

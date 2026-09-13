@@ -465,7 +465,9 @@ export default function PrivacyPage({
             <p className="mb-3">
               Your conversation content stays on your device, because the AI model
               runs in your browser. It is not transferred to us or to any other
-              country for inference.
+              country for inference. It is stored in this browser&apos;s own storage
+              without extra encryption, protected by your device login; clearing
+              Eco&apos;s data or the browser profile removes it.
             </p>
             <p>
               For users in the EEA and UK, we rely on the European

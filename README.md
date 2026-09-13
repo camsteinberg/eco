@@ -47,6 +47,15 @@ development, and the first model downloads and runs directly in the browser. Req
 Node 22, pnpm 9, and a WebGPU-capable browser (recent Chrome or Edge is the smoothest
 path; the app falls back to a small CPU model where WebGPU isn't available).
 
+### Browser support
+
+- Chrome and Edge (WebGPU with shader-f16): the full model ladder, including the
+  larger Smart picks, and the fastest replies.
+- Safari and Firefox: the smaller models only — the catalog's conservative floor
+  tier. With no WebGPU the model runs on the CPU, so replies are slow (tens of
+  seconds).
+- iOS Safari: one small model built for the phone.
+
 > The first model download can take a few minutes depending on the model and your
 > connection — the setup flow starts you on a small "starter" model and offers an
 > opt-in upgrade once you're chatting.
