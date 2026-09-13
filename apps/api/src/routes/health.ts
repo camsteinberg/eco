@@ -15,6 +15,14 @@ export type HealthDeps = {
   expectDatabase?: boolean
   /** As `expectDatabase`, for Redis-backed rate limiting. */
   expectRedis?: boolean
+  /**
+   * As `expectDatabase`, for the trusted client-IP shared secret. There is no
+   * probe to run — the secret is either configured or it is not — so readiness
+   * reports `proxySecretConfigured` directly.
+   */
+  expectProxySecret?: boolean
+  /** Whether `API_PROXY_SECRET` is configured (see `expectProxySecret`). */
+  proxySecretConfigured?: boolean
 }
 
 type CheckState = 'ok' | 'error' | 'missing'
@@ -26,6 +34,8 @@ export function createHealthRouter({
   redisProbe,
   expectDatabase = false,
   expectRedis = false,
+  expectProxySecret = false,
+  proxySecretConfigured = false,
 }: HealthDeps = {}) {
   const router = new Hono()
 
@@ -67,6 +77,10 @@ export function createHealthRouter({
       }
     } else if (expectRedis) {
       checks.redis = 'missing'
+    }
+
+    if (expectProxySecret) {
+      checks.proxySecret = proxySecretConfigured ? 'ok' : 'missing'
     }
 
     const hasErrors = Object.values(checks).some((v) => v !== 'ok')

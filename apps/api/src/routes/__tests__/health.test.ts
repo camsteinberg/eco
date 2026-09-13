@@ -163,6 +163,49 @@ describe('createHealthRouter', () => {
       expect(body.checks.redis).toBe('missing')
     })
 
+    it('reports the proxy secret missing and returns 503 when expected but unconfigured (break-glass)', async () => {
+      const app = new Hono()
+      app.route(
+        '/health',
+        createHealthRouter({ expectProxySecret: true, proxySecretConfigured: false }),
+      )
+
+      const res = await app.request('/health/ready')
+      expect(res.status).toBe(503)
+
+      const body = await res.json()
+      expect(body.status).toBe('degraded')
+      expect(body.checks.proxySecret).toBe('missing')
+    })
+
+    it('reports the proxy secret ok when it is configured', async () => {
+      const app = new Hono()
+      app.route(
+        '/health',
+        createHealthRouter({
+          dbProbe: async () => {},
+          redisProbe: async () => {},
+          expectProxySecret: true,
+          proxySecretConfigured: true,
+        }),
+      )
+
+      const res = await app.request('/health/ready')
+      expect(res.status).toBe(200)
+
+      const body = await res.json()
+      expect(body.checks.proxySecret).toBe('ok')
+    })
+
+    it('omits the proxy secret from readiness outside production', async () => {
+      const app = new Hono()
+      app.route('/health', createHealthRouter())
+
+      const res = await app.request('/health/ready')
+      const body = await res.json()
+      expect(body.checks).not.toHaveProperty('proxySecret')
+    })
+
     it('uses the live probe when one is wired even if the dependency is also expected', async () => {
       const app = new Hono()
       app.route(

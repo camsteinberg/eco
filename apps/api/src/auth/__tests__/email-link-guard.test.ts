@@ -7,7 +7,7 @@ import {
   assertSelfOriginEmailLink,
 } from '../email-link-guard.js'
 
-const ENV_KEYS = ['BETTER_AUTH_BASE_URL', 'API_INTERNAL_URL'] as const
+const ENV_KEYS = ['BETTER_AUTH_BASE_URL', 'API_INTERNAL_URL', 'NODE_ENV'] as const
 
 function snapshotEnv() {
   return Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]))
@@ -35,6 +35,21 @@ describe('email-link-guard', () => {
 
       delete process.env.API_INTERNAL_URL
       expect(getAuthBaseURL()).toBe('http://localhost:3001')
+    })
+
+    it('throws in production when neither variable is set, rather than mailing localhost links', () => {
+      delete process.env.BETTER_AUTH_BASE_URL
+      delete process.env.API_INTERNAL_URL
+      process.env.NODE_ENV = 'production'
+      expect(() => getAuthBaseURL()).toThrow(/BETTER_AUTH_BASE_URL/)
+      expect(() => getAuthBaseURL()).toThrow(/localhost:3001/)
+    })
+
+    it('uses API_INTERNAL_URL in production when BETTER_AUTH_BASE_URL is unset', () => {
+      delete process.env.BETTER_AUTH_BASE_URL
+      process.env.API_INTERNAL_URL = 'https://api.econetwork.ai'
+      process.env.NODE_ENV = 'production'
+      expect(getAuthBaseURL()).toBe('https://api.econetwork.ai')
     })
   })
 
