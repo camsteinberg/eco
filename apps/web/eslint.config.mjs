@@ -87,6 +87,11 @@ export default tseslint.config(
       // local E2E run.
       "playwright-report/**",
       "test-results/**",
+      // Persistent browser profiles the acceptance and perf lanes keep between
+      // runs (gitignored). A Firefox profile carries a prefs.js that is not
+      // ours to lint.
+      "e2e-acceptance/.browser-profile*/**",
+      "e2e-perf/.browser-profile*/**",
       "*.config.*",
       "next-env.d.ts",
     ],
