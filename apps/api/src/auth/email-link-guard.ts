@@ -7,13 +7,27 @@
  * also the single source of truth for what a *legitimate* email link looks like.
  * Keep this the exact expression passed to `betterAuth({ baseURL })` — the guard
  * below depends on the two staying identical.
+ *
+ * In production an unconfigured origin is a defect, not a default: every reset,
+ * verification and magic-link email would carry an `http://localhost:3001` link
+ * that no recipient can use, and account recovery would be silently broken for
+ * as long as the misconfiguration lasted. `createAuth` calls this at boot, so
+ * throwing here fails the deploy instead of failing the first email.
  */
 export function getAuthBaseURL(): string {
-  return (
-    process.env.BETTER_AUTH_BASE_URL ??
-    process.env.API_INTERNAL_URL ??
-    'http://localhost:3001'
-  )
+  const configured =
+    process.env.BETTER_AUTH_BASE_URL ?? process.env.API_INTERNAL_URL
+  if (configured) return configured
+
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(
+      'BETTER_AUTH_BASE_URL (or API_INTERNAL_URL) is required in production — ' +
+        'it is the origin every password-reset, verification and magic-link email is built against. ' +
+        'Refusing to fall back to http://localhost:3001.',
+    )
+  }
+
+  return 'http://localhost:3001'
 }
 
 /**

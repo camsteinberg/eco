@@ -15,6 +15,7 @@ function prodEnv(overrides: Partial<DependencyEnv> = {}): DependencyEnv {
     NODE_ENV: 'production',
     DATABASE_URL: 'postgresql://user:pass@db.example.com/eco',
     REDIS_URL: 'redis://default:pass@redis.example.com:6379',
+    API_PROXY_SECRET: 'shared-proxy-secret',
     ...overrides,
   }
 }
@@ -26,8 +27,10 @@ describe('resolveDependencyPolicy', () => {
       expect(policy.isProduction).toBe(false)
       expect(policy.expectDatabase).toBe(false)
       expect(policy.expectRedis).toBe(false)
+      expect(policy.expectProxySecret).toBe(false)
       expect(policy.databaseConfigured).toBe(false)
       expect(policy.redisConfigured).toBe(false)
+      expect(policy.proxySecretConfigured).toBe(false)
       expect(policy.warnings).toEqual([])
     })
 
@@ -99,6 +102,47 @@ describe('resolveDependencyPolicy', () => {
       const env = prodEnv({ ECO_ALLOW_UNLIMITED_RATE_LIMITING: '1' })
       delete env.REDIS_URL
       expect(() => resolveDependencyPolicy(env)).toThrow(ProductionDependencyError)
+    })
+  })
+
+  describe('production proxy-secret gate (3.3)', () => {
+    it('expects the secret and reports it configured when API_PROXY_SECRET is set', () => {
+      const policy = resolveDependencyPolicy(prodEnv())
+      expect(policy.expectProxySecret).toBe(true)
+      expect(policy.proxySecretConfigured).toBe(true)
+    })
+
+    it('throws a ProductionDependencyError naming API_PROXY_SECRET when missing without break-glass', () => {
+      const env = prodEnv()
+      delete env.API_PROXY_SECRET
+      expect(() => resolveDependencyPolicy(env)).toThrow(ProductionDependencyError)
+      expect(() => resolveDependencyPolicy(env)).toThrow(/API_PROXY_SECRET/)
+    })
+
+    it('allows boot under explicit break-glass but still expects the secret and warns loudly about the shared bucket', () => {
+      const env = prodEnv({ ECO_ALLOW_SHARED_RATE_BUCKET: 'true' })
+      delete env.API_PROXY_SECRET
+      const policy = resolveDependencyPolicy(env)
+      expect(policy.proxySecretConfigured).toBe(false)
+      expect(policy.expectProxySecret).toBe(true)
+      const warning = policy.warnings.find((w) =>
+        /ECO_ALLOW_SHARED_RATE_BUCKET/.test(w.msg),
+      )
+      expect(warning).toBeDefined()
+      expect(warning?.level).toBe('error')
+      expect(warning?.msg).toMatch(/shares one rate bucket/)
+    })
+
+    it('does not accept a non-"true" break-glass value as a bypass', () => {
+      const env = prodEnv({ ECO_ALLOW_SHARED_RATE_BUCKET: 'yes' })
+      delete env.API_PROXY_SECRET
+      expect(() => resolveDependencyPolicy(env)).toThrow(ProductionDependencyError)
+    })
+
+    it('is a no-op outside production', () => {
+      const policy = resolveDependencyPolicy({ NODE_ENV: 'development' })
+      expect(policy.expectProxySecret).toBe(false)
+      expect(policy.warnings).toEqual([])
     })
   })
 

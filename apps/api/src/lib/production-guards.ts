@@ -20,8 +20,10 @@ export type DependencyEnv = {
   NODE_ENV?: string | undefined
   DATABASE_URL?: string | undefined
   REDIS_URL?: string | undefined
+  API_PROXY_SECRET?: string | undefined
   ECO_ALLOW_PROD_WITHOUT_DATABASE?: string | undefined
   ECO_ALLOW_UNLIMITED_RATE_LIMITING?: string | undefined
+  ECO_ALLOW_SHARED_RATE_BUCKET?: string | undefined
   // Index signature so `process.env` (NodeJS.ProcessEnv) is assignable. The named
   // keys above stay for documentation + autocomplete of what this reads.
   [key: string]: string | undefined
@@ -40,6 +42,12 @@ export type DependencyPolicy = {
   /** A usable REDIS_URL is present. */
   redisConfigured: boolean
   /**
+   * A usable API_PROXY_SECRET is present. Without it the API cannot trust the
+   * web proxy's `X-Eco-Client-IP`, so every browser behind the web host is rate
+   * limited as one client.
+   */
+  proxySecretConfigured: boolean
+  /**
    * Whether the readiness probe should treat the database as a required
    * dependency. True in production even when running under break-glass, so
    * `/health/ready` visibly reports the missing dependency as degraded.
@@ -47,6 +55,8 @@ export type DependencyPolicy = {
   expectDatabase: boolean
   /** As `expectDatabase`, for Redis-backed rate limiting. */
   expectRedis: boolean
+  /** As `expectDatabase`, for the trusted client-IP shared secret. */
+  expectProxySecret: boolean
   /** Boot-time log lines the caller should emit (break-glass + misconfig notices). */
   warnings: DependencyWarning[]
 }
@@ -69,6 +79,7 @@ export function resolveDependencyPolicy(env: DependencyEnv): DependencyPolicy {
   const isProduction = env.NODE_ENV === 'production'
   const databaseConfigured = Boolean(env.DATABASE_URL)
   const redisConfigured = Boolean(env.REDIS_URL)
+  const proxySecretConfigured = Boolean(env.API_PROXY_SECRET)
   const warnings: DependencyWarning[] = []
 
   // 3.1 — Required production database.
@@ -103,14 +114,36 @@ export function resolveDependencyPolicy(env: DependencyEnv): DependencyPolicy {
     })
   }
 
+  // 3.3 — Required production proxy secret. The auth rate limiter keys on the
+  // client IP; without this shared secret the API cannot trust the web proxy's
+  // `X-Eco-Client-IP` and falls back to the web host's egress address, so every
+  // user behind it shares a single auth rate-limit bucket — one attacker can
+  // lock everyone out, and a distributed attacker is only limited in aggregate.
+  if (isProduction && !proxySecretConfigured) {
+    if (!isBreakGlassEnabled(env.ECO_ALLOW_SHARED_RATE_BUCKET)) {
+      throw new ProductionDependencyError(
+        'API_PROXY_SECRET is required in production — without it the rate limiter cannot identify the real client and every user behind the web host shares one bucket. ' +
+          'Set API_PROXY_SECRET (the same value in the web app), or set ECO_ALLOW_SHARED_RATE_BUCKET=true to deliberately deploy with a shared rate bucket.',
+      )
+    }
+    warnings.push({
+      level: 'error',
+      msg:
+        'BREAK-GLASS: running in production WITHOUT the trusted client-IP secret (ECO_ALLOW_SHARED_RATE_BUCKET=true): ' +
+        'every user behind the web host shares one rate bucket; readiness will report the proxy secret as missing.',
+    })
+  }
+
   return {
     isProduction,
     databaseConfigured,
     redisConfigured,
-    // In production we always expect both backing services, so readiness flags
-    // their absence even under break-glass.
+    proxySecretConfigured,
+    // In production we always expect every required dependency, so readiness
+    // flags an absence even under break-glass.
     expectDatabase: isProduction,
     expectRedis: isProduction,
+    expectProxySecret: isProduction,
     warnings,
   }
 }

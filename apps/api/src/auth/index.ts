@@ -52,6 +52,11 @@ async function resolveAppleClientSecret(): Promise<string> {
 
 export async function createAuth(db: Db) {
   const appleClientSecret = await resolveAppleClientSecret()
+  if (process.env.APPLE_CLIENT_ID && appleClientSecret === '') {
+    logger.warn(
+      'Apple sign-in disabled: no client secret (APPLE_CLIENT_ID is set, but neither the generated JWT nor APPLE_CLIENT_SECRET produced one)',
+    )
+  }
 
   const auth = betterAuth({
     baseURL: getAuthBaseURL(),
@@ -186,7 +191,11 @@ export async function createAuth(db: Db) {
         clientId: process.env.APPLE_CLIENT_ID ?? '',
         clientSecret: appleClientSecret,
         appBundleIdentifier: process.env.APPLE_BUNDLE_ID,
-        enabled: !!process.env.APPLE_CLIENT_ID,
+        // Both halves of the credential are required. Enabling on the client id
+        // alone advertises a sign-in button whose token exchange Apple rejects,
+        // so a half-configured provider fails at the end of the flow instead of
+        // being absent from the start.
+        enabled: !!process.env.APPLE_CLIENT_ID && appleClientSecret !== '',
       },
     },
     session: {

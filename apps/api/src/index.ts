@@ -41,6 +41,10 @@ if (
 // break-glass env var is set. Outside production this is a no-op. Emitting the
 // warnings up front means a break-glass deploy is loud in the logs from the
 // first line.
+// Importing this module inside a test must not start timers or touch the
+// database; several suites import the app to exercise middleware.
+const isTestEnv = process.env.VITEST === 'true' || process.env.NODE_ENV === 'test'
+
 const dependencyPolicy = resolveDependencyPolicy(process.env)
 for (const warning of dependencyPolicy.warnings) {
   logger[warning.level](warning.meta ?? {}, warning.msg)
@@ -161,10 +165,19 @@ app.get(
   createMetricsHandler({ register, token: METRICS_TOKEN, isProduction: IS_PRODUCTION }),
 )
 
+// An inbound request id is echoed into the response header and every log line
+// for the request, so it is attacker-controlled text on two sinks: accept only
+// a conservative token (no whitespace, no control characters, no separators)
+// and fall back to a generated id for anything else.
+const REQUEST_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/
+
+function sanitizeRequestId(value: string | undefined): string {
+  return value !== undefined && REQUEST_ID_PATTERN.test(value) ? value : randomUUID()
+}
+
 // Request logging middleware
 app.use('*', async (c, next) => {
-  const requestId =
-    c.req.header('x-request-id') ?? randomUUID()
+  const requestId = sanitizeRequestId(c.req.header('x-request-id'))
   c.header('X-Request-Id', requestId)
 
   const childLogger = logger.child({ requestId })
@@ -281,6 +294,8 @@ app.route(
     redisProbe,
     expectDatabase: dependencyPolicy.expectDatabase,
     expectRedis: dependencyPolicy.expectRedis,
+    expectProxySecret: dependencyPolicy.expectProxySecret,
+    proxySecretConfigured: dependencyPolicy.proxySecretConfigured,
   }),
 )
 
@@ -348,6 +363,38 @@ if (process.env.DATABASE_URL) {
   )
   app.route('/v1/feedback', createFeedbackRouter({ db }))
   logger.info('Feedback route mounted at /v1/feedback')
+
+  // ── Expired-row sweep ───────────────────────────────────────────────────
+  // Nothing in Better Auth deletes a session or verification row once it stops
+  // being usable, so sign-in IP/user-agent history and spent reset tokens would
+  // otherwise be retained forever. Runs once at boot and hourly after; the
+  // timer is unref'd so it never holds the process open, and a failure is
+  // logged rather than thrown — a sweep that cannot run must not take the API
+  // down with it.
+  if (!isTestEnv) {
+    const { sweepAuthRows, SESSION_ABSOLUTE_MAX_AGE_MS } = await import('./lib/session-sweep.js')
+    const SWEEP_INTERVAL_MS = 60 * 60 * 1000
+
+    const runSweep = async () => {
+      try {
+        const removed = await sweepAuthRows(db, {
+          now: new Date(),
+          absoluteMaxAgeMs: SESSION_ABSOLUTE_MAX_AGE_MS,
+        })
+        if (removed.sessions > 0 || removed.verifications > 0) {
+          logger.info(removed, 'Swept expired auth rows')
+        }
+      } catch (err) {
+        logger.error({ err }, 'Expired-row sweep failed')
+      }
+    }
+
+    await runSweep()
+    setInterval(() => {
+      void runSweep()
+    }, SWEEP_INTERVAL_MS).unref()
+    logger.info({ intervalMs: SWEEP_INTERVAL_MS }, 'Expired-row sweep scheduled')
+  }
 }
 
 // ── Web-search relay ─────────────────────────────────────────────────────────
@@ -405,8 +452,6 @@ app.notFound((c) => c.json({ error: { message: 'Not found', type: 'not_found_err
 
 // Only start server when run directly (not when imported for tests)
 let server: ReturnType<typeof serve> | undefined
-
-const isTestEnv = process.env.VITEST === 'true' || process.env.NODE_ENV === 'test'
 
 // Fail-fast database connectivity gate. `migrate.js` runs before this process,
 // but over the neon-http driver — it does not validate the runtime serverless

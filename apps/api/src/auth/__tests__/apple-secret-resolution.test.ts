@@ -50,13 +50,18 @@ vi.mock('../../lib/escape-html.js', () => ({
 vi.mock('../signup-email-policy.js', () => ({
   getSignupEmailRejectionReason: vi.fn().mockReturnValue(null),
 }))
+vi.mock('../../lib/logger.js', () => ({
+  logger: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() },
+}))
 
 import { createAuth } from '../index.js'
 import { generateAppleClientSecret } from '../apple-secret.js'
 import { betterAuth } from 'better-auth'
+import { logger } from '../../lib/logger.js'
 
 const mockGenerate = generateAppleClientSecret as ReturnType<typeof vi.fn>
 const mockBetterAuth = betterAuth as ReturnType<typeof vi.fn>
+const mockWarn = logger.warn as unknown as ReturnType<typeof vi.fn>
 
 describe('Apple client secret resolution', () => {
   const envBackup: Record<string, string | undefined> = {}
@@ -129,6 +134,37 @@ describe('Apple client secret resolution', () => {
     expect(mockGenerate).toHaveBeenCalledOnce()
     const authCall = mockBetterAuth.mock.calls[0][0]
     expect(authCall.socialProviders.apple.clientSecret).toBe('fallback-secret')
+  })
+
+  it('leaves the provider disabled when the client id is set but no secret resolves', async () => {
+    process.env.APPLE_CLIENT_ID = 'com.eco.web'
+    delete process.env.APPLE_CLIENT_SECRET
+    delete process.env.APPLE_PRIVATE_KEY
+    delete process.env.APPLE_KEY_ID
+    delete process.env.APPLE_TEAM_ID
+
+    await createAuth(mockDb)
+
+    const authCall = mockBetterAuth.mock.calls[0][0]
+    expect(authCall.socialProviders.apple.clientSecret).toBe('')
+    expect(authCall.socialProviders.apple.enabled).toBe(false)
+    expect(mockWarn).toHaveBeenCalledWith(
+      expect.stringContaining('Apple sign-in disabled: no client secret'),
+    )
+  })
+
+  it('enables the provider when both the client id and a secret are present', async () => {
+    process.env.APPLE_CLIENT_ID = 'com.eco.web'
+    process.env.APPLE_CLIENT_SECRET = 'static-secret'
+    delete process.env.APPLE_PRIVATE_KEY
+    delete process.env.APPLE_KEY_ID
+    delete process.env.APPLE_TEAM_ID
+
+    await createAuth(mockDb)
+
+    const authCall = mockBetterAuth.mock.calls[0][0]
+    expect(authCall.socialProviders.apple.enabled).toBe(true)
+    expect(mockWarn).not.toHaveBeenCalled()
   })
 
   it('does not crash boot when Apple is completely unconfigured', async () => {

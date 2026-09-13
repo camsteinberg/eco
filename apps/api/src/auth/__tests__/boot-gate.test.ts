@@ -19,16 +19,22 @@ const SCRIPT = `
   }
 `
 
-function bootWith(env: Record<string, string>) {
+function bootWith(env: Record<string, string>, omit: string[] = []) {
   const entry = fileURLToPath(new URL('../index.ts', import.meta.url))
+  const childEnv: Record<string, string> = {
+    PATH: process.env.PATH ?? '',
+    NODE_ENV: 'production',
+    WEB_URL: 'https://econetwork.ai',
+    BETTER_AUTH_URL: 'https://api.econetwork.ai',
+    // The auth origin is its own production requirement (see the base-URL test
+    // below); set it here so the secret tests vary only the secret.
+    BETTER_AUTH_BASE_URL: 'https://api.econetwork.ai',
+    ...env,
+  }
+  for (const key of omit) delete childEnv[key]
+
   return spawnSync(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', SCRIPT, entry], {
-    env: {
-      PATH: process.env.PATH ?? '',
-      NODE_ENV: 'production',
-      WEB_URL: 'https://econetwork.ai',
-      BETTER_AUTH_URL: 'https://api.econetwork.ai',
-      ...env,
-    },
+    env: childEnv,
     encoding: 'utf8',
     timeout: 30_000,
   })
@@ -44,5 +50,16 @@ describe('createAuth boot gate (production child process)', () => {
   it('boots when a real secret is set', { timeout: 30_000 }, () => {
     const result = bootWith({ BETTER_AUTH_SECRET: 'x'.repeat(32) })
     expect(result.stdout).toContain('BOOTED')
+  })
+
+  it('refuses to boot when no auth base URL is configured', { timeout: 30_000 }, () => {
+    // Otherwise every reset/verification/magic-link email in production would
+    // carry an http://localhost:3001 link and recovery would be silently broken.
+    const result = bootWith({ BETTER_AUTH_SECRET: 'x'.repeat(32) }, [
+      'BETTER_AUTH_BASE_URL',
+      'API_INTERNAL_URL',
+    ])
+    expect(result.stdout).toMatch(/^REFUSED: BETTER_AUTH_BASE_URL/im)
+    expect(result.stdout).not.toContain('BOOTED')
   })
 })
