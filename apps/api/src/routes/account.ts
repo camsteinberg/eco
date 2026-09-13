@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Bos Computing LLC
 
-import { Hono } from 'hono'
+import { Hono, type Context } from 'hono'
 import { and, eq, like, or } from 'drizzle-orm'
 import { apiKeys } from '../db/schema/api-keys.js'
 import { users } from '../db/schema/users.js'
@@ -15,14 +15,128 @@ type Env = {
   }
 }
 
-export function createAccountRouter({ db }: { db: Db }) {
+/**
+ * How recently an OAuth-only user's session must have been established for
+ * account deletion to count as proven. Password users re-enter their password
+ * instead; these users have no second factor we can ask for, so a sign-in they
+ * performed moments ago is the proof.
+ * CHOSEN 2026-09-13 (auth security review), not measured.
+ */
+export const SESSION_FRESH_WINDOW_MS = 10 * 60 * 1000
+
+/**
+ * The slice of better-auth's resolved `AuthContext` this route needs: the
+ * configured password verifier and the user lookup that returns linked
+ * accounts. Structural on purpose — the real context satisfies it, and a test
+ * can supply four lines instead of a whole auth instance. Hashing is never
+ * re-implemented here; `password.verify` is whatever better-auth itself uses
+ * (better-auth 1.6.23, context/create-context.mjs:181-189 → crypto/password.mjs,
+ * scrypt via @better-auth/utils).
+ */
+export type AccountAuthContext = {
+  password: {
+    verify: (data: { hash: string; password: string }) => Promise<boolean>
+  }
+  internalAdapter: {
+    findUserByEmail: (
+      email: string,
+      options?: { includeAccounts: boolean },
+    ) => Promise<{
+      accounts: { providerId: string; password?: string | null | undefined }[]
+    } | null>
+  }
+}
+
+/** The credential provider id better-auth stores for email+password accounts. */
+const CREDENTIAL_PROVIDER_ID = 'credential'
+
+function reauthenticationRequired(c: Context<Env>, message: string) {
+  return c.json(
+    { error: { code: 'reauthentication_required', message } },
+    403,
+  )
+}
+
+/**
+ * Read `{ password }` from the request body. A missing body, a non-JSON body or
+ * a non-string password all mean "no proof offered", which is a refusal rather
+ * than a 400 — the caller's next step is the same either way.
+ */
+async function readSubmittedPassword(c: {
+  req: { json: () => Promise<unknown> }
+}): Promise<string | null> {
+  let body: unknown
+  try {
+    body = await c.req.json()
+  } catch {
+    return null
+  }
+  if (typeof body !== 'object' || body === null) return null
+  const password = (body as { password?: unknown }).password
+  return typeof password === 'string' && password !== '' ? password : null
+}
+
+export function createAccountRouter({
+  db,
+  authContext,
+}: {
+  db: Db
+  authContext: AccountAuthContext
+}) {
   const router = new Hono<Env>()
 
   // DELETE / — Delete the authenticated user's account
   // Cascades: sessions and accounts via FK on Better Auth's user table
   // Wrapped in a transaction so partial deletes don't leave inconsistent state.
+  //
+  // A live session is NOT sufficient proof for a destructive, irreversible
+  // action: a session cookie can be borrowed (an unlocked laptop, a stolen
+  // token) and deletion has no undo. Password users re-enter their password;
+  // OAuth-only users, who have no password to re-enter, must have signed in
+  // within the last few minutes.
   router.delete('/', async (c) => {
     const currentUser = c.get('user')
+
+    const accounts =
+      (await authContext.internalAdapter.findUserByEmail(currentUser.email, {
+        includeAccounts: true,
+      }))?.accounts ?? []
+    const credentialHash = accounts.find(
+      (account) => account.providerId === CREDENTIAL_PROVIDER_ID,
+    )?.password
+
+    if (credentialHash) {
+      const submitted = await readSubmittedPassword(c)
+      if (!submitted) {
+        return reauthenticationRequired(
+          c,
+          'Confirm your password to delete your account.',
+        )
+      }
+      const correct = await authContext.password.verify({
+        hash: credentialHash,
+        password: submitted,
+      })
+      if (!correct) {
+        return reauthenticationRequired(
+          c,
+          'That password is not correct. Confirm your password to delete your account.',
+        )
+      }
+    } else {
+      // OAuth-only (or an account with no usable credential row). An unknown
+      // session age is treated as stale — fail closed.
+      const createdAt = currentUser.sessionCreatedAt
+      const isFresh =
+        createdAt instanceof Date &&
+        Date.now() - createdAt.getTime() <= SESSION_FRESH_WINDOW_MS
+      if (!isFresh) {
+        return reauthenticationRequired(
+          c,
+          'Sign in again, then delete your account within a few minutes.',
+        )
+      }
+    }
 
     // This deletes database rows only: API keys, the app user, the Better Auth
     // user (which cascades to its sessions and linked accounts), and the

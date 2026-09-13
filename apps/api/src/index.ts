@@ -19,6 +19,7 @@ import { docsRouter } from './routes/docs.js'
 import { createOriginCheck } from './middleware/originCheck.js'
 import { createMetricsHandler } from './middleware/metricsAuth.js'
 import { createRateLimiter, type RateLimitRedis } from './middleware/rateLimit.js'
+import type { LockoutRedis } from './auth/signin-lockout.js'
 import { createAuthRouter } from './routes/auth.js'
 import { createAuth } from './auth/index.js'
 import { createDb, probeDatabase } from './db/index.js'
@@ -216,7 +217,10 @@ let redisProbe: (() => Promise<void>) | undefined
 
 // A single Redis client backs BOTH the health readiness probe AND rate limiting.
 // Create it once and share it — don't open two connections to the same Upstash.
-let rateLimitRedis: RateLimitRedis | undefined
+// One ioredis client, three consumers: the readiness probe, the rate limiter
+// and the per-email sign-in lockout. The type is the intersection of what they
+// each need, so a consumer cannot quietly start using a command nobody declared.
+let rateLimitRedis: (RateLimitRedis & LockoutRedis) | undefined
 if (process.env.REDIS_URL) {
   const { createRedisClient } = await import('./lib/redis.js')
   const redis = createRedisClient()
@@ -308,7 +312,9 @@ if (serveApiDocs) {
 // ── Better Auth routes ───────────────────────────────────────────────────────
 if (process.env.DATABASE_URL) {
   const db = createDb()
-  const auth = await createAuth(db)
+  // The same Redis client backs the per-email sign-in lockout as the rate
+  // limiter and the health probe — one connection, three consumers.
+  const auth = await createAuth(db, { lockoutRedis: rateLimitRedis })
   app.route('/api/auth', createAuthRouter(auth))
   logger.info('Better Auth routes mounted at /api/auth')
 
@@ -341,7 +347,9 @@ if (process.env.DATABASE_URL) {
   const { createAccountRouter } = await import('./routes/account.js')
   app.use('/v1/auth/account', originCheck)
   app.use('/v1/auth/account', sessionAuth)
-  app.route('/v1/auth/account', createAccountRouter({ db }))
+  // Deletion re-checks the caller's password through better-auth's own verifier,
+  // so the route needs the resolved auth context (already awaited in createAuth).
+  app.route('/v1/auth/account', createAccountRouter({ db, authContext: await auth.$context }))
   logger.info('Account deletion route mounted at /v1/auth/account')
 
   // ── Feedback ────────────────────────────────────────────────────────────

@@ -164,7 +164,9 @@ describe('Apple client secret resolution', () => {
 
     const authCall = mockBetterAuth.mock.calls[0][0]
     expect(authCall.socialProviders.apple.enabled).toBe(true)
-    expect(mockWarn).not.toHaveBeenCalled()
+    expect(mockWarn).not.toHaveBeenCalledWith(
+      expect.stringContaining('Apple sign-in disabled'),
+    )
   })
 
   it('does not crash boot when Apple is completely unconfigured', async () => {
