@@ -81,6 +81,14 @@ function isAuthPath(pathname: string): boolean {
   return false
 }
 
+// `/api/auth/*` is the same-origin route-handler proxy to the API gateway
+// (app/api/auth/[...path]/route.ts), not a page. It has to sit behind the site
+// gate like everything else while SITE_PASSWORD is set — but it is called by
+// fetch, so it must never be answered with the gate's HTML redirect.
+function isApiAuthPath(pathname: string): boolean {
+  return pathname === '/api/auth' || pathname.startsWith('/api/auth/')
+}
+
 function isSiteGateBypassPath(pathname: string): boolean {
   for (const path of SITE_GATE_BYPASS_PATHS) {
     if (pathname === path || pathname.startsWith(path + '/')) return true
@@ -178,6 +186,24 @@ function getCanonicalRequestedDestination(request: NextRequest): string {
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
+  const sitePassword = process.env.SITE_PASSWORD
+
+  // ── Auth proxy: gated, but answered as an API ────────────────────────
+  // Without a valid gate token this is a 401 JSON body, never the 307 to /gate
+  // that pages get — an HTML redirect handed to the Better Auth client would
+  // surface as a parse error instead of "you are not through the gate".
+  // With a valid token (or with no gate configured) the request passes through
+  // untouched: the proxy route owns its own response headers, and adding CSP or
+  // no-store to a proxied API response would change what the api said.
+  if (isApiAuthPath(pathname)) {
+    if (sitePassword) {
+      const accessCookie = request.cookies.get(SITE_ACCESS_COOKIE)
+      if (!(await isValidSiteGateAccessToken(accessCookie?.value, sitePassword))) {
+        return applyNoStore(NextResponse.json({ error: 'gate_required' }, { status: 401 }))
+      }
+    }
+    return NextResponse.next()
+  }
 
   // ── CSP nonce generation ────────────────────────────────────────────
   const nonce = process.env.NODE_ENV === 'development'
@@ -188,7 +214,6 @@ export async function middleware(request: NextRequest) {
   // ── Site-wide password gate ──────────────────────────────────────────
   // When SITE_PASSWORD is set, require a password before any page loads.
   // Set this env var on Vercel to keep the site private until launch.
-  const sitePassword = process.env.SITE_PASSWORD
   if (sitePassword) {
     if (!isSiteGateBypassPath(pathname)) {
       const accessCookie = request.cookies.get(SITE_ACCESS_COOKIE)
@@ -252,6 +277,10 @@ export const config = {
     // (public/…, see scripts/copy-runtime-assets.mjs) — engine loaders fetch
     // them cookie-less, so the site-gate 307 would poison WebAssembly
     // instantiation just like it did the manifest.
-    '/((?!_next/static|_next/image|favicon.ico|sw\\.js|manifest\\.webmanifest|icons/|litert-wasm/|ort/|webllm/|api/auth).*)',
+    //
+    // `api/auth` used to be excluded here, which left the auth proxy reachable
+    // while the rest of the site was gated. It now runs through middleware and
+    // is handled by the dedicated branch at the top of `middleware()`.
+    '/((?!_next/static|_next/image|favicon.ico|sw\\.js|manifest\\.webmanifest|icons/|litert-wasm/|ort/|webllm/).*)',
   ],
 }

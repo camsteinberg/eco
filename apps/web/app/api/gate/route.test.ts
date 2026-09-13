@@ -3,6 +3,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { GET, POST } from "./route";
+import { isValidSiteGateAccessToken } from "../../../src/lib/site-gate-cookie";
 
 describe("POST /api/gate", () => {
   afterEach(() => {
@@ -52,6 +53,46 @@ describe("POST /api/gate", () => {
 
     expect(response.status).toBe(401);
     expect(response.headers.get("set-cookie")).toBeNull();
+  });
+
+  // The comparison is constant-time, so a wrong password must be rejected the
+  // same way whether it matches the configured length or not — a length
+  // mismatch is not allowed to become its own, faster answer.
+  it.each([
+    { label: "same-length wrong password", password: "sprouz" },
+    { label: "shorter wrong password", password: "spr" },
+    { label: "longer wrong password", password: "sproutsprout" },
+    { label: "empty password", password: "" },
+    { label: "correct password with a suffix", password: "sprout-extra" },
+  ])("rejects a $label without setting a cookie", async ({ password }) => {
+    vi.stubEnv("SITE_PASSWORD", "sprout");
+
+    const response = await POST(
+      new Request("http://localhost/api/gate", {
+        method: "POST",
+        body: JSON.stringify({ password }),
+      }),
+    );
+
+    expect(response.status).toBe(401);
+    expect(response.headers.get("set-cookie")).toBeNull();
+  });
+
+  it("issues a token the middleware accepts for the correct password", async () => {
+    vi.stubEnv("SITE_PASSWORD", "sprout");
+
+    const response = await POST(
+      new Request("http://localhost/api/gate", {
+        method: "POST",
+        body: JSON.stringify({ password: "sprout" }),
+      }),
+    );
+    const setCookie = response.headers.get("set-cookie") ?? "";
+    const token = decodeURIComponent(setCookie.split(";")[0]!.split("=").slice(1).join("="));
+
+    expect(response.status).toBe(200);
+    await expect(isValidSiteGateAccessToken(token, "sprout")).resolves.toBe(true);
+    await expect(isValidSiteGateAccessToken(token, "not-sprout")).resolves.toBe(false);
   });
 
   it("sets the access cookie as secure in production", async () => {

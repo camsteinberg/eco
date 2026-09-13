@@ -258,3 +258,71 @@ describe("middleware site gate", () => {
     expect(scriptSrc).toContain("'wasm-unsafe-eval'");
   });
 });
+
+describe("middleware auth proxy gating", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    if (originalSitePassword === undefined) {
+      delete process.env.SITE_PASSWORD;
+    } else {
+      process.env.SITE_PASSWORD = originalSitePassword;
+    }
+  });
+
+  it("answers a gated /api/auth call with 401 JSON, never the gate redirect", async () => {
+    process.env.SITE_PASSWORD = "launch-password";
+
+    const response = await middleware(requestFor("/api/auth/get-session"));
+
+    expect(response.status).toBe(401);
+    expect(response.headers.get("location")).toBeNull();
+    expect(response.headers.get("content-type")).toContain("application/json");
+    expect(response.headers.get("cache-control")).toContain("no-store");
+    await expect(response.json()).resolves.toEqual({ error: "gate_required" });
+  });
+
+  it("rejects a forged gate cookie on the auth proxy the same way", async () => {
+    process.env.SITE_PASSWORD = "launch-password";
+
+    const response = await middleware(
+      requestFor("/api/auth/sign-in/email", `${SITE_ACCESS_COOKIE}=v1.4102444800000.forged`),
+    );
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({ error: "gate_required" });
+  });
+
+  it("passes an /api/auth call through once the gate cookie is valid", async () => {
+    process.env.SITE_PASSWORD = "launch-password";
+    const token = await createSiteGateAccessToken("launch-password");
+
+    const response = await middleware(
+      requestFor("/api/auth/get-session", `${SITE_ACCESS_COOKIE}=${encodeURIComponent(token)}`),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("location")).toBeNull();
+    // The proxy route owns its own response headers — middleware adds none.
+    expect(response.headers.get("content-security-policy")).toBeNull();
+    expect(response.headers.get("cache-control")).toBeNull();
+  });
+
+  it("passes /api/auth straight through when no site password is configured", async () => {
+    delete process.env.SITE_PASSWORD;
+
+    const response = await middleware(requestFor("/api/auth/get-session"));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("location")).toBeNull();
+    expect(response.headers.get("content-security-policy")).toBeNull();
+  });
+
+  it("still sends a gated page to the gate with a 307", async () => {
+    process.env.SITE_PASSWORD = "launch-password";
+
+    const response = await middleware(requestFor("/settings"));
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toContain("/gate?returnTo=%2Fsettings");
+  });
+});
