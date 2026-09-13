@@ -3,7 +3,7 @@
 
 "use client";
 
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, type ReactNode } from "react";
 import { ErrorLine } from "./ErrorNotice";
 
 type ConfirmDialogProps = {
@@ -15,6 +15,9 @@ type ConfirmDialogProps = {
   errorMessage?: string | null;
   confirmDisabled?: boolean;
   cancelDisabled?: boolean;
+  /** Optional content between the message and the error line — for a
+   * confirmation that has to collect something, like a password. */
+  children?: ReactNode;
   onConfirm: () => void;
   onCancel: () => void;
 };
@@ -28,6 +31,7 @@ export function ConfirmDialog({
   errorMessage = null,
   confirmDisabled = false,
   cancelDisabled = false,
+  children,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
@@ -70,6 +74,7 @@ export function ConfirmDialog({
         >
           {message}
         </p>
+        {children ? <div className="mt-4">{children}</div> : null}
         {errorMessage ? (
           <ErrorLine className="mt-3">{errorMessage}</ErrorLine>
         ) : null}

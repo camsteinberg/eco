@@ -364,6 +364,92 @@ describe('AccountTab', () => {
     ).toBeInTheDocument()
   })
 
+  it('sends the typed password as the deletion proof', async () => {
+    const user = userEvent.setup()
+    mockFetch(() => Promise.resolve({ ok: true, json: async () => ({}) }))
+
+    await renderAccountTabAndWaitForInitialEffects()
+
+    await user.click(screen.getByRole('button', { name: 'Delete account' }))
+    const dialog = screen.getByRole('dialog')
+    const password = within(dialog).getByLabelText('Confirm your password')
+    expect(password).toHaveAttribute('type', 'password')
+    expect(password).toHaveAttribute('autocomplete', 'current-password')
+
+    await user.type(password, 'correct horse')
+    await user.click(within(dialog).getByRole('button', { name: /delete my account/i }))
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        '/v1/auth/account',
+        expect.objectContaining({
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: 'correct horse' }),
+        }),
+      )
+    })
+  }, 10000)
+
+  // An OAuth-only account has no password and proves itself with a recent
+  // session instead. The client cannot tell the two apart, so an empty field
+  // must still reach the api rather than being blocked here.
+  it('sends no body when the password field is left empty', async () => {
+    const user = userEvent.setup()
+    mockFetch(() => Promise.resolve({ ok: true, json: async () => ({}) }))
+
+    await renderAccountTabAndWaitForInitialEffects()
+
+    await user.click(screen.getByRole('button', { name: 'Delete account' }))
+    const dialog = screen.getByRole('dialog')
+    await user.click(within(dialog).getByRole('button', { name: /delete my account/i }))
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        '/v1/auth/account',
+        expect.not.objectContaining({ body: expect.anything() as unknown }),
+      )
+    })
+  }, 10000)
+
+  it('shows the api reauthentication message and deletes nothing', async () => {
+    const user = userEvent.setup()
+    mockFetch((...a: unknown[]) => {
+      if (url(a).includes('/v1/auth/account') && opts(a).method === 'DELETE') {
+        return Promise.resolve({
+          ok: false,
+          status: 403,
+          json: async () => ({
+            error: {
+              code: 'reauthentication_required',
+              message: 'Confirm your password to delete your account.',
+            },
+          }),
+        })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({}) })
+    })
+
+    await renderAccountTabAndWaitForInitialEffects()
+
+    await user.click(screen.getByRole('button', { name: 'Delete account' }))
+    const dialog = screen.getByRole('dialog')
+    await user.click(within(dialog).getByRole('button', { name: /delete my account/i }))
+
+    expect(
+      await screen.findByText('Confirm your password to delete your account.'),
+    ).toBeInTheDocument()
+    // The api's own sentence, not the generic failure line.
+    expect(screen.queryByText(/Nothing was changed/)).not.toBeInTheDocument()
+    // Nothing local is touched and the dialog stays open to be answered.
+    expect(clearClientStateMock).not.toHaveBeenCalled()
+    expect(bestEffortSignOutMock).not.toHaveBeenCalled()
+    expect(window.location.replace).not.toHaveBeenCalled()
+    expect(isAccountDeletionInProgress()).toBe(false)
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(within(dialog).getByLabelText('Confirm your password')).toBeInTheDocument()
+  }, 10000)
+
   it('shows visible delete progress before redirecting away', async () => {
     const user = userEvent.setup()
     type DeleteResponse = {

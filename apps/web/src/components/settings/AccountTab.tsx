@@ -29,6 +29,34 @@ const PROFILE_SAVE_ERROR = "We couldn't save your name. Please try again."
 const DELETE_ACCOUNT_ERROR =
   "We couldn't delete your account. Nothing was changed — please try again."
 
+/**
+ * The api refuses a deletion it cannot tie to a fresh proof of identity and
+ * says why in words written for display: a credential account needs its
+ * password, an OAuth-only account needs a sign-in newer than ten minutes. The
+ * client cannot tell those two apart — the session carries no provider list —
+ * so it always offers the password field and lets the api's own message name
+ * the remedy. Anything else keeps the generic line above.
+ */
+const REAUTHENTICATION_REQUIRED = 'reauthentication_required'
+
+type ApiErrorBody = { error?: { code?: unknown; message?: unknown } }
+
+/** The api's display message for a 403 that asks for proof, else null. */
+async function readReauthenticationMessage(response: Response): Promise<string | null> {
+  if (response.status !== 403) return null
+
+  let body: ApiErrorBody
+  try {
+    body = (await response.json()) as ApiErrorBody
+  } catch {
+    return null
+  }
+
+  if (body.error?.code !== REAUTHENTICATION_REQUIRED) return null
+  const message = body.error.message
+  return typeof message === 'string' && message.trim() !== '' ? message : null
+}
+
 async function waitForNextPaint(): Promise<void> {
   if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
     await Promise.resolve()
@@ -66,6 +94,7 @@ export function AccountTab() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleteLoading, setDeleteLoading] = useState(false)
   const [deleteAccountError, setDeleteAccountError] = useState<string | null>(null)
+  const [deletePassword, setDeletePassword] = useState('')
 
   useEffect(() => {
     const nextName = user?.name ?? ''
@@ -76,6 +105,7 @@ export function AccountTab() {
   useEffect(() => {
     if (!showDeleteConfirm) {
       setDeleteAccountError(null)
+      setDeletePassword('')
     }
   }, [showDeleteConfirm])
 
@@ -116,11 +146,32 @@ export function AccountTab() {
     setDeleteAccountError(null)
     try {
       await waitForNextPaint()
+      // The body goes only when there is a password to send. An OAuth-only
+      // account has none and proves itself with a recent session instead, so an
+      // empty field must still reach the api rather than being blocked here.
+      const password = deletePassword
       const res = await fetch(`/v1/auth/account`, {
         method: 'DELETE',
         credentials: 'include',
+        ...(password
+          ? {
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ password }),
+            }
+          : {}),
       })
-      if (!res.ok) throw new Error(`Account DELETE failed with ${res.status}`)
+      if (!res.ok) {
+        // Nothing was deleted and nothing local is touched: the dialog stays
+        // open on the api's own sentence so the person can answer it.
+        const reauthenticationMessage = await readReauthenticationMessage(res)
+        if (reauthenticationMessage) {
+          setAccountDeletionInProgress(false)
+          setDeleteLoading(false)
+          setDeleteAccountError(reauthenticationMessage)
+          return
+        }
+        throw new Error(`Account DELETE failed with ${res.status}`)
+      }
       await Promise.all([
         waitForMinimumDuration(deleteStartedAt, DELETE_PROGRESS_VISIBILITY_MS),
         // Bound best-effort local cleanup so a stalled browser-storage /
@@ -266,7 +317,27 @@ export function AccountTab() {
             setShowDeleteConfirm(false)
           }
         }}
-      />
+      >
+        {!deleteLoading && (
+          <div>
+            <label
+              htmlFor="delete-account-password"
+              className="block text-sm font-medium text-[var(--eco-text)]"
+            >
+              Confirm your password
+            </label>
+            <input
+              id="delete-account-password"
+              type="password"
+              required
+              autoComplete="current-password"
+              value={deletePassword}
+              onChange={(e) => setDeletePassword(e.target.value)}
+              className="mt-1.5 block w-full rounded-xl border border-[var(--eco-border)] bg-[var(--eco-surface)] px-3 py-2 text-sm text-[var(--eco-text)] transition-all duration-150 ease focus:border-[var(--eco-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--eco-primary)]/20"
+            />
+          </div>
+        )}
+      </ConfirmDialog>
     </div>
   )
 }
