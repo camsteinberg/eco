@@ -17,7 +17,7 @@ import { proxyToApi } from '../../../src/lib/api-proxy'
 // Every request is forwarded live: nothing here may be prerendered or cached,
 // and the handler must read per-request headers (cookie, client IP).
 export const dynamic = 'force-dynamic'
-// Node, not Edge: the body is streamed through `fetch` with `duplex: 'half'`.
+// Node, not Edge: the handler reads the request body and per-request headers.
 export const runtime = 'nodejs'
 
 export const GET = proxyToApi
