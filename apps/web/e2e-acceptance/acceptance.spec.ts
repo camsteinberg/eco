@@ -33,7 +33,15 @@
  * never `pnpm qa` and never CI.
  */
 
-import { expect, test, chromium, type BrowserContext, type Page } from "@playwright/test";
+import {
+  expect,
+  test,
+  chromium,
+  firefox,
+  webkit,
+  type BrowserContext,
+  type Page,
+} from "@playwright/test";
 import { join } from "node:path";
 import {
   TURN_TIMEOUT_MS,
@@ -81,8 +89,20 @@ import {
 } from "./lib/walk";
 
 const BASE_URL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3120";
+/**
+ * `ECO_ACCEPTANCE_BROWSER=chrome|firefox|webkit` picks the engine. Chrome is
+ * the shipping path; Firefox and WebKit are Playwright's own builds, read to
+ * learn what a non-Chromium browser gets (a notice and a fallback, or a load),
+ * not to grade the product. Each engine keeps its own profile so a Chrome
+ * model cache never masquerades as a WebKit one.
+ */
+const BROWSER = (process.env.ECO_ACCEPTANCE_BROWSER?.trim() || "chrome") as
+  | "chrome"
+  | "firefox"
+  | "webkit";
 const PROFILE_DIR =
-  process.env.ECO_ACCEPTANCE_PROFILE_DIR ?? join(__dirname, ".browser-profile");
+  process.env.ECO_ACCEPTANCE_PROFILE_DIR
+  ?? join(__dirname, BROWSER === "chrome" ? ".browser-profile" : `.browser-profile-${BROWSER}`);
 
 /** A long generation, so there is time to kill the tab mid-reply (task 10). */
 const LONG_TURN_TIMEOUT_MS = 480_000;
@@ -214,8 +234,9 @@ test.describe("eleven-task acceptance walk", () => {
 
   test.beforeAll(async () => {
     setWebBaseUrl(BASE_URL);
-    context = await chromium.launchPersistentContext(PROFILE_DIR, {
-      channel: "chrome",
+    const engine = BROWSER === "firefox" ? firefox : BROWSER === "webkit" ? webkit : chromium;
+    context = await engine.launchPersistentContext(PROFILE_DIR, {
+      ...(BROWSER === "chrome" ? { channel: "chrome" } : {}),
       headless: false,
       // Let the app lay out to the real window. Playwright otherwise emulates a
       // fixed 1280x720 viewport inside a taller window, so the `h-dvh` shell
