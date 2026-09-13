@@ -289,6 +289,10 @@ export function ChatSurface(props: ChatSurfaceProps) {
   } = props;
 
   return (
+    // Drag-and-drop is a pointer-only enhancement by nature. The accessible
+    // equivalent is a real control, not a role on this container: ChatInput
+    // renders an <input type="file"> behind an "Attach files" button.
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions
     <div
       className="grain-subtle relative flex h-full flex-col bg-[var(--eco-surface-chat)]"
       onDragEnter={onDragEnter}

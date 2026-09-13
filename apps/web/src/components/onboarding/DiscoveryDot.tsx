@@ -43,7 +43,12 @@ export function DiscoveryDot({ featureId, children, className }: DiscoveryDotPro
   }, [featureId, visible]);
 
   return (
+    // Presentational on purpose: this wrapper adds no semantics of its own. It
+    // positions the dot and notices the user reaching the control it wraps, so
+    // the dot can retire itself. The real affordance is `children` — whatever
+    // interactive element sits inside keeps its own role and keyboard handling.
     <div
+      role="presentation"
       className={`relative ${className ?? ""}`}
       onMouseEnter={dismiss}
       onClick={dismiss}

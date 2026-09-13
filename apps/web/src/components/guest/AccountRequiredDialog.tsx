@@ -40,6 +40,10 @@ export function AccountRequiredDialog({
   }, [open]);
 
   return (
+    // Click-outside-to-dismiss on a native <dialog>. Escape already closes it
+    // through `onCancel` above, so keyboard users lose nothing — see the same
+    // note in components/ui/ConfirmDialog.tsx.
+    // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions
     <dialog
       ref={dialogRef}
       onCancel={(event) => {

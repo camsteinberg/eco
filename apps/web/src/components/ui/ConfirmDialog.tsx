@@ -49,6 +49,12 @@ export function ConfirmDialog({
   }, [open]);
 
   return (
+    // Click-outside-to-dismiss on a native <dialog>. The keyboard equivalent is
+    // already there and is the platform one: Escape fires `onCancel` above, and
+    // the dialog has a real Cancel button. A keydown listener here would add a
+    // second, worse path to the same action, so the rules are silenced rather
+    // than satisfied.
+    // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions
     <dialog
       ref={dialogRef}
       onCancel={(event) => {

@@ -314,6 +314,11 @@ export function CommandPalette({ open, onClose, onAction }: CommandPaletteProps)
   let flatIndex = 0;
 
   return (
+    // The palette's key handling lives on its outermost element so Escape and
+    // the arrow keys work wherever focus sits inside it. The rule reads
+    // role="dialog" as non-interactive; a dialog listening for Escape is the
+    // expected pattern, not a violation.
+    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
     <div
       className="fixed inset-0 z-50 flex items-start justify-center pt-[20vh] motion-safe:animate-[fadeIn_150ms_ease-out]"
       role="dialog"
@@ -378,6 +383,12 @@ export function CommandPalette({ open, onClose, onAction }: CommandPaletteProps)
                 const itemIndex = flatIndex++;
                 const isSelected = itemIndex === selectedIndex;
                 return (
+                  // A listbox option in the aria-activedescendant pattern: focus
+                  // stays on the combobox input above, which owns the arrow-key
+                  // and Enter handling, and points here with
+                  // aria-activedescendant. Options must NOT be tab stops in this
+                  // pattern, so the rules' fix would break it.
+                  // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/interactive-supports-focus
                   <div
                     key={item.id}
                     id={`cmd-option-${item.id}`}
