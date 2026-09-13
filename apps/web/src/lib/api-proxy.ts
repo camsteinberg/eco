@@ -105,7 +105,13 @@ function buildUpstreamUrl(request: Request, base: string): string {
   return `${base}${pathname}${search}`
 }
 
-function buildUpstreamHeaders(request: Request, env: NodeJS.ProcessEnv): Headers {
+/**
+ * The headers one proxied request carries upstream. Exported for its own unit
+ * test: the allowlist and the trusted-IP pair are the security-relevant part of
+ * this module, and reaching them through a live `fetch` would test the network
+ * instead of the rule.
+ */
+export function buildUpstreamHeaders(request: Request, env: NodeJS.ProcessEnv): Headers {
   const headers = new Headers()
   for (const name of FORWARDED_REQUEST_HEADERS) {
     const value = request.headers.get(name)
@@ -124,7 +130,8 @@ function buildUpstreamHeaders(request: Request, env: NodeJS.ProcessEnv): Headers
   return headers
 }
 
-function buildDownstreamHeaders(upstream: Response): Headers {
+/** The headers copied back to the browser. Exported for its own unit test. */
+export function buildDownstreamHeaders(upstream: Response): Headers {
   const headers = new Headers()
   for (const name of FORWARDED_RESPONSE_HEADERS) {
     const value = upstream.headers.get(name)
