@@ -3,7 +3,7 @@
 
 "use client";
 
-import { Suspense, useEffect, useState, type FormEvent } from "react";
+import { Suspense, useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { EcoLogo } from "../../src/components/EcoLogo";
@@ -17,6 +17,15 @@ function GateForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const returnTo = sanitizeRelativeUrl(searchParams.get("returnTo"), "/chat");
+  const passwordRef = useRef<HTMLInputElement>(null);
+
+  // Focus the password field on arrival. This page exists to take one value,
+  // so landing on the field is the helpful behaviour — done here rather than
+  // with `autoFocus` so it is an explicit mount-time action we control, and so
+  // it never fires on the already-unlocked branch that renders no input.
+  useEffect(() => {
+    passwordRef.current?.focus();
+  }, [gateConfigured]);
 
   useEffect(() => {
     let active = true;
@@ -156,6 +165,7 @@ function GateForm() {
               Access password
             </label>
             <input
+              ref={passwordRef}
               id="gate-password"
               type="password"
               value={password}
@@ -166,7 +176,6 @@ function GateForm() {
               aria-describedby={error ? "gate-password-error" : "gate-password-help"}
               aria-invalid={error ? "true" : "false"}
               placeholder="Password"
-              autoFocus
               required
               className={`block w-full rounded-xl border bg-[var(--eco-surface-elevated)] px-4 py-3 text-base text-[var(--eco-text)] placeholder-[var(--eco-text-secondary)] transition-all duration-150 ease focus:outline-none ${
                 error

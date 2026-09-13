@@ -289,6 +289,12 @@ export function MessageList({
   }
 
   return (
+    // A focusable live region: `role="log"` is non-interactive to the rule, but
+    // a scrollable transcript must take focus and handle keys or a keyboard
+    // user cannot scroll it at all (WCAG 2.1.1). The tabIndex is allowlisted in
+    // the shared config; the keydown handler is the other half of the same
+    // requirement.
+    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
     <div
       ref={parentRef}
       className="h-full overflow-y-auto overscroll-contain"

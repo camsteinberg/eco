@@ -253,13 +253,16 @@ function AiList({
   const displayCurrentId = runningModelId ?? currentModelId;
   const reduceMotion = useReducedMotion();
   return (
-    <ul role="radiogroup" aria-label="Available AIs" className="flex flex-col gap-2">
+    // A radiogroup, not a list: the role replaces list semantics rather than
+    // layering on top of them, so <ul>/<li> only added markup a screen reader
+    // would never announce. Plain divs keep the identical flex layout.
+    <div role="radiogroup" aria-label="Available AIs" className="flex flex-col gap-2">
       {state.choices.map((choice) => {
         const display = getDisplayInfo(choice.model.id, choice.model);
         const selected = state.selectedId === choice.model.id;
         const isCurrent = displayCurrentId === choice.model.id;
         return (
-          <li key={choice.model.id}>
+          <div key={choice.model.id}>
             <motion.button
               type="button"
               role="radio"
@@ -305,10 +308,10 @@ function AiList({
                 )}
               </span>
             </motion.button>
-          </li>
+          </div>
         );
       })}
-    </ul>
+    </div>
   );
 }
 

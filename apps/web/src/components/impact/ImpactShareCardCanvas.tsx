@@ -152,6 +152,10 @@ export function ImpactShareCardCanvas({
   const isStory = variant === "9:16";
 
   return (
+    // Click-outside-to-dismiss on the modal's own container. This element is
+    // the dialog (role + aria-modal below), which the rules read as
+    // non-interactive; the close button inside is the keyboard path.
+    // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions
     <div
       className="fixed inset-0 z-[10020] flex items-center justify-center p-4 sm:p-6"
       onClick={(e) => {
