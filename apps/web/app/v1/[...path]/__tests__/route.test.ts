@@ -82,16 +82,57 @@ describe("(a) forwarding", () => {
     expect(callAt(1).url).toBe("http://localhost:3001/v1/ping");
   });
 
-  it("streams a body with duplex: half and sends none on GET/DELETE-without-body", async () => {
+  // Buffered, not streamed: undici retries a request internally and cannot
+  // re-read a stream, so with `duplex: 'half'` an upstream 401 to a failed
+  // sign-in made fetch reject with "expected non-null body source" and a wrong
+  // password surfaced as a 502 "API unreachable".
+  it("buffers a body and sends none on GET/DELETE-without-body", async () => {
     await POST(new Request("https://eco.test/v1/feedback", { method: "POST", body: "hello" }));
-    expect(callAt(0).init.duplex).toBe("half");
-    expect(callAt(0).init.body).not.toBeUndefined();
+    expect(callAt(0).init.body).toBeInstanceOf(ArrayBuffer);
+    expect(new TextDecoder().decode(callAt(0).init.body as ArrayBuffer)).toBe("hello");
+    // `duplex` is only needed for a stream body; nothing should still set it.
+    expect(callAt(0).init.duplex).toBeUndefined();
 
     await GET(new Request("https://eco.test/v1/ping"));
     expect(callAt(1).init.body).toBeUndefined();
 
     await DELETE(new Request("https://eco.test/v1/auth/account", { method: "DELETE" }));
     expect(callAt(2).init.body).toBeUndefined();
+  });
+
+  it("passes an upstream 401 back with its status and body intact", async () => {
+    const upstreamBody = JSON.stringify({ code: "INVALID_EMAIL_OR_PASSWORD" });
+    nextResponse = new Response(upstreamBody, {
+      status: 401,
+      headers: { "content-type": "application/json" },
+    });
+
+    const response = await POST(
+      new Request("https://eco.test/v1/auth/sign-in/email", {
+        method: "POST",
+        body: JSON.stringify({ email: "a@eco.test", password: "wrong" }),
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    expect(response.status).toBe(401);
+    expect(response.headers.get("content-type")).toBe("application/json");
+    await expect(response.text()).resolves.toBe(upstreamBody);
+  });
+
+  // The bytes are held in the function's memory now, so there is a ceiling.
+  it("rejects a body past the buffer ceiling without calling the upstream", async () => {
+    const response = await POST(
+      new Request("https://eco.test/v1/feedback", {
+        method: "POST",
+        body: "x".repeat(1024 * 1024 + 1),
+      }),
+    );
+    const body = (await response.json()) as { error: { code: string } };
+
+    expect(response.status).toBe(413);
+    expect(body.error.code).toBe("payload_too_large");
+    expect(calls).toHaveLength(0);
   });
 
   it("forwards OPTIONS rather than answering it locally", async () => {
@@ -282,7 +323,7 @@ describe("(d) upstream failure", () => {
   });
 });
 
-describe("(e) the body is never read or logged", () => {
+describe("(e) the body is never parsed or logged", () => {
   it("logs nothing at all, on success or failure", async () => {
     const spies = (["log", "info", "warn", "error", "debug"] as const).map((level) =>
       vi.spyOn(console, level).mockImplementation(() => undefined),
@@ -311,17 +352,19 @@ describe("(e) the body is never read or logged", () => {
     }
   });
 
-  it("hands the body to fetch as an unread stream", async () => {
+  it("forwards the body bytes verbatim, having only copied them", async () => {
+    const payload = JSON.stringify({ q: "unread" });
     const request = new Request("https://eco.test/v1/search", {
       method: "POST",
-      body: JSON.stringify({ q: "unread" }),
+      body: payload,
     });
 
     await POST(request);
 
-    // The handler must not consume the body itself — if it had, `bodyUsed` would
-    // be true here and the streamed forward would have failed.
-    expect(request.bodyUsed).toBe(false);
-    expect(callAt(0).init.body).toBe(request.body);
+    // The handler reads the body into bytes so the forward can be retried, but
+    // it never decodes or parses them: what the upstream gets is what came in.
+    const sent = callAt(0).init.body;
+    expect(sent).toBeInstanceOf(ArrayBuffer);
+    expect(new TextDecoder().decode(sent as ArrayBuffer)).toBe(payload);
   });
 });

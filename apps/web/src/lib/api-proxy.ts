@@ -24,10 +24,19 @@
  * pulls). With no secret configured neither header is sent and the api keeps its
  * previous `Fly-Client-IP` → TCP-peer behaviour, so local dev is unchanged.
  *
- * The request body is streamed straight through and never read, buffered or
- * logged: chat never routes through the api, but `/v1/search` carries the user's
- * question verbatim, `/v1/feedback` carries free text and `/api/auth/*` carries
- * passwords, and none of them belongs in a Vercel function log.
+ * The request body is buffered in memory and never parsed or logged: chat never
+ * routes through the api, but `/v1/search` carries the user's question verbatim,
+ * `/v1/feedback` carries free text and `/api/auth/*` carries passwords, and none
+ * of them belongs in a Vercel function log. The bytes are read into an
+ * ArrayBuffer and handed to `fetch` unexamined.
+ *
+ * It is buffered rather than streamed because undici retries a request
+ * internally and cannot re-read a stream: with `body: request.body` and
+ * `duplex: 'half'`, an upstream 401 to a failed sign-in made `fetch` reject with
+ * "expected non-null body source", so this proxy answered 502 and a wrong
+ * password read as "API unreachable". Every body that comes through here is a
+ * password, a name, a search query or a feedback note — kilobytes — so holding
+ * one in memory costs nothing. `MAX_BODY_BYTES` keeps that true.
  */
 
 /**
@@ -70,6 +79,14 @@ const DEFAULT_UPSTREAM = 'http://localhost:3001'
 
 /** Methods that carry no request body, so `fetch` must not be handed one. */
 const BODYLESS_METHODS = new Set(['GET', 'HEAD'])
+
+/**
+ * The ceiling on a buffered request body. The api enforces its own limits; this
+ * one exists because the bytes are now held in this function's memory, and the
+ * largest thing any proxied path legitimately sends is a feedback note. Anything
+ * past it is rejected before the upstream call rather than buffered.
+ */
+const MAX_BODY_BYTES = 1024 * 1024
 
 /**
  * The upstream base URL. `API_URL` is the server-only override (so the browser
@@ -161,17 +178,35 @@ export async function proxyToApi(request: Request): Promise<Response> {
   const method = request.method.toUpperCase()
   const hasBody = !BODYLESS_METHODS.has(method) && request.body !== null
 
+  // Read as opaque bytes: never decoded, never parsed, never logged.
+  let body: ArrayBuffer | null = null
+  if (hasBody) {
+    try {
+      body = await request.arrayBuffer()
+    } catch {
+      return Response.json(
+        { error: { code: 'invalid_request_body', message: 'Could not read the request body' } },
+        { status: 400, headers: { 'cache-control': 'no-store' } },
+      )
+    }
+
+    if (body.byteLength > MAX_BODY_BYTES) {
+      return Response.json(
+        { error: { code: 'payload_too_large', message: 'Request body too large' } },
+        { status: 413, headers: { 'cache-control': 'no-store' } },
+      )
+    }
+  }
+
   let upstream: Response
   try {
     upstream = await fetch(url, {
       method,
       headers: buildUpstreamHeaders(request, env),
-      // Streamed, never read here. `duplex: 'half'` is required by the Fetch
-      // spec for a stream body and is not yet in the lib.dom types.
-      ...(hasBody ? { body: request.body, duplex: 'half' } : {}),
+      ...(body === null ? {} : { body }),
       redirect: 'manual',
       cache: 'no-store',
-    } as RequestInit)
+    })
   } catch {
     return Response.json(
       { error: { code: 'upstream_unreachable', message: 'API unreachable' } },
