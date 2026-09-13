@@ -3,7 +3,7 @@
 
 import { betterAuth } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
-import { createAuthMiddleware, APIError } from 'better-auth/api'
+import { createAuthMiddleware, APIError, isAPIError } from 'better-auth/api'
 import { magicLink } from 'better-auth/plugins'
 import { Resend } from 'resend'
 import type { Db } from '../db/index.js'
@@ -14,6 +14,13 @@ import { getAuthBaseURL, assertSelfOriginEmailLink } from './email-link-guard.js
 import { escapeHtml } from '../lib/escape-html.js'
 import { getSignupEmailRejectionReason } from './signup-email-policy.js'
 import { generateAppleClientSecret } from './apple-secret.js'
+import {
+  clearSignInFailures,
+  isLockedOut,
+  normalizeEmail,
+  recordSignInFailure,
+  type LockoutRedis,
+} from './signin-lockout.js'
 import { logger } from '../lib/logger.js'
 
 // Gracefully disabled when RESEND_API_KEY is not set
@@ -50,8 +57,26 @@ async function resolveAppleClientSecret(): Promise<string> {
   return process.env.APPLE_CLIENT_SECRET ?? ''
 }
 
-export async function createAuth(db: Db) {
+export type CreateAuthOptions = {
+  /**
+   * Redis client backing the per-email sign-in lockout. When absent (local dev
+   * with no `REDIS_URL`, and tests) the lockout hooks are skipped entirely and
+   * the per-IP rate-limit tier is the only brake — the same tradeoff the rate
+   * limiter itself makes. Production requires `REDIS_URL`, so this is only
+   * absent where it is meant to be.
+   */
+  lockoutRedis?: LockoutRedis | undefined
+}
+
+export async function createAuth(db: Db, options: CreateAuthOptions = {}) {
+  const { lockoutRedis } = options
   const appleClientSecret = await resolveAppleClientSecret()
+
+  if (!lockoutRedis) {
+    logger.warn(
+      'Per-email sign-in lockout disabled: no Redis client. Password guessing is bounded only by the per-IP auth rate-limit tier.',
+    )
+  }
   if (process.env.APPLE_CLIENT_ID && appleClientSecret === '') {
     logger.warn(
       'Apple sign-in disabled: no client secret (APPLE_CLIENT_ID is set, but neither the generated JWT nor APPLE_CLIENT_SECRET produced one)',
@@ -215,10 +240,66 @@ export async function createAuth(db: Db) {
       // neither path needs (or should get) this check. The complementary
       // automation defense (Vercel BotID on the signup request) is separate.
       before: createAuthMiddleware(async (ctx) => {
-        if (ctx.path !== '/sign-up/email') return
-        const rejection = getSignupEmailRejectionReason(ctx.body?.email)
-        if (rejection) {
-          throw new APIError('BAD_REQUEST', { message: rejection })
+        if (ctx.path === '/sign-up/email') {
+          const rejection = getSignupEmailRejectionReason(ctx.body?.email)
+          if (rejection) {
+            throw new APIError('BAD_REQUEST', { message: rejection })
+          }
+          return
+        }
+
+        // Per-email lockout (finding F2): refuse a sign-in for an email that
+        // has already failed too many times, before the password is checked.
+        if (ctx.path === '/sign-in/email') {
+          if (!lockoutRedis) return
+          const email = normalizeEmail(ctx.body?.email)
+          if (!email) return
+
+          let locked: boolean
+          try {
+            locked = await isLockedOut(lockoutRedis, email)
+          } catch (err) {
+            // Fail CLOSED, as the auth rate-limit tier does: an unusable
+            // counter must not become an unlimited guessing window. The email
+            // is never logged — only the fact that the lookup failed.
+            logger.error({ err }, 'Sign-in lockout lookup failed — refusing the sign-in')
+            throw new APIError('SERVICE_UNAVAILABLE', {
+              message: 'Sign-in is temporarily unavailable. Please try again shortly.',
+            })
+          }
+
+          if (locked) {
+            throw new APIError('TOO_MANY_REQUESTS', {
+              message: 'Too many sign-in attempts. Try again in a few minutes.',
+            })
+          }
+        }
+      }),
+      // Count the outcome of a sign-in attempt (finding F2). `hooks.after` sees
+      // the handler's result on `ctx.context.returned`, which is the thrown
+      // APIError when the attempt failed (better-auth 1.6.23,
+      // api/dispatch.mjs:232-240: an APIError from the endpoint becomes
+      // `result.response`, which is assigned to `context.returned` before the
+      // after hooks run). A Redis failure here is logged, not thrown: the
+      // attempt is already decided, and the before hook fails closed anyway.
+      after: createAuthMiddleware(async (ctx) => {
+        if (ctx.path !== '/sign-in/email') return
+        if (!lockoutRedis) return
+        const email = normalizeEmail(ctx.body?.email)
+        if (!email) return
+
+        const failed = isAPIError(ctx.context.returned)
+        try {
+          if (failed) {
+            const { locked } = await recordSignInFailure(lockoutRedis, email)
+            if (locked) {
+              logger.warn('Sign-in lockout engaged for an account after repeated failures')
+            }
+          } else {
+            await clearSignInFailures(lockoutRedis, email)
+          }
+        } catch (err) {
+          logger.error({ err }, 'Sign-in lockout bookkeeping failed')
         }
       }),
     },

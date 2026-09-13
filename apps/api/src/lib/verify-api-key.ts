@@ -29,6 +29,7 @@ export function createSessionCookieVerifier(db: Db) {
     const rows = await db
       .select({
         userId: sessionTable.userId,
+        sessionCreatedAt: sessionTable.createdAt,
         email: userTable.email,
         name: userTable.name,
       })
@@ -69,6 +70,9 @@ export function createSessionCookieVerifier(db: Db) {
       id: appUserId,
       email: row.email,
       name: resolvedName,
+      // Carried so a route can require a RECENTLY established session before a
+      // destructive action (account deletion) — see routes/account.ts.
+      sessionCreatedAt: row.sessionCreatedAt,
     }
   }
 }
