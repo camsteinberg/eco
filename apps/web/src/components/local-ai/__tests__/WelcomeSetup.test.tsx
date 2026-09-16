@@ -166,11 +166,10 @@ describe('WelcomeSetup', () => {
     expect(screen.queryByText(/lighter model/i)).toBeNull();
   });
 
-  // Locks the CSS contract for the cookie-banner clearance (F3): globals.css
-  // reserves bottom space on [data-eco-setup-surface] while the notice is up, so
-  // the mobile banner can't float over the reassurance card. A refactor that
-  // drops the hook would silently reopen the occlusion — this catches it.
-  it('marks the root surface so the cookie notice can reserve clearance', () => {
+  // [data-eco-setup-surface] is a stable test hook: the e2e and acceptance walks
+  // reach the download-wait surface through it. A refactor dropping the
+  // attribute would break those walks with no signal here otherwise.
+  it('marks the root surface as a stable test hook', () => {
     render(<WelcomeSetup phase="downloading" percent={20} etaSeconds={90} reassuranceIndex={0} />);
     expect(screen.getByRole('main')).toHaveAttribute('data-eco-setup-surface');
   });

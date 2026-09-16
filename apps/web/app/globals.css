@@ -779,71 +779,12 @@ button:disabled,
   transition: background-color 2s ease;
 }
 
-/* ── Cookie notice ↔ chat-surface clearance ────────────────
-   The cookie notice is a fixed element pinned to the bottom of every page; on
-   the chat surface it would otherwise sit over content anchored to the bottom
-   (bug: first session). While the notice is visible on the chat surface
-   (`html.eco-chat-cookie-notice`, toggled by CookieBanner) the affected
-   surfaces reserve extra space below their bottom-anchored content so it clears
-   the notice. Three surfaces participate:
-     • the active-conversation composer (`[data-eco-composer-bar]`) — the
-       notice would sit over its Send button;
-     • the first-run setup surface (`[data-eco-setup-surface]`, WelcomeSetup,
-       which renders on /chat during the model download) — the mobile bar
-       floats over the bottom of the rotating reassurance card (the P0
-       download-wait "values moment");
-     • the empty-state trust footer (`[data-eco-chat-trust-footer]`, the
-       WhyEcoCard wrapper below the composer) — the mobile bar floats over the
-       "Read the methodology →" link under the trust pills.
-     • the setup error surface (`[data-eco-setup-error-surface]`, SetupErrorState,
-       which replaces the setup surface when the download ladder is exhausted) —
-       the mobile bar floats over the "Tell us more" action row.
-   How the reservation behaves depends on whether the content fits the viewport,
-   which differs by surface and device — it is NOT a simple "justify-center lifts
-   it" story (measured: at 390×844 the setup column overflows to ~1007px, so
-   justify-center has zero free space and the initial fold cannot shift). On
-   viewports where the content fits, the reservation lifts the bottom content
-   clear of the notice; where it overflows (common phones), the reservation
-   lengthens the scroll run so the content can be scrolled FULLY clear of the
-   notice — without it, the last line stays clipped even at max scroll.
-   Only the breakpoints where the notice actually overlaps reserve space: the
-   full-width mobile bar (<sm) and the bottom-right desktop card (lg+, the
-   composer and the setup surface — the setup surface's chromeless pillar row
-   spans the column, so it reaches into the desktop card's corner; the
-   empty-state footer still clears it without help). The sm–md notice is lifted
-   and narrow, so it never reaches the composer. */
-@media (max-width: 639px) {
-  html.eco-chat-cookie-notice [data-eco-composer-bar] {
-    padding-bottom: 6.5rem;
-  }
-  html.eco-chat-cookie-notice [data-eco-setup-surface] {
-    padding-bottom: calc(6.5rem + env(safe-area-inset-bottom));
-  }
-  html.eco-chat-cookie-notice [data-eco-chat-trust-footer] {
-    padding-bottom: calc(6.5rem + env(safe-area-inset-bottom));
-  }
-  html.eco-chat-cookie-notice [data-eco-setup-error-surface] {
-    padding-bottom: calc(6.5rem + env(safe-area-inset-bottom));
-  }
-  html.eco-chat-cookie-notice [data-eco-welcome-card] {
-    padding-bottom: calc(6.5rem + env(safe-area-inset-bottom));
-  }
-  /* While the first-run welcome dialog is up, the phone notice yields entirely:
-     the dialog is modal, and its "Start with …" button is the one thing a new
-     person must be able to tap without discovering a scroll first. The notice
-     returns on the download screen (WelcomeCard sets/clears the class). */
-  html.eco-welcome-card-open [data-eco-cookie-notice] {
-    display: none;
-  }
-}
-@media (min-width: 1024px) {
-  html.eco-chat-cookie-notice [data-eco-composer-bar] {
-    padding-bottom: 8rem;
-  }
-  html.eco-chat-cookie-notice [data-eco-setup-surface] {
-    padding-bottom: 8rem;
-  }
-}
+/* ── Cookie notice ────────────────────────────────────────
+   The cookie notice never renders on the chat surface (CookieBanner returns
+   null there), so nothing on /chat reserves space for it. Chat is
+   bottom-anchored end to end — composer, download screen, welcome card, trust
+   footer — and every per-surface clearance rule we tried left some viewport
+   where the notice still landed on a control. */
 /* Everywhere else the notice renders (policies, articles, marketing) there is no
    bottom-anchored chrome to lift — the page simply ends under the notice, which
    left the closing lines of the privacy policy unreadable. Reserving scroll room

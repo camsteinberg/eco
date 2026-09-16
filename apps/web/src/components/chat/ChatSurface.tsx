@@ -69,7 +69,7 @@ function HelpGuideButton({ className }: { className: string }) {
   // A bottom sheet covers the bottom of the viewport, which is where this disc
   // lives: in the model sheet it landed on the last tile's state line (the
   // clearance under the list is about 38px plus the safe area, against a 44px
-  // disc), and it shares a z band with the cookie banner and the toasts. While
+  // disc), and it shares a z band with the toasts. While
   // a sheet is open the disc has nothing to offer that the sheet does not, so
   // it stands down rather than fighting for the same corner.
   const sheetOpen = useAnyBottomSheetOpen();

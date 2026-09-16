@@ -102,11 +102,10 @@ describe("ChatSurface validation harness banners", () => {
     expect(banner).toHaveTextContent("Requested profile: quick temp 0.18 cap 256 top_p 0.72 top_k 64");
   });
 
-  // Locks the CSS contract for the cookie-banner clearance (F3): globals.css
-  // reserves bottom space on [data-eco-chat-trust-footer] while the notice is up
-  // so the mobile banner can't clip the "Read the methodology →" link below the
-  // trust pills. A refactor dropping the hook would silently reopen the occlusion.
-  it("marks the empty-state trust footer so the cookie notice can reserve clearance", () => {
+  // [data-eco-chat-trust-footer] is a stable test hook: the e2e and acceptance
+  // walks reach the empty-state footer through it. A refactor dropping the
+  // attribute would break those walks with no signal here otherwise.
+  it("marks the empty-state trust footer as a stable test hook", () => {
     const { container } = render(<ChatSurface {...makeProps()} />);
     expect(container.querySelector("[data-eco-chat-trust-footer]")).not.toBeNull();
   });
