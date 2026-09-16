@@ -18,14 +18,15 @@
  *
  * The run's exit status follows the report: any FAIL row ends the run red.
  * Only an EXPECTED-FAIL is allowed to pass, because it names a gap that is
- * already known.
+ * already known. No task claims one today.
  *
  * What it is not: a scorer. Tasks whose quality only a person can judge are
  * recorded with the reply text and, where one exists, a mechanical check
  * (does the tenth reply still contain the rent figure; is the shortened draft
  * shorter). This file does not invent a quality rubric, and it does not fail
- * the run on a gap that is known and tracked — the offline reload is recorded
- * as an expected failure rather than turned into a red lane.
+ * the run on a gap that is known and tracked. The offline reload used to be
+ * recorded that way; since the worker captures the chat shell it is a real
+ * PASS/FAIL row.
  *
  * Cost: two model downloads on a cold profile (~0.8 GB and ~1.7 GB), then
  * every turn is real generation. Budget the better part of an hour per model.
@@ -881,15 +882,36 @@ test.describe("eleven-task acceptance walk", () => {
       });
 
       // ── 7. Offline reload — LAST, because it ends the page ────────────────
-      // A known gap: today the reloaded tab cannot serve chat offline. Recorded
-      // as an expected failure so the run still reports, and so the day it
-      // starts passing is visible in the table rather than in someone's memory.
+      // A real check now that the worker captures the chat shell. The walk's
+      // tab was opened before the worker existed, so no navigation has passed
+      // through it yet: reload ONLINE first to let the worker take control and
+      // capture the shell, then go offline and reload for real.
       await task(7, "reload the tab offline", async () => {
         const page = await open();
-        await context.setOffline(true);
         let usable = false;
         let detail = "";
+        let controlling = false;
+        let captured = false;
         try {
+          await page.reload({ waitUntil: "load", timeout: 120_000 });
+          await expect(composer(page)).toBeVisible({ timeout: 120_000 });
+
+          controlling = await page.evaluate(
+            () => navigator.serviceWorker.controller !== null,
+          );
+          await page
+            .waitForFunction(
+              async () => {
+                const cache = await caches.open("eco-shell-v1");
+                return (await cache.match(location.pathname)) !== undefined;
+              },
+              undefined,
+              { timeout: 30_000 },
+            )
+            .then(() => { captured = true; })
+            .catch(() => { captured = false; });
+
+          await context.setOffline(true);
           await page.reload({ waitUntil: "commit", timeout: 120_000 });
           await expect(composer(page)).toBeVisible({ timeout: 120_000 });
           const outcome = await sendTurn(page, "Still working offline?", LONG_TURN_TIMEOUT_MS);
@@ -900,6 +922,8 @@ test.describe("eleven-task acceptance walk", () => {
         } finally {
           await context.setOffline(false);
         }
+        const state = `worker controlling: ${controlling ? "yes" : "no"}; `
+          + `shell captured: ${captured ? "yes" : "no"}`;
         push({
           task: 7,
           turn: 1,
@@ -907,8 +931,10 @@ test.describe("eleven-task acceptance walk", () => {
           modelId: pick.modelId,
           firstTokenMs: null,
           kvReason: null,
-          result: usable ? "PASS" : "EXPECTED-FAIL",
-          evidence: usable ? detail : `offline reload did not reach a working chat: ${detail}`,
+          result: usable ? "PASS" : "FAIL",
+          evidence: usable
+            ? `${state}; ${detail}`
+            : `offline reload did not reach a working chat (${state}): ${detail}`,
         });
       });
 

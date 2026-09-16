@@ -8,11 +8,24 @@
  * - CacheFirst for successful immutable static assets (_next/static/*)
  * - CacheFirst for reviewed ONNX Runtime assets needed by prepared local models
  * - NetworkOnly for API routes (/v1/*, /api/*)
- * - NetworkOnly for navigations with a small offline fallback document
+ * - NetworkFirst for the chat routes' app shell, falling back to the captured
+ *   shell and then to a small offline document
+ * - NetworkOnly for every other navigation, with the same offline document
  * - No-op for everything else
+ *
+ * Why a cached shell is deploy-safe here: the HTML and every hashed chunk it
+ * references are captured together from ONE successful response, so the shell
+ * and its chunks are always from a single build. If any of those assets cannot
+ * be stored, the capture stores neither the HTML nor its manifest — the tab
+ * keeps the previous complete shell, or the offline document, and never a
+ * shell pointing at a chunk that is not there.
  */
 
 const CACHE_NAME = "eco-v5";
+// Separate from CACHE_NAME so bumping the app cache (which navigates every open
+// tab) is not needed to change shell behaviour, and so the shell survives the
+// activate sweep of the LRU-evicted app cache.
+const SHELL_CACHE_NAME = "eco-shell-v1";
 const TRANSFORMERS_CACHE_NAME = "transformers-cache";
 const CLIENT_RESET_MESSAGE_TYPE = "eco-client-state-reset";
 let suppressRuntimeCaching = false;
@@ -48,6 +61,189 @@ function isStaticAsset(url) {
   return new URL(url).pathname.startsWith("/_next/static/");
 }
 
+// The only two chat routes — app/(app)/chat/page.tsx and .../chat/new/page.tsx.
+function isShellRoute(pathname) {
+  return pathname === "/chat" || pathname === "/chat/new";
+}
+
+const SHELL_ROUTES = ["/chat", "/chat/new"];
+// The asset list a stored shell needs, kept beside it under its own key.
+const SHELL_MANIFEST_PREFIX = "/__eco-shell-manifest";
+// Script/style references in the HTML. The flight payload lists the same
+// chunks without the /_next/ prefix, so both forms are matched and normalized
+// to one absolute URL. Route-group parentheses (…/chunks/app/(app)/chat/…) are
+// legitimate inside a chunk path, so the character class does not stop on them.
+const SHELL_ASSET_PATTERNS = [
+  /\/_next\/static\/[^"'\\\s<>,]+/g,
+  /static\/chunks\/[^"'\\\s<>,]+/g,
+  /static\/css\/[^"'\\\s<>,]+/g,
+];
+
+function shellManifestKey(pathname) {
+  return SHELL_MANIFEST_PREFIX + pathname;
+}
+
+function toShellAssetUrl(match) {
+  const path = match.startsWith("/_next/") ? match : `/_next/${match}`;
+  return new URL(path, self.location.origin).toString();
+}
+
+function collectShellAssets(html) {
+  const urls = new Set();
+  for (const pattern of SHELL_ASSET_PATTERNS) {
+    for (const match of html.matchAll(pattern)) {
+      urls.add(toShellAssetUrl(match[0]));
+    }
+  }
+  return urls;
+}
+
+// Fonts are referenced from the stylesheets, not the HTML, and the shipped CSS
+// uses relative urls (url(../media/…)) as often as absolute ones — so resolve
+// every url() against its stylesheet and keep the same-origin static hits.
+function collectCssAssets(cssText, cssUrl) {
+  const urls = new Set();
+  for (const match of cssText.matchAll(/url\(\s*['"]?([^)'"]+)['"]?\s*\)/g)) {
+    const raw = match[1].trim();
+    if (!raw || raw.startsWith("data:")) continue;
+    try {
+      const resolved = new URL(raw, cssUrl);
+      if (resolved.origin === self.location.origin && isStaticAsset(resolved.toString())) {
+        urls.add(resolved.toString());
+      }
+    } catch {
+      // Not a URL we can resolve — skip it rather than fail the capture.
+    }
+  }
+  return urls;
+}
+
+async function readAsset(url) {
+  const cached = await caches.match(url);
+  if (cached) return cached;
+
+  const response = await fetch(url);
+  if (!response.ok) return null;
+  return response;
+}
+
+/**
+ * Capture the shell for one chat route: the HTML plus every asset it needs.
+ *
+ * Runs on a clone inside waitUntil, so it never touches the response the tab
+ * is already rendering, and every failure path leaves the previous capture in
+ * place.
+ */
+async function captureShell(pathname, response) {
+  try {
+    const html = await response.text();
+    const assetUrls = collectShellAssets(html);
+
+    for (const url of [...assetUrls]) {
+      if (!url.endsWith(".css")) continue;
+      const css = await readAsset(url);
+      if (!css) return;
+      for (const media of collectCssAssets(await css.clone().text(), url)) {
+        assetUrls.add(media);
+      }
+    }
+
+    const manifest = [...assetUrls].sort();
+    const cache = await caches.open(SHELL_CACHE_NAME);
+    // The network response's headers are kept whole — Content-Security-Policy
+    // among them, which carries the nonce this HTML's script tags were served
+    // with. CSP is header-only here (no <meta http-equiv>), so rebuilding the
+    // response with a Content-Type alone would serve the offline shell with no
+    // policy at all. Headers stay readable after the body is consumed.
+    const freshHtml = () => new Response(html, { status: 200, headers: response.headers });
+
+    // Same build as last time: the assets are already stored, so only the HTML
+    // (which carries per-response state like the flight payload) is refreshed.
+    const storedManifest = await cache.match(shellManifestKey(pathname));
+    if (storedManifest) {
+      const previous = await storedManifest.json();
+      if (
+        Array.isArray(previous)
+        && previous.length === manifest.length
+        && previous.every((url, i) => url === manifest[i])
+      ) {
+        await cache.put(pathname, freshHtml());
+        return;
+      }
+    }
+
+    for (const url of manifest) {
+      const asset = await readAsset(url);
+      // A shell referencing an asset we could not store is worse than the
+      // offline document, so abort before the HTML or manifest is written.
+      if (!asset) return;
+      await cache.put(url, asset.clone());
+    }
+
+    await cache.put(pathname, freshHtml());
+    await cache.put(
+      shellManifestKey(pathname),
+      new Response(JSON.stringify(manifest), {
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    await pruneShellCache(cache);
+  } catch {
+    // A failed capture is invisible: the tab already has its response.
+  }
+}
+
+// Drop anything the current manifests no longer reference — the previous
+// build's chunks, after a deploy changed them.
+async function pruneShellCache(cache) {
+  try {
+    const keep = new Set();
+    for (const route of SHELL_ROUTES) {
+      keep.add(new URL(route, self.location.origin).toString());
+      keep.add(new URL(shellManifestKey(route), self.location.origin).toString());
+      const stored = await cache.match(shellManifestKey(route));
+      if (!stored) continue;
+      const manifest = await stored.json();
+      if (!Array.isArray(manifest)) continue;
+      for (const url of manifest) {
+        keep.add(new URL(url, self.location.origin).toString());
+      }
+    }
+
+    for (const request of await cache.keys()) {
+      const url = new URL(request.url ?? request, self.location.origin).toString();
+      if (!keep.has(url)) {
+        await cache.delete(request);
+      }
+    }
+  } catch {
+    // Non-critical — a shell cache that keeps a dead entry still works.
+  }
+}
+
+// Captures run one at a time. Two chat tabs opened together would otherwise
+// interleave: one route's prune can land between the other's asset writes and
+// its manifest write, deleting chunks the manifest is about to claim.
+let captureChain = Promise.resolve();
+
+function maybeCaptureShell(event, url, response) {
+  try {
+    // A redirect means the site gate answered, not the app — capturing it would
+    // pin the password page as the offline chat shell.
+    if (!response.ok || response.redirected || !isShellRoute(url.pathname)) {
+      return;
+    }
+    if (!(response.headers.get("Content-Type") ?? "").includes("text/html")) {
+      return;
+    }
+    const clone = response.clone();
+    captureChain = captureChain.then(() => captureShell(url.pathname, clone)).catch(() => undefined);
+    event.waitUntil(captureChain);
+  } catch {
+    // A capture that cannot even start must not disturb the navigation.
+  }
+}
+
 // LRU eviction: keep at most maxEntries in a cache (FIFO by insertion order)
 async function evictOldEntries(cache, maxEntries) {
   try {
@@ -64,7 +260,9 @@ async function evictOldEntries(cache, maxEntries) {
 
 async function clearAppCache() {
   try {
-    await caches.delete(CACHE_NAME);
+    // The shell goes with it: a client-state reset that left a captured shell
+    // behind would not be a wipe.
+    await Promise.all([caches.delete(CACHE_NAME), caches.delete(SHELL_CACHE_NAME)]);
   } catch {
     // Ignore cache deletion failures during reset.
   }
@@ -148,8 +346,9 @@ function offlineNavigationResponse() {
   );
 }
 
-// Install: skip waiting without pre-caching route HTML. Cached HTML can point at
-// old Next.js asset hashes after deploys and cause broken refreshes.
+// Install: skip waiting without pre-caching route HTML. HTML fetched here would
+// be paired with whatever chunks happened to be cached later; the shell is
+// captured instead from a real navigation, HTML and chunks in one go.
 self.addEventListener("install", (event) => {
   event.waitUntil(Promise.resolve());
   self.skipWaiting();
@@ -163,9 +362,10 @@ self.addEventListener("activate", (event) => {
     caches
       .keys()
       .then((keys) => {
-        // Delete unrecognized caches (not our app cache, transformers, or model caches)
+        // Delete unrecognized caches (not our app cache, the chat shell,
+        // transformers, or model caches)
         const deletions = keys
-          .filter((key) => key !== CACHE_NAME && !key.startsWith('transformers-cache') && !key.startsWith('eco-model-'))
+          .filter((key) => key !== CACHE_NAME && key !== SHELL_CACHE_NAME && !key.startsWith('transformers-cache') && !key.startsWith('eco-model-'))
           .map((key) => {
             if (key.startsWith('eco-v')) {
               shouldRefreshClients = true;
@@ -306,12 +506,37 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Navigation HTML is network-only. Serving cached app HTML after a deploy is
-  // worse than showing a small offline fallback because stale HTML references
-  // missing hashed chunks and leaves users with a broken, unstyled shell.
+  // Navigation is network-first, always: a reachable network always wins, so a
+  // deploy is picked up on the first reload like any other page.
+  //
+  // The chat routes additionally capture their shell from that successful
+  // response (HTML and chunks together, one build — see the header), so an
+  // offline reload reaches the chat the model and the conversations are
+  // already on the device for. Every other path, and a chat route with no
+  // capture yet, still gets the small offline document.
   if (request.mode === "navigate") {
     event.respondWith(
-      fetch(request).catch(() => offlineNavigationResponse())
+      fetch(request)
+        .then((response) => {
+          maybeCaptureShell(event, url, response);
+          return response;
+        })
+        .catch(async () => {
+          if (isShellRoute(url.pathname)) {
+            const cache = await caches.open(SHELL_CACHE_NAME);
+            // Match on the bare pathname, so request headers never decide
+            // whether the shell is found.
+            const cached = await cache.match(url.pathname, {
+              ignoreVary: true,
+              ignoreSearch: true,
+            });
+            if (cached) {
+              return cached;
+            }
+          }
+
+          return offlineNavigationResponse();
+        })
     );
     return;
   }

@@ -41,6 +41,11 @@ const PROD_ENV = [
   "NEXT_PUBLIC_API_URL=http://127.0.0.1:3001",
   // Model bytes CDN-first, matching production transport.
   "NEXT_PUBLIC_ECO_MODEL_CDN_BASE=https://models.econetwork.ai",
+  // Task 7 walks an offline reload, which needs the service worker. Both flags:
+  // registration is opt-in, and it opts out again on a loopback host (3120 is
+  // localhost) unless the local flag is set too — see src/lib/sw-register.ts.
+  "NEXT_PUBLIC_ENABLE_SERVICE_WORKER=true",
+  "NEXT_PUBLIC_ENABLE_LOCAL_SW=true",
 ].join(" ");
 
 export default defineConfig({

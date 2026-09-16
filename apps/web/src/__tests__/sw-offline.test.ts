@@ -10,16 +10,28 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
  * the registered fetch handler to verify offline behavior.
  */
 
+const ORIGIN = 'https://econetwork.ai';
+const SHELL_CACHE = 'eco-shell-v1';
+
 // Minimal Service Worker globals
 let fetchHandler: ((event: { request: Request; respondWith: (r: Response | Promise<Response>) => void }) => void) | null = null;
 let installHandler: ((event: { waitUntil: (p: Promise<unknown>) => void }) => void) | null = null;
+let activateHandler: ((event: { waitUntil: (p: Promise<unknown>) => void }) => void) | null = null;
+let messageHandler:
+  | ((event: { data: unknown; ports?: unknown[]; waitUntil: (p: Promise<unknown>) => void }) => void)
+  | null = null;
 
 function resetHandlers() {
   fetchHandler = null;
   installHandler = null;
+  activateHandler = null;
+  messageHandler = null;
 }
 
-// Mock caches API
+// Mock caches API. The app/transformers cache keeps its original semantics
+// (existing cases reach into mockCacheStore directly); the shell cache is a
+// second, name-keyed store whose keys are absolute URLs, matching how a real
+// Cache normalizes a string key against the scope origin.
 const mockCacheStore = new Map<string, Response>();
 const mockCache = {
   put: vi.fn(async (req: Request | string, res: Response) => {
@@ -33,26 +45,64 @@ const mockCache = {
   addAll: vi.fn(async () => {}),
 };
 
+const shellStore = new Map<string, Response>();
+function shellKey(req: Request | string): string {
+  return new URL(typeof req === 'string' ? req : req.url, ORIGIN).toString();
+}
+// Lets a test stall one specific write, which is how the interleaving of two
+// concurrent captures is made deterministic rather than timing-dependent.
+let shellPutDelay: ((key: string) => Promise<void> | undefined) | null = null;
+
+const shellCache = {
+  put: vi.fn(async (req: Request | string, res: Response) => {
+    const key = shellKey(req);
+    await shellPutDelay?.(key);
+    shellStore.set(key, res);
+  }),
+  // A real Cache hands out a fresh body every time; the mock must too, or the
+  // manifest read during a prune would consume the stored entry.
+  match: vi.fn(async (req: Request | string) => shellStore.get(shellKey(req))?.clone()),
+  keys: vi.fn(async () => [...shellStore.keys()].map((url) => new Request(url))),
+  delete: vi.fn(async (req: Request | string) => shellStore.delete(shellKey(req))),
+  addAll: vi.fn(async () => {}),
+};
+
+// What caches.keys() reports — the activate sweep reads it.
+let mockCacheNames: string[] = [];
+const deletedCaches: string[] = [];
+
 function setupGlobals() {
   resetHandlers();
   mockCacheStore.clear();
-  mockCache.put.mockClear();
-  mockCache.match.mockClear();
-  mockCache.addAll.mockClear();
+  shellStore.clear();
+  mockCacheNames = [];
+  deletedCaches.length = 0;
+  shellPutDelay = null;
+  for (const mock of [mockCache.put, mockCache.match, mockCache.addAll,
+    shellCache.put, shellCache.match, shellCache.keys, shellCache.delete]) {
+    mock.mockClear();
+  }
 
   // Minimal SW scope
   const scope: Record<string, unknown> = {
     addEventListener: (type: string, handler: (...args: unknown[]) => void) => {
       if (type === 'fetch') fetchHandler = handler as typeof fetchHandler;
       if (type === 'install') installHandler = handler as typeof installHandler;
+      if (type === 'activate') activateHandler = handler as typeof activateHandler;
+      if (type === 'message') messageHandler = handler as typeof messageHandler;
     },
     skipWaiting: vi.fn(),
-    clients: { claim: vi.fn(async () => {}) },
+    clients: { claim: vi.fn(async () => {}), matchAll: vi.fn(async () => []) },
     caches: {
-      open: vi.fn(async () => mockCache),
-      keys: vi.fn(async () => []),
-      match: vi.fn(async (req: Request | string) => mockCache.match(req)),
-      delete: vi.fn(async () => true),
+      open: vi.fn(async (name: string) => (name === SHELL_CACHE ? shellCache : mockCache)),
+      keys: vi.fn(async () => mockCacheNames),
+      // A real caches.match searches every cache.
+      match: vi.fn(async (req: Request | string) =>
+        (await mockCache.match(req)) ?? (await shellCache.match(req))),
+      delete: vi.fn(async (name: string) => {
+        deletedCaches.push(name);
+        return true;
+      }),
     },
     location: new URL('https://econetwork.ai/'),
     self: undefined as unknown,
@@ -62,6 +112,42 @@ function setupGlobals() {
   // Assign to globalThis for eval
   Object.assign(globalThis, scope);
   (globalThis as Record<string, unknown>)['self'] = scope;
+}
+
+// jsdom's Request rejects mode: 'navigate', so a navigation is a plain object
+// carrying only the fields the handler reads.
+function navigationEvent(url: string) {
+  const navRequest = new Request(url);
+  let respondedWith: Response | null = null;
+  const waited: Promise<unknown>[] = [];
+  const event = {
+    request: {
+      url: navRequest.url,
+      mode: 'navigate' as RequestMode,
+      method: 'GET',
+      headers: navRequest.headers,
+      clone: () => navRequest,
+    },
+    waitUntil: (p: Promise<unknown>) => { waited.push(p); },
+    respondWith: (r: Response | Promise<Response>) => {
+      if (r instanceof Promise) {
+        void r.then((res) => { respondedWith = res ?? null; });
+      } else {
+        respondedWith = r;
+      }
+    },
+  };
+
+  // Resolves once the response is settled AND every capture started inside
+  // waitUntil has finished.
+  const dispatch = async (): Promise<Response> => {
+    fetchHandler!(event as unknown as Parameters<NonNullable<typeof fetchHandler>>[0]);
+    await vi.waitFor(() => expect(respondedWith).not.toBeNull(), { timeout: 2000 });
+    await Promise.all(waited);
+    return respondedWith!;
+  };
+
+  return { dispatch };
 }
 
 async function loadSW() {
@@ -601,5 +687,243 @@ describe('Service worker offline interception', () => {
     expect(mockCache.put).not.toHaveBeenCalled();
 
     globalThis.fetch = originalFetch;
+  });
+});
+
+/**
+ * The chat app shell.
+ *
+ * The shell and every chunk it references are captured from ONE successful
+ * navigation response, so a stored shell is always one build; a capture that
+ * cannot store every asset stores nothing.
+ */
+describe('Service worker chat app shell', () => {
+  const CHAT_PAGE_CHUNK = '/_next/static/chunks/app/(app)/chat/page-abc.js';
+  const MAIN_CHUNK = '/_next/static/chunks/main-def.js';
+  const CSS = '/_next/static/css/xyz.css';
+  const FONT = '/_next/static/media/font.woff2';
+  const NEW_PAGE_CHUNK = '/_next/static/chunks/app/(app)/chat/new/page-ghi.js';
+  const MANIFEST_KEY = `${ORIGIN}/__eco-shell-manifest/chat`;
+  const NEW_MANIFEST_KEY = `${ORIGIN}/__eco-shell-manifest/chat/new`;
+  const CSP = "default-src 'self'; script-src 'self' 'nonce-abc123'";
+
+  // The flight payload lists main-def without the /_next/ prefix; the route
+  // group parentheses in the page chunk must survive extraction.
+  const SHELL_HTML = `<!DOCTYPE html><html><head>`
+    + `<link rel="stylesheet" href="${CSS}"/></head><body>`
+    + `<script src="${CHAT_PAGE_CHUNK}"></script>`
+    + `<script>self.__next_f.push([1,"static/chunks/main-def.js"])</script>`
+    + `</body></html>`;
+
+  // /chat/new shares the stylesheet and main chunk, and adds its own page chunk.
+  const NEW_SHELL_HTML = `<!DOCTYPE html><html><head>`
+    + `<link rel="stylesheet" href="${CSS}"/></head><body>`
+    + `<script src="${NEW_PAGE_CHUNK}"></script>`
+    + `<script>self.__next_f.push([1,"static/chunks/main-def.js"])</script>`
+    + `</body></html>`;
+
+  const CSS_TEXT = `@font-face{font-family:x;src:url(${FONT}) format("woff2")}`;
+
+  function htmlResponse(body: string, init: ResponseInit = {}) {
+    return new Response(body, {
+      status: 200,
+      headers: { 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': CSP },
+      ...init,
+    });
+  }
+
+  /** Serves the shell HTML plus its assets; `failing` 404s one asset path. */
+  function onlineFetch(failing?: string) {
+    return vi.fn(async (input: RequestInfo | URL) => {
+      // Navigations arrive as the request object, asset fetches as a URL string.
+      const raw = typeof input === 'string'
+        ? input
+        : (input as { url?: string }).url ?? input.toString();
+      const path = new URL(raw, ORIGIN).pathname;
+      if (failing !== undefined && path === failing) {
+        return new Response('missing', { status: 404 });
+      }
+      if (path === '/chat') return htmlResponse(SHELL_HTML);
+      if (path === '/chat/new') return htmlResponse(NEW_SHELL_HTML);
+      if (path === CSS) {
+        return new Response(CSS_TEXT, { status: 200, headers: { 'Content-Type': 'text/css' } });
+      }
+      return new Response(`asset:${path}`, { status: 200 });
+    });
+  }
+
+  beforeEach(async () => {
+    setupGlobals();
+    await loadSW();
+  });
+
+  it('captures the chat shell, its chunks and its fonts from one online navigation', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = onlineFetch();
+
+    const response = await navigationEvent(`${ORIGIN}/chat`).dispatch();
+    expect(response.status).toBe(200);
+
+    // The HTML, keyed by the bare pathname, and every asset it references.
+    const shell = shellStore.get(`${ORIGIN}/chat`);
+    expect(shell).toBeTruthy();
+    expect(await shell!.clone().text()).toContain('page-abc.js');
+    expect(shell!.headers.get('Content-Type')).toContain('text/html');
+
+    for (const asset of [CHAT_PAGE_CHUNK, MAIN_CHUNK, CSS, FONT]) {
+      expect(shellStore.has(`${ORIGIN}${asset}`), asset).toBe(true);
+    }
+
+    const manifest = shellStore.get(MANIFEST_KEY);
+    expect(manifest).toBeTruthy();
+    await expect(manifest!.clone().json()).resolves.toEqual(
+      [CHAT_PAGE_CHUNK, MAIN_CHUNK, CSS, FONT].map((p) => `${ORIGIN}${p}`).sort(),
+    );
+
+    globalThis.fetch = originalFetch;
+  });
+
+  it('keeps the network response headers on the stored shell, CSP nonce included', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = onlineFetch();
+
+    await navigationEvent(`${ORIGIN}/chat`).dispatch();
+
+    // CSP is header-only here — there is no <meta http-equiv> to fall back on,
+    // so a shell served without this header would run with no policy at all.
+    const shell = shellStore.get(`${ORIGIN}/chat`);
+    expect(shell!.headers.get('Content-Security-Policy')).toBe(CSP);
+
+    globalThis.fetch = originalFetch;
+  });
+
+  it('serializes overlapping captures so neither route prunes the other away', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = onlineFetch();
+
+    // The harmful window: /chat/new has written its assets but not yet its
+    // manifest when /chat prunes, so /chat's manifest is the only keep-list and
+    // the new-page chunk is deleted under it. Stalling that one write puts both
+    // captures in exactly that order — unless they are serialized, in which case
+    // the second capture has not started yet and the stall changes nothing.
+    shellPutDelay = (key) =>
+      key === `${ORIGIN}/chat/new` ? new Promise<void>((r) => setTimeout(r, 50)) : undefined;
+
+    const first = navigationEvent(`${ORIGIN}/chat`);
+    const second = navigationEvent(`${ORIGIN}/chat/new`);
+    await Promise.all([first.dispatch(), second.dispatch()]);
+
+    expect(shellStore.has(`${ORIGIN}/chat`)).toBe(true);
+    expect(shellStore.has(`${ORIGIN}/chat/new`)).toBe(true);
+    expect(shellStore.has(MANIFEST_KEY)).toBe(true);
+    expect(shellStore.has(NEW_MANIFEST_KEY)).toBe(true);
+
+    for (const asset of [CHAT_PAGE_CHUNK, NEW_PAGE_CHUNK, MAIN_CHUNK, CSS, FONT]) {
+      expect(shellStore.has(`${ORIGIN}${asset}`), asset).toBe(true);
+    }
+
+    globalThis.fetch = originalFetch;
+  });
+
+  it('never captures a gate redirect or an error response as the shell', async () => {
+    const originalFetch = globalThis.fetch;
+
+    // `redirected` is a prototype getter on Response; shadow it on the instance.
+    const redirected = htmlResponse(SHELL_HTML);
+    Object.defineProperty(redirected, 'redirected', { value: true });
+    globalThis.fetch = vi.fn().mockResolvedValue(redirected);
+    await navigationEvent(`${ORIGIN}/chat`).dispatch();
+    expect(shellStore.size, 'redirect captured').toBe(0);
+
+    globalThis.fetch = vi.fn().mockResolvedValue(htmlResponse('unauthorized', { status: 401 }));
+    await navigationEvent(`${ORIGIN}/chat`).dispatch();
+    expect(shellStore.size, '401 captured').toBe(0);
+
+    globalThis.fetch = originalFetch;
+  });
+
+  it('serves the captured shell when a chat reload is offline', async () => {
+    shellStore.set(`${ORIGIN}/chat`, htmlResponse('<!DOCTYPE html><html>captured chat shell</html>'));
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'));
+
+    const response = await navigationEvent(`${ORIGIN}/chat`).dispatch();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Content-Type')).toContain('text/html');
+    expect(await response.text()).toContain('captured chat shell');
+
+    globalThis.fetch = originalFetch;
+  });
+
+  it('falls back to the offline document when no shell has been captured', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'));
+
+    const response = await navigationEvent(`${ORIGIN}/chat`).dispatch();
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get('X-Eco-Offline')).toBe('true');
+    expect(await response.text()).toContain('Eco needs a connection');
+
+    globalThis.fetch = originalFetch;
+  });
+
+  it('does not serve the chat shell for another route', async () => {
+    shellStore.set(`${ORIGIN}/chat`, htmlResponse('<!DOCTYPE html><html>captured chat shell</html>'));
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'));
+
+    const response = await navigationEvent(`${ORIGIN}/privacy`).dispatch();
+    const body = await response.text();
+
+    expect(response.status).toBe(503);
+    expect(body).toContain('Eco needs a connection');
+    expect(body).not.toContain('captured chat shell');
+
+    globalThis.fetch = originalFetch;
+  });
+
+  it('stores neither HTML nor manifest when one asset cannot be fetched', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = onlineFetch(MAIN_CHUNK);
+
+    const response = await navigationEvent(`${ORIGIN}/chat`).dispatch();
+
+    // The navigation itself is untouched by the failed capture.
+    expect(response.status).toBe(200);
+    expect(shellStore.has(`${ORIGIN}/chat`)).toBe(false);
+    expect(shellStore.has(MANIFEST_KEY)).toBe(false);
+
+    globalThis.fetch = originalFetch;
+  });
+
+  it('activate keeps the shell cache and still sweeps unknown caches', async () => {
+    expect(activateHandler).not.toBeNull();
+    mockCacheNames = ['eco-v5', SHELL_CACHE, 'eco-model-abc', 'transformers-cache', 'some-old-cache'];
+
+    let waitUntilPromise: Promise<unknown> | null = null;
+    activateHandler!({ waitUntil: (p: Promise<unknown>) => { waitUntilPromise = p; } });
+    if (waitUntilPromise) await waitUntilPromise;
+
+    expect(deletedCaches).toContain('some-old-cache');
+    expect(deletedCaches).not.toContain(SHELL_CACHE);
+    expect(deletedCaches).not.toContain('eco-v5');
+  });
+
+  it('the client-state reset deletes the shell cache too', async () => {
+    expect(messageHandler).not.toBeNull();
+
+    let waitUntilPromise: Promise<unknown> | null = null;
+    messageHandler!({
+      data: { type: 'eco-client-state-reset' },
+      waitUntil: (p: Promise<unknown>) => { waitUntilPromise = p; },
+    });
+    if (waitUntilPromise) await waitUntilPromise;
+
+    expect(deletedCaches).toContain(SHELL_CACHE);
+    expect(deletedCaches).toContain('eco-v5');
   });
 });
