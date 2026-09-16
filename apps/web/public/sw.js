@@ -381,7 +381,23 @@ self.addEventListener("install", (event) => {
   self.skipWaiting();
 });
 
-// Activate: clean up old caches, evict stale model caches, and claim all clients
+// Names this worker creates, and therefore the only ones it may delete.
+const OWN_CACHE_PATTERNS = [/^eco-v\d+$/, /^eco-shell-v\d+$/];
+
+function isOutgrownOwnCache(key) {
+  if (key === CACHE_NAME || key === SHELL_CACHE_NAME) return false;
+  return OWN_CACHE_PATTERNS.some((pattern) => pattern.test(key));
+}
+
+// Activate: drop this worker's own superseded caches and claim all clients.
+//
+// An ALLOW-list, not a deny-list, and deliberately so. The previous sweep
+// deleted every cache it did not recognize, keeping `eco-model-*` and
+// `transformers-cache*` — names nothing in the app has ever written. Model
+// weights live in `eco-local-ai-<id>` (src/local-ai/download/storage.ts,
+// CACHE_NAME_PREFIX + cacheNameFor), so the first activation in a profile wiped
+// the downloaded models while localStorage still reported them ready. The app
+// owns those stores and evicts them itself; this worker does not touch them.
 self.addEventListener("activate", (event) => {
   let shouldRefreshClients = false;
 
@@ -389,33 +405,14 @@ self.addEventListener("activate", (event) => {
     caches
       .keys()
       .then((keys) => {
-        // Delete unrecognized caches (not our app cache, the chat shell,
-        // transformers, or model caches)
         const deletions = keys
-          .filter((key) => key !== CACHE_NAME && key !== SHELL_CACHE_NAME && !key.startsWith('transformers-cache') && !key.startsWith('eco-model-'))
+          .filter(isOutgrownOwnCache)
           .map((key) => {
             if (key.startsWith('eco-v')) {
               shouldRefreshClients = true;
             }
             return caches.delete(key);
           });
-
-        // Evict old model caches — keep at most 3 eco-model-* caches (FIFO)
-        const modelCaches = keys.filter((key) => key.startsWith('eco-model-'));
-        if (modelCaches.length > 3) {
-          const excess = modelCaches.length - 3;
-          for (let i = 0; i < excess; i++) {
-            deletions.push(caches.delete(modelCaches[i]));
-          }
-        }
-
-        // Cap transformers-cache entries to prevent unbounded growth
-        const transformerCaches = keys.filter((key) => key.startsWith('transformers-cache'));
-        for (const tcName of transformerCaches) {
-          deletions.push(
-            caches.open(tcName).then((cache) => evictOldEntries(cache, 200))
-          );
-        }
 
         return Promise.all(deletions);
       })

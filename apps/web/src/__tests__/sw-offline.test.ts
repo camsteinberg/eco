@@ -67,15 +67,38 @@ const shellCache = {
   addAll: vi.fn(async () => {}),
 };
 
-// What caches.keys() reports — the activate sweep reads it.
-let mockCacheNames: string[] = [];
+// The origin's caches, by name. caches.keys() reads this registry, so the
+// activate sweep sees exactly the caches a test put there — including the
+// app's own `eco-local-ai-<id>` model stores, which this worker must not touch.
+type MockCache = Record<string, unknown>;
+type CountedCache = MockCache & { keys: () => Promise<unknown[]> };
+const cacheRegistry = new Map<string, MockCache>();
 const deletedCaches: string[] = [];
+
+/** Registers a cache under `name`; defaults to the shared app-cache mock. */
+function registerCache(name: string, cache?: MockCache) {
+  cacheRegistry.set(name, cache ?? (name === SHELL_CACHE ? shellCache : mockCache));
+}
+
+/** A standalone cache holding `count` entries, for the no-eviction check. */
+function cacheWithEntries(count: number): CountedCache {
+  const entries = Array.from({ length: count }, (_, i) => new Request(`${ORIGIN}/entry-${i}`));
+  return {
+    keys: vi.fn(async () => entries),
+    match: vi.fn(async () => undefined),
+    put: vi.fn(async () => {}),
+    delete: vi.fn(async () => {
+      entries.pop();
+      return true;
+    }),
+  };
+}
 
 function setupGlobals() {
   resetHandlers();
   mockCacheStore.clear();
   shellStore.clear();
-  mockCacheNames = [];
+  cacheRegistry.clear();
   deletedCaches.length = 0;
   shellPutDelay = null;
   for (const mock of [mockCache.put, mockCache.match, mockCache.addAll,
@@ -94,14 +117,17 @@ function setupGlobals() {
     skipWaiting: vi.fn(),
     clients: { claim: vi.fn(async () => {}), matchAll: vi.fn(async () => []) },
     caches: {
-      open: vi.fn(async (name: string) => (name === SHELL_CACHE ? shellCache : mockCache)),
-      keys: vi.fn(async () => mockCacheNames),
+      open: vi.fn(async (name: string) => {
+        if (!cacheRegistry.has(name)) registerCache(name);
+        return cacheRegistry.get(name);
+      }),
+      keys: vi.fn(async () => [...cacheRegistry.keys()]),
       // A real caches.match searches every cache.
       match: vi.fn(async (req: Request | string) =>
         (await mockCache.match(req)) ?? (await shellCache.match(req))),
       delete: vi.fn(async (name: string) => {
         deletedCaches.push(name);
-        return true;
+        return cacheRegistry.delete(name);
       }),
     },
     location: new URL('https://econetwork.ai/'),
@@ -950,17 +976,45 @@ describe('Service worker chat app shell', () => {
     globalThis.fetch = originalFetch;
   });
 
-  it('activate keeps the shell cache and still sweeps unknown caches', async () => {
+  async function runActivate() {
     expect(activateHandler).not.toBeNull();
-    mockCacheNames = ['eco-v5', SHELL_CACHE, 'eco-model-abc', 'transformers-cache', 'some-old-cache'];
-
     let waitUntilPromise: Promise<unknown> | null = null;
     activateHandler!({ waitUntil: (p: Promise<unknown>) => { waitUntilPromise = p; } });
     if (waitUntilPromise) await waitUntilPromise;
+  }
 
-    expect(deletedCaches).toContain('some-old-cache');
-    expect(deletedCaches).not.toContain(SHELL_CACHE);
-    expect(deletedCaches).not.toContain('eco-v5');
+  it('activate deletes only this worker\'s superseded caches', async () => {
+    // The model weights live in eco-local-ai-<id> (src/local-ai/download/
+    // storage.ts, cacheNameFor). A sweep that deleted everything it did not
+    // recognize wiped them while localStorage still said the model was ready.
+    for (const name of [
+      'eco-v4',
+      'eco-v5',
+      SHELL_CACHE,
+      'eco-local-ai-candidate_lfm2.5-1.2b-instruct-onnx',
+      'transformers-cache',
+      'eco-model-x',
+      'something-else',
+    ]) {
+      registerCache(name);
+    }
+
+    await runActivate();
+
+    expect(deletedCaches).toEqual(['eco-v4']);
+  });
+
+  it('activate never evicts entries from a cache the app owns', async () => {
+    const transformers = cacheWithEntries(250);
+    registerCache('transformers-cache', transformers);
+    registerCache('eco-v5');
+    registerCache(SHELL_CACHE);
+
+    await runActivate();
+
+    // The app's own stores have their own eviction; this worker does not cap them.
+    expect((await transformers.keys()).length).toBe(250);
+    expect(deletedCaches).toEqual([]);
   });
 
   it('the client-state reset deletes the shell cache too', async () => {
