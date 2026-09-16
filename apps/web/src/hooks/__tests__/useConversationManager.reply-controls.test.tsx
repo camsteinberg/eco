@@ -19,8 +19,10 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import type { Mock } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
 
+import type { RegenerateOverrides } from "../useChat";
 import type { SlotState } from "../../local-ai/lifecycle/slots";
 import type { Slot } from "../../local-ai/types";
 import type { TokenStream } from "../../local-ai/runtime/stream";
@@ -177,8 +179,8 @@ function seedConversation(assistant: Partial<ChatMessage> = {}): void {
 }
 
 type Spies = {
-  sendMessage: ReturnType<typeof vi.fn>;
-  regenerateMessage: ReturnType<typeof vi.fn>;
+  sendMessage: Mock<(content: string) => void>;
+  regenerateMessage: Mock<(id: string, overrides?: RegenerateOverrides) => void>;
 };
 
 /** Render the manager with spies in place of the chat hook's write paths. */

@@ -18,11 +18,18 @@ describe("CodeBlock", () => {
     // Save original if it exists
     originalClipboardItem = globalThis.ClipboardItem;
 
-    // Mock ClipboardItem on globalThis (jsdom doesn't include it)
-    globalThis.ClipboardItem = vi.fn().mockImplementation((items) => ({
-      types: Object.keys(items),
-      items,
-    })) as unknown as typeof ClipboardItem;
+    // Mock ClipboardItem on globalThis (jsdom doesn't include it).
+    // vitest 4 invokes a mock's implementation with `new` when the mock itself
+    // is constructed, so the implementation has to be constructible — an arrow
+    // function throws "is not a constructor" and the component silently takes
+    // its writeText fallback.
+    globalThis.ClipboardItem = vi.fn(function (
+      this: { types: string[]; items: Record<string, Blob> },
+      items: Record<string, Blob>,
+    ) {
+      this.types = Object.keys(items);
+      this.items = items;
+    }) as unknown as typeof ClipboardItem;
 
     Object.defineProperty(navigator, "clipboard", {
       value: {
