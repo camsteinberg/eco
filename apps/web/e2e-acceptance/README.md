@@ -72,7 +72,7 @@ fact.
 | 4 | The exact-answer tools: a percentage and a date offset |
 | 5 | Draft an email from three bullet points, then ask for it shorter |
 | 6 | Chat until the context boundary appears, and check the app says so honestly |
-| 7 | Reload the tab offline (a known gap — recorded, never fails the run) |
+| 7 | Reload the tab offline: the worker must be controlling the tab, the chat shell captured, and a turn must get a reply with the network off |
 | 8 | Switch faster ↔ smarter and check the state and copy stay truthful |
 | 9 | A factual question with web lookups off, then on |
 | 10 | Kill the tab mid-reply and reopen — no wedge |
@@ -92,7 +92,7 @@ per turn, with the task, the model the receipt names, first-token time, the KV
 cache's decision, a verdict, and the evidence behind it.
 
 Verdicts are deliberately coarse. `PASS`/`FAIL` come from a mechanical check.
-`EXPECTED-FAIL` is a known gap the run records without going red.
+`EXPECTED-FAIL` is a known gap the run records without going red (no task claims one today).
 `RECORDED` is a turn whose quality only a person can judge — the row carries
 the reply so they can.
 
