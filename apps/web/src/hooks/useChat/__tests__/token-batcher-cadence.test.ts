@@ -20,6 +20,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Mock } from "vitest";
 
 import {
   VISUAL_CHARS_PER_SECOND,
@@ -27,7 +28,15 @@ import {
   createTokenBatcher,
 } from "../token-batcher";
 
-type Append = ReturnType<typeof vi.fn>;
+type Append = Mock<
+  (
+    id: string,
+    token: string,
+    generationId?: string,
+    toSeq?: number,
+    tokenDelta?: number,
+  ) => void
+>;
 type Batch = {
   id: string;
   token: string;

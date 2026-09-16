@@ -2,18 +2,19 @@
 // Copyright (C) 2026 Bos Computing LLC
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import type { Mock } from "vitest";
 import { renderHook } from "@testing-library/react";
 import { useKeyboardShortcuts } from "../useKeyboardShortcuts";
 
 describe("useKeyboardShortcuts", () => {
   let handlers: {
-    newChat: ReturnType<typeof vi.fn>;
-    toggleSidebar: ReturnType<typeof vi.fn>;
-    showShortcuts: ReturnType<typeof vi.fn>;
-    collapseSidebar: ReturnType<typeof vi.fn>;
-    exportMarkdown: ReturnType<typeof vi.fn>;
-    exportJSON: ReturnType<typeof vi.fn>;
-    openCommandPalette: ReturnType<typeof vi.fn>;
+    newChat: Mock<() => void>;
+    toggleSidebar: Mock<() => void>;
+    showShortcuts: Mock<() => void>;
+    collapseSidebar: Mock<() => void>;
+    exportMarkdown: Mock<() => void>;
+    exportJSON: Mock<() => void>;
+    openCommandPalette: Mock<() => void>;
   };
 
   beforeEach(() => {

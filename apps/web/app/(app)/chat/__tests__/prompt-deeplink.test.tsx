@@ -330,6 +330,11 @@ function mockSendMessageAddsMessages() {
 
 describe("ChatPage prompt deeplinks", () => {
   beforeEach(() => {
+    // vitest 4's `vi.spyOn` hands back the *existing* spy when a method is
+    // already spied, so a `history.replaceState` spy created in one test keeps
+    // the call history of every earlier one. Restore first so each test below
+    // gets a clean spy.
+    vi.restoreAllMocks();
     navigationState.searchParams = new URLSearchParams();
     chatHookState.isStreaming = false;
     chatHookState.sendMessage.mockReset();

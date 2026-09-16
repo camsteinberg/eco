@@ -26,6 +26,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type { Mock } from 'vitest';
 import { ProgressTracker } from '../../download/progress';
 import type { ProgressEvent, ProgressPhase } from '../../download/progress';
 import type { ModelConfig, Slot } from '../../types';
@@ -375,7 +376,7 @@ describe('DEFAULT_SEAMS.runAttempt — stall / TTFB watchdog (RT-4)', () => {
 });
 
 describe('DEFAULT_SEAMS.runAttempt — progress-listener cleanup (finally semantics)', () => {
-  let unsubscribeSpy: ReturnType<typeof vi.fn>;
+  let unsubscribeSpy: Mock<() => void>;
 
   beforeEach(() => {
     vi.resetAllMocks();
