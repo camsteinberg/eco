@@ -101,16 +101,24 @@ function collectShellAssets(html) {
 // Fonts are referenced from the stylesheets, not the HTML, and the shipped CSS
 // uses relative urls (url(../media/…)) as often as absolute ones — so resolve
 // every url() against its stylesheet and keep the same-origin static hits.
+//
+// Not every url() names a file: url(#noise) points at an SVG filter in the
+// document, and resolving it yields a path that 404s. Only same-origin static
+// paths with a file extension are real assets; the query and fragment are
+// dropped so one file is not stored twice under ?v= variants.
 function collectCssAssets(cssText, cssUrl) {
   const urls = new Set();
   for (const match of cssText.matchAll(/url\(\s*['"]?([^)'"]+)['"]?\s*\)/g)) {
     const raw = match[1].trim();
-    if (!raw || raw.startsWith("data:")) continue;
+    if (!raw || raw.startsWith("#") || raw.startsWith("data:")) continue;
     try {
       const resolved = new URL(raw, cssUrl);
-      if (resolved.origin === self.location.origin && isStaticAsset(resolved.toString())) {
-        urls.add(resolved.toString());
-      }
+      resolved.hash = "";
+      resolved.search = "";
+      if (resolved.origin !== self.location.origin) continue;
+      if (!resolved.pathname.startsWith("/_next/static/")) continue;
+      if (!/\.[a-z0-9]+$/i.test(resolved.pathname)) continue;
+      urls.add(resolved.toString());
     } catch {
       // Not a URL we can resolve — skip it rather than fail the capture.
     }
@@ -133,23 +141,42 @@ async function readAsset(url) {
  * Runs on a clone inside waitUntil, so it never touches the response the tab
  * is already rendering, and every failure path leaves the previous capture in
  * place.
+ *
+ * Two classes of asset, deliberately: what the HTML references is required —
+ * one missing chunk and the shell is a blank page, so the whole capture is
+ * abandoned. What a stylesheet references is best-effort: a font that will not
+ * fetch renders as the fallback font, which is not a reason to have no offline
+ * chat at all.
  */
 async function captureShell(pathname, response) {
   try {
     const html = await response.text();
-    const assetUrls = collectShellAssets(html);
+    const requiredUrls = collectShellAssets(html);
+    const mediaUrls = new Set();
 
-    for (const url of [...assetUrls]) {
+    for (const url of requiredUrls) {
       if (!url.endsWith(".css")) continue;
+      // The stylesheet itself is HTML-referenced, so it is required.
       const css = await readAsset(url);
       if (!css) return;
       for (const media of collectCssAssets(await css.clone().text(), url)) {
-        assetUrls.add(media);
+        if (!requiredUrls.has(media)) mediaUrls.add(media);
       }
     }
 
-    const manifest = [...assetUrls].sort();
     const cache = await caches.open(SHELL_CACHE_NAME);
+
+    // Best-effort pass first: the manifest can only list the media that is
+    // actually stored, and readAsset takes the cached copy when there is one.
+    const storedMedia = [];
+    for (const url of mediaUrls) {
+      const asset = await readAsset(url);
+      if (!asset) continue;
+      await cache.put(url, asset.clone());
+      storedMedia.push(url);
+    }
+
+    const manifest = [...requiredUrls, ...storedMedia].sort();
     // The network response's headers are kept whole — Content-Security-Policy
     // among them, which carries the nonce this HTML's script tags were served
     // with. CSP is header-only here (no <meta http-equiv>), so rebuilding the
@@ -172,9 +199,9 @@ async function captureShell(pathname, response) {
       }
     }
 
-    for (const url of manifest) {
+    for (const url of requiredUrls) {
       const asset = await readAsset(url);
-      // A shell referencing an asset we could not store is worse than the
+      // A shell referencing a chunk we could not store is worse than the
       // offline document, so abort before the HTML or manifest is written.
       if (!asset) return;
       await cache.put(url, asset.clone());

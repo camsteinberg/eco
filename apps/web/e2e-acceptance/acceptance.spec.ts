@@ -892,6 +892,7 @@ test.describe("eleven-task acceptance walk", () => {
         let detail = "";
         let controlling = false;
         let captured = false;
+        let capturedAfterS = 0;
         try {
           await page.reload({ waitUntil: "load", timeout: 120_000 });
           await expect(composer(page)).toBeVisible({ timeout: 120_000 });
@@ -899,17 +900,18 @@ test.describe("eleven-task acceptance walk", () => {
           controlling = await page.evaluate(
             () => navigator.serviceWorker.controller !== null,
           );
-          await page
-            .waitForFunction(
-              async () => {
-                const cache = await caches.open("eco-shell-v1");
-                return (await cache.match(location.pathname)) !== undefined;
-              },
-              undefined,
-              { timeout: 30_000 },
-            )
-            .then(() => { captured = true; })
-            .catch(() => { captured = false; });
+          // Polled explicitly rather than with waitForFunction: an async
+          // predicate hands waitForFunction a pending Promise, which is truthy,
+          // so it resolves at once and reports a capture that never happened.
+          const pollStartedAt = Date.now();
+          while (!captured && Date.now() - pollStartedAt < 30_000) {
+            captured = await page.evaluate(async () => {
+              const cache = await caches.open("eco-shell-v1");
+              return (await cache.match(location.pathname)) !== undefined;
+            });
+            if (!captured) await page.waitForTimeout(1_000);
+          }
+          capturedAfterS = Math.round((Date.now() - pollStartedAt) / 1_000);
 
           await context.setOffline(true);
           await page.reload({ waitUntil: "commit", timeout: 120_000 });
@@ -923,7 +925,7 @@ test.describe("eleven-task acceptance walk", () => {
           await context.setOffline(false);
         }
         const state = `worker controlling: ${controlling ? "yes" : "no"}; `
-          + `shell captured: ${captured ? "yes" : "no"}`;
+          + `shell captured: ${captured ? `yes (${capturedAfterS} s)` : "no (30 s timeout)"}`;
         push({
           task: 7,
           turn: 1,

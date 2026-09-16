@@ -732,8 +732,11 @@ describe('Service worker chat app shell', () => {
     });
   }
 
-  /** Serves the shell HTML plus its assets; `failing` 404s one asset path. */
-  function onlineFetch(failing?: string) {
+  /**
+   * Serves the shell HTML plus its assets. `failing` 404s one asset path;
+   * `cssText` replaces the stylesheet body.
+   */
+  function onlineFetch(failing?: string, cssText: string = CSS_TEXT) {
     return vi.fn(async (input: RequestInfo | URL) => {
       // Navigations arrive as the request object, asset fetches as a URL string.
       const raw = typeof input === 'string'
@@ -746,10 +749,16 @@ describe('Service worker chat app shell', () => {
       if (path === '/chat') return htmlResponse(SHELL_HTML);
       if (path === '/chat/new') return htmlResponse(NEW_SHELL_HTML);
       if (path === CSS) {
-        return new Response(CSS_TEXT, { status: 200, headers: { 'Content-Type': 'text/css' } });
+        return new Response(cssText, { status: 200, headers: { 'Content-Type': 'text/css' } });
       }
       return new Response(`asset:${path}`, { status: 200 });
     });
+  }
+
+  async function storedManifest(key = MANIFEST_KEY): Promise<string[]> {
+    const stored = shellStore.get(key);
+    expect(stored, key).toBeTruthy();
+    return (await stored!.clone().json()) as string[];
   }
 
   beforeEach(async () => {
@@ -779,6 +788,47 @@ describe('Service worker chat app shell', () => {
     await expect(manifest!.clone().json()).resolves.toEqual(
       [CHAT_PAGE_CHUNK, MAIN_CHUNK, CSS, FONT].map((p) => `${ORIGIN}${p}`).sort(),
     );
+
+    globalThis.fetch = originalFetch;
+  });
+
+  it('collects only real files from a stylesheet, not SVG filter or data refs', async () => {
+    const originalFetch = globalThis.fetch;
+    // url(#noise) is a filter reference to the document — resolving it yields
+    // /_next/static/chunks/%23noise, which 404s and used to abort every capture
+    // on the real build.
+    globalThis.fetch = onlineFetch(undefined,
+      `.a{filter:url(#noise)}`
+      + `.b{background:url(data:image/svg+xml;base64,AAAA)}`
+      + `@font-face{src:url(../media/f.woff2)}`
+      + `@font-face{src:url(/_next/static/media/g.woff2?v=1#frag)}`);
+
+    await navigationEvent(`${ORIGIN}/chat`).dispatch();
+
+    const manifest = await storedManifest();
+    const media = manifest.filter((url) => url.includes('/media/'));
+    expect(media).toEqual([`${ORIGIN}/_next/static/media/f.woff2`, `${ORIGIN}/_next/static/media/g.woff2`]);
+    expect(manifest.some((url) => url.includes('noise'))).toBe(false);
+    expect(manifest.some((url) => url.includes('v=1') || url.includes('frag'))).toBe(false);
+
+    globalThis.fetch = originalFetch;
+  });
+
+  it('a font that will not fetch is left out, not fatal to the capture', async () => {
+    const originalFetch = globalThis.fetch;
+    // A missing font renders as the fallback font; that is not a reason to have
+    // no offline chat. An HTML-referenced chunk is the strict case, next test.
+    globalThis.fetch = onlineFetch(FONT);
+
+    await navigationEvent(`${ORIGIN}/chat`).dispatch();
+
+    expect(shellStore.has(`${ORIGIN}/chat`)).toBe(true);
+    for (const asset of [CHAT_PAGE_CHUNK, MAIN_CHUNK, CSS]) {
+      expect(shellStore.has(`${ORIGIN}${asset}`), asset).toBe(true);
+    }
+    const manifest = await storedManifest();
+    expect(manifest).not.toContain(`${ORIGIN}${FONT}`);
+    expect(manifest).toContain(`${ORIGIN}${CHAT_PAGE_CHUNK}`);
 
     globalThis.fetch = originalFetch;
   });
@@ -886,7 +936,7 @@ describe('Service worker chat app shell', () => {
     globalThis.fetch = originalFetch;
   });
 
-  it('stores neither HTML nor manifest when one asset cannot be fetched', async () => {
+  it('stores neither HTML nor manifest when an HTML-referenced chunk fails', async () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = onlineFetch(MAIN_CHUNK);
 
