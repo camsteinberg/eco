@@ -6,7 +6,7 @@ import type { EcoTool, EcoToolResult } from "./registry";
 
 /** Extracted args for the calculator tool. */
 export type CalculatorArgs = {
-  /** A normalized expression ready for `expr-eval` (e.g. "17 * 23"). */
+  /** A normalized expression ready for `expr-eval-fork` (e.g. "17 * 23"). */
   expression: string;
 };
 
@@ -20,14 +20,14 @@ function isCalculatorArgs(value: unknown): value is CalculatorArgs {
 }
 
 /**
- * Map a recognized math function name to its `expr-eval` form. `expr-eval` exposes
- * these directly, so we only need them in the candidacy regex.
+ * Map a recognized math function name to its `expr-eval-fork` form. The parser
+ * exposes these directly, so we only need them in the candidacy regex.
  */
 const MATH_FUNCTIONS = ["sqrt", "cbrt", "abs", "sin", "cos", "tan", "log", "ln", "exp", "round", "floor", "ceil"] as const;
 const MATH_FUNCTION_PATTERN = MATH_FUNCTIONS.join("|");
 
 /**
- * Normalize a free-text arithmetic expression into something `expr-eval` evaluates.
+ * Normalize a free-text arithmetic expression into something `expr-eval-fork` evaluates.
  * Word operators and symbols → ASCII operators; leaves already-valid expressions
  * untouched.
  */
@@ -79,7 +79,7 @@ function stripWrapper(text: string): string {
 
 /**
  * "15% of 240" → "(15/100)*240". Handles the common percentage phrasing the raw
- * `expr-eval` grammar does not understand.
+ * `expr-eval-fork` grammar does not understand.
  */
 function rewritePercentOf(text: string): string | null {
   const m = /^(-?\d+(?:\.\d+)?)\s*%\s*of\s*(-?\d+(?:\.\d+)?(?:[\s\d.+\-*/()]*)?)\s*$/i.exec(text);
@@ -210,7 +210,7 @@ function executeCalculator(args: CalculatorArgs): EcoToolResult {
     };
   }
 
-  // Guard against non-finite results (Infinity, -Infinity, NaN) that expr-eval
+  // Guard against non-finite results (Infinity, -Infinity, NaN) that expr-eval-fork
   // stringifies without erroring — e.g. "1/0" → "Infinity", "0/0" → "NaN".
   const numeric = Number(result);
   if (!Number.isFinite(numeric)) {

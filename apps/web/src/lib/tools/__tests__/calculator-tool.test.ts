@@ -126,7 +126,7 @@ describe("calculatorTool.execute — error handling (returns error result, never
 });
 
 describe("calculatorTool.execute — non-finite results return ok:false", () => {
-  // REGRESSION: evaluateExpression (expr-eval) stringifies Infinity/NaN without
+  // REGRESSION: evaluateExpression (expr-eval-fork) stringifies Infinity/NaN without
   // erroring. The old code returned ok:true + forModel "use this exact value" for
   // "1/0 = Infinity" and "0/0 = NaN". The fix checks Number.isFinite on the
   // parsed result and returns ok:false with an explanatory message.

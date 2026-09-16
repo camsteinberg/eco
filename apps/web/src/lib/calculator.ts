@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Bos Computing LLC
 
-import { Parser } from "expr-eval";
+import { Parser } from "expr-eval-fork";
 
 const parser = new Parser();
 
 /**
- * Safely evaluate a math expression using expr-eval, not JavaScript execution.
+ * Safely evaluate a math expression using expr-eval-fork, not JavaScript execution.
  * Returns the stringified result, or an error message on failure.
  */
 export function evaluateExpression(expression: string): string {

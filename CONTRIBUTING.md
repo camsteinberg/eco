@@ -31,11 +31,16 @@ pnpm --filter @eco/web exec playwright test
 Scope the unit tests to the package you changed when that fully covers it — e.g.
 `pnpm --filter @eco/web test`.
 
-A note on CI: `pnpm audit` intentionally ignores a small set of documented,
-non-applicable CVEs via `pnpm.auditConfig` in the root `package.json` — if you touch
-dependencies, don't be surprised to see those listed there. The secret-scanning
-(TruffleHog) and dependency-review CI lanes are advisory on forks, so they may not run
-with full permissions on a fork PR; that's expected and not a failure on your part.
+A note on CI: `pnpm audit` intentionally ignores a small set of non-applicable
+advisories via `pnpm.auditConfig` in the root `package.json` — each one is listed in
+[`docs/security/dependency-audit.md`](docs/security/dependency-audit.md) with why it
+does not apply and when to re-check it. If you touch dependencies, prefer a version
+floor in `pnpm.overrides` over a new suppression, and never add an id to `auditConfig`
+without adding its row to that document.
+
+The secret-scanning (TruffleHog) and dependency-review CI lanes are advisory on forks,
+so they may not run with full permissions on a fork PR; that's expected and not a
+failure on your part.
 
 ## UI changes
 
