@@ -414,7 +414,7 @@ async function handleInit(msg: Extract<WorkerInbound, { type: 'init' }>): Promis
       }
     }
 
-    // ── KV-reuse template patch (Qwen3.5-shaped templates) ────────────
+    // ── KV-reuse template patch (Qwen3- and Qwen3.5-shaped templates) ─
     // Restores the strict-prefix property across turns by rendering history
     // assistant turns exactly as they were generated (empty think block
     // included) — see template-patches.ts for the full mechanism. Applied
