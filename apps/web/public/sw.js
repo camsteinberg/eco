@@ -463,26 +463,6 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Offline interception for chat completions — try network, signal offline on failure.
-  // MUST come before the general NetworkOnly check so /v1/chat/completions is handled here.
-  if (url.pathname === "/v1/chat/completions" || url.pathname.startsWith("/v1/chat/completions")) {
-    event.respondWith(
-      fetch(request).catch(() => {
-        return new Response(
-          JSON.stringify({ error: "offline", message: "No network connection" }),
-          {
-            status: 503,
-            headers: {
-              "Content-Type": "application/json",
-              "X-Eco-Offline": "true",
-            },
-          }
-        );
-      })
-    );
-    return;
-  }
-
   if (request.method === "GET" && isCacheableOrtAsset(request.url)) {
     event.respondWith(
       caches.open(TRANSFORMERS_CACHE_NAME).then(async (cache) => {
