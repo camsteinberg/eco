@@ -1,10 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Bos Computing LLC
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { CookieBannerWrapper } from "../CookieBannerWrapper";
+
+// The banner reads the route from the router; the root layout mounts it on
+// every surface, and it renders on all of them except chat.
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/",
+}));
 
 describe("CookieBannerWrapper", () => {
   beforeEach(() => {

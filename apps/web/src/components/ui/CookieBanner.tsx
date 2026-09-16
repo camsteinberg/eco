@@ -4,27 +4,35 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { usePathname } from "next/navigation";
 import { safeStorage } from "../../lib/local-storage";
 
 const COOKIE_KEY = "eco-cookie-consent-dismissed";
 
-/** Chat surfaces reserve space above their bottom-anchored content (globals.css). */
-const CHAT_RESERVE_CLASS = "eco-chat-cookie-notice";
-/** Every other surface reserves scroll room below the document (globals.css). */
+/** Surfaces reserve scroll room below the document while the notice shows (globals.css). */
 const PAGE_RESERVE_CLASS = "eco-page-cookie-notice";
+
+/**
+ * The chat surface is bottom-anchored end to end — composer, download screen,
+ * welcome card, trust footer — so a fixed notice pinned to the bottom lands on
+ * whatever is there at some viewport (measured at 1000×740: over both model
+ * tiles and the "Start with …" button). Rather than lift each of them out of
+ * the way, the notice simply does not render on chat.
+ */
+function isChatPath(pathname: string): boolean {
+  return pathname === "/chat" || pathname.startsWith("/chat/");
+}
 
 export function CookieBanner() {
   const [visible, setVisible] = useState(false);
-  const pathname = typeof window === "undefined" ? "" : window.location.pathname;
-  const isChatSurface = pathname === "/chat" || pathname.startsWith("/chat/");
-  // Mobile: compact slim bar anchored to the very bottom (no big lift).
-  // Desktop: keep the elevated bottom-right card on chat surfaces; bottom card
-  // on marketing surfaces. `lg:right-[4.75rem]` on the chat card keeps it out of
-  // the 68px lane at the right edge that the chat surface's floating help button
-  // owns — the same offset Toast.tsx uses for the same reason.
-  const className = isChatSurface
-    ? "fixed bottom-[calc(0.5rem+env(safe-area-inset-bottom))] left-2 right-2 z-50 mx-auto max-w-lg rounded-2xl border px-3 py-2 shadow-lg backdrop-blur-md motion-safe:animate-[slideUp_300ms_ease-out] sm:bottom-[calc(5.5rem+env(safe-area-inset-bottom))] sm:left-4 sm:right-4 sm:px-5 sm:py-3.5 lg:bottom-6 lg:left-auto lg:right-[4.75rem]"
-    : "fixed bottom-2 left-2 right-2 z-50 mx-auto max-w-lg rounded-2xl border px-3 py-2 shadow-lg backdrop-blur-md motion-safe:animate-[slideUp_300ms_ease-out] sm:bottom-4 sm:left-4 sm:right-4 sm:px-5 sm:py-3.5 sm:left-auto sm:right-6 sm:bottom-6";
+  // Read from the router, not window.location: this component is mounted once
+  // in the root layout and never remounts, so a client-side navigation between
+  // "/" and "/chat" has to move it.
+  const pathname = usePathname();
+  const onChat = isChatPath(pathname);
+  // Mobile: compact slim bar anchored to the very bottom. sm+: bottom-right card.
+  const className =
+    "fixed bottom-2 left-2 right-2 z-50 mx-auto max-w-lg rounded-2xl border px-3 py-2 shadow-lg backdrop-blur-md motion-safe:animate-[slideUp_300ms_ease-out] sm:bottom-4 sm:left-4 sm:right-4 sm:px-5 sm:py-3.5 sm:left-auto sm:right-6 sm:bottom-6";
 
   useEffect(() => {
     // safeStorage never throws — returns null on SSR or storage error.
@@ -34,24 +42,19 @@ export function CookieBanner() {
     }
   }, []);
 
-  // While the notice is showing, flag <html> so the surface underneath reserves
-  // room for it (globals.css) — otherwise this fixed banner sits over whatever
-  // is at the bottom of the page. Chat surfaces lift their bottom-anchored
-  // chrome; every other page reserves scroll room below the document, so the
-  // last lines of a policy or article can be read out from under the notice.
-  // Cleared on dismiss, on navigation between the two kinds of surface, and on
-  // unmount.
+  // While the notice is showing, flag <html> so the page reserves scroll room
+  // below the document (globals.css) — otherwise this fixed banner sits over
+  // the last lines of a policy or article. Cleared on dismiss, on navigation
+  // onto the chat surface, and on unmount.
   useEffect(() => {
     const root = document.documentElement;
-    root.classList.toggle(CHAT_RESERVE_CLASS, visible && isChatSurface);
-    root.classList.toggle(PAGE_RESERVE_CLASS, visible && !isChatSurface);
+    root.classList.toggle(PAGE_RESERVE_CLASS, visible && !onChat);
     return () => {
-      root.classList.remove(CHAT_RESERVE_CLASS);
       root.classList.remove(PAGE_RESERVE_CLASS);
     };
-  }, [visible, isChatSurface]);
+  }, [visible, onChat]);
 
-  if (!visible) return null;
+  if (onChat || !visible) return null;
 
   const handleDismiss = () => {
     safeStorage.set(COOKIE_KEY, "true");
