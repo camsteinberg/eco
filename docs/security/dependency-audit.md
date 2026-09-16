@@ -21,6 +21,11 @@ not block CI use `pnpm.auditConfig.ignoreCves` or `ignoreGhsas`.
 
 ## Current Advisories (2026-08-28)
 
+> This is a point-in-time report. The standing list — which must match
+> `pnpm.auditConfig` at all times — is
+> [`SECURITY-AUDIT.md`](../../SECURITY-AUDIT.md) at the repo root. Where the two
+> disagree, the standing list is newer.
+
 Six advisories appear in `pnpm audit --prod`. Two were already suppressed
 before this audit (expr-eval). One (adm-zip) is suppressed as of this
 review. Three remain visible in audit output by design.
@@ -169,13 +174,17 @@ expression execution) would require the user to type a malicious expression
 into their own browser session. There is no cross-user vector and no
 server-side evaluation.
 
-**Resolution: suppressed (pre-existing).** CVE-2025-13204,
-CVE-2025-12735, and CVE-2026-47429 are in `pnpm.auditConfig.ignoreCves`;
-GHSA-gv7w-rqvm-qjhr is in `ignoreGhsas`. These were set before this audit
-and the rationale is sound: exploitation is self-inflicted only.
+**Resolution as of 2026-08-28: suppressed (pre-existing).** CVE-2025-13204,
+CVE-2025-12735, and CVE-2026-47429 were in `pnpm.auditConfig.ignoreCves`;
+GHSA-gv7w-rqvm-qjhr was in `ignoreGhsas`. These were set before this audit
+and the rationale was sound: exploitation is self-inflicted only.
 
-**Review trigger:** if expr-eval expressions are ever evaluated server-side
-or with cross-user input, these ignores must be revisited immediately.
+> **Superseded 2026-09-16 — CLOSED, not suppressed.** The calculator now uses
+> `expr-eval-fork@3.0.3`, which GitHub's advisory database lists as patched for
+> both advisories (first patched 2.0.2 for GHSA-8gw3-rxh4-v6jx, 3.0.1 for
+> GHSA-jc85-fpwf-qm7x). Both CVEs were removed from `ignoreCves`. CVE-2026-47429
+> and GHSA-gv7w-rqvm-qjhr were also removed, for unrelated reasons recorded in
+> [`SECURITY-AUDIT.md`](../../SECURITY-AUDIT.md).
 
 ---
 
