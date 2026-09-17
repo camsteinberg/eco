@@ -464,6 +464,45 @@ describe('TransformersAdapter — generate', () => {
     ]);
   });
 
+  it('carries the chunked-prefill receipt through on done', async () => {
+    const events: import('../types').TokenEvent[] = [];
+
+    const collector = (async () => {
+      for await (const event of adapter.generate([{ role: 'user', content: 'hi' }])) {
+        events.push(event);
+      }
+    })();
+
+    await Promise.resolve();
+    await Promise.resolve();
+    // The footprint readings are only interpretable if the receipt names the
+    // arm, so `prefill` has to survive the worker → adapter hop untouched.
+    const kvReuse = {
+      decision: 'miss' as const,
+      reason: 'no-cache' as const,
+      cachedLen: 0,
+      promptLen: 785,
+      cacheCommitted: true,
+      prefill: { chunks: 4, chunkSize: 256, tokens: 784, ms: 1234 },
+    };
+    worker.emit({
+      type: 'done',
+      generationId: 'test-gen-id',
+      promptTokens: 785,
+      completionTokens: 2,
+      kvReuse,
+    });
+
+    await collector;
+    const done = events.find((e) => e.kind === 'done');
+    expect(done?.kind === 'done' && done.kvReuse?.prefill).toEqual({
+      chunks: 4,
+      chunkSize: 256,
+      tokens: 784,
+      ms: 1234,
+    });
+  });
+
   it('passes cjkSuppression telemetry through on done', async () => {
     const events: import('../types').TokenEvent[] = [];
 

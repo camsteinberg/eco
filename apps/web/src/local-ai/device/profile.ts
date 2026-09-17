@@ -39,6 +39,7 @@ const URL_PARAM_FORCE_THREADS = 'eco-force-threads';
 const URL_PARAM_FORCE_ORT_ARENA = 'eco-force-ort-arena';
 const URL_PARAM_FORCE_ORT_MEM_PATTERN = 'eco-force-ort-mem-pattern';
 const URL_PARAM_FORCE_ORT_GRAPH_OPT = 'eco-force-ort-graph-opt';
+const URL_PARAM_FORCE_PREFILL_CHUNK = 'eco-force-prefill-chunk';
 
 // Tiny WASM module that uses the `v128.const` SIMD opcode. If
 // `WebAssembly.validate` accepts these bytes, the runtime supports SIMD —
@@ -311,6 +312,22 @@ export function readForcedThreads(): number | null {
   if (v == null) return null;
   const n = Number(v);
   return Number.isInteger(n) && n >= 1 ? n : null;
+}
+
+/**
+ * Forced `?eco-force-prefill-chunk=N` override, or null when absent/invalid —
+ * tokens per chunked-prefill pass (see `runtime/prefill-plan.ts`). `0` is the
+ * SINGLE-PASS CONTROL ARM: the worker prefills exactly as it does today, so the
+ * chunked and unchunked arms are drivable from the same build. Any other
+ * non-negative integer sets the chunk size; absent ⇒ the worker's default
+ * (`PREFILL_CHUNK_TOKENS`) stands. Read on the main thread and threaded across
+ * the worker boundary via the init message — the worker never reads URL params.
+ */
+export function readForcedPrefillChunk(): number | null {
+  const v = readUrlParamsSafe().get(URL_PARAM_FORCE_PREFILL_CHUNK);
+  if (v == null) return null;
+  const n = Number(v);
+  return Number.isInteger(n) && n >= 0 ? n : null;
 }
 
 /**
