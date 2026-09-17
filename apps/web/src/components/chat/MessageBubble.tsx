@@ -22,6 +22,7 @@ import { ToolCallBlock } from "./ToolCallBlock";
 import { CitationBlock } from "./CitationBlock";
 import { GroundingNotice, type GroundingNoticeVariant } from "./GroundingNotice";
 import { UncertaintyNote } from "./UncertaintyNote";
+import { CrisisResourceCard } from "./CrisisResourceCard";
 import { ThinkingBlock } from "./ThinkingBlock";
 
 import { OfflineDivider } from "./OfflineDivider";
@@ -29,6 +30,7 @@ import { DemotionDivider } from "./DemotionDivider";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { EcoLogo } from "../EcoLogo";
 import { timeAgo } from "../../lib/time";
+import { detectCrisisPhrasing } from "../../lib/crisis-detect";
 import { useChatStore } from "../../stores/chatStore";
 import type {
   LocalModelReadinessAction,
@@ -163,6 +165,7 @@ export function MessageBubble({
   citations,
   verification,
   canonicalToolAnswer,
+  promptContent,
   conversationId: _conversationId,
   isNew: _isNew = false,
   streamInterrupted = false,
@@ -185,6 +188,14 @@ export function MessageBubble({
   // citation with a truthy `source` (e.g. "Wikipedia"). Same condition the chip
   // keys on, so the notice only ever sits under a real grounded reply.
   const hasGroundingCitation = !!citations?.some((c) => !!c.source);
+
+  // The host-side crisis card. Derived at RENDER time from the user message that
+  // preceded this reply (`promptContent`, already threaded through by MessageList) so
+  // nothing new is persisted to IndexedDB and no message-schema change is needed —
+  // reload a conversation and the card reappears from the same text it was read from.
+  // Never on the user's own bubble; it belongs above the reply.
+  const showCrisisCard =
+    !isUser && promptContent !== undefined && detectCrisisPhrasing(promptContent);
 
   // The honest counterpart to the source chip: when grounding gave an answer it
   // couldn't confirm (hedge/decline/degrade), it sets `verification` instead of a
@@ -339,6 +350,10 @@ export function MessageBubble({
               )
             ) : (
               <div>
+                {/* Support resources, above the reply, whenever the person's own
+                    message said explicitly that they are in crisis. Static and
+                    host-rendered: the reply below streams exactly as it would have. */}
+                {showCrisisCard && <CrisisResourceCard />}
                 {/* ThinkingBlock: collapsible reasoning block */}
                 {thinkContent && (
                   <div className="mb-2">

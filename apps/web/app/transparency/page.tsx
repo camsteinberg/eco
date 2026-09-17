@@ -265,6 +265,11 @@ export default function TransparencyPage({
                 </p>
               </div>
             </div>
+            <p className="mt-4">
+              Eco does not filter what you ask or what the model answers. The models
+              we ship have their makers&apos; safety training and nothing more.
+              Everything runs on your device, so nothing you type is seen by us.
+            </p>
           </section>
 
           <SectionDivider />

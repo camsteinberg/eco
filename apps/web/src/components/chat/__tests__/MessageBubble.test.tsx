@@ -195,6 +195,31 @@ describe("MessageBubble", () => {
     expect(screen.queryByText(/Eco Network/i)).not.toBeInTheDocument();
   });
 
+  it("puts the crisis card above the reply when the preceding user message asked for help", () => {
+    render(
+      <MessageBubble
+        role="assistant"
+        content="That sounds really heavy."
+        promptContent="i want to kill myself"
+      />,
+    );
+
+    expect(screen.getByRole("note", { name: "Support resources" })).toBeInTheDocument();
+    // The reply itself is untouched — nothing is suppressed or replaced.
+    expect(screen.getByText("That sounds really heavy.")).toBeInTheDocument();
+  });
+
+  it("leaves ordinary turns and the user's own bubble without the crisis card", () => {
+    const { unmount } = render(
+      <MessageBubble role="assistant" content="Killed it." promptContent="kill the server" />,
+    );
+    expect(screen.queryByRole("note", { name: "Support resources" })).not.toBeInTheDocument();
+    unmount();
+
+    render(<MessageBubble role="user" content="i want to kill myself" />);
+    expect(screen.queryByRole("note", { name: "Support resources" })).not.toBeInTheDocument();
+  });
+
   it("renders ThinkingBlock when content starts with <think> tag", () => {
     render(
       <MessageBubble
