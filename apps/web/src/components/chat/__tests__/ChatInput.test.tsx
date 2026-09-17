@@ -60,6 +60,22 @@ describe("ChatInput", () => {
     fileChipMock.mockReset();
   });
 
+  it("shows the standing limits line under the composer", () => {
+    render(<ChatInput onSubmit={vi.fn()} />);
+
+    const line = screen.getByTestId("composer-limits-line");
+    expect(line).toBeInTheDocument();
+    expect(line).toHaveTextContent(
+      /Eco runs a small model on your device\. It can be wrong or make things up — check anything that matters\./,
+    );
+  });
+
+  it("keeps the limits line visible while the composer is disabled mid-generation", () => {
+    render(<ChatInput onSubmit={vi.fn()} disabled isStreaming onStop={vi.fn()} />);
+
+    expect(screen.getByTestId("composer-limits-line")).toBeInTheDocument();
+  });
+
   it("renders the restored composer draft from the shared chat store", () => {
     useChatStore.getState().setComposerDraft("Keep this local");
 

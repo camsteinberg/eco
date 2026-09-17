@@ -187,149 +187,168 @@ export function ChatInput({
     fileAttachments.length > 1 ? "Preparing attachments…" : "Preparing attachment…";
 
   return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        handleSubmit();
-      }}
-      className="rounded-2xl border border-[var(--eco-border)] bg-[var(--eco-surface-elevated)] shadow-sm transition-shadow focus-within:shadow-md focus-within:ring-2 focus-within:ring-[var(--eco-primary)]/15"
-    >
-      {/* File chips row */}
-      {fileAttachments.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 px-4 pt-3 pb-1">
-          {fileAttachments.map((att) => (
-            <FileChip
-              key={att.id}
-              filename={att.file.name}
-              size={att.file.size}
-              status={att.status}
-              errorMessage={att.errorMessage}
-              truncated={att.result?.truncated}
-              onRemove={() => {
-                removeFileAttachment(att.id);
-                setAttachmentError(null);
-              }}
-            />
-          ))}
-        </div>
-      )}
+    <div>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          handleSubmit();
+        }}
+        className="rounded-2xl border border-[var(--eco-border)] bg-[var(--eco-surface-elevated)] shadow-sm transition-shadow focus-within:shadow-md focus-within:ring-2 focus-within:ring-[var(--eco-primary)]/15"
+      >
+        {/* File chips row */}
+        {fileAttachments.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 px-4 pt-3 pb-1">
+            {fileAttachments.map((att) => (
+              <FileChip
+                key={att.id}
+                filename={att.file.name}
+                size={att.file.size}
+                status={att.status}
+                errorMessage={att.errorMessage}
+                truncated={att.result?.truncated}
+                onRemove={() => {
+                  removeFileAttachment(att.id);
+                  setAttachmentError(null);
+                }}
+              />
+            ))}
+          </div>
+        )}
 
-      {attachmentError ? (
-        <div className="px-4 pt-3">
-          <ErrorLine size="xs">{attachmentError}</ErrorLine>
-        </div>
-      ) : null}
+        {attachmentError ? (
+          <div className="px-4 pt-3">
+            <ErrorLine size="xs">{attachmentError}</ErrorLine>
+          </div>
+        ) : null}
 
-      {/* Input row */}
-      <div className="flex items-center gap-3 px-4 py-3">
-        {/* Hidden file input */}
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          accept={ACCEPT_STRING}
-          onChange={handleFileChange}
-          className="hidden"
-          aria-hidden="true"
-          tabIndex={-1}
-        />
-
-        {/* Paperclip button */}
-        <button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={disabled}
-          aria-label="Attach files"
-          className="flex h-8 w-8 min-h-[44px] min-w-[44px] md:min-h-0 md:min-w-0 shrink-0 cursor-pointer items-center justify-center rounded-full transition-all hover:bg-[var(--eco-border)]/50 active:scale-95 disabled:cursor-not-allowed disabled:opacity-30"
-          style={{ color: "var(--eco-text-secondary)" }}
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 20 20"
-            fill="currentColor"
-            className="h-4.5 w-4.5"
+        {/* Input row */}
+        <div className="flex items-center gap-3 px-4 py-3">
+          {/* Hidden file input */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept={ACCEPT_STRING}
+            onChange={handleFileChange}
+            className="hidden"
             aria-hidden="true"
-          >
-            <path fillRule="evenodd" d="M15.621 4.379a3 3 0 00-4.242 0l-7 7a3 3 0 004.241 4.243h.001l.497-.5a.75.75 0 011.064 1.057l-.498.501-.002.002a4.5 4.5 0 01-6.364-6.364l7-7a4.5 4.5 0 016.368 6.36l-3.455 3.553A2.625 2.625 0 119.52 9.52l3.45-3.451a.75.75 0 111.061 1.06l-3.45 3.451a1.125 1.125 0 001.587 1.595l3.454-3.553a3 3 0 000-4.242z" clipRule="evenodd" />
-          </svg>
-        </button>
+            tabIndex={-1}
+          />
 
-        <textarea
-          ref={textareaRef}
-          value={composerDraft}
-          onChange={(e) => setComposerDraft(e.target.value)}
-          onKeyDown={handleKeyDown}
-          disabled={disabled}
-          placeholder={placeholder}
-          rows={1}
-          className="min-h-[44px] min-w-0 flex-1 resize-none bg-transparent py-2.5 text-[0.9375rem] leading-normal text-[var(--eco-text)] placeholder:text-[var(--eco-text-secondary)] focus:outline-none focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-0 sm:py-0"
-          style={{ maxHeight: `${MAX_HEIGHT}px`, overflowY: "auto" }}
-          aria-label="Message input"
-        />
-
-        <WebSearchToggle />
-
-        <ModelSelector />
-
-        {isStreaming && onStop ? (
+          {/* Paperclip button */}
           <button
             type="button"
-            onClick={onStop}
-            aria-label="Stop generating"
-            className="flex h-8 w-8 min-h-[44px] min-w-[44px] md:min-h-0 md:min-w-0 shrink-0 cursor-pointer items-center justify-center rounded-full border-2 border-[var(--eco-text-secondary)] text-[var(--eco-text-secondary)] transition-all hover:border-[var(--eco-text)] hover:text-[var(--eco-text)] hover:scale-110 active:scale-95"
-          >
-            <svg viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5" aria-hidden="true">
-              <rect x="3" y="3" width="10" height="10" rx="1" />
-            </svg>
-          </button>
-        ) : hasProcessing ? (
-          <button
-            type="button"
-            disabled
-            aria-label={attachmentProcessingLabel}
-            title={attachmentProcessingLabel}
-            className="flex h-8 min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-full border border-[var(--eco-border)] bg-[var(--eco-primary-soft)] px-3 text-[var(--eco-primary)] md:min-h-0"
-          >
-            <svg className="h-3.5 w-3.5 animate-spin" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-              <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" strokeDasharray="28" strokeDashoffset="8" />
-            </svg>
-          </button>
-        ) : (
-          <button
-            type="submit"
-            disabled={disabled || !hasContent || hasProcessing}
-            aria-label="Send message"
-            className="flex h-8 w-8 min-h-[44px] min-w-[44px] md:min-h-0 md:min-w-0 shrink-0 cursor-pointer items-center justify-center rounded-full text-[var(--eco-on-primary)] transition-all hover:opacity-90 hover:scale-110 active:scale-95 disabled:cursor-not-allowed disabled:opacity-30"
-            style={{ backgroundColor: 'var(--eco-accent)' }}
+            onClick={() => fileInputRef.current?.click()}
+            disabled={disabled}
+            aria-label="Attach files"
+            className="flex h-8 w-8 min-h-[44px] min-w-[44px] md:min-h-0 md:min-w-0 shrink-0 cursor-pointer items-center justify-center rounded-full transition-all hover:bg-[var(--eco-border)]/50 active:scale-95 disabled:cursor-not-allowed disabled:opacity-30"
+            style={{ color: "var(--eco-text-secondary)" }}
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
               viewBox="0 0 20 20"
               fill="currentColor"
-              className="h-4 w-4"
+              className="h-4.5 w-4.5"
               aria-hidden="true"
             >
-              <path d="M3.105 2.289a.75.75 0 00-.826.95l1.903 6.557H13.5a.75.75 0 010 1.5H4.182l-1.903 6.557a.75.75 0 00.826.95 28.896 28.896 0 0015.293-7.154.75.75 0 000-1.115A28.897 28.897 0 003.105 2.289z" />
+              <path fillRule="evenodd" d="M15.621 4.379a3 3 0 00-4.242 0l-7 7a3 3 0 004.241 4.243h.001l.497-.5a.75.75 0 011.064 1.057l-.498.501-.002.002a4.5 4.5 0 01-6.364-6.364l7-7a4.5 4.5 0 016.368 6.36l-3.455 3.553A2.625 2.625 0 119.52 9.52l3.45-3.451a.75.75 0 111.061 1.06l-3.45 3.451a1.125 1.125 0 001.587 1.595l3.454-3.553a3 3 0 000-4.242z" clipRule="evenodd" />
             </svg>
           </button>
-        )}
-      </div>
-      {hasProcessing && (
-        <div className="px-4 pb-3">
-          <p
-            role="status"
-            aria-live="polite"
-            className="text-xs leading-relaxed text-[var(--eco-text-secondary)]"
-          >
-            {attachmentProcessingLabel} Send unlocks as soon as the text is ready.
-          </p>
+
+          <textarea
+            ref={textareaRef}
+            value={composerDraft}
+            onChange={(e) => setComposerDraft(e.target.value)}
+            onKeyDown={handleKeyDown}
+            disabled={disabled}
+            placeholder={placeholder}
+            rows={1}
+            className="min-h-[44px] min-w-0 flex-1 resize-none bg-transparent py-2.5 text-[0.9375rem] leading-normal text-[var(--eco-text)] placeholder:text-[var(--eco-text-secondary)] focus:outline-none focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-0 sm:py-0"
+            style={{ maxHeight: `${MAX_HEIGHT}px`, overflowY: "auto" }}
+            aria-label="Message input"
+          />
+
+          <WebSearchToggle />
+
+          <ModelSelector />
+
+          {isStreaming && onStop ? (
+            <button
+              type="button"
+              onClick={onStop}
+              aria-label="Stop generating"
+              className="flex h-8 w-8 min-h-[44px] min-w-[44px] md:min-h-0 md:min-w-0 shrink-0 cursor-pointer items-center justify-center rounded-full border-2 border-[var(--eco-text-secondary)] text-[var(--eco-text-secondary)] transition-all hover:border-[var(--eco-text)] hover:text-[var(--eco-text)] hover:scale-110 active:scale-95"
+            >
+              <svg viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5" aria-hidden="true">
+                <rect x="3" y="3" width="10" height="10" rx="1" />
+              </svg>
+            </button>
+          ) : hasProcessing ? (
+            <button
+              type="button"
+              disabled
+              aria-label={attachmentProcessingLabel}
+              title={attachmentProcessingLabel}
+              className="flex h-8 min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-full border border-[var(--eco-border)] bg-[var(--eco-primary-soft)] px-3 text-[var(--eco-primary)] md:min-h-0"
+            >
+              <svg className="h-3.5 w-3.5 animate-spin" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" strokeDasharray="28" strokeDashoffset="8" />
+              </svg>
+            </button>
+          ) : (
+            <button
+              type="submit"
+              disabled={disabled || !hasContent || hasProcessing}
+              aria-label="Send message"
+              className="flex h-8 w-8 min-h-[44px] min-w-[44px] md:min-h-0 md:min-w-0 shrink-0 cursor-pointer items-center justify-center rounded-full text-[var(--eco-on-primary)] transition-all hover:opacity-90 hover:scale-110 active:scale-95 disabled:cursor-not-allowed disabled:opacity-30"
+              style={{ backgroundColor: 'var(--eco-accent)' }}
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 20 20"
+                fill="currentColor"
+                className="h-4 w-4"
+                aria-hidden="true"
+              >
+                <path d="M3.105 2.289a.75.75 0 00-.826.95l1.903 6.557H13.5a.75.75 0 010 1.5H4.182l-1.903 6.557a.75.75 0 00.826.95 28.896 28.896 0 0015.293-7.154.75.75 0 000-1.115A28.897 28.897 0 003.105 2.289z" />
+              </svg>
+            </button>
+          )}
         </div>
-      )}
-      <LeafAnimation
-        visible={easterEgg.visible}
-        variant={easterEgg.variant}
-        onComplete={() => setEasterEgg((prev) => ({ ...prev, visible: false }))}
-      />
-    </form>
+        {hasProcessing && (
+          <div className="px-4 pb-3">
+            <p
+              role="status"
+              aria-live="polite"
+              className="text-xs leading-relaxed text-[var(--eco-text-secondary)]"
+            >
+              {attachmentProcessingLabel} Send unlocks as soon as the text is ready.
+            </p>
+          </div>
+        )}
+        <LeafAnimation
+          visible={easterEgg.visible}
+          variant={easterEgg.variant}
+          onComplete={() => setEasterEgg((prev) => ({ ...prev, visible: false }))}
+        />
+      </form>
+      {/* The standing limits line. Unconditional: every model, every state, no
+          matcher and no dismissal — a small on-device model can be wrong at any
+          moment, so the honest thing is to say so once, permanently, right where the
+          person is about to type. It sits in normal flow under the composer card, so
+          it cannot overlap the field or the download line at any width, and it is
+          static (nothing to animate, in any motion preference). */}
+      <p
+        data-testid="composer-limits-line"
+        className="mt-2 px-1 text-center text-xs leading-relaxed"
+        style={{
+          color: "var(--eco-text-secondary)",
+          fontFamily: "var(--eco-font-body)",
+        }}
+      >
+        Eco runs a small model on your device. It can be wrong or make things up —
+        check anything that matters.
+      </p>
+    </div>
   );
 }
