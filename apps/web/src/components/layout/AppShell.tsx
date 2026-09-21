@@ -28,7 +28,6 @@ import { rememberPendingConversationSearch } from '../../lib/conversation-naviga
 import { canGuestAccessAppRoute, getViewerMode } from '../../lib/access-policy'
 import { resolveSettingsTab } from '../settings/settingsNavigation'
 import { OPEN_SHARE_CONVERSATION_EVENT } from '../../lib/share-conversation-event'
-import { runLocalRuntimeSelfHeal } from '../../lib/local-runtime-self-heal'
 import { bootstrapLocalAi } from '../../local-ai/bootstrap'
 import { safeStorage } from '../../lib/local-storage'
 
@@ -70,11 +69,10 @@ export function AppShell({ children }: AppShellProps) {
     return () => window.removeEventListener(OPEN_SHARE_CONVERSATION_EVENT, handleOpenShareConversation)
   }, [])
 
-  // Unstick users currently in production: clears stale download in-progress
-  // markers and lets heavy-work leases expire on boot. Wrapped in try/catch
-  // inside the helper so a corrupted localStorage entry never crashes the shell.
+  // Wire the on-device DI seams and run the boot self-heal (slot re-gates,
+  // expired heavy-work leases, dead model bytes). Every step inside is
+  // wrapped, so a corrupted localStorage entry never crashes the shell.
   useEffect(() => {
-    runLocalRuntimeSelfHeal()
     void bootstrapLocalAi()
   }, [])
 
