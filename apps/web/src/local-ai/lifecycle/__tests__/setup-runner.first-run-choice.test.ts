@@ -195,22 +195,22 @@ describe('executeSetup — first-run model choice', () => {
   });
 });
 
-// Cross-slot resume: the existing test's single-state `getSlot` fake returns the
-// same SlotState for every slot, so it structurally cannot see the asymmetry
-// between eco-fast ('empty') and eco-smart ('preparing') that the interrupted
-// first-run deeper pick creates. These tests use a per-slot fake.
-describe('executeSetup — cross-slot resume of interrupted deeper pick', () => {
-  /** Per-slot getSlot fake: returns different state per slot name. */
-  function perSlotSeams(
-    slotStates: Record<string, SlotState>,
-    over: Record<string, unknown> = {},
-  ) {
-    return seams({
-      getSlot: vi.fn((s: string) => slotStates[s] ?? emptySlot),
-      ...over,
-    });
-  }
+/** Per-slot getSlot fake: returns different state per slot name. The single-state
+ *  fake above returns the same SlotState for every slot, so it structurally
+ *  cannot see the asymmetry between the two slots that a deeper pick creates. */
+function perSlotSeams(
+  slotStates: Record<string, SlotState>,
+  over: Record<string, unknown> = {},
+) {
+  return seams({
+    getSlot: vi.fn((s: string) => slotStates[s] ?? emptySlot),
+    ...over,
+  });
+}
 
+// Cross-slot resume: eco-fast 'empty' while eco-smart is bound + 'preparing' —
+// the interrupted first-run download of the deeper pick.
+describe('executeSetup — cross-slot resume of interrupted deeper pick', () => {
   // T1: eco-fast 'empty', eco-smart bound+'preparing' with a catalog model →
   //     NO choice requested, markResuming called, cascade picks the eco-smart
   //     model, terminal status write lands on eco-smart.
@@ -289,5 +289,67 @@ describe('executeSetup — cross-slot resume of interrupted deeper pick', () => 
     expect(a.markResuming).not.toHaveBeenCalled();
     // The choice card IS shown (fresh first-run flow).
     expect(requestChoice).toHaveBeenCalledTimes(1);
+  });
+});
+
+// A device set up on the deeper model alone: eco-smart is ready and eco-fast was
+// never bound, so every reload used to look like a fresh device and re-showed the
+// welcome card over a model that was already downloaded and working.
+describe('executeSetup — a device already set up on the deeper slot', () => {
+  it('reports ready from eco-smart instead of re-showing the welcome card', async () => {
+    const a = fakeActions();
+    const smartReady = {
+      modelId: 'deeper', status: 'ready', model: model('deeper'),
+    } as unknown as SlotState;
+    const s = perSlotSeams({
+      'eco-fast': emptySlot,
+      'eco-smart': smartReady,
+    });
+    const requestChoice = vi.fn(pick('deeper'));
+
+    await executeSetup(a, { slot: 'eco-fast', seams: s, requestChoice });
+
+    // The card is never shown, and nothing is downloaded again.
+    expect(requestChoice).not.toHaveBeenCalled();
+    expect(s.deriveFirstRunChoices).not.toHaveBeenCalled();
+    expect(s.runAttempt).not.toHaveBeenCalled();
+    expect(s.setSlot).not.toHaveBeenCalled();
+    // Not a resume either — there is nothing left to finish.
+    expect(a.markResuming).not.toHaveBeenCalled();
+    expect(a.setReady).toHaveBeenCalledWith(model('deeper'));
+  });
+
+  it('still asks for a choice when neither slot is bound', async () => {
+    const a = fakeActions();
+    const s = perSlotSeams({
+      'eco-fast': emptySlot,
+      'eco-smart': emptySlot,
+    });
+    const requestChoice = vi.fn(pick('deeper'));
+
+    await executeSetup(a, { slot: 'eco-fast', seams: s, requestChoice });
+
+    expect(requestChoice).toHaveBeenCalledTimes(1);
+    expect(a.setReady).toHaveBeenCalledWith(model('deeper'));
+  });
+
+  it('falls through to a fresh choice when the ready eco-smart model left the catalog', async () => {
+    const a = fakeActions();
+    // The real `getSlot` nulls the model for an id the catalog no longer carries;
+    // the status it reports alongside is incidental, so the guard is asserted on
+    // the model being null rather than on the status.
+    const smartStale = {
+      modelId: 'gone', status: 'ready', model: null,
+    } as unknown as SlotState;
+    const s = perSlotSeams({
+      'eco-fast': emptySlot,
+      'eco-smart': smartStale,
+    });
+    const requestChoice = vi.fn(pick('deeper'));
+
+    await executeSetup(a, { slot: 'eco-fast', seams: s, requestChoice });
+
+    expect(requestChoice).toHaveBeenCalledTimes(1);
+    expect(a.setReady).toHaveBeenCalledWith(model('deeper'));
   });
 });

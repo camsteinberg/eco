@@ -83,6 +83,7 @@ import {
   watchLookupRequests,
   webSearchCitations,
   webSearchToggle,
+  welcomeCard,
   wipeOrigin,
   WEB_SEARCH_STUB_FETCHED_AT,
   type Pick,
@@ -895,7 +896,16 @@ test.describe("eleven-task acceptance walk", () => {
         let capturedAfterS = 0;
         try {
           await page.reload({ waitUntil: "load", timeout: 120_000 });
-          await expect(composer(page)).toBeVisible({ timeout: 120_000 });
+          await expect(
+            composer(page).or(welcomeCard(page)).first(),
+          ).toBeVisible({ timeout: 120_000 });
+          // This profile is already set up, so the reload must land straight in
+          // chat. A welcome card here means the app failed to recognize a model
+          // it already holds and asked the person to choose all over again.
+          await expect(
+            welcomeCard(page),
+            "reloading a set-up profile re-showed the welcome card",
+          ).toHaveCount(0);
 
           controlling = await page.evaluate(
             () => navigator.serviceWorker.controller !== null,
