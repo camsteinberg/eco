@@ -103,6 +103,13 @@ export type WebLLMEngine = {
         stream: true;
         max_tokens?: number;
         temperature?: number;
+        /** Nucleus sampling mass, from the model's sampling profile. */
+        top_p?: number;
+        /**
+         * Repetition penalty, from the model's sampling profile. MLC applies it
+         * to the logits before sampling, so it shapes a greedy call too.
+         */
+        repetition_penalty?: number;
         /** Request per-token log-probabilities on each chunk. */
         extra_body?: { enable_thinking?: boolean | null };
         logprobs?: boolean;
@@ -405,6 +412,20 @@ export class WebLLMAdapter implements RuntimeAdapter {
         stream: true,
         max_tokens: options?.maxTokens ?? 512,
         temperature: effectiveTemp,
+        // The sampling profile's two knobs this engine has. Emitted ONLY when
+        // set — the rule `transformers-generate-args.ts` follows, and for the
+        // same reason: an unprofiled call must fall through to the engine's own
+        // defaults rather than receive `undefined`. Neither is suppressed at
+        // temperature 0, because the Transformers path forwards the profile
+        // under greedy too and MLC applies the repetition penalty to the logits
+        // before the argmax; dropping them here would make the two runtimes
+        // sample the same model differently. `topK` has no counterpart on this
+        // engine (see the note on GenerateOptions.topP in types.ts) and is not
+        // forwarded.
+        ...(options?.topP != null ? { top_p: options.topP } : {}),
+        ...(options?.repetitionPenalty != null
+          ? { repetition_penalty: options.repetitionPenalty }
+          : {}),
         logprobs: true,
         top_logprobs: 1,
         // Qwen3-family chat templates default to the <think> reasoning mode;
