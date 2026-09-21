@@ -29,6 +29,7 @@ import {
   readForcedOrtMemPattern,
   readForcedOrtGraphOpt,
   readForcedThreads,
+  readForcedPrefillChunk,
   resetProbedWebgpuCapability,
   resolveSetupProfile,
   subscribeDeviceProfile,
@@ -556,6 +557,67 @@ describe('readForcedThreads — ?eco-force-threads override', () => {
   it.each(['0', '-2', '2.5', 'many', ''])('rejects non-positive-integer value %s', (value) => {
     setSearch(`?eco-force-threads=${value}`);
     expect(readForcedThreads()).toBeNull();
+  });
+});
+
+describe('readForcedPrefillChunk — eco-force-prefill-chunk override', () => {
+  const KEY = 'eco-force-prefill-chunk';
+
+  afterEach(() => {
+    window.localStorage.removeItem(KEY);
+  });
+
+  it('returns null with neither the param nor the key', () => {
+    setSearch('?');
+    expect(readForcedPrefillChunk()).toBeNull();
+  });
+
+  it.each([['0', 0], ['128', 128], ['512', 512]])('parses ?eco-force-prefill-chunk=%s as %i', (value, expected) => {
+    setSearch(`?eco-force-prefill-chunk=${value}`);
+    expect(readForcedPrefillChunk()).toBe(expected);
+  });
+
+  it.each(['-1', '2.5', 'lots'])('rejects non-negative-integer param value %s', (value) => {
+    setSearch(`?eco-force-prefill-chunk=${value}`);
+    expect(readForcedPrefillChunk()).toBeNull();
+  });
+
+  it('falls back to localStorage when the URL is silent', () => {
+    setSearch('?');
+    window.localStorage.setItem(KEY, '256');
+    expect(readForcedPrefillChunk()).toBe(256);
+  });
+
+  it('honors 0 from localStorage — the single-pass control arm', () => {
+    setSearch('?');
+    window.localStorage.setItem(KEY, '0');
+    expect(readForcedPrefillChunk()).toBe(0);
+  });
+
+  it('lets the URL param win over the stored key', () => {
+    setSearch('?eco-force-prefill-chunk=128');
+    window.localStorage.setItem(KEY, '512');
+    expect(readForcedPrefillChunk()).toBe(128);
+  });
+
+  it('does not fall back to storage when the URL param is present but invalid', () => {
+    setSearch('?eco-force-prefill-chunk=lots');
+    window.localStorage.setItem(KEY, '512');
+    expect(readForcedPrefillChunk()).toBeNull();
+  });
+
+  it.each(['-1', '2.5', 'lots'])('rejects non-negative-integer stored value %s', (value) => {
+    setSearch('?');
+    window.localStorage.setItem(KEY, value);
+    expect(readForcedPrefillChunk()).toBeNull();
+  });
+
+  it('returns null when storage access throws (private mode)', () => {
+    setSearch('?');
+    vi.spyOn(window.localStorage, 'getItem').mockImplementation(() => {
+      throw new Error('SecurityError');
+    });
+    expect(readForcedPrefillChunk()).toBeNull();
   });
 });
 

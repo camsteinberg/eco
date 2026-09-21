@@ -93,8 +93,9 @@ export type WorkerInbound =
       ortMemPattern?: boolean;
       ortGraphOpt?: OrtGraphOptLevel;
       /**
-       * Tokens per chunked-prefill pass (`?eco-force-prefill-chunk`, see
-       * `runtime/prefill-plan.ts`). `0` selects the single-pass control arm —
+       * Tokens per chunked-prefill pass (`eco-force-prefill-chunk` — URL param
+       * or localStorage key; see `runtime/prefill-plan.ts`). `0` selects the
+       * single-pass control arm —
        * the worker prefills exactly as it did before chunking existed. Absent ⇒
        * the worker's `PREFILL_CHUNK_TOKENS` default.
        */
@@ -464,9 +465,10 @@ export class TransformersAdapter implements RuntimeAdapter {
         ortArena: readForcedOrtArena() ?? undefined,
         ortMemPattern: readForcedOrtMemPattern() ?? undefined,
         ortGraphOpt: readForcedOrtGraphOpt() ?? undefined,
-        // Chunked-prefill sweep lever (?eco-force-prefill-chunk). `0` is the
-        // single-pass control arm, so `?? undefined` must NOT collapse it —
-        // `readForcedPrefillChunk` returns null (not 0) when the param is absent.
+        // Chunked-prefill sweep lever (eco-force-prefill-chunk, URL or
+        // localStorage). `0` is the single-pass control arm, so `?? undefined`
+        // must NOT collapse it — `readForcedPrefillChunk` returns null (not 0)
+        // when the lever is absent.
         prefillChunkTokens: readForcedPrefillChunk() ?? undefined,
         storageBridgeId: getCacheBridgeId(model),
         externalDataChunks: Object.keys(externalDataChunks).length > 0 ? externalDataChunks : undefined,
