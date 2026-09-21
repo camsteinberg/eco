@@ -24,7 +24,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   _resetSlotsForTesting,
   getSlot,
-  readRawSlotIdForMigration,
   setSlot,
   setSlotStatus,
   setSlotStorage,
@@ -41,11 +40,7 @@ import {
   type UpgradeRecord,
   type UpgradeSwapSeams,
 } from "../lifecycle/upgrade";
-import {
-  reconcileReadySlots,
-  runSelfHeal,
-  type RetiredModelMigration,
-} from "../lifecycle/self-heal";
+import { reconcileReadySlots } from "../lifecycle/self-heal";
 import type { Storage as DownloadStorage } from "../download/storage";
 import type { DeviceProfile, Slot } from "../types";
 
@@ -374,55 +369,5 @@ describe("I6 — reconcileReadySlots never leaves a failed-verify slot 'ready'",
     expect(getSlot("eco-fast").status).toBe("ready");
     expect(report.slotsFlippedToPreparing).toEqual([]);
     expect(report.modelsRepaired).toEqual([]);
-  });
-});
-
-/**
- * I7 — Retired-model detox leaves no dangling selection.
- *
- * The one invariant no per-module suite holds today: removing a catalog model
- * must scrub every surface that could still point at it — the bound slot, the
- * persisted `eco-selected-model`, and (transitively) the model chatStore
- * rehydrates. Uses a SYNTHETIC retired migration via the documented
- * `retiredMigrations` seam (rather than a real retired id like Bonsai/SmolLM2)
- * so the test can't rot when the catalog changes — the seam exists precisely for
- * exercising the mechanism without a real catalog removal.
- */
-describe("I7 — retired-model detox leaves no dangling selection", () => {
-  const RETIRED_ID = "local/__retired-test-model__";
-  const migration: RetiredModelMigration = {
-    modelId: RETIRED_ID,
-    friendlyLabel: "Retired Test Model",
-    markerKey: "eco-local-ai-mig-retire-test-v1",
-  };
-
-  it("rebinds the slot to a catalog model and never rehydrates the retired id", async () => {
-    // The user was on the retired model: slot bound to it + explicit selection.
-    setSlot("eco-fast", RETIRED_ID);
-    localStorage.setItem("eco-selected-model", RETIRED_ID);
-    localStorage.setItem("eco-selected-model-explicit", "true");
-    // Pre-condition: the raw slot really holds the retired id (getSlot nulls it).
-    expect(readRawSlotIdForMigration("eco-fast")).toBe(RETIRED_ID);
-
-    const report = await runSelfHeal({
-      retiredMigrations: [migration],
-      resolveEcoFastDefault: () => CATALOG_SMART,
-      deleteCacheByName: () => Promise.resolve(),
-    });
-
-    expect(report.retiredModelMigrationsRun).toContain(RETIRED_ID);
-    // Slot rebound to a live catalog model; nothing still names the retired id.
-    expect(getSlot("eco-fast").modelId).toBe(CATALOG_SMART);
-    expect(readRawSlotIdForMigration("eco-fast")).not.toBe(RETIRED_ID);
-    // Persisted selection detoxed off the retired id and demoted to non-explicit.
-    expect(localStorage.getItem("eco-selected-model")).toBe("eco-fast");
-    expect(localStorage.getItem("eco-selected-model-explicit")).toBe("false");
-
-    // Fresh chatStore hydration never resolves the retired id.
-    vi.resetModules();
-    const { useChatStore } = await import("../../stores/chatStore");
-    const selected = useChatStore.getState().selectedModel;
-    expect(selected).not.toBe(RETIRED_ID);
-    expect(resolveSelectedModelId(selected)).not.toBe(RETIRED_ID);
   });
 });

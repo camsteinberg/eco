@@ -2,16 +2,13 @@
 // Copyright (C) 2026 Bos Computing LLC
 
 /**
- * Local model recovery — v1 implementation.
+ * Local model recovery — which on-device model an offline or recovery send
+ * may fall back to.
  *
- * Mirrors the legacy `lib/local-recovery.ts` API so callsites in useChat.ts
- * and chat/page.tsx are a drop-in swap.  The key difference: readiness is
- * determined by the v1 slot store (`slots.ts`) rather than the legacy
- * localInferenceStore + state-matrix + benchmark-evidence pipeline.
- *
- * A slot whose status is `'ready'` and whose model resolves from the catalog
- * is considered recovery-eligible.  The scan order is `eco-fast` then
- * `eco-smart` — matching the implicit priority in the slot list.
+ * Readiness is determined entirely by the slot store (`slots.ts`): a slot
+ * whose status is `'ready'` and whose model resolves from the catalog is
+ * recovery-eligible. The scan order is `eco-fast` then `eco-smart` — matching
+ * the implicit priority in the slot list.
  */
 
 import { getSlot, SLOTS } from './slots';
@@ -21,12 +18,6 @@ import { getSlot, SLOTS } from './slots';
 export type ResolveReadyLocalRecoveryModelIdOptions = {
   currentModelId?: string | null;
   preferredModelId?: string | null;
-  /**
-   * Legacy compat — the v1 implementation ignores this parameter because
-   * readiness is fully determined by slot status.  Kept in the signature so
-   * callsites that forward `checkStatus` continue to type-check.
-   */
-  checkStatus?: (modelId: string) => Promise<unknown>;
 };
 
 // ─── Implementation ───────────────────────────────────────────────────────
@@ -67,20 +58,6 @@ export async function resolveReadyLocalRecoveryModelId(
   }
 
   return null;
-}
-
-/**
- * Return the list of model ids that are currently ready across all slots.
- */
-export function getLocalRecoveryCandidateIds(): readonly string[] {
-  const ids: string[] = [];
-  for (const slotId of SLOTS) {
-    const state = getSlot(slotId);
-    if (state.status === 'ready' && state.model) {
-      ids.push(state.model.id);
-    }
-  }
-  return ids;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────

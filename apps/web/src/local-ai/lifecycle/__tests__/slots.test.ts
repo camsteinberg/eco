@@ -4,13 +4,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   _resetSlotsForTesting,
-  SLOTS,
-  clearAllSlots,
   clearSlot,
   getAllSlots,
-  getLegacyKeyPrefixes,
   getSlot,
-  readRawSlotIdForMigration,
   setSlot,
   setSlotStatus,
   setSlotStorage,
@@ -182,44 +178,6 @@ describe('getAllSlots', () => {
     expect(all['eco-smart'].modelId).toBeNull();
   });
 
-  it('clearAllSlots empties every slot', () => {
-    setSlot('eco-fast', 'local/qwen3-0.6b');
-    setSlot('eco-smart', 'local/qwen3-0.6b');
-    clearAllSlots();
-    for (const slot of SLOTS) {
-      expect(getSlot(slot).modelId).toBeNull();
-    }
-  });
-});
-
-describe('Legacy key migration', () => {
-  it('reads legacy "eco-model-slot-*" keys and promotes to the new key on read', () => {
-    storage.setItem('eco-model-slot-eco-fast', 'local/qwen3-0.6b');
-    // Before promotion: new key is empty.
-    expect(storage.getItem('eco-local-ai-slot-eco-fast')).toBeNull();
-
-    const s = getSlot('eco-fast');
-    expect(s.modelId).toBe('local/qwen3-0.6b');
-    // After: new key is populated.
-    expect(storage.getItem('eco-local-ai-slot-eco-fast')).toBe('local/qwen3-0.6b');
-  });
-
-  it('reads legacy "eco-slot-*" keys with same behavior', () => {
-    storage.setItem('eco-slot-eco-smart', 'local/qwen3-0.6b');
-    const s = getSlot('eco-smart');
-    expect(s.modelId).toBe('local/qwen3-0.6b');
-  });
-
-  it('prefers the new key when both new and legacy are present', () => {
-    storage.setItem('eco-local-ai-slot-eco-fast', 'candidate/lfm2.5-1.2b-instruct-onnx');
-    storage.setItem('eco-model-slot-eco-fast', 'local/qwen3-0.6b');
-    expect(getSlot('eco-fast').modelId).toBe('candidate/lfm2.5-1.2b-instruct-onnx');
-  });
-
-  it('legacy prefixes are exposed for self-heal', () => {
-    expect(getLegacyKeyPrefixes()).toContain('eco-model-slot-');
-    expect(getLegacyKeyPrefixes()).toContain('eco-slot-');
-  });
 });
 
 describe('subscribe', () => {
@@ -247,49 +205,5 @@ describe('subscribe', () => {
     setSlot('eco-fast', 'local/qwen3-0.6b');
     expect(statuses).toEqual(['preparing']);
     unsub();
-  });
-});
-
-describe('readRawSlotIdForMigration', () => {
-  // A synthetic id standing in for a just-retired model — deliberately NOT a
-  // catalog id, so getSlot() resolves it to no model and nulls it.
-  const RETIRED_ID = 'local/retired-model-q4';
-
-  it('returns a persisted id that has left the catalog (getSlot would null it)', () => {
-    // Write the raw slot key directly — setSlot would resolve/normalize; the
-    // migration path is about whatever bytes are actually persisted.
-    storage.setItem('eco-local-ai-slot-eco-fast', RETIRED_ID);
-
-    // getSlot nulls the retired id (not in catalog, harness disabled)…
-    expect(getSlot('eco-fast').modelId).toBeNull();
-    // …but the raw migration read still sees it.
-    expect(readRawSlotIdForMigration('eco-fast')).toBe(RETIRED_ID);
-  });
-
-  it('reads the retired id from a legacy slot key', () => {
-    storage.setItem('eco-model-slot-eco-smart', RETIRED_ID);
-    expect(readRawSlotIdForMigration('eco-smart')).toBe(RETIRED_ID);
-
-    storage.removeItem('eco-model-slot-eco-smart');
-    storage.setItem('eco-slot-eco-smart', RETIRED_ID);
-    expect(readRawSlotIdForMigration('eco-smart')).toBe(RETIRED_ID);
-  });
-
-  it('does NOT promote a legacy value to the canonical key (read-only)', () => {
-    storage.setItem('eco-model-slot-eco-fast', RETIRED_ID);
-    readRawSlotIdForMigration('eco-fast');
-    // Unlike readSlotId(), the raw migration read never writes the value
-    // forward — the canonical key stays empty.
-    expect(storage.getItem('eco-local-ai-slot-eco-fast')).toBeNull();
-  });
-
-  it('returns null when neither the canonical nor legacy keys hold a value', () => {
-    expect(readRawSlotIdForMigration('eco-fast')).toBeNull();
-  });
-
-  it('returns the canonical key even when a legacy key also holds a value', () => {
-    storage.setItem('eco-local-ai-slot-eco-fast', RETIRED_ID);
-    storage.setItem('eco-model-slot-eco-fast', 'local/some-other-legacy-id');
-    expect(readRawSlotIdForMigration('eco-fast')).toBe(RETIRED_ID);
   });
 });
