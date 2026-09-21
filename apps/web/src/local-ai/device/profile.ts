@@ -22,10 +22,14 @@
  *   ?eco-force-device-memory=<number>               → deviceMemoryGB
  *   ?eco-force-shader-f16=on|off                    → webgpuShaderF16 (setup probe only)
  *   ?eco-force-wasm=1|on                            → WASM/CPU execution provider (readForcedWasm)
+ *
+ * `eco-force-prefill-chunk` is additionally readable from a `localStorage` key
+ * of the same name — see `readForcedPrefillChunk()` for why.
  */
 
 import type { DeviceProfile, BrowserClass, WebGPUSupport } from '../types';
 import { isOrtArtifact, type OrtArtifact } from '../runtime/ort-artifact';
+import { safeStorage } from '../../lib/local-storage';
 
 const URL_PARAM_FORCE_CAPABILITY = 'eco-force-capability';
 const URL_PARAM_FORCE_BROWSER = 'eco-force-browser';
@@ -39,6 +43,7 @@ const URL_PARAM_FORCE_THREADS = 'eco-force-threads';
 const URL_PARAM_FORCE_ORT_ARENA = 'eco-force-ort-arena';
 const URL_PARAM_FORCE_ORT_MEM_PATTERN = 'eco-force-ort-mem-pattern';
 const URL_PARAM_FORCE_ORT_GRAPH_OPT = 'eco-force-ort-graph-opt';
+const URL_PARAM_FORCE_PREFILL_CHUNK = 'eco-force-prefill-chunk';
 
 // Tiny WASM module that uses the `v128.const` SIMD opcode. If
 // `WebAssembly.validate` accepts these bytes, the runtime supports SIMD —
@@ -311,6 +316,32 @@ export function readForcedThreads(): number | null {
   if (v == null) return null;
   const n = Number(v);
   return Number.isInteger(n) && n >= 1 ? n : null;
+}
+
+/**
+ * Forced `eco-force-prefill-chunk=N` override, or null when absent/invalid —
+ * tokens per chunked-prefill pass (see `runtime/prefill-plan.ts`). `0` is the
+ * SINGLE-PASS CONTROL ARM: the worker prefills exactly as it does today, so the
+ * chunked and unchunked arms are drivable from the same build. Any other
+ * non-negative integer sets the chunk size; absent ⇒ the worker's default
+ * (`PREFILL_CHUNK_TOKENS`) stands. Read on the main thread and threaded across
+ * the worker boundary via the init message — the worker never reads the lever.
+ *
+ * The URL param wins; when the URL is silent the same key is read from
+ * `localStorage` (mirroring `validation-harness.ts`'s `readHarnessParam`). The
+ * storage fallback exists because `/chat/new?…` is rewritten to `/chat/<id>`
+ * before the worker's init message is built, so a URL-only lever silently
+ * reverts to the default — and re-landing with the query doubles resident
+ * memory, which is fatal on the Safari arm this lever measures.
+ */
+export function readForcedPrefillChunk(): number | null {
+  const v = readUrlParamsSafe().get(URL_PARAM_FORCE_PREFILL_CHUNK)
+    ?? safeStorage.get(URL_PARAM_FORCE_PREFILL_CHUNK);
+  // Empty/whitespace is rejected explicitly: `Number('')` is 0, which would
+  // silently select the single-pass CONTROL arm instead of reading as absent.
+  if (v == null || v.trim() === '') return null;
+  const n = Number(v);
+  return Number.isInteger(n) && n >= 0 ? n : null;
 }
 
 /**

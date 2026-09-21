@@ -111,6 +111,26 @@ export type KvReuseReport = {
    * remove, so receipts need to show which path a turn took.
    */
   spliced?: boolean;
+  /**
+   * What the CHUNKED prefill did this turn (see `prefill-plan.ts`). Present
+   * only when the worker ran the chunk loop; `chunks: 0, chunkSize: 0` is the
+   * single-pass control arm. Without it a footprint reading cannot be attached
+   * to an arm, and "chunking was on" is indistinguishable from "chunking was on
+   * but the delta fit inside the tail left for generate".
+   */
+  prefill?: KvPrefillReport;
+};
+
+/** One turn's chunked-prefill work, as it appears in a receipt. */
+export type KvPrefillReport = {
+  /** Chunk passes run by hand (0 on the single-pass control arm). */
+  chunks: number;
+  /** Tokens per pass as configured (0 on the single-pass control arm). */
+  chunkSize: number;
+  /** Tokens prefilled by the chunk loop, excluding the tail left to generate. */
+  tokens: number;
+  /** Wall-clock ms spent inside the chunk loop. */
+  ms: number;
 };
 
 /** A short decoded window around a prefix divergence. */

@@ -33,6 +33,7 @@
 import {
   AutoTokenizer,
   AutoModelForCausalLM,
+  DynamicCache,
   TextStreamer,
   env,
   LogitsProcessorList,
@@ -64,7 +65,9 @@ import {
   buildKvReuseReport,
   divergenceWindow,
   spliceOnTextPrefix,
+  type KvPrefillReport,
 } from '../local-ai/runtime/kv-cache';
+import { planPrefillChunks, PREFILL_CHUNK_TOKENS } from '../local-ai/runtime/prefill-plan';
 import { appendContinuation, splitContinuation } from '../local-ai/runtime/continue-final-message';
 import { patchChatTemplateForKvReuse } from '../local-ai/runtime/template-patches';
 import {
@@ -143,6 +146,13 @@ type LoadedModel = {
    * ThinkTagFilter so the hidden reasoning is stripped, not leaked.
    */
   startsInThinkBlock: boolean;
+  /**
+   * Tokens per chunked-prefill pass for this load. `0` = the single-pass
+   * control arm (prefill exactly as the worker did before chunking existed).
+   * Comes from the init message's `?eco-force-prefill-chunk` lever, else
+   * `PREFILL_CHUNK_TOKENS`.
+   */
+  prefillChunkTokens: number;
 };
 
 let loaded: LoadedModel | null = null;
@@ -253,6 +263,148 @@ function tokenInputsFromIds(ids: readonly number[]): Record<string, unknown> {
   return {
     input_ids: new Tensor('int64', BigInt64Array.from(ids, BigInt), dims),
     attention_mask: new Tensor('int64', new BigInt64Array(ids.length).fill(1n), dims),
+  };
+}
+
+// ─── Chunked prefill ──────────────────────────────────────────────────────
+//
+// A single full prefill is ONE ORT forward pass over the whole window, and its
+// peak allocation scales with that window: on Safari 26.4 a 785-token prefill
+// took the WebContent process 6.6 → 12.5 GB inside one pass and Safari killed
+// the tab at its 8,192 MB limit (s55, measured). Chunking bounds the per-pass
+// allocation — each chunk forwards at most `chunkSize` tokens and EXTENDS the
+// KV cache — and then `generate()` finishes from that cache.
+//
+// It is a pure PREPEND to the existing call: TJS slices `input_ids` down to the
+// unprocessed tail whenever a cache is present (modeling_utils.js:1590), which
+// is exactly why the reuse path can already pass the full ids + full mask. So
+// the rendered prompt, the sampling args, the streamer, the filter chain and
+// `promptTokens`/`completionTokens` are untouched by this.
+
+/** The cache object the chunk loop extends (TJS's `DynamicCache`). */
+type PrefillCache = InstanceType<typeof DynamicCache>;
+
+/** The two TJS model entry points the worker calls. */
+type GenerationModel = {
+  generate: (args: Record<string, unknown>) => Promise<{
+    sequences?: { data: ArrayLike<number | bigint> };
+    past_key_values?: unknown;
+  }>;
+  forward: (inputs: Record<string, unknown>) => Promise<Record<string, Tensor>>;
+};
+
+/**
+ * Fold one forward pass's cache outputs into `cache`, renaming `present*` to
+ * the `past_*` names the NEXT pass reads, then free everything the pass
+ * produced that the cache does not hold.
+ *
+ * This re-implements TJS's `getPastKeyValues`
+ * (`@huggingface/transformers@4.2.0` `src/models/modeling_utils.js:1181`)
+ * because that function is NOT exported from the package barrel — only
+ * `DynamicCache` is. It must carry all three HYBRID renames as well as the
+ * standard one, or LFM2 (`present_conv`) and Qwen3.5 (`present_recurrent`)
+ * silently lose their non-attention state and emit garbage. Renames are chained
+ * on the same string, exactly as upstream: once `present_conv` has become
+ * `past_conv` the trailing `present` → `past_key_values` replace is a no-op.
+ *
+ * Disposal is the bounded-memory half. `generate()` frees non-cache GPU outputs
+ * ONCE, after its whole loop (`modeling_utils.js:1041`); a hand-rolled loop must
+ * free them per pass or it leaks one logits buffer per chunk. `cache.update()`
+ * disposes the cache tensors it replaces itself.
+ */
+function foldPresentIntoCache(outputs: Record<string, Tensor>, cache: PrefillCache): void {
+  const held = cache as unknown as Record<string, Tensor>;
+  const entries: Record<string, Tensor> = {};
+  for (const [name, tensor] of Object.entries(outputs)) {
+    if (!name.startsWith('present')) continue;
+    const renamed = name
+      // Hybrid cache architectures
+      .replace('present_ssm', 'past_ssm') // Mamba
+      .replace('present_conv', 'past_conv') // LFM2
+      .replace('present_recurrent', 'past_recurrent') // Qwen3.5
+      // Standard cache architecture
+      .replace('present', 'past_key_values');
+    // optimum's encoder-pkv reuse: the graph re-emits the constant encoder
+    // entries every pass, so keep the one already held rather than replacing
+    // it (upstream does the same). Decoder-only causal LMs have none.
+    const heldEntry = held[renamed];
+    entries[renamed] = name.includes('encoder') && heldEntry !== undefined ? heldEntry : tensor;
+  }
+  cache.update(entries);
+
+  const retained = new Set<unknown>(Object.values(held));
+  for (const tensor of Object.values(outputs)) {
+    if (tensor.location === 'gpu-buffer' && !retained.has(tensor)) {
+      tensor.dispose();
+    }
+  }
+}
+
+/** A completed chunked prefill: the extended cache plus its receipt. */
+type PrefillOutcome = { cache: PrefillCache; report: KvPrefillReport };
+
+/**
+ * Prefill `[cachedLen, promptLen - 1)` into a KV cache, one bounded pass per
+ * chunk, and return the cache for `generate()` to finish from.
+ *
+ * Returns `null` when there is nothing to do by hand — chunking disabled (the
+ * single-pass control arm), or a delta that fits inside the tail left for
+ * `generate()`. The caller then takes the pre-chunking path unchanged.
+ *
+ * Per-pass inputs, and why each is what it is:
+ * - `input_ids` — exactly the chunk. TJS does NOT slice for us here: its slice
+ *   lives in `decoder_prepare_inputs_for_generation`, which only `generate()`
+ *   calls.
+ * - `attention_mask` — all ones of length `end`, i.e. cache + chunk. TJS derives
+ *   `position_ids` as a cumsum over the MASK minus one, then slices to the last
+ *   `input_ids.length` entries (`create_position_ids`, `:1538`), so this shape
+ *   yields positions `start..end-1` with no arithmetic of ours to get wrong.
+ * - `num_logits_to_keep: 1` — REQUIRED. `decoder_forward` defaults it to `0n`,
+ *   which means ALL logits (`:1325`); at chunk 256 against Qwen3's 151,936-token
+ *   vocab that is ~155 MB of output per pass, thrown away. `generate()` passes
+ *   `1n` for the same reason; a hand-rolled `forward` must do it itself.
+ *
+ * Ownership: on any throw a cache this function CREATED is disposed here, so a
+ * partial cache never survives. A cache passed IN (the reuse path) belongs to
+ * the worker's slot and is left for `invalidateKvCache()`.
+ */
+async function prefillInChunks(args: {
+  model: GenerationModel;
+  tokenIds: readonly number[];
+  cachedLen: number;
+  heldCache: PrefillCache | null;
+  chunkSize: number;
+}): Promise<PrefillOutcome | null> {
+  const { model, tokenIds, cachedLen, heldCache, chunkSize } = args;
+  const plan = planPrefillChunks(cachedLen, tokenIds.length, chunkSize);
+  if (plan.length === 0) return null;
+
+  const cache = heldCache ?? new DynamicCache();
+  const startedAt = Date.now();
+  let tokens = 0;
+  try {
+    for (const { start, end } of plan) {
+      // Same sentinel the streamer callback throws, so an abort between chunks
+      // lands in the same catch → invalidateKvCache() path.
+      if (abortFlag?.aborted) throw new Error('__eco_abort__');
+      const chunk = tokenIds.slice(start, end);
+      const outputs = await model.forward({
+        input_ids: new Tensor('int64', BigInt64Array.from(chunk, BigInt), [1, chunk.length]),
+        attention_mask: new Tensor('int64', new BigInt64Array(end).fill(1n), [1, end]),
+        past_key_values: cache,
+        num_logits_to_keep: new Tensor('int64', new BigInt64Array([1n]), []),
+      });
+      foldPresentIntoCache(outputs, cache);
+      tokens += chunk.length;
+    }
+  } catch (err) {
+    if (cache !== heldCache) await disposePkv(cache);
+    throw err;
+  }
+
+  return {
+    cache,
+    report: { chunks: plan.length, chunkSize, tokens, ms: Date.now() - startedAt },
   };
 }
 
@@ -531,8 +683,18 @@ async function handleInit(msg: Extract<WorkerInbound, { type: 'init' }>): Promis
       backend,
       cjkSuppression: msg.cjkSuppression === true,
       startsInThinkBlock,
+      prefillChunkTokens: msg.prefillChunkTokens ?? PREFILL_CHUNK_TOKENS,
     };
     post({ type: 'ready', backend });
+
+    // ── Chunked-prefill capability probe (once per load) ──────────────
+    // `num_logits_to_keep` is what keeps a chunk pass from computing logits for
+    // every token in the chunk (`decoder_forward` defaults it to "all"). A graph
+    // that does not DECLARE the input silently drops the one we pass — TJS's
+    // `pick(inputs, session.inputNames)` — so a chunk on such a model allocates
+    // chunkSize × vocab of logits per pass. Logged once so the footprint
+    // readings can name the models where that is happening.
+    logPrefillChunkSupport(model, msg.modelId);
 
     // ── CJK vocab scan (opt-in models only) ───────────────────────────
     // Started AFTER ready so it never delays the load signal; the chunked
@@ -557,6 +719,26 @@ async function handleInit(msg: Extract<WorkerInbound, { type: 'init' }>): Promis
   } finally {
     tjsEnv.fetch = originalFetch;
   }
+}
+
+/**
+ * Report, once per load, whether this model's decoder graph declares
+ * `num_logits_to_keep` — the input that bounds a chunk pass's logits output.
+ * Best-effort: a runtime that doesn't expose `sessions` logs `unknown` rather
+ * than failing a load.
+ */
+function logPrefillChunkSupport(model: unknown, modelId: string): void {
+  const sessions = (model as {
+    sessions?: Record<string, { inputNames?: readonly string[] }>;
+  } | null)?.sessions;
+  const session = sessions?.decoder_model_merged ?? sessions?.model;
+  const names = session?.inputNames;
+  const support = Array.isArray(names)
+    ? String(names.includes('num_logits_to_keep'))
+    : 'unknown';
+  console.info(
+    `[eco/local-ai-worker] ${modelId}: num_logits_to_keep declared = ${support}`,
+  );
 }
 
 /**
@@ -913,12 +1095,7 @@ async function handleGenerate(msg: Extract<WorkerInbound, { type: 'generate' }>)
       },
     );
 
-    const model = loaded.model as {
-      generate: (args: Record<string, unknown>) => Promise<{
-        sequences?: { data: ArrayLike<number | bigint> };
-        past_key_values?: unknown;
-      }>;
-    };
+    const model = loaded.model as GenerationModel;
     // Forward the FULL per-model sampling profile (temperature + top_p/top_k/
     // repetition_penalty/no_repeat_ngram_size) via the pure, unit-tested
     // mapping. Default maxTokens is 512 to align with the runtime contract +
@@ -941,9 +1118,45 @@ async function handleGenerate(msg: Extract<WorkerInbound, { type: 'generate' }>)
       return_dict_in_generate: true,
       streamer,
     };
-    if (kvReuse.decision === 'reuse') {
+    // ── Chunked prefill (bounded per-pass allocation) ─────────────────
+    // On a miss this chunk-prefills from an empty cache; on reuse it
+    // chunk-prefills only the delta the held cache doesn't cover. Either way
+    // `generate` receives the FULL ids/mask plus the cache and slices to the
+    // tail itself — the same shape the reuse path has always used.
+    const prefilled = await prefillInChunks({
+      model,
+      tokenIds: newTokenIds,
+      cachedLen: kvReuse.decision === 'reuse' ? kvReuse.cachedLen : 0,
+      heldCache: kvReuse.decision === 'reuse' ? (cachedPkv as PrefillCache | null) : null,
+      chunkSize: loaded.prefillChunkTokens,
+    });
+    if (prefilled) {
+      // Hand ownership of the prefilled cache to the worker's slot BEFORE
+      // generate runs. Without this, an abort/error on a MISS turn would send
+      // the catch below into `invalidateKvCache()`, which frees the slot's OLD
+      // cache and leaks the one we just built. Assigning it here makes the
+      // existing invalidation path the single owner of every partial cache.
+      // `cachedTokenIds` is nulled because the ids no longer describe the
+      // cache's length; an empty ids array makes the gate report `no-cache`, so
+      // even an unexpected read can only cost a reprefill, never corrupt.
+      if (prefilled.cache !== cachedPkv) {
+        await disposePkv(cachedPkv);
+        cachedPkv = prefilled.cache;
+        cachedTokenIds = null;
+      }
+      generateArgs.past_key_values = prefilled.cache;
+    } else if (kvReuse.decision === 'reuse') {
       generateArgs.past_key_values = cachedPkv;
     }
+    // `chunks: 0` with a non-zero `chunkSize` = chunking was on but the delta
+    // fit inside the tail left for generate; `chunkSize: 0` = the single-pass
+    // control arm. A footprint reading is meaningless without the arm.
+    kvReuse.prefill = prefilled?.report ?? {
+      chunks: 0,
+      chunkSize: loaded.prefillChunkTokens,
+      tokens: 0,
+      ms: 0,
+    };
     if (cjkSuppression.applied && cjkScan?.ids) {
       // TJS picks `suppress_tokens` off the kwargs into GenerationConfig →
       // SuppressTokensLogitsProcessor sets those logits to -Infinity each
@@ -994,7 +1207,15 @@ async function handleGenerate(msg: Extract<WorkerInbound, { type: 'generate' }>)
     const nextPkv = out.past_key_values ?? null;
     const nextIds = out.sequences ? idsOf(out.sequences) : null;
     const cacheCommitted = nextPkv != null && nextIds != null;
-    if (cachedPkv && cachedPkv !== nextPkv) {
+    //
+    // With chunked prefill the slot ALREADY holds the cache we passed in (see
+    // the ownership handover above), so `cachedPkv === nextPkv` on both paths
+    // and nothing is orphaned here — the old cache on a miss was disposed
+    // before generate ran. `oldDisposed` records whether this line freed the
+    // slot's cache, so the uncommittable branch below can tell a cache that is
+    // still live from one already freed.
+    const oldDisposed = cachedPkv != null && cachedPkv !== nextPkv;
+    if (oldDisposed) {
       await disposePkv(cachedPkv);
     }
     if (cacheCommitted) {
@@ -1002,9 +1223,14 @@ async function handleGenerate(msg: Extract<WorkerInbound, { type: 'generate' }>)
       cachedTokenIds = nextIds;
     } else {
       // Ownership of a returned-but-uncommittable cache transferred to us
-      // (keepCacheAlive) — free it rather than leak its GPU tensors.
-      if (nextPkv && nextPkv !== cachedPkv) {
+      // (keepCacheAlive) — free it rather than leak its GPU tensors. `nextPkv`
+      // may BE the slot's own object (chunked prefill, or a reuse turn whose
+      // generate returned no sequences), in which case the line above skipped
+      // it and this is the only place it gets freed.
+      if (nextPkv) {
         await disposePkv(nextPkv);
+      } else if (!oldDisposed) {
+        await disposePkv(cachedPkv);
       }
       cachedPkv = null;
       cachedTokenIds = null;
