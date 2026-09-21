@@ -51,6 +51,7 @@ function makeEngine(opts?: {
     reload: async () => {
       if (opts?.reloadFails) throw opts.reloadFails;
     },
+    resetChat: async () => undefined,
     chat: {
       completions: {
         create: async () => {
@@ -105,6 +106,7 @@ function makeCancelableEngine(): {
       rejectReload = reject;
       notifyReloadStarted();
     }),
+    resetChat: async () => undefined,
     chat: { completions: { create: async () => (async function* () {})() } },
     interruptGenerate: () => undefined,
     unload: async () => {
@@ -277,6 +279,7 @@ describe('WebLLMAdapter — generate', () => {
     let interrupted = false;
     engine = {
       reload: async () => undefined,
+      resetChat: async () => undefined,
       chat: {
         completions: {
           create: async () => (async function* () {
@@ -340,6 +343,7 @@ describe('WebLLMAdapter — stream drain (deadlock regression)', () => {
     let fullyDrained = false;
     engine = {
       reload: async () => undefined,
+      resetChat: async () => undefined,
       chat: {
         completions: {
           create: async () => (async function* () {
@@ -376,6 +380,7 @@ describe('WebLLMAdapter — stream drain (deadlock regression)', () => {
     })();
     engine = {
       reload: async () => undefined,
+      resetChat: async () => undefined,
       chat: {
         completions: {
           create: async () => {
@@ -422,6 +427,7 @@ describe('WebLLMAdapter — usage (include_usage)', () => {
       | undefined;
     engine = {
       reload: async () => undefined,
+      resetChat: async () => undefined,
       chat: {
         completions: {
           create: async (args) => {
@@ -448,6 +454,7 @@ describe('WebLLMAdapter — usage (include_usage)', () => {
     let fullyDrained = false;
     engine = {
       reload: async () => undefined,
+      resetChat: async () => undefined,
       chat: {
         completions: {
           create: async () => (async function* () {
@@ -485,6 +492,89 @@ describe('WebLLMAdapter — usage (include_usage)', () => {
     }
     // The trailing chunk was pulled → the generator ran to natural completion.
     expect(fullyDrained).toBe(true);
+  });
+});
+
+// ─── Conversation reset (multi-round KV reuse) ─────────────────────────────
+// WebLLM keeps its own copy of the conversation: when the incoming `messages`
+// minus the last entry match it, the engine prefills ONLY the last round and
+// answers from the KV cache it already holds. Eco assembles the whole prompt
+// itself every turn — budget, history selection, system prompt — so that reuse
+// silently discards the assembler's decisions and a later turn is answered
+// from a stale cache (measured live: from turn 2 the model repeats its previous
+// reply, with prompt-token counts falling from 202 to 35–72). The adapter must
+// therefore clear the engine's conversation before every request so the full
+// `messages` array is prefilled.
+
+describe('WebLLMAdapter — conversation reset', () => {
+  it('clears the engine conversation before each generation, in order', async () => {
+    const calls: string[] = [];
+    engine = {
+      reload: async () => undefined,
+      resetChat: async () => {
+        calls.push('reset');
+      },
+      chat: {
+        completions: {
+          create: async () => {
+            calls.push('create');
+            return (async function* () {
+              yield { choices: [{ delta: { content: 'hi' }, finish_reason: 'stop' }] };
+            })();
+          },
+        },
+      },
+      interruptGenerate: () => undefined,
+      unload: async () => undefined,
+    };
+    adapter = new WebLLMAdapter({ engineFactory: async () => engine });
+    await adapter.load(MODEL);
+
+    for await (const _event of adapter.generate([{ role: 'user', content: 'one' }])) {
+      // drain
+    }
+    for await (const _event of adapter.generate([
+      { role: 'user', content: 'one' },
+      { role: 'assistant', content: 'hi' },
+      { role: 'user', content: 'two' },
+    ])) {
+      // drain
+    }
+
+    expect(calls).toEqual(['reset', 'create', 'reset', 'create']);
+  });
+
+  it('surfaces a failed reset as an error event and never starts the request', async () => {
+    let createCalled = false;
+    engine = {
+      reload: async () => undefined,
+      resetChat: async () => {
+        throw new Error('engine is busy');
+      },
+      chat: {
+        completions: {
+          create: async () => {
+            createCalled = true;
+            return (async function* () {
+              yield { choices: [{ delta: { content: 'hi' }, finish_reason: 'stop' }] };
+            })();
+          },
+        },
+      },
+      interruptGenerate: () => undefined,
+      unload: async () => undefined,
+    };
+    adapter = new WebLLMAdapter({ engineFactory: async () => engine });
+    await adapter.load(MODEL);
+
+    const events: import('../types').TokenEvent[] = [];
+    for await (const event of adapter.generate([{ role: 'user', content: 'hi' }])) {
+      events.push(event);
+    }
+
+    expect(events).toHaveLength(1);
+    expect(events[0]!.kind).toBe('error');
+    expect(createCalled).toBe(false);
   });
 });
 
@@ -564,6 +654,7 @@ describe('WebLLMAdapter — confidence', () => {
       | undefined;
     engine = {
       reload: async () => undefined,
+      resetChat: async () => undefined,
       chat: {
         completions: {
           create: async (args) => {
@@ -825,6 +916,7 @@ describe('WebLLMAdapter — sampling profile', () => {
     return {
       engine: {
         reload: async () => undefined,
+        resetChat: async () => undefined,
         chat: {
           completions: {
             create: async (args) => {

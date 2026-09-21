@@ -126,6 +126,13 @@ export type WebLLMEngine = {
     };
   };
   interruptGenerate(): void;
+  /**
+   * Clears the engine's stored conversation and KV cache. The adapter calls it
+   * before every request so the whole `messages` array is prefilled — see the
+   * multi-round note in `generate()`. The real signature takes optional
+   * `(keepStats?, modelId?)` arguments; the adapter needs neither.
+   */
+  resetChat(): Promise<void>;
   unload(): Promise<void>;
   /** Optional: encode text to token ids (for countTokens support). */
   tokenize?: (text: string) => number[] | Promise<number[]>;
@@ -407,6 +414,20 @@ export class WebLLMAdapter implements RuntimeAdapter {
 
     let chunks: AsyncIterable<WebLLMChunk>;
     try {
+      // WebLLM holds its own copy of the conversation. When the incoming
+      // `messages` minus the last entry match that copy it takes a "multiround
+      // chatting" branch and prefills ONLY the last round, answering from the
+      // KV cache it already holds (`lib/index.js:13305-13331`). Eco assembles
+      // the whole prompt itself every turn — system prompt, history selection,
+      // budget — so that reuse silently discards the assembler's decisions:
+      // measured live, the model started repeating its previous reply from
+      // turn 2 while its prompt-token count collapsed from 202 to 35-72.
+      // Clearing the conversation first forces the full `messages` array to be
+      // prefilled, which is the arm that answered a four-turn walk correctly.
+      // A failure here shares the create() failure path below: it means the
+      // engine cannot serve this request either.
+      await engine.resetChat();
+
       chunks = await engine.chat.completions.create({
         messages,
         stream: true,
@@ -431,8 +452,13 @@ export class WebLLMAdapter implements RuntimeAdapter {
         // Qwen3-family chat templates default to the <think> reasoning mode;
         // the Transformers worker renders with `enable_thinking: false` and
         // this lane must match, or the same model answers differently per
-        // runtime and every reply carries a reasoning block. Ignored by
-        // models whose template has no thinking switch.
+        // runtime and every reply carries a reasoning block. This is NOT
+        // ignored by models that have no thinking mode: on `false` WebLLM
+        // unconditionally encodes "<think>\n\n</think>\n\n", pushes those
+        // tokens into the output and appends the block to the reply header
+        // for ANY model (`lib/index.js:10309`), so a model without a think
+        // mode carries it in every reply — and in every later prompt, since
+        // the reply comes back as history.
         extra_body: { enable_thinking: false },
         // Ask for the trailing usage chunk — without it completionTokens is 0.
         // The drain loop below tolerates that final empty-choices chunk (no
