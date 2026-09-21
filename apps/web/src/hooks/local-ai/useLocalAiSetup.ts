@@ -71,10 +71,20 @@ export function useLocalAiSetup(options: UseLocalAiSetupOptions = {}): UseLocalA
   // eco-fast slot name — which would resolve to an EMPTY slot and refuse the
   // very first message. Only written when the run bound something other than
   // the setup slot, so the ordinary eco-fast path keeps its existing behavior.
+  //
+  // And only when chat is not already pointed there. Setup also reaches ready
+  // on a device that is already set up, where nobody chose anything this visit:
+  // `userChoseRef` is false, so rewriting the same selection would persist it
+  // as non-explicit and quietly downgrade the person's earlier deliberate pick
+  // (the explicit flag is what lets a chosen model survive a reload verbatim).
+  // A selection held as the model's own id counts as pointing at its slot.
   const setReady = useCallback(
     (model: ModelConfig): void => {
       const boundSlot = getSlotForModel(model.id);
-      if (boundSlot && boundSlot !== slot) {
+      const selected = useChatStore.getState().selectedModel;
+      const alreadyOnBoundSlot =
+        selected === boundSlot || getSlotForModel(selected) === boundSlot;
+      if (boundSlot && boundSlot !== slot && !alreadyOnBoundSlot) {
         useChatStore.getState().setSelectedModel(boundSlot, { explicit: userChoseRef.current });
       }
       setReadyState(model);
