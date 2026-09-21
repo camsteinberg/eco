@@ -337,7 +337,9 @@ export function readForcedThreads(): number | null {
 export function readForcedPrefillChunk(): number | null {
   const v = readUrlParamsSafe().get(URL_PARAM_FORCE_PREFILL_CHUNK)
     ?? safeStorage.get(URL_PARAM_FORCE_PREFILL_CHUNK);
-  if (v == null) return null;
+  // Empty/whitespace is rejected explicitly: `Number('')` is 0, which would
+  // silently select the single-pass CONTROL arm instead of reading as absent.
+  if (v == null || v.trim() === '') return null;
   const n = Number(v);
   return Number.isInteger(n) && n >= 0 ? n : null;
 }

@@ -582,6 +582,11 @@ describe('readForcedPrefillChunk — eco-force-prefill-chunk override', () => {
     expect(readForcedPrefillChunk()).toBeNull();
   });
 
+  it('rejects an empty param value rather than reading it as the 0 control arm', () => {
+    setSearch('?eco-force-prefill-chunk=');
+    expect(readForcedPrefillChunk()).toBeNull();
+  });
+
   it('falls back to localStorage when the URL is silent', () => {
     setSearch('?');
     window.localStorage.setItem(KEY, '256');
@@ -607,6 +612,12 @@ describe('readForcedPrefillChunk — eco-force-prefill-chunk override', () => {
   });
 
   it.each(['-1', '2.5', 'lots'])('rejects non-negative-integer stored value %s', (value) => {
+    setSearch('?');
+    window.localStorage.setItem(KEY, value);
+    expect(readForcedPrefillChunk()).toBeNull();
+  });
+
+  it.each(['', '  '])('rejects an empty/whitespace stored value rather than reading it as 0', (value) => {
     setSearch('?');
     window.localStorage.setItem(KEY, value);
     expect(readForcedPrefillChunk()).toBeNull();
