@@ -10,20 +10,20 @@ import { DESKTOP_DEVICE_SEARCH, READY_CHAT_SEARCH, READY_WASM_CHAT_SEARCH } from
  *
  * Everything that arrives on top of whatever page you were on: the command
  * palette and the shortcuts sheet, the cookie notice in both its layouts, the
- * offline banner in both its honest wordings, the one toast the product
- * actually fires, and the model selector in each of its states.
+ * offline banner in both its honest wordings, and the model selector in each
+ * of its states.
  *
  * The welcome overlay and the guided tour are NOT here — they belong to the
  * chat-interactions wave, which runs alongside this one.
  *
  * ── What could not be reached honestly, and why ───────────────────────────
  *
- * - **Success and error toasts.** `ToastProvider` supports three types; a grep
- *   of the whole app for callers of `toast(...)` returns exactly one, the
- *   retired-model notice below, and it is `info`. The success and error styles
- *   ship with no product path that fires them. Calling the context from the
- *   console would photograph a component, not a state, so they are left out —
- *   the honest finding is that two thirds of that component is unreachable.
+ * - **Toasts, all three types.** `ToastProvider` supports info, success and
+ *   error; a grep of the whole app for callers of `toast(...)` now returns
+ *   none. The last one was the retired-model notice, deleted along with the
+ *   boot migration that wrote its hint. Calling the context from the console
+ *   would photograph a component, not a state, so the component is left out
+ *   entirely — the honest finding is that nothing in the product fires it.
  * - **The model tile mid-swap** was declared a gap until 2026-08-24: "Preparing"
  *   only exists while `performUpgradeSwap` runs, and that re-checks the weights
  *   cache first and reverts to downloading when the bytes are missing, which no
@@ -355,36 +355,6 @@ export const overlaysStates: StateEntry[] = [
       "No ready slot, so the same banner tells the other truth — the one connection Eco genuinely "
       + "needs — with a warning triangle instead of the leaf. The setup gate behind it is W2's "
       + "subject; the banner is this one's.",
-  },
-
-  // ── The one toast the product fires ─────────────────────────────────────
-  {
-    id: "overlays.retired-model-toast",
-    group: "overlays",
-    title: "Toast — the model you were using was retired",
-    route: "/chat",
-    search: READY_CHAT_SEARCH,
-    seed: {
-      local: {
-        // Exactly what lifecycle/self-heal.ts leaves behind when the boot
-        // migration retires the model the reader was actually running.
-        "eco-local-ai-retired-notice-v1": JSON.stringify({ label: "Eco Compact" }),
-      },
-    },
-    tier: "component",
-    realism: "seeded",
-    // The notice dismisses itself after eight seconds, which a settle plus a
-    // screenshot can lose. The clock is frozen through settling and then
-    // advanced just far enough for the page's own entrance springs to finish,
-    // so the toast is two seconds old in every run instead of however long the
-    // machine took.
-    clock: { mode: "paused", advanceMs: 2_000 },
-    assert: [{ text: "is no longer offered" }],
-    notes:
-      "The only toast with a live caller anywhere in the app. Info styling, and eight seconds "
-      + "rather than the default three because there are two sentences to read. It used to land "
-      + "on top of the chat's floating help button in the same bottom-right corner; the toast "
-      + "container is now width-capped and offset clear of the button's lane.",
   },
 
   // ── Model selector ──────────────────────────────────────────────────────
