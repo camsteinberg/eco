@@ -75,9 +75,10 @@ export type GenerateOptions = {
    *  sampling-plumbing fix: the Transformers worker forwards top_p/top_k/
    *  repetition_penalty/no_repeat_ngram_size into GenerationConfig
    *  (transformers-generate-args.ts); the LiteRT adapter maps temperature/topK/
-   *  topP onto its sampler params (no repetition/ngram knob). WebLLM relies on
-   *  MLC's own defaults. Each key is emitted only when set, so a greedy or
-   *  unprofiled call stays clean. */
+   *  topP onto its sampler params (no repetition/ngram knob); the WebLLM adapter
+   *  forwards top_p and repetition_penalty on the request (its engine offers no
+   *  top_k or n-gram knob, so those two are dropped on that runtime). Each key
+   *  is emitted only when set, so a greedy or unprofiled call stays clean. */
   topP?: number;
   topK?: number;
   repetitionPenalty?: number;

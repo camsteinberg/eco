@@ -804,3 +804,77 @@ describe('WebLLMAdapter — confidence', () => {
     expect(done.confidence).toBeUndefined();
   });
 });
+
+// ─── Sampling profile (top_p / repetition_penalty) ──────────────────────────
+// The per-model sampling profile reaches every adapter as `GenerateOptions`.
+// WebLLM accepts `top_p` and `repetition_penalty` on the request, so this
+// adapter must forward them; without `repetition_penalty` the engine falls
+// back to the model config's own value and a small model can repeat a whole
+// earlier reply verbatim. Each key is emitted only when set — the same rule
+// `transformers-generate-args.ts` follows.
+
+describe('WebLLMAdapter — sampling profile', () => {
+  /** Captures the argument object handed to `chat.completions.create`. */
+  function makeCapturingEngine(): {
+    engine: WebLLMEngine;
+    received: () => Parameters<WebLLMEngine['chat']['completions']['create']>[0] | undefined;
+  } {
+    let receivedArgs:
+      | Parameters<WebLLMEngine['chat']['completions']['create']>[0]
+      | undefined;
+    return {
+      engine: {
+        reload: async () => undefined,
+        chat: {
+          completions: {
+            create: async (args) => {
+              receivedArgs = args;
+              return (async function* () {
+                yield { choices: [{ delta: { content: 'hi' }, finish_reason: 'stop' }] };
+              })();
+            },
+          },
+        },
+        interruptGenerate: () => undefined,
+        unload: async () => undefined,
+      },
+      received: () => receivedArgs,
+    };
+  }
+
+  async function generateWith(
+    options: import('../types').GenerateOptions | undefined,
+  ): Promise<Parameters<WebLLMEngine['chat']['completions']['create']>[0] | undefined> {
+    const capturing = makeCapturingEngine();
+    engine = capturing.engine;
+    adapter = new WebLLMAdapter({ engineFactory: async () => engine });
+    await adapter.load(MODEL);
+    for await (const _event of adapter.generate([{ role: 'user', content: 'hi' }], options)) {
+      // drain
+    }
+    return capturing.received();
+  }
+
+  it('forwards top_p and repetition_penalty from the options', async () => {
+    const args = await generateWith({ temperature: 0.7, topP: 0.95, repetitionPenalty: 1.08 });
+    expect(args?.top_p).toBe(0.95);
+    expect(args?.repetition_penalty).toBe(1.08);
+  });
+
+  it('sends neither key when the options carry no profile', async () => {
+    const args = await generateWith(undefined);
+    expect(args && 'top_p' in args).toBe(false);
+    expect(args && 'repetition_penalty' in args).toBe(false);
+  });
+
+  it('still forwards both on a greedy call', async () => {
+    // Greedy (temperature 0) does not suppress them: the Transformers path
+    // forwards the profile at temperature 0 too, and MLC applies the
+    // repetition penalty to the logits before the argmax, so dropping them
+    // here would make the two runtimes sample the same model differently.
+    const args = await generateWith({ temperature: 0, topP: 0.9, repetitionPenalty: 1.05 });
+    expect(args?.temperature).toBe(0);
+    expect(args?.top_p).toBe(0.9);
+    expect(args?.repetition_penalty).toBe(1.05);
+  });
+});
