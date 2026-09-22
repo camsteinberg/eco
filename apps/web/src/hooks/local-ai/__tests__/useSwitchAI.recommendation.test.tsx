@@ -91,7 +91,7 @@ function capableOffer() {
       { model: FAST, slot: 'eco-fast' as Slot },
       { model: DEEPER, slot: 'eco-smart' as Slot },
     ],
-    recommendedId: DEEPER.id,
+    recommendedId: FAST.id,
   });
 }
 
@@ -110,7 +110,7 @@ beforeEach(() => {
 });
 
 describe('useSwitchAI — recommendation follows deriveFirstRunChoices', () => {
-  it('on a capable device the deeper pick is recommended and marked isTop', () => {
+  it('on a capable device the everyday pick is recommended and marked isTop', () => {
     capableOffer();
 
     const { result } = renderHook(() =>
@@ -121,13 +121,13 @@ describe('useSwitchAI — recommendation follows deriveFirstRunChoices', () => {
       }),
     );
 
-    // The recommendation itself is the deeper model.
-    expect(result.current.recommendation?.id).toBe(DEEPER.id);
-    // isTop follows the recommendation, so the deeper entry is the one the
+    // The recommendation follows the offer, not the larger model.
+    expect(result.current.recommendation?.id).toBe(FAST.id);
+    // isTop follows the recommendation, so the everyday entry is the one the
     // dialog marks "Recommended for your device".
     const topChoices = result.current.choices.filter((c) => c.isTop);
     expect(topChoices).toHaveLength(1);
-    expect(topChoices[0]?.model.id).toBe(DEEPER.id);
+    expect(topChoices[0]?.model.id).toBe(FAST.id);
   });
 
   it('on a constrained device the only model is recommended', () => {

@@ -98,8 +98,8 @@ export function useSwitchAI(options: UseSwitchAIOptions): UseSwitchAIReturn {
 
   // The recommended model follows the same single definition the welcome card
   // and composer use: `deriveFirstRunChoices`. On a capable device with a
-  // two-model offer, the deeper pick is recommended (quality data, 2026-08-28);
-  // on a constrained device it is the only available model.
+  // two-model offer, the everyday pick is recommended; on a constrained device
+  // it is the only available model.
   const recommendation = useMemo<ModelConfig | null>(() => {
     if (cannotServe) return null;
     try {

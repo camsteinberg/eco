@@ -478,10 +478,10 @@ export async function executeSetup(
   // current.model === null (getSlot nulls unknown ids), so we fall through to a
   // fresh pick — the correct behavior when the pick can't be honored.
   //
-  // CROSS-SLOT state: a first-run pick of the deeper tile (since #297, the
-  // preselected Recommended one) binds eco-smart and leaves eco-fast 'empty', so
-  // the invoked slot alone cannot tell a fresh device from a set-up one. Before
-  // requesting a fresh choice, check the other slot for either case:
+  // CROSS-SLOT state: a first-run pick of the deeper tile binds eco-smart and
+  // leaves eco-fast 'empty', so the invoked slot alone cannot tell a fresh device
+  // from a set-up one. Before requesting a fresh choice, check the other slot for
+  // either case:
   //
   //   - bound + 'preparing' with a catalog-resolvable model → an interrupted
   //     download; resume that model instead of re-showing the welcome card.

@@ -16,8 +16,7 @@ import { motion, useReducedMotion } from 'motion/react';
  * surface (WelcomeSetup).
  *
  * Pure presentational shell: the device-appropriate options and which one is
- * recommended are computed by the caller (recommendation adapts by device —
- * Deeper on capable desktops, Fast on mobile / limited hardware). One to two
+ * recommended are computed by the caller (`deriveFirstRunChoices`). One to two
  * options; a single-option device shows no false choice.
  */
 

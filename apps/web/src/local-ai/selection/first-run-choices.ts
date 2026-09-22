@@ -16,12 +16,9 @@
  *     a genuinely different, larger model.
  *
  * A device that can only run one model (mobile / WASM-only / low-memory) gets a
- * single option — the card shows it as "your model", not a false choice. On a
- * capable device with a two-model offer, the PRESELECTED / "Recommended" id is
- * the deeper pick: quality sampling (s19/s20, 2026-08-28) showed the deeper
- * model produces materially better answers, so the trade-off was deliberately
- * reversed — a longer first download is worth the quality gain. The everyday
- * pick remains a visible tile the user can choose if they prefer speed.
+ * single option — the card shows it as "your model", not a false choice. With a
+ * two-model offer the PRESELECTED / "Recommended" id is the everyday pick; the
+ * deeper pick stays a visible tile the user can choose.
  */
 
 import type { DeviceProfile, ModelConfig, Slot } from '../types';
@@ -77,18 +74,18 @@ export function deriveFirstRunChoices(slot: Slot, profile: DeviceProfile): First
     // No distinct deeper model this device can run — single-option offer.
   }
 
-  // On a capable device (two-choice offer) the deeper model is recommended and
-  // preselected: quality data (s19/s20, 2026-08-28) showed it produces materially
-  // better answers, and the trade-off against a longer first download was
-  // deliberately accepted. The everyday pick stays listed first — it is not hidden,
-  // just not the default. On a single-choice device nothing changes.
+  // The everyday pick is the default even when a deeper tile is offered. The
+  // deeper model has been measured only on desktop Chromium on Apple Silicon, and
+  // the device signal cannot tell a phone or an 8 GB laptop from a workstation
+  // (Chrome caps `deviceMemory` at 8). It can become the default again only where
+  // a verified hardware signal identifies hardware it was measured on.
   return deeper
     ? {
         choices: [
           { model: everyday, slot },
           { model: deeper, slot: 'eco-smart' },
         ],
-        recommendedId: deeper.id,
+        recommendedId: everyday.id,
       }
     : { choices: [{ model: everyday, slot }], recommendedId: everyday.id };
 }

@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Bos Computing LLC
 
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { WelcomeCard } from '../WelcomeCard';
 
 const CHOICES = [
@@ -15,5 +15,16 @@ describe('WelcomeCard', () => {
     render(<WelcomeCard choices={CHOICES} recommendedId="fast" onChoose={vi.fn()} />);
     expect(screen.getByRole('button', { name: /start with eco fast/i })).toBeInTheDocument();
     expect(screen.getByText(/eco deeper/i)).toBeInTheDocument();
+  });
+
+  it.each(['fast', 'deeper'])('preselects and badges the recommended tile (%s), not a fixed position', (id) => {
+    render(<WelcomeCard choices={CHOICES} recommendedId={id} onChoose={vi.fn()} />);
+    const name = id === 'fast' ? /eco fast/i : /eco deeper/i;
+    const other = id === 'fast' ? /eco deeper/i : /eco fast/i;
+    const tile = screen.getByRole('radio', { name });
+    expect(tile).toHaveAttribute('aria-checked', 'true');
+    expect(within(tile).getByText('Recommended')).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: other })).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getAllByText('Recommended')).toHaveLength(1);
   });
 });
