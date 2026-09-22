@@ -4,7 +4,7 @@
 /**
  * Phase C catalog tests.
  *
- * The v1.0 user-facing catalog is exactly 10 models. Every entry must carry the
+ * The v1.0 user-facing catalog is exactly 11 models. Every entry must carry the
  * full ModelConfig surface. These tests are the guard against silent drift in
  * the catalog data (especially: someone adding a model without going through the
  * design review that locks the catalog).
@@ -32,6 +32,7 @@ const V1_CATALOG_IDS = [
   'candidate/qwen3.5-2b-onnx',
   'candidate/gemma-4-e2b-litert',
   'candidate/qwen2.5-0.5b-mlc',
+  'candidate/qwen3-0.6b-mlc',
   'candidate/granite-4.0-350m-onnx',
   'candidate/smollm2-360m-instruct-onnx',
   'candidate/lfm2-2.6b-onnx',
@@ -42,8 +43,8 @@ const LICENSES_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'licens
 const TECHNICAL_ID_PATTERN =/q4f16|q4f|q4_1|webllm|onnx|fp16|q8|q4\b|q2f16|bnb4|mlc/i;
 
 describe('local-ai catalog (Phase C)', () => {
-  it('ships exactly 10 models', () => {
-    expect(getCatalog()).toHaveLength(10);
+  it('ships exactly 11 models', () => {
+    expect(getCatalog()).toHaveLength(11);
   });
 
   // catalog-data.json holds BOTH lanes. `shipping` is the only thing separating
@@ -128,6 +129,9 @@ describe('local-ai catalog (Phase C)', () => {
       'eco-fast/capable': 'candidate/lfm2.5-1.2b-instruct-onnx',
       'eco-fast/laptop': 'candidate/lfm2.5-1.2b-instruct-q4-onnx',
       'eco-fast/phone': 'candidate/smollm2-360m-instruct-onnx',
+      // Desktop Safari's own rung, ahead of `floor`: the MLC build of the floor's
+      // weights, which stays well inside Safari's per-tab memory limit.
+      'eco-fast/safari-desktop': 'candidate/qwen3-0.6b-mlc',
       'eco-fast/floor': 'local/qwen3-0.6b',
       // R5c: rungs added when the fit scorer was deleted (recommend.ts /
       // catalog.ts TIER_ORDER doc comments explain each). `light` is the
@@ -139,6 +143,7 @@ describe('local-ai catalog (Phase C)', () => {
       'eco-smart/capable': 'candidate/lfm2-2.6b-onnx',
       'eco-smart/laptop': 'candidate/gemma-4-e2b-litert',
       'eco-smart/phone': 'candidate/granite-4.0-350m-onnx',
+      'eco-smart/safari-desktop': 'candidate/qwen3-0.6b-mlc',
       'eco-smart/floor': 'local/qwen3-0.6b',
       'eco-smart/light': 'candidate/lfm2.5-1.2b-instruct-q4-onnx',
       'eco-smart/webkit-mobile': 'candidate/qwen2.5-0.5b-mlc',
@@ -206,6 +211,11 @@ describe('local-ai catalog (Phase C)', () => {
       // ModelRecord.overrides.context_window_size (see runtime/webllm-config.ts),
       // not just clamped in what Eco sends. Raising it needs a fresh on-device run.
       'candidate/qwen2.5-0.5b-mlc': 4096,
+      // The desktop-Safari MLC build of Qwen3-0.6B. MEASURED 2026-09-22 at this
+      // value in real Safari 26 (ten-turn walk, n=3, peak 4.1–5.0 GB): the engine
+      // allocates KV for the whole window via context_window_size, so the memory
+      // reading includes it. Raising it needs a fresh Safari walk.
+      'candidate/qwen3-0.6b-mlc': 16384,
       // The no-GPU CPU-EP floor models (deeper q4 Granite + lightest int8 SmolLM2).
       // Both are natively larger-context (Granite 32k / SmolLM2 8k) but capped at 4096
       // to bound the KV-cache working set on the weak, memory-tight devices this floor serves.
@@ -291,6 +301,8 @@ describe('local-ai catalog (Phase C)', () => {
     'candidate/qwen3.5-2b-onnx': 'proven',
     'candidate/gemma-4-e2b-litert': 'predicted',
     'candidate/qwen2.5-0.5b-mlc': 'predicted',
+    // Measured on one Mac in real Safari (n=3); other Macs and iPad are predicted.
+    'candidate/qwen3-0.6b-mlc': 'predicted',
     'candidate/granite-4.0-350m-onnx': 'predicted',
     'candidate/smollm2-360m-instruct-onnx': 'predicted',
     // Deeper eco-smart pick; 'predicted' pending a second-machine by-eye
@@ -388,7 +400,7 @@ describe('local-ai catalog (Phase C)', () => {
     }).toThrow();
     // And the array itself is a copy — mutating it doesn't break the next reader.
     snapshot.length = 0;
-    expect(getCatalog()).toHaveLength(10);
+    expect(getCatalog()).toHaveLength(11);
   });
 
   // The catalog's artifact files must have corresponding entries in

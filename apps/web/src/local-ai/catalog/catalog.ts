@@ -4,7 +4,7 @@
 /**
  * Catalog — the v1.0 model list.
  *
- * Exactly 10 models ship in the user-facing catalog (the 7 headline picks below,
+ * Exactly 11 models ship in the user-facing catalog (the 8 headline picks below,
  * plus the f16-less int4 1.2B sibling and two CPU-EP floor models —
  * granite-4.0-350m-onnx (deeper q4) and smollm2-360m-instruct-onnx (lightest int8)):
  *   1. local/qwen3-0.6b            — Qwen3       (universal small / Safari WASM, proven)
@@ -22,6 +22,9 @@
  *   7. candidate/lfm2-2.6b-onnx    — LFM2 2.6B   (capable-laptop; the graduated DEEPER
  *                                    eco-smart pick, 2026-08-10 — 'predicted' pending a
  *                                    second-machine by-eye validation)
+ *   8. candidate/qwen3-0.6b-mlc    — Qwen3 0.6B  (WebLLM/MLC; the desktop-Safari pick —
+ *                                    the same weights as #1 on a runtime that stays well
+ *                                    inside Safari's per-tab memory limit)
  *
  * SmolLM2 (WebLLM/MLC) was retired 2026-07-10 and Bonsai 2026-07-11 — see the
  * retirement migrations in lifecycle/self-heal.ts and CHANGES.md.
@@ -87,10 +90,11 @@ const SLOTS: readonly Slot[] = ['eco-fast', 'eco-smart'];
  * The tier ladder, best rung first. `selection/recommend.ts` walks it in this
  * order, so the array IS the fallback order — see {@link ModelTierAssignment}.
  * `light` and `webkit-mobile` were added in R5c when the fit scorer was
- * deleted (see `ModelTier`'s doc comment for what each rung means).
+ * deleted, `safari-desktop` when desktop Safari moved to the MLC runtime (see
+ * `ModelTier`'s doc comment for what each rung means).
  */
 export const TIER_ORDER: readonly ModelTier[] =
-  ['capable', 'laptop', 'phone', 'floor', 'light', 'webkit-mobile'];
+  ['capable', 'laptop', 'phone', 'safari-desktop', 'floor', 'light', 'webkit-mobile'];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);

@@ -303,7 +303,8 @@ export type ModelQuirks = {
 /**
  * The device class a model is the *default* pick for. `preferredModelIdForSlot`
  * (and every other consumer of `recommend()`) walks these best-first —
- * `capable` -> `laptop` -> `phone` -> `floor` -> `light` -> `webkit-mobile` —
+ * `capable` -> `laptop` -> `phone` -> `safari-desktop` -> `floor` -> `light` ->
+ * `webkit-mobile` —
  * and takes the first rung this device can actually run, so a weaker device
  * steps down the ladder. This IS the recommendation engine (Phase R5c deleted
  * the six-axis fit scorer that used to sit alongside it — a rung is now the
@@ -313,6 +314,13 @@ export type ModelQuirks = {
  *   - `laptop`        WebGPU without `shader-f16`, Chromium: the plain-int4 /
  *                      LiteRT builds.
  *   - `phone`         no WebGPU at all (ort-web CPU EP): the `requireWasmOnly` picks.
+ *   - `safari-desktop` desktop Safari with WebGPU (`allowedBrowsers: ['safari']`
+ *                      + `requireWebgpu`; iOS never reaches it because the
+ *                      WebKit-mobile gate declines every model without
+ *                      `webkitMobileValidated`). Ordered BEFORE `floor`: the
+ *                      floor's ONNX build runs in Safari too, but at a memory
+ *                      footprint close to Safari's per-tab kill, so this
+ *                      rung's occupant must win wherever it is assignable.
  *   - `floor`         the universal small fallback, tried on every device
  *                      whose f16 status is either unprobed or matches its
  *                      q4f16 build's requirement.
@@ -341,7 +349,8 @@ export type ModelQuirks = {
  * `eco-smart` climb separate ladders — and a model that is nobody's default
  * carries an empty assignment.
  */
-export type ModelTier = 'capable' | 'laptop' | 'phone' | 'floor' | 'light' | 'webkit-mobile';
+export type ModelTier =
+  'capable' | 'laptop' | 'phone' | 'safari-desktop' | 'floor' | 'light' | 'webkit-mobile';
 
 /** Which slot(s) a model is the tier default for. Empty = never a default. */
 export type ModelTierAssignment = Readonly<Partial<Record<Slot, ModelTier>>>;

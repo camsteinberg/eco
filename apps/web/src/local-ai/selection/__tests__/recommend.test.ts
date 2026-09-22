@@ -21,6 +21,7 @@ import { isAssignable } from '../../device/compatibility';
 import { CURRENT_LEDGER_VERSION, FAILURE_EVIDENCE_VALID_FROM, profileKey } from '../../evidence/ledger';
 import { canServe, listCandidates, listCatalog, NoAssignableModelError, recommend, starterModelForSlot, tierDefaultModelId } from '../recommend';
 import { isBelowFloor } from '../../device/below-floor';
+import { dedupeByDisplayName } from '../../display';
 import { deriveFirstRunChoices } from '../first-run-choices';
 import type {
   BrowserClass,
@@ -690,7 +691,9 @@ describe('recommend — 4-7GB WebGPU recovers the good 1.2B (device-coverage aud
     expect(recommend('eco-fast', f16less).id).toBe('candidate/lfm2.5-1.2b-instruct-q4-onnx');
   });
 
-  it('leaves safari/firefox WebGPU on the proven qwen3-0.6b (premium models stay chromium-only — no regression)', () => {
+  it('keeps the premium models off safari/firefox WebGPU (they stay chromium-only — no regression)', () => {
+    // Firefox stays on the proven qwen3-0.6b; desktop Safari gets the MLC build of
+    // the same weights (its own rung — see the desktop-Safari describe below).
     const safari: DeviceProfile = {
       browserClass: 'safari',
       webgpuSupport: 'webgpu',
@@ -698,7 +701,9 @@ describe('recommend — 4-7GB WebGPU recovers the good 1.2B (device-coverage aud
       isMobile: false,
       override: 'auto',
     };
-    expect(recommend('eco-fast', safari).id).toBe('local/qwen3-0.6b');
+    const firefox: DeviceProfile = { ...safari, browserClass: 'firefox' };
+    expect(recommend('eco-fast', safari).id).toBe('candidate/qwen3-0.6b-mlc');
+    expect(recommend('eco-fast', firefox).id).toBe('local/qwen3-0.6b');
   });
 });
 
@@ -1026,6 +1031,116 @@ describe('recommend — WebKit-mobile MLC entry is additive only', () => {
     expect(listCandidates('eco-fast', iosSafariWebgpu).length).toBeGreaterThan(0);
     expect(recommend('eco-fast', iosSafariWebgpu).id).toBe(MLC_ID);
     expect(recommend('eco-smart', iosSafariWebgpu).id).toBe(MLC_ID);
+  });
+});
+
+// Desktop Safari is served by the MLC build of Qwen3-0.6B, which measured well
+// inside Safari's ~8 GB tab limit where the ONNX build did not. The route must
+// open for desktop Safari with WebGPU + shader-f16 ONLY; every other device class
+// keeps exactly the picks it had before. One representative profile per class.
+describe('recommend — desktop Safari routes to the MLC Qwen3 build, every other class unchanged', () => {
+  const SAFARI_MLC_ID = 'candidate/qwen3-0.6b-mlc';
+
+  const safariDesktop: DeviceProfile = {
+    browserClass: 'safari', webgpuSupport: 'webgpu', deviceMemoryGB: 0, isMobile: false, override: 'auto', webgpuShaderF16: true,
+  };
+
+  it('desktop Safari with WebGPU + shader-f16 gets the MLC Qwen3 build for BOTH slots, as one welcome tile', () => {
+    expect(recommend('eco-fast', safariDesktop).id).toBe(SAFARI_MLC_ID);
+    expect(recommend('eco-smart', safariDesktop).id).toBe(SAFARI_MLC_ID);
+    expect(starterModelForSlot('eco-fast', safariDesktop)?.id).toBe(SAFARI_MLC_ID);
+    const offer = deriveFirstRunChoices('eco-fast', safariDesktop);
+    expect(offer.choices.map((c) => c.model.id)).toEqual([SAFARI_MLC_ID]);
+    expect(offer.recommendedId).toBe(SAFARI_MLC_ID);
+  });
+
+  it('the Switch list shows ONE "Eco Compact (Qwen)" row on desktop Safari, and it is the MLC build', () => {
+    // Both Qwen3 builds are assignable here and share a branded name on purpose;
+    // the MLC build ranks first (its rung is ahead of `floor`), so it survives.
+    const models = listCatalog(safariDesktop).available.map((entry) => entry.model);
+    expect(models.map((m) => m.id)).toContain('local/qwen3-0.6b');
+    const ids = dedupeByDisplayName(models).map((m) => m.id);
+    expect(ids).toContain(SAFARI_MLC_ID);
+    expect(ids).not.toContain('local/qwen3-0.6b');
+  });
+
+  // Expected picks per class — the values recommend() returned before this route
+  // existed. `null` = NoAssignableModelError.
+  const unchanged: Record<string, { profile: DeviceProfile; fast: string | null; smart: string | null }> = {
+    safariDesktopNoShaderF16: {
+      profile: { ...safariDesktop, webgpuShaderF16: false },
+      fast: 'candidate/lfm2.5-350m-onnx',
+      smart: null,
+    },
+    safariDesktopWasmOnly: {
+      profile: { ...safariDesktop, webgpuSupport: 'wasm-only', webgpuShaderF16: undefined },
+      fast: 'candidate/smollm2-360m-instruct-onnx',
+      smart: 'candidate/granite-4.0-350m-onnx',
+    },
+    iPhoneSafari: {
+      profile: { ...safariDesktop, isMobile: true },
+      fast: 'candidate/qwen2.5-0.5b-mlc',
+      smart: 'candidate/qwen2.5-0.5b-mlc',
+    },
+    chromiumDesktop: {
+      profile: { browserClass: 'chromium', webgpuSupport: 'webgpu', deviceMemoryGB: 8, isMobile: false, override: 'auto', webgpuShaderF16: true },
+      fast: 'candidate/lfm2.5-1.2b-instruct-onnx',
+      smart: 'candidate/lfm2-2.6b-onnx',
+    },
+    chromiumDesktopNoShaderF16: {
+      profile: { browserClass: 'chromium', webgpuSupport: 'webgpu', deviceMemoryGB: 8, isMobile: false, override: 'auto', webgpuShaderF16: false },
+      fast: 'candidate/lfm2.5-1.2b-instruct-q4-onnx',
+      smart: 'candidate/gemma-4-e2b-litert',
+    },
+    androidChrome: {
+      profile: { browserClass: 'chromium', webgpuSupport: 'webgpu', deviceMemoryGB: 8, isMobile: true, override: 'auto', webgpuShaderF16: true },
+      fast: 'candidate/lfm2.5-1.2b-instruct-onnx',
+      smart: 'candidate/lfm2-2.6b-onnx',
+    },
+    firefoxWebgpu: {
+      profile: { browserClass: 'firefox', webgpuSupport: 'webgpu', deviceMemoryGB: 0, isMobile: false, override: 'auto', webgpuShaderF16: true },
+      fast: 'local/qwen3-0.6b',
+      smart: 'local/qwen3-0.6b',
+    },
+    firefoxWasmOnly: {
+      profile: PROFILE_FIREFOX,
+      fast: 'candidate/smollm2-360m-instruct-onnx',
+      smart: 'candidate/granite-4.0-350m-onnx',
+    },
+    uaStrippedMobile: {
+      profile: { browserClass: 'mobile', webgpuSupport: 'webgpu', deviceMemoryGB: 0, isMobile: true, override: 'auto', webgpuShaderF16: true },
+      fast: 'local/qwen3-0.6b',
+      smart: 'local/qwen3-0.6b',
+    },
+    unknownWebgpu: {
+      profile: { browserClass: 'unknown', webgpuSupport: 'webgpu', deviceMemoryGB: 0, isMobile: false, override: 'auto', webgpuShaderF16: true },
+      fast: 'local/qwen3-0.6b',
+      smart: 'local/qwen3-0.6b',
+    },
+  };
+
+  const pick = (slot: Slot, profile: DeviceProfile): string | null => {
+    try { return recommend(slot, profile).id; } catch (err) {
+      if (err instanceof NoAssignableModelError) return null;
+      throw err;
+    }
+  };
+
+  it.each(Object.entries(unchanged))('%s keeps its picks and never sees the MLC Qwen3 build', (_label, { profile, fast, smart }) => {
+    expect(pick('eco-fast', profile)).toBe(fast);
+    expect(pick('eco-smart', profile)).toBe(smart);
+    expect(isAssignable(getModel(SAFARI_MLC_ID)!, profile)).toBe(false);
+  });
+
+  it('is assignable on no enumerated profile other than desktop Safari with WebGPU', () => {
+    const model = getModel(SAFARI_MLC_ID)!;
+    for (const profile of enumerateProfiles()) {
+      if (!isAssignable(model, profile)) continue;
+      expect(profile.browserClass, JSON.stringify(profile)).toBe('safari');
+      expect(profile.isMobile, JSON.stringify(profile)).toBe(false);
+      expect(profile.webgpuSupport, JSON.stringify(profile)).toBe('webgpu');
+      expect(profile.webgpuShaderF16, JSON.stringify(profile)).not.toBe(false);
+    }
   });
 });
 
