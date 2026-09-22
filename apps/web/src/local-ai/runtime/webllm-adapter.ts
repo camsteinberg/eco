@@ -40,6 +40,7 @@
  *     is the only time this adapter calls it.
  */
 
+import type { LogitProcessor } from '@mlc-ai/web-llm';
 import type { ModelConfig } from '../types';
 import { StreamLogprobAccumulator } from './confidence';
 import {
@@ -56,6 +57,7 @@ import {
   stripMlcOrgPrefix,
   webllmModelLibPathFor,
 } from './webllm-config';
+import { PromptRepetitionPenalty } from './webllm-prompt-penalty';
 
 // ─── Engine interface ──────────────────────────────────────────────────────
 
@@ -107,7 +109,9 @@ export type WebLLMEngine = {
         top_p?: number;
         /**
          * Repetition penalty, from the model's sampling profile. MLC applies it
-         * to the logits before sampling, so it shapes a greedy call too.
+         * to the logits before sampling, so it shapes a greedy call too — but
+         * only over the tokens generated this round, never the prompt; see
+         * `PromptRepetitionPenalty`.
          */
         repetition_penalty?: number;
         /** Request per-token log-probabilities on each chunk. */
@@ -136,6 +140,13 @@ export type WebLLMEngine = {
   unload(): Promise<void>;
   /** Optional: encode text to token ids (for countTokens support). */
   tokenize?: (text: string) => number[] | Promise<number[]>;
+  /**
+   * The real engine's loaded pipelines, keyed by MLC model id. NOT public API:
+   * read only to install the prompt-wide repetition penalty (`mlcPipelineOf`
+   * below). `@mlc-ai/web-llm` is pinned exact, so a version bump must re-check
+   * the fields `MlcPipeline` names.
+   */
+  loadedModelIdToPipeline?: Map<string, unknown>;
 };
 
 export type WebLLMEngineFactory = (
@@ -431,6 +442,24 @@ export class WebLLMAdapter implements RuntimeAdapter {
       // engine cannot serve this request either.
       await engine.resetChat();
 
+      // WebLLM penalises only the tokens generated this round, so the profile's
+      // repetition penalty is applied here over the whole prompt as well, by a
+      // logit processor installed on the loaded pipeline for this request (see
+      // `webllm-prompt-penalty.ts`). Installed directly rather than through the
+      // engine's `logitProcessorRegistry` because a registered processor makes
+      // the engine copy every token's logits (the full vocabulary) GPU→CPU→GPU
+      // for EVERY request (`lib/index.js:11005`); set per request, a turn with
+      // no penalty clears it and costs exactly what it did before.
+      const penalty = options?.repetitionPenalty;
+      const pipeline = this.currentModel
+        ? mlcPipelineOf(engine, this.mlcIdFor(this.currentModel))
+        : null;
+      const promptPenalty =
+        pipeline && penalty != null && penalty !== 1
+          ? new PromptRepetitionPenalty(penalty, () => renderedPromptIds(pipeline))
+          : undefined;
+      if (pipeline) pipeline.logitProcessor = promptPenalty;
+
       chunks = await engine.chat.completions.create({
         messages,
         stream: true,
@@ -445,10 +474,12 @@ export class WebLLMAdapter implements RuntimeAdapter {
         // before the argmax; dropping them here would make the two runtimes
         // sample the same model differently. `topK` has no counterpart on this
         // engine (see the note on GenerateOptions.topP in types.ts) and is not
-        // forwarded.
+        // forwarded. With the prompt-wide processor installed the engine is
+        // sent 1.0 — not omitted, since an omitted key falls back to the
+        // model config's own penalty — so no token is penalised twice.
         ...(options?.topP != null ? { top_p: options.topP } : {}),
-        ...(options?.repetitionPenalty != null
-          ? { repetition_penalty: options.repetitionPenalty }
+        ...(penalty != null
+          ? { repetition_penalty: promptPenalty ? 1 : penalty }
           : {}),
         logprobs: true,
         top_logprobs: 1,
@@ -579,6 +610,57 @@ export class WebLLMAdapter implements RuntimeAdapter {
     }
     if (engine) {
       await engine.unload().catch(() => undefined);
+    }
+  }
+}
+
+// ─── Prompt-wide repetition penalty ────────────────────────────────────────
+
+/** The fields of WebLLM 0.2.84's `LLMChatPipeline` the penalty reads and sets. */
+type MlcPipeline = {
+  tokenizer: { encode(text: string): Iterable<number> };
+  conversation: {
+    config: { system_prefix_token_ids?: number[] | null };
+    getPromptArray(config: unknown): (string | (string | object)[])[];
+  };
+  config: unknown;
+  logitProcessor: LogitProcessor | undefined;
+};
+
+/**
+ * The engine's loaded pipeline for `mlcId`, or null when it is not reachable
+ * (a test fake, or a library whose internals moved). Null means the adapter
+ * falls back to forwarding the penalty to WebLLM, which covers only the
+ * generated tokens — the behaviour before this processor existed.
+ */
+function mlcPipelineOf(engine: WebLLMEngine, mlcId: string): MlcPipeline | null {
+  const pipeline: unknown = engine.loadedModelIdToPipeline?.get(mlcId);
+  if (typeof pipeline !== 'object' || pipeline === null) return null;
+  const { tokenizer, conversation } = pipeline as {
+    tokenizer?: { encode?: unknown };
+    conversation?: { getPromptArray?: unknown };
+  };
+  return typeof tokenizer?.encode === 'function' &&
+    typeof conversation?.getPromptArray === 'function'
+    ? (pipeline as MlcPipeline)
+    : null;
+}
+
+/**
+ * The ids of the prompt the pipeline prefilled. This is the engine's own
+ * `getInputData` (`lib/index.js:11205-11271`) — system prefix ids, then each
+ * piece of `conversation.getPromptArray()` encoded separately — run with the
+ * same tokenizer instance (built from the model's own `tokenizer.json`), so
+ * the id set matches the prefilled ids exactly, template special tokens and
+ * the reply header included, with no second tokenizer in memory. Read lazily:
+ * the engine swaps in a new conversation during `create()`.
+ */
+function* renderedPromptIds(pipeline: MlcPipeline): Iterable<number> {
+  const { conversation, tokenizer } = pipeline;
+  yield* conversation.config.system_prefix_token_ids ?? [];
+  for (const piece of conversation.getPromptArray(pipeline.config)) {
+    for (const part of typeof piece === 'string' ? [piece] : piece) {
+      if (typeof part === 'string') yield* tokenizer.encode(part);
     }
   }
 }

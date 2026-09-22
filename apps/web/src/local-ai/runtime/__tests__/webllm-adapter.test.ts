@@ -946,7 +946,7 @@ describe('WebLLMAdapter — sampling profile', () => {
     return capturing.received();
   }
 
-  it('forwards top_p and repetition_penalty from the options', async () => {
+  it('forwards top_p and repetition_penalty when the engine exposes no pipeline', async () => {
     const args = await generateWith({ temperature: 0.7, topP: 0.95, repetitionPenalty: 1.08 });
     expect(args?.top_p).toBe(0.95);
     expect(args?.repetition_penalty).toBe(1.08);
@@ -967,6 +967,124 @@ describe('WebLLMAdapter — sampling profile', () => {
     expect(args?.temperature).toBe(0);
     expect(args?.top_p).toBe(0.9);
     expect(args?.repetition_penalty).toBe(1.05);
+  });
+});
+
+// ─── Prompt-wide repetition penalty ─────────────────────────────────────────
+// WebLLM's own `repetition_penalty` covers only the tokens generated this
+// round, so a small model can copy an earlier reply out of its prompt. With a
+// reachable pipeline the adapter installs a logit processor that penalises the
+// rendered prompt's ids too, and sends 1.0 so the engine does not penalise the
+// generated tokens a second time.
+
+describe('WebLLMAdapter — prompt-wide repetition penalty', () => {
+  type FakeProcessor = { processLogits(logits: Float32Array): Float32Array };
+  type FakePipeline = {
+    tokenizer: { encode(text: string): Int32Array };
+    conversation: {
+      config: { system_prefix_token_ids?: number[] };
+      getPromptArray(config: unknown): string[];
+    };
+    config: unknown;
+    logitProcessor: FakeProcessor | undefined;
+  };
+
+  function conversationOf(pieces: string[], prefix?: number[]): FakePipeline['conversation'] {
+    return {
+      config: prefix ? { system_prefix_token_ids: prefix } : {},
+      getPromptArray: () => pieces,
+    };
+  }
+
+  /** Space-separated numbers encode to those ids. */
+  function makePipeline(): FakePipeline {
+    return {
+      tokenizer: { encode: (text) => Int32Array.from(text.split(' ').map(Number)) },
+      conversation: conversationOf([]),
+      config: {},
+      logitProcessor: undefined,
+    };
+  }
+
+  async function generateWith(
+    pipeline: FakePipeline,
+    options: import('../types').GenerateOptions | undefined,
+    onCreate?: () => void,
+  ): Promise<{
+    args: Parameters<WebLLMEngine['chat']['completions']['create']>[0] | undefined;
+    processorAtCreate: FakeProcessor | undefined;
+  }> {
+    let args: Parameters<WebLLMEngine['chat']['completions']['create']>[0] | undefined;
+    let processorAtCreate: FakeProcessor | undefined;
+    engine = {
+      reload: async () => undefined,
+      resetChat: async () => undefined,
+      chat: {
+        completions: {
+          create: async (a) => {
+            args = a;
+            processorAtCreate = pipeline.logitProcessor;
+            onCreate?.();
+            return (async function* () {
+              yield { choices: [{ delta: { content: 'hi' }, finish_reason: 'stop' }] };
+            })();
+          },
+        },
+      },
+      interruptGenerate: () => undefined,
+      unload: async () => undefined,
+      loadedModelIdToPipeline: new Map([['SmolLM2-1.7B-Instruct-q4f16_1-MLC', pipeline]]),
+    };
+    adapter = new WebLLMAdapter({ engineFactory: async () => engine });
+    await adapter.load(MODEL);
+    for await (const _event of adapter.generate([{ role: 'user', content: 'hi' }], options)) {
+      // drain
+    }
+    return { args, processorAtCreate };
+  }
+
+  it('penalises the rendered prompt the engine prefilled and sends 1.0 to the engine', async () => {
+    const pipeline = makePipeline();
+    // WebLLM swaps in a fresh conversation during prefill; the processor must
+    // read the one in place when the first logits arrive, not the one at arm time.
+    const { args, processorAtCreate } = await generateWith(
+      pipeline,
+      { temperature: 0.7, topP: 0.9, repetitionPenalty: 2 },
+      () => {
+        pipeline.conversation = conversationOf(['1 2', '3'], [0]);
+      },
+    );
+    expect(args?.repetition_penalty).toBe(1);
+    expect(args?.top_p).toBe(0.9);
+    const out = processorAtCreate?.processLogits(new Float32Array([4, 4, 4, 4, 4]));
+    expect(out && Array.from(out)).toEqual([2, 2, 2, 2, 4]);
+  });
+
+  it('arms the processor on a greedy call too', async () => {
+    const pipeline = makePipeline();
+    const { args, processorAtCreate } = await generateWith(pipeline, {
+      temperature: 0,
+      repetitionPenalty: 1.06,
+    });
+    expect(args?.temperature).toBe(0);
+    expect(args?.repetition_penalty).toBe(1);
+    expect(processorAtCreate).toBeDefined();
+  });
+
+  it('removes a previous processor and leaves the request unchanged when there is no penalty', async () => {
+    const pipeline = makePipeline();
+    pipeline.logitProcessor = { processLogits: (l) => l };
+    const { args, processorAtCreate } = await generateWith(pipeline, { temperature: 0.7 });
+    expect(processorAtCreate).toBeUndefined();
+    expect(pipeline.logitProcessor).toBeUndefined();
+    expect(args && 'repetition_penalty' in args).toBe(false);
+  });
+
+  it('installs nothing for a penalty of exactly 1 and forwards it as before', async () => {
+    const pipeline = makePipeline();
+    const { args, processorAtCreate } = await generateWith(pipeline, { repetitionPenalty: 1 });
+    expect(processorAtCreate).toBeUndefined();
+    expect(args?.repetition_penalty).toBe(1);
   });
 });
 
