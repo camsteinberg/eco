@@ -117,7 +117,6 @@ const smokeMock = vi.hoisted(() => ({
 
 const recoveryMock = vi.hoisted(() => ({
   resolveReadyLocalRecoveryModelId: vi.fn(async () => null as string | null),
-  getLocalRecoveryCandidateIds: vi.fn(() => [] as readonly string[]),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -319,8 +318,6 @@ describe("ChatPage local runtime recovery actions", () => {
     smokeMock.runSmoke.mockResolvedValue({ passed: false, reason: "mock" });
     recoveryMock.resolveReadyLocalRecoveryModelId.mockReset();
     recoveryMock.resolveReadyLocalRecoveryModelId.mockResolvedValue(null);
-    recoveryMock.getLocalRecoveryCandidateIds.mockReset();
-    recoveryMock.getLocalRecoveryCandidateIds.mockReturnValue([]);
     localStorage.clear();
     navigationState.searchParams = new URLSearchParams();
     window.history.replaceState({}, "", "/chat");

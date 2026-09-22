@@ -10,7 +10,6 @@ import {
   type KeyValueStorage,
 } from '../slots';
 import {
-  getLocalRecoveryCandidateIds,
   resolveReadyLocalRecoveryModelId,
 } from '../recovery';
 
@@ -143,31 +142,5 @@ describe('resolveReadyLocalRecoveryModelId', () => {
     });
     // Falls back to eco-fast scan
     expect(result).toBe('candidate/lfm2.5-1.2b-instruct-onnx');
-  });
-});
-
-// ─── getLocalRecoveryCandidateIds ───────────────────────────────────────
-
-describe('getLocalRecoveryCandidateIds', () => {
-  it('returns empty array when no slots are ready', () => {
-    expect(getLocalRecoveryCandidateIds()).toEqual([]);
-  });
-
-  it('returns only ready slot model ids', () => {
-    bindReady('eco-fast', 'candidate/lfm2.5-1.2b-instruct-onnx');
-    setSlot('eco-smart', 'candidate/qwen3.5-2b-onnx');
-    // eco-smart is 'preparing', not 'ready'
-    const ids = getLocalRecoveryCandidateIds();
-    expect(ids).toEqual(['candidate/lfm2.5-1.2b-instruct-onnx']);
-  });
-
-  it('returns both when both slots are ready', () => {
-    bindReady('eco-fast', 'candidate/lfm2.5-1.2b-instruct-onnx');
-    bindReady('eco-smart', 'candidate/qwen3.5-2b-onnx');
-    const ids = getLocalRecoveryCandidateIds();
-    expect(ids).toEqual([
-      'candidate/lfm2.5-1.2b-instruct-onnx',
-      'candidate/qwen3.5-2b-onnx',
-    ]);
   });
 });

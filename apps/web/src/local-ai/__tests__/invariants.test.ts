@@ -156,13 +156,9 @@ describe('local-ai invariants', () => {
   it('Invariant 3 — Single source of truth for slot state: only lifecycle/slots.ts touches eco-local-ai-slot-* localStorage keys (Phase J)', () => {
     const allowedFiles = new Set([
       join(LOCAL_AI_ROOT, 'lifecycle', 'slots.ts'),
-      // self-heal.ts may reference the legacy key prefixes via slots.ts's
-      // public API (getLegacyKeyPrefixes); this is fine, but if it ever
-      // also reads/writes those keys directly we want to know.
     ]);
-    // Patterns: any direct getItem/setItem/removeItem reference to an
-    // "eco-local-ai-slot-" key, OR a literal of one of the legacy slot
-    // prefixes that DOESN'T come through getLegacyKeyPrefixes().
+    // Pattern: any direct getItem/setItem/removeItem reference to an
+    // "eco-local-ai-slot-" key from outside slots.ts.
     const SLOT_KEY_LITERAL = /["'`]eco-local-ai-slot-/;
 
     const offenders: string[] = [];

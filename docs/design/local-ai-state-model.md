@@ -77,7 +77,6 @@ noted.
 | `eco-local-ai-download-in-progress-<id>` | timestamp \| `{startedAt}` JSON | download pipeline | self-heal | Cleared by self-heal when older than 5 min |
 | `<file-url>.ecopart.<stamp>.<offset>` | chunk-part bytes (in the model's storage namespace, Cache API/OPFS) | `local-ai/download/download.ts` | resume path | Swept by `clearModel` and after a successful whole-file store; invisible to reconcile |
 | `eco-local-ai-mig-*` (marker keys) | timestamp string | `self-heal.ts` (per migration) | self-heal | Written **last**, only on full success, so a thrown step retries next boot |
-| `eco-local-ai-retired-notice-v1` | JSON `{label, at}` | `self-heal.ts` | `components/local-ai/RetiredModelNotice.tsx` (read + remove on mount) | One-time hint; removed by the consumer after it fires the toast |
 | `eco-local-ai-cache-repaired-v1` (**sessionStorage**) | JSON `{modelId, slot, removed, at}` | `local-ai/bootstrap.ts` (`onCacheRepaired`) | cache-repaired notice consumer | Session-scoped; one-time "we cleaned up your cache" hint |
 | `eco-composer-draft` | string | `stores/chatStore.ts` | `chatStore` | Removed when the draft empties (not a selection key; listed for completeness) |
 
