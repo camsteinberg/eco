@@ -411,6 +411,9 @@ export class WebLLMAdapter implements RuntimeAdapter {
     const effectiveTemp = options?.temperature ?? 0.7;
     const isGreedy = effectiveTemp === 0;
     const confidenceAcc = new StreamLogprobAccumulator();
+    // The loaded entry is the only thing that says whether this model HAS a
+    // thinking mode; see the note on `extra_body` below.
+    const hasThinkingMode = this.currentModel?.quirks?.hasThinkingMode === true;
 
     let chunks: AsyncIterable<WebLLMChunk>;
     try {
@@ -452,14 +455,14 @@ export class WebLLMAdapter implements RuntimeAdapter {
         // Qwen3-family chat templates default to the <think> reasoning mode;
         // the Transformers worker renders with `enable_thinking: false` and
         // this lane must match, or the same model answers differently per
-        // runtime and every reply carries a reasoning block. This is NOT
-        // ignored by models that have no thinking mode: on `false` WebLLM
-        // unconditionally encodes "<think>\n\n</think>\n\n", pushes those
-        // tokens into the output and appends the block to the reply header
-        // for ANY model (`lib/index.js:10309`), so a model without a think
-        // mode carries it in every reply — and in every later prompt, since
-        // the reply comes back as history.
-        extra_body: { enable_thinking: false },
+        // runtime and every reply carries a reasoning block. Sent ONLY to a
+        // model whose entry declares the mode: WebLLM does not check, and on
+        // `false` it encodes "<think>\n\n</think>\n\n", pushes those tokens
+        // into the output and prepends the block to the reply header for ANY
+        // model (`lib/index.js:10309`) — so a model without the mode would
+        // carry the block in every reply, and in every later prompt once the
+        // reply returns as history.
+        ...(hasThinkingMode ? { extra_body: { enable_thinking: false } } : {}),
         // Ask for the trailing usage chunk — without it completionTokens is 0.
         // The drain loop below tolerates that final empty-choices chunk (no
         // token, no early break); see the finish_reason NOTE.

@@ -331,6 +331,28 @@ describe("a catalog entry is the whole description of a model", () => {
     );
   });
 
+  it("rejects a webllm entry whose thinking-mode quirk is not a boolean", async () => {
+    vi.doMock("../../local-ai/catalog/catalog-data.json", () => ({
+      default: { models: [{ ...FIXTURE_ENTRY, id: "fixture/bad-thinking", runtime: "webllm",
+        format: "mlc-q4f16",
+        quirks: { webllmModelLibFile: "Fixture-Only-lib.wasm", hasThinkingMode: "yes" } }] },
+    }));
+
+    await expect(import("../../local-ai/catalog/catalog")).rejects.toThrow(
+      /fixture\/bad-thinking.*hasThinkingMode/s,
+    );
+  });
+
+  it("resolves the thinking-mode quirk from the catalog entry alone", async () => {
+    vi.doMock("../../local-ai/catalog/catalog-data.json", () => ({
+      default: { models: [{ ...FIXTURE_ENTRY, runtime: "webllm", format: "mlc-q4f16",
+        quirks: { webllmModelLibFile: "Fixture-Only-lib.wasm", hasThinkingMode: true } }] },
+    }));
+    const { getCatalog } = await import("../../local-ai/catalog/catalog");
+
+    expect(getCatalog()[0]!.quirks?.hasThinkingMode).toBe(true);
+  });
+
   it("rejects an entry missing its generation block instead of defaulting", async () => {
     vi.doMock("../../local-ai/catalog/catalog-data.json", () => ({
       default: { models: [{ id: "fixture/no-generation", shipping: true, tier: {}, license: {} }] },

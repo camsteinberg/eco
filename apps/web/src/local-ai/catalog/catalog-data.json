@@ -1175,7 +1175,8 @@
       "evidenceTier": "predicted",
       "systemRoleSupport": "native",
       "quirks": {
-        "webllmModelLibFile": "Qwen3-0.6B-q4f16_1_cs1k-webgpu.wasm"
+        "webllmModelLibFile": "Qwen3-0.6B-q4f16_1_cs1k-webgpu.wasm",
+        "hasThinkingMode": true
       },
       "artifact": {
         "hfId": "mlc-ai/Qwen3-0.6B-q4f16_1-MLC",
