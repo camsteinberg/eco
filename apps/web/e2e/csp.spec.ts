@@ -71,10 +71,11 @@ test.describe("Content-Security-Policy headers", () => {
       // is set. The *.r2.cloudflarestorage.com wildcard does not cover it, so it
       // is allow-listed explicitly; without it CDN downloads are CSP-blocked.
       expect(csp).toContain("https://models.econetwork.ai");
-      // The GitHub raw-content origin was ONLY needed by the retired WebLLM/MLC
-      // runtime (registry C1/C2, 2026-07-10) to fetch its model_lib WASM. It
-      // must NOT be in connect-src anymore — a negative assertion pins that the
-      // origin was dropped and never silently returns.
+      // The GitHub raw-content origin was ONLY needed by the first WebLLM/MLC
+      // integration (registry C1/C2, removed 2026-07-10) to fetch its model_lib
+      // WASM; the restored runtime serves that WASM same-origin. It must NOT be
+      // in connect-src — a negative assertion pins that the origin was dropped
+      // and never silently returns.
       expect(csp).not.toContain("https://raw.githubusercontent.com");
 
       // Phase 5 grounding fetches facts directly from Wikimedia (browser-direct,

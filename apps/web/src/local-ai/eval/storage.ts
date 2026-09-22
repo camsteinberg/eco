@@ -59,8 +59,7 @@ const EVAL_CATEGORIES: ReadonlySet<EvalCategory> = new Set(
 
 const RUNTIME_ADAPTERS: ReadonlySet<EvalRuntimeAdapter> = new Set([
   'transformers',
-  // Historical persisted value: pre-2026-07-10 eval records may carry it. The
-  // WebLLM runtime is retired; kept so old records still parse/round-trip.
+  // The WebLLM/MLC runtime (the iPhone entry's runtime).
   'webllm',
   'litert',
   'unknown',
