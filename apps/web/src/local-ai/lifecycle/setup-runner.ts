@@ -478,14 +478,21 @@ export async function executeSetup(
   // current.model === null (getSlot nulls unknown ids), so we fall through to a
   // fresh pick — the correct behavior when the pick can't be honored.
   //
-  // CROSS-SLOT resume: an interrupted first-run download of the deeper pick
-  // (since #297, the preselected Recommended one) leaves eco-smart bound +
-  // 'preparing' while eco-fast stays 'empty' — the invoked slot never sees it.
-  // Before requesting a fresh choice, check the other slot: if eco-smart is
-  // bound + 'preparing' with a catalog-resolvable model, resume that download
-  // instead of re-showing the welcome card. Scope guard: this only fires when
-  // the invoked slot is 'empty' — an interrupted UPGRADE (eco-fast ready/bound)
-  // must keep flowing to the upgrade machine, unchanged.
+  // CROSS-SLOT state: a first-run pick of the deeper tile (since #297, the
+  // preselected Recommended one) binds eco-smart and leaves eco-fast 'empty', so
+  // the invoked slot alone cannot tell a fresh device from a set-up one. Before
+  // requesting a fresh choice, check the other slot for either case:
+  //
+  //   - bound + 'preparing' with a catalog-resolvable model → an interrupted
+  //     download; resume that model instead of re-showing the welcome card.
+  //   - bound + 'ready' with a catalog-resolvable model → the device is already
+  //     set up; report it ready. Without this, every reload of a deeper-only
+  //     profile looked fresh and re-showed the card over a working model.
+  //
+  // Scope guard: both only fire when the invoked slot is 'empty' — an
+  // interrupted UPGRADE or a prior error on eco-fast must keep its own flow.
+  // A bound id the catalog no longer carries resolves to model === null, which
+  // fails both checks and falls through to a fresh pick.
   let resumeModel =
     current.status === 'preparing' && current.model ? current.model : null;
   let firstPickSlot: Slot = slot;
@@ -494,6 +501,10 @@ export async function executeSetup(
     if (smart.status === 'preparing' && smart.model) {
       resumeModel = smart.model;
       firstPickSlot = 'eco-smart';
+    } else if (smart.status === 'ready' && smart.modelId && smart.model) {
+      clearDemotedFrom('eco-smart', smart.modelId);
+      actions.setReady(smart.model);
+      return;
     }
   }
   if (resumeModel) actions.markResuming();
