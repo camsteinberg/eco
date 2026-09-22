@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Bos Computing LLC
 
+import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { describe, expect, it } from 'vitest';
 import { PromptRepetitionPenalty } from '../webllm-prompt-penalty';
 
@@ -53,5 +55,24 @@ describe('PromptRepetitionPenalty', () => {
     const penalty = new PromptRepetitionPenalty(2, () => [-1, 5]);
     const out = penalty.processLogits(new Float32Array([4, 4]));
     expect(Array.from(out)).toEqual([4, 4]);
+  });
+});
+
+// The adapter falls back SILENTLY to WebLLM's generated-only penalty if these
+// private internals move, so a web-llm bump must fail here instead.
+describe('the WebLLM internals the prompt-wide penalty relies on', () => {
+  const source = readFileSync(createRequire(import.meta.url).resolve('@mlc-ai/web-llm'), 'utf8');
+
+  it.each([
+    'this.loadedModelIdToPipeline.set(',
+    'this.logitProcessor = logitProcessor',
+    'this.logitProcessor.processLogits(',
+    '.processSampledToken(sampledToken)',
+    '.resetState()',
+    'this.conversation.getPromptArray(this.config)',
+    'this.conversation.config.system_prefix_token_ids',
+    'this.tokenizer.encode(',
+  ])('the installed library still contains %s', (needle) => {
+    expect(source.includes(needle), `missing from @mlc-ai/web-llm: ${needle}`).toBe(true);
   });
 });
