@@ -42,7 +42,7 @@ function mockSetup(over: Record<string, unknown> = {}) {
         { model: FAST, slot: 'eco-fast' },
         { model: DEEPER, slot: 'eco-smart' },
       ],
-      recommendedId: DEEPER.id,
+      recommendedId: FAST.id,
     },
     start: vi.fn(async () => {}),
     choose: vi.fn(),
@@ -81,12 +81,12 @@ describe('LocalAiSetupGate — awaiting-choice', () => {
       </LocalAiSetupGate>,
     );
 
-    // Recommended (Eco Deeper) is preselected — the CTA commits it.
-    fireEvent.click(screen.getByRole('button', { name: /Start with Eco Deeper/i }));
-    expect(choose).toHaveBeenCalledWith(DEEPER.id);
+    // Recommended (Eco Fast) is preselected — the CTA commits it.
+    fireEvent.click(screen.getByRole('button', { name: /Start with Eco Fast/i }));
+    expect(choose).toHaveBeenCalledWith(FAST.id);
   });
 
-  it('lets the user switch to Eco Fast before committing', () => {
+  it('lets the user switch to Eco Deeper before committing', () => {
     const choose = vi.fn();
     mockSetup({ choose });
     render(
@@ -95,8 +95,8 @@ describe('LocalAiSetupGate — awaiting-choice', () => {
       </LocalAiSetupGate>,
     );
 
-    fireEvent.click(screen.getByRole('radio', { name: /Eco Fast/i }));
-    fireEvent.click(screen.getByRole('button', { name: /Start with Eco Fast/i }));
-    expect(choose).toHaveBeenCalledWith(FAST.id);
+    fireEvent.click(screen.getByRole('radio', { name: /Eco Deeper/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Start with Eco Deeper/i }));
+    expect(choose).toHaveBeenCalledWith(DEEPER.id);
   });
 });
