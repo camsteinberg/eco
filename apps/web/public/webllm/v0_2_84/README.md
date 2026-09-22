@@ -31,7 +31,7 @@ directory and updating `WEBLLM_MODEL_LIB_VERSION` in
   identical to the upstream repository's blob metadata at vendoring time.
 - Upstream project: [mlc-ai/binary-mlc-llm-libs](https://github.com/mlc-ai/binary-mlc-llm-libs),
   Apache-2.0. Serves the Qwen3-0.6B q4f16 MLC build (`candidate/qwen3-0.6b-mlc`),
-  an eval-only runtime bake-off cell.
+  the desktop-Safari pick.
 
 ## Re-verifying
 

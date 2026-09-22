@@ -15,8 +15,10 @@ import {
 // (f16-less C2/C3 answer, model-offering overhaul 2026-06-29), LFM2-2.6B (the deeper
 // eco-smart pick, by-eye graduation 2026-08-10), and the Qwen3-0.6B external-data
 // pair (candidate/qwen3-0.6b-q4f16-xd, graduated 2026-07-17 — it became
-// local/qwen3-0.6b's catalog artifact). The old single-file build stays here as
-// candidate/qwen3-0.6b-q4f16-single, the paired A/B baseline.
+// local/qwen3-0.6b's catalog artifact), and the Qwen3-0.6B MLC build
+// (candidate/qwen3-0.6b-mlc, the desktop-Safari pick since 2026-09-22). The old
+// single-file build stays here as candidate/qwen3-0.6b-q4f16-single, the paired
+// A/B baseline.
 const CANDIDATE_IDS = [
   "candidate/qwen3-1.7b-onnx",
   "candidate/qwen3-0.6b-q4",
@@ -25,7 +27,6 @@ const CANDIDATE_IDS = [
   "candidate/gemma-4-e2b-onnx",
   "candidate/gemma-4-e2b-qat-q4-onnx",
   "candidate/gemma-4-e4b-litert",
-  "candidate/qwen3-0.6b-mlc",
 ] as const;
 
 const SHA1 = /^[0-9a-f]{40}$/;

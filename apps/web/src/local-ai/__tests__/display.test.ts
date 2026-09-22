@@ -6,9 +6,9 @@ import { dedupeByDisplayName, getDisplayInfo, resolveRunningModel } from '../dis
 import { getCatalog } from '../catalog/catalog';
 
 describe('getDisplayInfo', () => {
-  it('returns branded names for all 10 catalog models', () => {
+  it('returns branded names for all 11 catalog models', () => {
     const catalog = getCatalog();
-    expect(catalog.length).toBe(10);
+    expect(catalog.length).toBe(11);
 
     for (const model of catalog) {
       const info = getDisplayInfo(model.id, model);
@@ -122,10 +122,11 @@ describe('getDisplayInfo', () => {
   });
 });
 
-// Two catalog entries brand as one name on purpose (the f16 and int4 builds of
-// the 1.2B are both "Eco Fast (Liquid)"), so any list that renders branded names
-// must collapse them — a device that can serve both otherwise offers two rows a
-// person cannot tell apart.
+// Two pairs of catalog entries brand as one name on purpose (the f16 and int4
+// builds of the 1.2B are both "Eco Fast (Liquid)"; the ONNX and MLC builds of
+// Qwen3-0.6B are both "Eco Compact (Qwen)"), so any list that renders branded
+// names must collapse them — a device that can serve both otherwise offers two
+// rows a person cannot tell apart.
 describe('dedupeByDisplayName', () => {
   const catalog = getCatalog();
   const f16 = catalog.find((m) => m.id === 'candidate/lfm2.5-1.2b-instruct-onnx');
@@ -140,7 +141,7 @@ describe('dedupeByDisplayName', () => {
 
   it('leaves the rest of the catalog alone — one row per branded name', () => {
     const rows = dedupeByDisplayName(catalog);
-    expect(rows).toHaveLength(catalog.length - 1);
+    expect(rows).toHaveLength(catalog.length - 2);
     const names = rows.map((m) => getDisplayInfo(m.id, m).friendlyName);
     expect(new Set(names).size).toBe(rows.length);
   });

@@ -248,9 +248,6 @@ const PROFILE_BY_MODEL_ID: Record<string, GenerationProfileSlice> = {
   "candidate/gemma-4-e2b-onnx": GEMMA4_GEN,
   // Community QAT-q4 Gemma 4 E2B (nico-martin) — same vendor-anchored Gemma slice.
   "candidate/gemma-4-e2b-qat-q4-onnx": GEMMA4_GEN,
-  // Runtime bake-off cell: Qwen3-0.6B on MLC — same qwen3 family as the
-  // shipping local/qwen3-0.6b, so it rides the generic Qwen slice. NOT QWEN35_GEN.
-  "candidate/qwen3-0.6b-mlc": QWEN_GEN,
   // Gemma 4 E4B via LiteRT-LM Web — the eval-only sibling of the shipping E2B
   // LiteRT entry, on the same runtime-specific slice.
   "candidate/gemma-4-e4b-litert": GEMMA4_LITERT_GEN,
