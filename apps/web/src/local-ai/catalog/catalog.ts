@@ -145,6 +145,11 @@ function assertCatalogEntry(raw: unknown): void {
   if (raw.runtime === 'webllm') {
     if (!isRecord(raw.quirks)) bad(id, 'is a webllm model with no `quirks` object');
     assertNonEmptyString(raw.quirks.webllmModelLibFile, id, 'quirks.webllmModelLibFile');
+    // Optional, but a non-boolean would read as "has a thinking mode" and send
+    // the switch to a model that has none — see `ModelQuirks.hasThinkingMode`.
+    if (raw.quirks.hasThinkingMode !== undefined) {
+      assertBoolean(raw.quirks.hasThinkingMode, id, 'quirks.hasThinkingMode');
+    }
   }
 
   // The eval lane stops here. Those entries are never recommended, rendered in

@@ -675,7 +675,6 @@ describe('WebLLMAdapter — confidence', () => {
       // drain
     }
     expect(receivedArgs?.logprobs).toBe(true);
-    expect(receivedArgs?.extra_body).toEqual({ enable_thinking: false });
     expect(receivedArgs?.top_logprobs).toBe(1);
   });
 
@@ -968,5 +967,59 @@ describe('WebLLMAdapter — sampling profile', () => {
     expect(args?.temperature).toBe(0);
     expect(args?.top_p).toBe(0.9);
     expect(args?.repetition_penalty).toBe(1.05);
+  });
+});
+
+// ─── Thinking switch (extra_body.enable_thinking) ───────────────────────────
+// `enable_thinking: false` turns a thinking model's reasoning mode off so the
+// same model answers the same way on both runtimes. WebLLM does NOT check that
+// the model has such a mode: on `false` it encodes "<think>\n\n</think>\n\n"
+// into the output and prepends that block to the reply for ANY model, so a
+// model without the mode carries it in every reply — and, once the reply comes
+// back as history, in every later prompt. The switch therefore goes only to the
+// models whose entry says they have the mode.
+
+describe('WebLLMAdapter — thinking switch', () => {
+  async function createArgsFor(
+    model: ModelConfig,
+  ): Promise<Parameters<WebLLMEngine['chat']['completions']['create']>[0] | undefined> {
+    let receivedArgs:
+      | Parameters<WebLLMEngine['chat']['completions']['create']>[0]
+      | undefined;
+    engine = {
+      reload: async () => undefined,
+      resetChat: async () => undefined,
+      chat: {
+        completions: {
+          create: async (args) => {
+            receivedArgs = args;
+            return (async function* () {
+              yield { choices: [{ delta: { content: 'hi' }, finish_reason: 'stop' }] };
+            })();
+          },
+        },
+      },
+      interruptGenerate: () => undefined,
+      unload: async () => undefined,
+    };
+    adapter = new WebLLMAdapter({ engineFactory: async () => engine });
+    await adapter.load(model);
+    for await (const _event of adapter.generate([{ role: 'user', content: 'hi' }])) {
+      // drain
+    }
+    return receivedArgs;
+  }
+
+  it('sends no thinking switch for a model with no thinking mode', async () => {
+    const args = await createArgsFor(MODEL);
+    expect(args && 'extra_body' in args).toBe(false);
+  });
+
+  it('turns the reasoning mode off for a model that has one', async () => {
+    const args = await createArgsFor({
+      ...MODEL,
+      quirks: { ...MODEL.quirks, hasThinkingMode: true },
+    });
+    expect(args?.extra_body?.enable_thinking).toBe(false);
   });
 });

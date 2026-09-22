@@ -284,6 +284,20 @@ export type ModelQuirks = {
    * release). Required for every `runtime: 'webllm'` catalog entry.
    */
   webllmModelLibFile?: string;
+  /**
+   * This model has a switchable thinking mode — a chat template that renders a
+   * `<think>` reasoning block unless it is told not to (the Qwen3 family, for
+   * example). Absent or false means the model has no such mode.
+   *
+   * Load-bearing on the WebLLM path: web-llm 0.2.84 does not check whether the
+   * model actually has the mode. Told `enable_thinking: false` it encodes
+   * `"<think>\n\n</think>\n\n"`, pushes those tokens into the output and
+   * prepends the block to the reply header for ANY model
+   * (`lib/index.js:10309`), so a model without the mode carries the block in
+   * every reply and — once that reply returns as history — in every later
+   * prompt. The switch is therefore sent only to entries that declare this.
+   */
+  hasThinkingMode?: boolean;
 };
 
 /**
