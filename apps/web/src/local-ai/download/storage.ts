@@ -724,8 +724,8 @@ export function modelCacheName(modelId: string): string {
 
 /**
  * True when `name` is one of Eco's per-model Cache API namespaces. Lets a sweep
- * tell Eco's own model buckets apart from a retired runtime's private caches
- * (e.g. `webllm/*`) or unrelated app caches — only the `eco-local-ai-` prefix is
+ * tell Eco's own model buckets apart from another runtime's private caches
+ * (e.g. WebLLM's `webllm/*`) or unrelated app caches — only the `eco-local-ai-` prefix is
  * ever a candidate for removal.
  */
 export function isModelCacheName(name: string): boolean {

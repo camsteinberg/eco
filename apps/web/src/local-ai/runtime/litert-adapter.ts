@@ -18,7 +18,7 @@
  *
  * Architecture: LiteRT runs on the MAIN THREAD, dynamic-imported via the
  * engine-factory DI seam so the ~38 MB WASM runtime only loads when a litert
- * model is selected. (This mirrored the now-retired webllm-adapter.) Tests
+ * model is selected. (The same shape as webllm-adapter.ts.) Tests
  * inject a fake engine; production registers a factory that imports
  * `@litert-lm/core` and calls `Engine.create` (see bootstrap.ts).
  *

@@ -380,9 +380,8 @@ export type RubricContext = {
 // persists them and aggregate.ts turns them into scorecards. These types are
 // pure data — no browser/model/DOM dependency.
 
-/** Which runtime backend produced a result. `'webllm'` is a historical
- *  persisted value — user devices hold eval records from before the WebLLM
- *  runtime was retired (2026-07-10); no live catalog model produces it now. */
+/** Which runtime backend produced a result. `'webllm'` is the WebLLM/MLC
+ *  runtime — the iPhone entry's runtime and a candidate Safari path. */
 export type EvalRuntimeAdapter = 'transformers' | 'webllm' | 'litert' | 'unknown';
 
 export const EVAL_MESSAGE_TOPOLOGIES = [

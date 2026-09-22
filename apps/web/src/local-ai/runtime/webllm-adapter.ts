@@ -20,9 +20,8 @@
  * fully-cached WebLLM model without knowing that namespace directly.
  *
  * Engine factory DI seam: tests pass a fake engine factory. Production
- * registers a real `CreateMLCEngine(...)` call once a self-hosted
- * `model_lib` origin is chosen for a specific model — see
- * `bootstrap.ts`'s comment on why no production factory is registered yet.
+ * registers one in `bootstrap.ts` that constructs an `MLCEngine` with the
+ * self-hosted appConfig and same-origin `model_lib`.
  *
  * Cancellation:
  *   - Load: `reload()` takes NO AbortSignal (confirmed against the
