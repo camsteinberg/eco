@@ -474,8 +474,8 @@ const MODEL_MATRIX_TODAY: Readonly<Record<string, string>> = {
     "quick:256 explain:768 deep:1024 code:1024 writing:1024 file:1024 research:1024",
   "candidate/qwen2.5-0.5b-mlc":
     "quick:1024 explain:1536 deep:2048 code:2048 writing:1536 file:2048 research:2048",
-  // The MLC build of Qwen3-0.6B (desktop Safari): the same budget as the ONNX build.
-  "candidate/qwen3-0.6b-mlc":
+  // The unquantised MLC build of Qwen3-0.6B (desktop Safari): the same budget as the ONNX build.
+  "candidate/qwen3-0.6b-mlc-q0f16":
     "quick:512 explain:512 deep:512 code:512 writing:512 file:512 research:512",
   "candidate/granite-4.0-350m-onnx":
     "quick:512 explain:512 deep:512 code:512 writing:512 file:512 research:512",
@@ -603,8 +603,8 @@ describe("everyday-use sweep — the instrument", () => {
     expect(flatBudgetAxis).toEqual([
       "local/qwen3-0.6b",
       "candidate/lfm2.5-350m-onnx",
-      // The MLC build of Qwen3-0.6B shares the ONNX build's flat 512 ceiling.
-      "candidate/qwen3-0.6b-mlc",
+      // The unquantised MLC build of Qwen3-0.6B shares the ONNX build's flat 512 ceiling.
+      "candidate/qwen3-0.6b-mlc-q0f16",
       // The no-GPU int8 floor models: flat 512 budget across every intent (CPU-EP cap).
       "candidate/granite-4.0-350m-onnx",
       "candidate/smollm2-360m-instruct-onnx",

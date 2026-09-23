@@ -21,11 +21,12 @@ import {
 // (f16-less C2/C3 answer, model-offering overhaul 2026-06-29), LFM2-2.6B (the deeper
 // eco-smart pick, by-eye graduation 2026-08-10), and the Qwen3-0.6B external-data
 // pair (candidate/qwen3-0.6b-q4f16-xd, graduated 2026-07-17 — it became
-// local/qwen3-0.6b's catalog artifact), and the Qwen3-0.6B MLC build
-// (candidate/qwen3-0.6b-mlc, the desktop-Safari pick since 2026-09-22). The old
-// single-file build stays here as candidate/qwen3-0.6b-q4f16-single, the paired
-// A/B baseline. candidate/qwen3-0.6b-mlc-q0f16 is the unquantised MLC build of
-// the same weights, a candidate for desktop Safari awaiting its real-Safari gate.
+// local/qwen3-0.6b's catalog artifact), and the unquantised Qwen3-0.6B MLC build
+// (candidate/qwen3-0.6b-mlc-q0f16, the desktop-Safari pick since 2026-09-23). The
+// old single-file build stays here as candidate/qwen3-0.6b-q4f16-single, the
+// paired A/B baseline. candidate/qwen3-0.6b-mlc is the 4-bit MLC build of the
+// same weights — desktop Safari's pick before the unquantised build — kept as
+// the comparison build for the quantisation gap.
 const CANDIDATE_IDS = [
   "candidate/qwen3-1.7b-onnx",
   "candidate/qwen3-0.6b-q4",
@@ -34,7 +35,7 @@ const CANDIDATE_IDS = [
   "candidate/gemma-4-e2b-onnx",
   "candidate/gemma-4-e2b-qat-q4-onnx",
   "candidate/gemma-4-e4b-litert",
-  "candidate/qwen3-0.6b-mlc-q0f16",
+  "candidate/qwen3-0.6b-mlc",
 ] as const;
 
 const SHA1 = /^[0-9a-f]{40}$/;
@@ -159,9 +160,9 @@ describe("eval-candidate lane (Phase 2 + chat #7 bake-off)", () => {
     });
   });
 
-  describe("the unquantised MLC Qwen3-0.6B cell (candidate/qwen3-0.6b-mlc-q0f16)", () => {
-    const ID = "candidate/qwen3-0.6b-mlc-q0f16";
-    const SHIPPING_SIBLING_ID = "candidate/qwen3-0.6b-mlc";
+  describe("the 4-bit MLC Qwen3-0.6B comparison cell (candidate/qwen3-0.6b-mlc)", () => {
+    const ID = "candidate/qwen3-0.6b-mlc";
+    const SHIPPING_ID = "candidate/qwen3-0.6b-mlc-q0f16";
     const INTENTS: readonly ChatIntent[] = [
       "quick", "explain", "deep", "code", "writing", "file", "research",
     ];
@@ -172,33 +173,34 @@ describe("eval-candidate lane (Phase 2 + chat #7 bake-off)", () => {
       if (model === null) throw new Error(`${ID} is not in the eval lane`);
       return model;
     };
-    const sibling = (): CatalogModel => {
-      const model = getModel(SHIPPING_SIBLING_ID);
-      if (model === null) throw new Error(`${SHIPPING_SIBLING_ID} is not in the catalog`);
+    const shipping = (): CatalogModel => {
+      const model = getModel(SHIPPING_ID);
+      if (model === null) throw new Error(`${SHIPPING_ID} is not in the catalog`);
       return model;
     };
 
-    it("is the q0f16 build at the pinned revision, 29 weight shards", () => {
+    it("is the q4f16_1 build at the pinned revision, 9 weight shards", () => {
       const model = lane();
       expect(model.runtime).toBe("webllm");
-      expect(model.format).toBe("mlc-q0f16");
-      expect(model.artifact?.hfId).toBe("mlc-ai/Qwen3-0.6B-q0f16-MLC");
-      expect(model.artifact?.revision).toBe("2d6c15b9dd8b99e021d978ada68faebbcfc12bb9");
+      expect(model.format).toBe("mlc-q4f16");
+      expect(model.artifact?.hfId).toBe("mlc-ai/Qwen3-0.6B-q4f16_1-MLC");
+      expect(model.artifact?.revision).toBe("8c14ce481d4c692769976ad52afea453a102df19");
       const shards = (model.artifact?.files ?? []).filter((f) => f.startsWith("params_shard_"));
-      expect(shards).toEqual(Array.from({ length: 29 }, (_, i) => `params_shard_${String(i)}.bin`));
+      expect(shards).toEqual(Array.from({ length: 9 }, (_, i) => `params_shard_${String(i)}.bin`));
       expect(webllmModelLibPathFor(model)).toBe(
-        "/webllm/v0_2_84/Qwen3-0.6B-q0f16_cs1k-webgpu.wasm",
+        "/webllm/v0_2_84/Qwen3-0.6B-q4f16_1_cs1k-webgpu.wasm",
       );
     });
 
-    it("differs from the shipping q4f16_1 build only in weights and context window", () => {
+    it("differs from the shipping unquantised build only in weights and context window", () => {
       const model = lane();
-      const shipped = sibling();
-      // The one intended difference: with f16 weights, the sibling's 16384-token
-      // KV cache no longer fits in Safari's memory (a tab kill in the real-Safari
-      // walks), so this build runs a 4096-token window.
-      expect(model.capabilities.contextTokens).toBe(4096);
-      expect(shipped.capabilities.contextTokens).toBe(16384);
+      const shipped = shipping();
+      // The one intended difference: with f16 weights, a 16384-token KV cache no
+      // longer fits in Safari's memory (a tab kill in the real-Safari walks), so
+      // the shipping build runs a 4096-token window; this build keeps the 16384
+      // it was measured at.
+      expect(model.capabilities.contextTokens).toBe(16384);
+      expect(shipped.capabilities.contextTokens).toBe(4096);
       expect({ ...model.capabilities, contextTokens: undefined }).toEqual({
         ...shipped.capabilities,
         contextTokens: undefined,
@@ -208,7 +210,7 @@ describe("eval-candidate lane (Phase 2 + chat #7 bake-off)", () => {
       expect(model.quirks?.hasThinkingMode).toBe(true);
       expect(model.systemRoleSupport).toBe(shipped.systemRoleSupport);
       expect(model.license).toEqual(shipped.license);
-      // Same device rules as the sibling, the notes aside.
+      // Same device rules as the shipping build, the notes aside.
       expect({ ...model.compat, _rationale: undefined }).toEqual({
         ...shipped.compat,
         _rationale: undefined,
@@ -219,17 +221,29 @@ describe("eval-candidate lane (Phase 2 + chat #7 bake-off)", () => {
     // An eval-lane entry's own `generation` block is not what the serving path
     // reads — the eval-lane rows in chat-intent.ts and
     // local-model-generation-profiles.ts are. Pin that the profile a harness run
-    // resolves is the shipping sibling's, intent by intent.
-    it.each(INTENTS)("resolves the shipping sibling's generation profile for %s", (intent) => {
+    // resolves is the shipping build's, intent by intent.
+    it.each(INTENTS)("resolves the shipping build's generation profile for %s", (intent) => {
       expect(getGenerationProfile(intent, true, ID, { allowValidationModel: true })).toEqual(
-        getGenerationProfile(intent, true, SHIPPING_SIBLING_ID),
+        getGenerationProfile(intent, true, SHIPPING_ID),
       );
     });
 
-    it("resolves the shipping sibling's reply ceiling", () => {
+    // The shipping build no longer has eval-lane rows: it samples from its own
+    // catalog `generation` block, which must give each intent exactly the
+    // base sampling plus that intent's override.
+    it.each(INTENTS)("the shipping build samples %s from its catalog generation block", (intent) => {
+      const { intentOverrides, ...base } = shipping().generation;
+      expect(getGenerationProfile(intent, true, SHIPPING_ID)).toMatchObject({
+        ...base,
+        ...(intentOverrides[intent] ?? {}),
+      });
+    });
+
+    it("resolves the shipping build's reply ceiling", () => {
       expect(getMaxNewTokensCeiling(ID, { allowValidationModel: true })).toBe(
-        getMaxNewTokensCeiling(SHIPPING_SIBLING_ID),
+        getMaxNewTokensCeiling(SHIPPING_ID),
       );
+      expect(getMaxNewTokensCeiling(SHIPPING_ID)).toBe(shipping().maxNewTokens.ceiling);
     });
 
     it("is not reachable through the shipping catalog", () => {

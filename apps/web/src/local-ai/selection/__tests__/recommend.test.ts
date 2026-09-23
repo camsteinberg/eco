@@ -19,7 +19,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getCatalog, getModel, TIER_ORDER } from '../../catalog/catalog';
 import { isAssignable } from '../../device/compatibility';
 import { CURRENT_LEDGER_VERSION, FAILURE_EVIDENCE_VALID_FROM, profileKey } from '../../evidence/ledger';
-import { canServe, listCandidates, listCatalog, NoAssignableModelError, recommend, starterModelForSlot, tierDefaultModelId } from '../recommend';
+import { canServe, listCandidates, listCatalog, NoAssignableModelError, recommend, STARTER_MAX_SIZE_GB, starterModelForSlot, tierDefaultModelId } from '../recommend';
 import { isBelowFloor } from '../../device/below-floor';
 import { getDeviceProfile } from '../../device/profile';
 import { dedupeByDisplayName } from '../../display';
@@ -431,6 +431,33 @@ describe('starterModelForSlot — instant-start Stage A pick (slice 2b)', () => 
     expect(starter?.id).toBe(recommend('eco-fast', PROFILE_NO_SHADER_F16).id);
   });
 
+  it('picks the unquantised MLC Qwen3 build (1.21 GB) as its own starter on desktop Safari — no step-down to the 350M', () => {
+    const safariDesktop: DeviceProfile = {
+      browserClass: 'safari', webgpuSupport: 'webgpu', deviceMemoryGB: 0, isMobile: false, override: 'auto', webgpuShaderF16: true,
+    };
+    const starter = starterModelForSlot('eco-fast', safariDesktop);
+    expect(starter?.id).toBe('candidate/qwen3-0.6b-mlc-q0f16');
+    expect(starter?.sizeGB).toBeLessThanOrEqual(STARTER_MAX_SIZE_GB);
+    expect(starter?.id).toBe(recommend('eco-fast', safariDesktop).id);
+  });
+
+  it('still steps down when the class-best is over the budget (the 1.65 GB and 1.87 GB eco-smart picks)', () => {
+    // Pins that raising the budget for the 1.21 GB Safari pick did not widen it
+    // to the larger picks: each of these class-bests is over it, and the starter
+    // is a smaller model instead.
+    for (const [profile, classBestId] of [
+      [PROFILE_24GB, 'candidate/lfm2-2.6b-onnx'],
+      [PROFILE_NO_SHADER_F16, 'candidate/gemma-4-e2b-litert'],
+    ] as const) {
+      const classBest = recommend('eco-smart', profile);
+      expect(classBest.id).toBe(classBestId);
+      expect(classBest.sizeGB).toBeGreaterThan(STARTER_MAX_SIZE_GB);
+      const starter = starterModelForSlot('eco-smart', profile);
+      expect(starter?.id).not.toBe(classBestId);
+      expect(starter!.sizeGB).toBeLessThan(classBest.sizeGB);
+    }
+  });
+
   it('never returns a model the engine would not offer (structural reuse of listCandidates)', () => {
     for (const profile of [PROFILE_24GB, PROFILE_8GB, PROFILE_FIREFOX, PROFILE_NO_SHADER_F16]) {
       const starter = starterModelForSlot('eco-fast', profile);
@@ -693,8 +720,8 @@ describe('recommend — 4-7GB WebGPU recovers the good 1.2B (device-coverage aud
   });
 
   it('keeps the premium models off safari/firefox WebGPU (they stay chromium-only — no regression)', () => {
-    // Firefox stays on the proven qwen3-0.6b; desktop Safari gets the MLC build of
-    // the same weights (its own rung — see the desktop-Safari describe below).
+    // Firefox stays on the proven qwen3-0.6b; desktop Safari gets the unquantised
+    // MLC build of the same weights (its own rung — see the desktop-Safari describe below).
     const safari: DeviceProfile = {
       browserClass: 'safari',
       webgpuSupport: 'webgpu',
@@ -703,7 +730,7 @@ describe('recommend — 4-7GB WebGPU recovers the good 1.2B (device-coverage aud
       override: 'auto',
     };
     const firefox: DeviceProfile = { ...safari, browserClass: 'firefox' };
-    expect(recommend('eco-fast', safari).id).toBe('candidate/qwen3-0.6b-mlc');
+    expect(recommend('eco-fast', safari).id).toBe('candidate/qwen3-0.6b-mlc-q0f16');
     expect(recommend('eco-fast', firefox).id).toBe('local/qwen3-0.6b');
   });
 });
@@ -1035,12 +1062,14 @@ describe('recommend — WebKit-mobile MLC entry is additive only', () => {
   });
 });
 
-// Desktop Safari is served by the MLC build of Qwen3-0.6B, which measured well
-// inside Safari's ~8 GB tab limit where the ONNX build did not. The route must
-// open for desktop Safari with WebGPU + shader-f16 ONLY; every other device class
-// keeps exactly the picks it had before. One representative profile per class.
+// Desktop Safari is served by the unquantised (q0f16) MLC build of Qwen3-0.6B,
+// which measured inside Safari's ~8 GB tab limit at a 4096-token window where the
+// ONNX build did not, and scored above the 4-bit MLC build on known-answer
+// questions. The route must open for desktop Safari with WebGPU + shader-f16
+// ONLY; every other device class keeps exactly the picks it had before. One
+// representative profile per class.
 describe('recommend — desktop Safari routes to the MLC Qwen3 build, every other class unchanged', () => {
-  const SAFARI_MLC_ID = 'candidate/qwen3-0.6b-mlc';
+  const SAFARI_MLC_ID = 'candidate/qwen3-0.6b-mlc-q0f16';
 
   const safariDesktop: DeviceProfile = {
     browserClass: 'safari', webgpuSupport: 'webgpu', deviceMemoryGB: 0, isMobile: false, override: 'auto', webgpuShaderF16: true,
@@ -1147,11 +1176,11 @@ describe('recommend — desktop Safari routes to the MLC Qwen3 build, every othe
   });
 });
 
-// The unquantised MLC build of Qwen3-0.6B is an eval-lane candidate awaiting its
-// real-Safari gate. It must not be picked, offered or listed on any device until
-// a routing change says so.
-describe('recommend — the q0f16 MLC Qwen3 candidate is never routed', () => {
-  const Q0F16_ID = 'candidate/qwen3-0.6b-mlc-q0f16';
+// The 4-bit (q4f16_1) MLC build of Qwen3-0.6B was desktop Safari's pick until the
+// unquantised build replaced it; it stays in the eval lane as the comparison
+// build. It must not be picked, offered or listed on any device.
+describe('recommend — the q4f16_1 MLC Qwen3 build is never routed', () => {
+  const Q4_ID = 'candidate/qwen3-0.6b-mlc';
 
   it('is in no pick, candidate list or catalog listing on any enumerated profile', () => {
     const slots: Slot[] = ['eco-fast', 'eco-smart'];
@@ -1163,11 +1192,11 @@ describe('recommend — the q0f16 MLC Qwen3 candidate is never routed', () => {
         try { picked = recommend(slot, profile).id; } catch (err) {
           if (!(err instanceof NoAssignableModelError)) throw err;
         }
-        expect(picked, `${slot} on ${label}`).not.toBe(Q0F16_ID);
-        expect(listCandidates(slot, profile).map((c) => c.model.id), label).not.toContain(Q0F16_ID);
-        expect(starterModelForSlot(slot, profile)?.id, label).not.toBe(Q0F16_ID);
+        expect(picked, `${slot} on ${label}`).not.toBe(Q4_ID);
+        expect(listCandidates(slot, profile).map((c) => c.model.id), label).not.toContain(Q4_ID);
+        expect(starterModelForSlot(slot, profile)?.id, label).not.toBe(Q4_ID);
       }
-      expect(listCatalog(profile).available.map((a) => a.model.id), label).not.toContain(Q0F16_ID);
+      expect(listCatalog(profile).available.map((a) => a.model.id), label).not.toContain(Q4_ID);
       checked++;
     }
     expect(checked).toBeGreaterThan(0);
@@ -1277,7 +1306,7 @@ describe('recommend — an iPad routes like an iPhone', () => {
 
   it('a desktop Mac (no touch) keeps the desktop Safari entry', () => {
     const mac = profileFor(0);
-    expect(recommend('eco-fast', mac).id).toBe('candidate/qwen3-0.6b-mlc');
-    expect(recommend('eco-smart', mac).id).toBe('candidate/qwen3-0.6b-mlc');
+    expect(recommend('eco-fast', mac).id).toBe('candidate/qwen3-0.6b-mlc-q0f16');
+    expect(recommend('eco-smart', mac).id).toBe('candidate/qwen3-0.6b-mlc-q0f16');
   });
 });

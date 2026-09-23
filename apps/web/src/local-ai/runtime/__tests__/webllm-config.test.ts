@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import type { ModelConfig } from '../../types';
 import { AdapterError } from '../types';
 import { getModel } from '../../catalog/catalog';
+import { getEvalCandidateModel } from '../../eval/eval-candidates';
 import {
   buildWebLLMAppConfig,
   buildWebLLMModelRecord,
@@ -109,8 +110,15 @@ describe('webllmModelLibPathFor', () => {
     );
   });
 
-  it('returns the Qwen3 library for the desktop-Safari entry', () => {
-    const model = getModel('candidate/qwen3-0.6b-mlc')!;
+  it('returns the unquantised Qwen3 library for the desktop-Safari entry', () => {
+    const model = getModel('candidate/qwen3-0.6b-mlc-q0f16')!;
+    expect(webllmModelLibPathFor(model)).toBe(
+      '/webllm/v0_2_84/Qwen3-0.6B-q0f16_cs1k-webgpu.wasm',
+    );
+  });
+
+  it('returns the 4-bit Qwen3 library for the eval-lane comparison build', () => {
+    const model = getEvalCandidateModel('candidate/qwen3-0.6b-mlc')!;
     expect(webllmModelLibPathFor(model)).toBe(
       '/webllm/v0_2_84/Qwen3-0.6B-q4f16_1_cs1k-webgpu.wasm',
     );

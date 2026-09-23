@@ -32,7 +32,7 @@ const V1_CATALOG_IDS = [
   'candidate/qwen3.5-2b-onnx',
   'candidate/gemma-4-e2b-litert',
   'candidate/qwen2.5-0.5b-mlc',
-  'candidate/qwen3-0.6b-mlc',
+  'candidate/qwen3-0.6b-mlc-q0f16',
   'candidate/granite-4.0-350m-onnx',
   'candidate/smollm2-360m-instruct-onnx',
   'candidate/lfm2-2.6b-onnx',
@@ -129,9 +129,9 @@ describe('local-ai catalog (Phase C)', () => {
       'eco-fast/capable': 'candidate/lfm2.5-1.2b-instruct-onnx',
       'eco-fast/laptop': 'candidate/lfm2.5-1.2b-instruct-q4-onnx',
       'eco-fast/phone': 'candidate/smollm2-360m-instruct-onnx',
-      // Desktop Safari's own rung, ahead of `floor`: the MLC build of the floor's
-      // weights, which stays well inside Safari's per-tab memory limit.
-      'eco-fast/safari-desktop': 'candidate/qwen3-0.6b-mlc',
+      // Desktop Safari's own rung, ahead of `floor`: the unquantised MLC build of
+      // the floor's weights, which stays inside Safari's per-tab memory limit.
+      'eco-fast/safari-desktop': 'candidate/qwen3-0.6b-mlc-q0f16',
       'eco-fast/floor': 'local/qwen3-0.6b',
       // R5c: rungs added when the fit scorer was deleted (recommend.ts /
       // catalog.ts TIER_ORDER doc comments explain each). `light` is the
@@ -143,7 +143,7 @@ describe('local-ai catalog (Phase C)', () => {
       'eco-smart/capable': 'candidate/lfm2-2.6b-onnx',
       'eco-smart/laptop': 'candidate/gemma-4-e2b-litert',
       'eco-smart/phone': 'candidate/granite-4.0-350m-onnx',
-      'eco-smart/safari-desktop': 'candidate/qwen3-0.6b-mlc',
+      'eco-smart/safari-desktop': 'candidate/qwen3-0.6b-mlc-q0f16',
       'eco-smart/floor': 'local/qwen3-0.6b',
       'eco-smart/light': 'candidate/lfm2.5-1.2b-instruct-q4-onnx',
       'eco-smart/webkit-mobile': 'candidate/qwen2.5-0.5b-mlc',
@@ -162,7 +162,7 @@ describe('local-ai catalog (Phase C)', () => {
     expect(model!.vendor, `${id}.vendor`).toMatch(/\S/);
     expect(model!.sizeGB, `${id}.sizeGB`).toBeGreaterThan(0);
     expect(['transformers', 'litert', 'webllm']).toContain(model!.runtime);
-    expect(['onnx-q4', 'onnx-q4f16', 'onnx-int8', 'litertlm', 'mlc-q4f16']).toContain(model!.format);
+    expect(['onnx-q4', 'onnx-q4f16', 'onnx-int8', 'litertlm', 'mlc-q4f16', 'mlc-q0f16']).toContain(model!.format);
     expect(model!.capabilities.intent.length, `${id}.capabilities.intent`).toBeGreaterThan(0);
     expect(model!.capabilities.tasks.length, `${id}.capabilities.tasks`).toBeGreaterThan(0);
     expect(model!.capabilities.contextTokens, `${id}.capabilities.contextTokens`).toBeGreaterThan(0);
@@ -211,11 +211,12 @@ describe('local-ai catalog (Phase C)', () => {
       // ModelRecord.overrides.context_window_size (see runtime/webllm-config.ts),
       // not just clamped in what Eco sends. Raising it needs a fresh on-device run.
       'candidate/qwen2.5-0.5b-mlc': 4096,
-      // The desktop-Safari MLC build of Qwen3-0.6B. MEASURED 2026-09-22 at this
-      // value in real Safari 26 (ten-turn walk, n=3, peak 4.1–5.0 GB): the engine
-      // allocates KV for the whole window via context_window_size, so the memory
-      // reading includes it. Raising it needs a fresh Safari walk.
-      'candidate/qwen3-0.6b-mlc': 16384,
+      // The desktop-Safari unquantised MLC build of Qwen3-0.6B. MEASURED 2026-09-22
+      // at this value in real Safari 26 (ten-turn walk, n=3, peak 4.39–5.84 GB; at
+      // 16384 one walk ended in a tab kill): the engine allocates KV for the whole
+      // window via context_window_size, so the memory reading includes it.
+      // Raising it needs a fresh Safari walk.
+      'candidate/qwen3-0.6b-mlc-q0f16': 4096,
       // The no-GPU CPU-EP floor models (deeper q4 Granite + lightest int8 SmolLM2).
       // Both are natively larger-context (Granite 32k / SmolLM2 8k) but capped at 4096
       // to bound the KV-cache working set on the weak, memory-tight devices this floor serves.
@@ -301,8 +302,8 @@ describe('local-ai catalog (Phase C)', () => {
     'candidate/qwen3.5-2b-onnx': 'proven',
     'candidate/gemma-4-e2b-litert': 'predicted',
     'candidate/qwen2.5-0.5b-mlc': 'predicted',
-    // Measured on one Mac in real Safari (n=3); other Macs and iPad are predicted.
-    'candidate/qwen3-0.6b-mlc': 'predicted',
+    // Measured on one Mac in real Safari (n=3); other Macs are predicted.
+    'candidate/qwen3-0.6b-mlc-q0f16': 'predicted',
     'candidate/granite-4.0-350m-onnx': 'predicted',
     'candidate/smollm2-360m-instruct-onnx': 'predicted',
     // Deeper eco-smart pick; 'predicted' pending a second-machine by-eye
