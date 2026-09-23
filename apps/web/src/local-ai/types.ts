@@ -198,6 +198,13 @@ export type ModelCompat = {
   /** If true, the verdict is `'with-warning'` on a mobile form factor. */
   warnIfMobile: boolean;
   /**
+   * Declined on any mobile form factor (`isMobile`: a phone or tablet, in any
+   * browser). Set on the models larger than the 1.2B so a phone on Android
+   * Chromium is offered nothing bigger — a precautionary owner ruling, not a
+   * measurement. Absent means "no mobile decline" (`warnIfMobile` still applies).
+   */
+  declineOnMobile?: boolean;
+  /**
    * Restricts the model to iOS/WebKit-mobile devices: any other profile —
    * desktop (Chromium/Safari/Firefox), Android, or the UA-stripped `'mobile'`
    * class — is `'unsupported'`. Absent means "no form-factor restriction."
@@ -314,6 +321,9 @@ export type ModelQuirks = {
  *   - `laptop`        WebGPU without `shader-f16`, Chromium: the plain-int4 /
  *                      LiteRT builds.
  *   - `phone`         no WebGPU at all (ort-web CPU EP): the `requireWasmOnly` picks.
+ *                      Despite the name this is a capability rung, not a form
+ *                      factor: a phone WITH WebGPU walks the same rungs as a
+ *                      laptop, minus the models `compat.declineOnMobile` declines.
  *   - `safari-desktop` desktop Safari with WebGPU (`allowedBrowsers: ['safari']`
  *                      + `requireWebgpu`; iOS never reaches it because the
  *                      WebKit-mobile gate declines every model without

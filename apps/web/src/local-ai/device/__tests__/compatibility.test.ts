@@ -448,19 +448,67 @@ describe('device/compatibility — WebKit-mobile gate (D1 designed tier)', () =>
     }
   });
 
-  it('does NOT gate Android Chrome — chromium+mobile keeps serving with-warning', () => {
-    // The regression net for the Android guard: Android is not implicated and
-    // must keep serving. qwen3-0.6b (warnIfMobile: false) stays 'supported';
-    // a warn-on-mobile model stays offerable as 'with-warning'.
+  it('does NOT apply the WebKit gate to Android Chrome — chromium+mobile keeps serving', () => {
+    // The regression net for the Android guard: the WebKit load crash does not
+    // apply there. qwen3-0.6b (warnIfMobile: false) stays 'supported'; the 1.2B
+    // (warn-on-mobile) stays offerable as 'with-warning'. Models larger than the
+    // 1.2B are declined by the separate mobile cap, not by this gate.
     expect(isCompatible(model('local/qwen3-0.6b'), androidChrome)).toBe('supported');
-    expect(isCompatible(model('candidate/qwen3.5-2b-onnx'), androidChrome)).toBe('with-warning');
-    expect(isAssignable(model('candidate/qwen3.5-2b-onnx'), androidChrome)).toBe(true);
+    expect(isCompatible(model('candidate/lfm2.5-1.2b-instruct-onnx'), androidChrome)).toBe('with-warning');
+    expect(isAssignable(model('candidate/lfm2.5-1.2b-instruct-onnx'), androidChrome)).toBe(true);
   });
 
   it('lists exactly the WebKit-mobile-validated model ids', () => {
     // The WebLLM/MLC Qwen2.5-0.5B pick graduated here after a real-iPhone pass;
     // every ONNX build still crash-loops on load and stays off the list.
     expect(WEBKIT_MOBILE_VALIDATED_MODEL_IDS).toEqual(['candidate/qwen2.5-0.5b-mlc']);
+  });
+});
+
+// Owner ruling 2026-09-22: a phone on Android Chromium is offered nothing larger
+// than the 1.2B. PREDICTED, not measured — no Android device has been tested; the
+// cap is precautionary, since Chrome caps reported memory at 8 GB and a phone
+// reading 8 cannot be told from a laptop.
+describe('device/compatibility — mobile Chromium is capped at the 1.2B', () => {
+  const ONE_POINT_TWO_B_IDS = [
+    'candidate/lfm2.5-1.2b-instruct-onnx',
+    'candidate/lfm2.5-1.2b-instruct-q4-onnx',
+  ];
+  const capGB = Math.max(...ONE_POINT_TWO_B_IDS.map((id) => model(id).sizeGB));
+  const mobileChromium = (overrides: Partial<DeviceProfile>): DeviceProfile => ({
+    browserClass: 'chromium',
+    webgpuSupport: 'webgpu',
+    deviceMemoryGB: 8,
+    isMobile: true,
+    override: 'auto',
+    ...overrides,
+  });
+
+  it('declines every model larger than the 1.2B, at any memory and f16 status', () => {
+    for (const webgpuShaderF16 of [true, false, undefined]) {
+      for (const deviceMemoryGB of [0, 4, 8]) {
+        const profile = mobileChromium({ webgpuShaderF16, deviceMemoryGB });
+        for (const m of getCatalog()) {
+          if (m.sizeGB <= capGB || ONE_POINT_TWO_B_IDS.includes(m.id)) continue;
+          expect(
+            isAssignable(m, profile),
+            `${m.id} must decline on ${JSON.stringify(profile)}`,
+          ).toBe(false);
+        }
+      }
+    }
+  });
+
+  it('keeps the 1.2B build that matches the adapter f16 status', () => {
+    expect(isAssignable(model('candidate/lfm2.5-1.2b-instruct-onnx'), mobileChromium({ webgpuShaderF16: true }))).toBe(true);
+    expect(isAssignable(model('candidate/lfm2.5-1.2b-instruct-q4-onnx'), mobileChromium({ webgpuShaderF16: false }))).toBe(true);
+  });
+
+  it('leaves the larger models assignable on desktop Chromium', () => {
+    const desktop = mobileChromium({ isMobile: false, webgpuShaderF16: true });
+    expect(isAssignable(model('candidate/lfm2-2.6b-onnx'), desktop)).toBe(true);
+    expect(isAssignable(model('candidate/gemma-4-e2b-litert'), desktop)).toBe(true);
+    expect(isAssignable(model('candidate/qwen3.5-2b-onnx'), desktop)).toBe(true);
   });
 });
 

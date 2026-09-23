@@ -37,6 +37,8 @@ import type { DeviceProfile } from '../../types';
 
 const ORIGINAL_USER_AGENT = navigator.userAgent;
 const ORIGINAL_LOCATION_SEARCH = window.location.search;
+const MAC_SAFARI_UA =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15';
 
 function setUserAgent(value: string): void {
   Object.defineProperty(navigator, 'userAgent', {
@@ -70,6 +72,13 @@ function setGpu(value: unknown): void {
   });
 }
 
+function setMaxTouchPoints(value: number): void {
+  Object.defineProperty(navigator, 'maxTouchPoints', {
+    value,
+    configurable: true,
+  });
+}
+
 function setSearch(value: string): void {
   window.history.replaceState({}, '', `/${value}`);
 }
@@ -79,6 +88,7 @@ beforeEach(() => {
   setSearch(ORIGINAL_LOCATION_SEARCH);
   setGpu(undefined);
   setDeviceMemory(undefined);
+  setMaxTouchPoints(0);
   resetProbedWebgpuCapability();
   _resetGpuEnvelopeForTesting();
 });
@@ -88,6 +98,7 @@ afterEach(() => {
   setSearch(ORIGINAL_LOCATION_SEARCH);
   setGpu(undefined);
   setDeviceMemory(undefined);
+  setMaxTouchPoints(0);
   resetProbedWebgpuCapability();
   _resetGpuEnvelopeForTesting();
   vi.restoreAllMocks();
@@ -159,6 +170,34 @@ describe('getDeviceProfile — detection from navigator', () => {
 
     expect(profile.isMobile).toBe(true);
     expect(profile.deviceMemoryGB).toBe(4);
+  });
+
+  // iPadOS Safari sends the desktop Mac user agent by default, so the UA alone
+  // reads an iPad as a Mac. A Mac reports no touch points; an iPad reports 5.
+  it('detects an iPad behind the desktop Mac Safari UA by its touch points', () => {
+    setUserAgent(MAC_SAFARI_UA);
+    setMaxTouchPoints(5);
+
+    const profile = getDeviceProfile();
+
+    expect(profile.browserClass).toBe('safari');
+    expect(profile.isMobile).toBe(true);
+  });
+
+  it('keeps a desktop Mac Safari (no touch points) on the desktop path', () => {
+    setUserAgent(MAC_SAFARI_UA);
+    setMaxTouchPoints(0);
+
+    expect(getDeviceProfile().isMobile).toBe(false);
+  });
+
+  it('does not read a touch-capable Mac UA in Chrome as an iPad', () => {
+    setUserAgent(
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
+    );
+    setMaxTouchPoints(5);
+
+    expect(getDeviceProfile().isMobile).toBe(false);
   });
 
   it('returns deviceMemoryGB = 0 when navigator.deviceMemory is undefined', () => {
@@ -237,6 +276,14 @@ describe('getDeviceProfile — URL-param overrides', () => {
 
     const profile = getDeviceProfile();
     expect(profile.isMobile).toBe(false);
+  });
+
+  it('honors ?eco-force-platform=desktop on an iPad (Mac UA with touch points)', () => {
+    setUserAgent(MAC_SAFARI_UA);
+    setMaxTouchPoints(5);
+    setSearch('?eco-force-platform=desktop');
+
+    expect(getDeviceProfile().isMobile).toBe(false);
   });
 
   it('ignores invalid memory values and falls back to navigator.deviceMemory', () => {

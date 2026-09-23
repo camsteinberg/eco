@@ -21,6 +21,7 @@ import { isAssignable } from '../../device/compatibility';
 import { CURRENT_LEDGER_VERSION, FAILURE_EVIDENCE_VALID_FROM, profileKey } from '../../evidence/ledger';
 import { canServe, listCandidates, listCatalog, NoAssignableModelError, recommend, starterModelForSlot, tierDefaultModelId } from '../recommend';
 import { isBelowFloor } from '../../device/below-floor';
+import { getDeviceProfile } from '../../device/profile';
 import { dedupeByDisplayName } from '../../display';
 import { deriveFirstRunChoices } from '../first-run-choices';
 import type {
@@ -1092,10 +1093,12 @@ describe('recommend — desktop Safari routes to the MLC Qwen3 build, every othe
       fast: 'candidate/lfm2.5-1.2b-instruct-q4-onnx',
       smart: 'candidate/gemma-4-e2b-litert',
     },
+    // eco-smart falls to the floor since the mobile 1.2B cap (owner ruling
+    // 2026-09-22); the welcome card's step-up guard leaves the 1.2B as one tile.
     androidChrome: {
       profile: { browserClass: 'chromium', webgpuSupport: 'webgpu', deviceMemoryGB: 8, isMobile: true, override: 'auto', webgpuShaderF16: true },
       fast: 'candidate/lfm2.5-1.2b-instruct-onnx',
-      smart: 'candidate/lfm2-2.6b-onnx',
+      smart: 'local/qwen3-0.6b',
     },
     firefoxWebgpu: {
       profile: { browserClass: 'firefox', webgpuSupport: 'webgpu', deviceMemoryGB: 0, isMobile: false, override: 'auto', webgpuShaderF16: true },
@@ -1174,5 +1177,80 @@ describe('recommend — tier walk is the only ranking mechanism (no scorer, pinn
       }
     }
     expect(checked).toBeGreaterThan(0);
+  });
+});
+
+// Owner ruling 2026-09-22 (PREDICTED — no Android device measured): a phone on
+// Android Chromium gets the 1.2B and nothing larger, as ONE welcome tile. The
+// eco-smart slot falls through to a model no larger than the 1.2B, so the
+// welcome card's step-up guard leaves a single tile — the same shape a 4 GB
+// desktop already gets.
+describe('recommend — mobile Chromium is capped at the 1.2B, one welcome tile', () => {
+  const mobileChromium = (overrides: Partial<DeviceProfile>): DeviceProfile => ({
+    browserClass: 'chromium',
+    webgpuSupport: 'webgpu',
+    deviceMemoryGB: 8,
+    isMobile: true,
+    override: 'auto',
+    ...overrides,
+  });
+  const cases = [
+    { f16: true, expected: 'candidate/lfm2.5-1.2b-instruct-onnx' },
+    { f16: false, expected: 'candidate/lfm2.5-1.2b-instruct-q4-onnx' },
+  ] as const;
+
+  for (const { f16, expected } of cases) {
+    it(`shader-f16 ${f16 ? 'present' : 'absent'}: the one tile is ${expected}, and nothing larger is listed`, () => {
+      const capGB = getModel(expected)!.sizeGB;
+      for (const deviceMemoryGB of [0, 4, 8]) {
+        const profile = mobileChromium({ webgpuShaderF16: f16, deviceMemoryGB });
+        const label = JSON.stringify(profile);
+        expect(recommend('eco-fast', profile).id, label).toBe(expected);
+        const offer = deriveFirstRunChoices('eco-fast', profile);
+        expect(offer.choices.map((c) => c.model.id), label).toEqual([expected]);
+        expect(offer.recommendedId, label).toBe(expected);
+        for (const { model } of listCatalog(profile).available) {
+          expect(model.sizeGB, `${model.id} listed on ${label}`).toBeLessThanOrEqual(capGB);
+        }
+        for (const { model } of listCandidates('eco-smart', profile)) {
+          expect(model.sizeGB, `eco-smart ${model.id} on ${label}`).toBeLessThanOrEqual(capGB);
+        }
+      }
+    });
+  }
+});
+
+// Owner ruling 2026-09-22 (PREDICTED — no iPad measured): iPadOS Safari sends a
+// desktop Mac user agent, so the profile tells it from a Mac by touch support
+// and routes it exactly like an iPhone until an iPad is measured.
+describe('recommend — an iPad routes like an iPhone', () => {
+  const MAC_SAFARI_UA =
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15';
+  const originalUserAgent = navigator.userAgent;
+
+  const profileFor = (maxTouchPoints: number): DeviceProfile => {
+    Object.defineProperty(navigator, 'userAgent', { value: MAC_SAFARI_UA, configurable: true });
+    Object.defineProperty(navigator, 'maxTouchPoints', { value: maxTouchPoints, configurable: true });
+    return { ...getDeviceProfile(), webgpuSupport: 'webgpu', webgpuShaderF16: true };
+  };
+
+  afterEach(() => {
+    Object.defineProperty(navigator, 'userAgent', { value: originalUserAgent, configurable: true });
+    Object.defineProperty(navigator, 'maxTouchPoints', { value: 0, configurable: true });
+  });
+
+  it('an iPad (Mac UA with touch) gets the iPhone entry as one tile, every ONNX build declined', () => {
+    const iPad = profileFor(5);
+    expect(recommend('eco-fast', iPad).id).toBe('candidate/qwen2.5-0.5b-mlc');
+    expect(recommend('eco-smart', iPad).id).toBe('candidate/qwen2.5-0.5b-mlc');
+    expect(deriveFirstRunChoices('eco-fast', iPad).choices.map((c) => c.model.id))
+      .toEqual(['candidate/qwen2.5-0.5b-mlc']);
+    expect(listCatalog(iPad).available.map((a) => a.model.id)).toEqual(['candidate/qwen2.5-0.5b-mlc']);
+  });
+
+  it('a desktop Mac (no touch) keeps the desktop Safari entry', () => {
+    const mac = profileFor(0);
+    expect(recommend('eco-fast', mac).id).toBe('candidate/qwen3-0.6b-mlc');
+    expect(recommend('eco-smart', mac).id).toBe('candidate/qwen3-0.6b-mlc');
   });
 });
