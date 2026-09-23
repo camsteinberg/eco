@@ -1147,6 +1147,33 @@ describe('recommend — desktop Safari routes to the MLC Qwen3 build, every othe
   });
 });
 
+// The unquantised MLC build of Qwen3-0.6B is an eval-lane candidate awaiting its
+// real-Safari gate. It must not be picked, offered or listed on any device until
+// a routing change says so.
+describe('recommend — the q0f16 MLC Qwen3 candidate is never routed', () => {
+  const Q0F16_ID = 'candidate/qwen3-0.6b-mlc-q0f16';
+
+  it('is in no pick, candidate list or catalog listing on any enumerated profile', () => {
+    const slots: Slot[] = ['eco-fast', 'eco-smart'];
+    let checked = 0;
+    for (const profile of enumerateProfiles()) {
+      const label = JSON.stringify(profile);
+      for (const slot of slots) {
+        let picked: string | null = null;
+        try { picked = recommend(slot, profile).id; } catch (err) {
+          if (!(err instanceof NoAssignableModelError)) throw err;
+        }
+        expect(picked, `${slot} on ${label}`).not.toBe(Q0F16_ID);
+        expect(listCandidates(slot, profile).map((c) => c.model.id), label).not.toContain(Q0F16_ID);
+        expect(starterModelForSlot(slot, profile)?.id, label).not.toBe(Q0F16_ID);
+      }
+      expect(listCatalog(profile).available.map((a) => a.model.id), label).not.toContain(Q0F16_ID);
+      checked++;
+    }
+    expect(checked).toBeGreaterThan(0);
+  });
+});
+
 // Phase R5c deleted the six-axis fit scorer (fit-scoring.ts, predicted-fit.ts):
 // it was measured (750 profiles × 2 slots) to never change which model
 // recommend() returned. The tier walk (TIER_ORDER, best-first, first

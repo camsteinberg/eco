@@ -18,6 +18,7 @@
 import { describe, expect, it } from 'vitest';
 import { getCatalog, getModel } from '../../catalog/catalog';
 import {
+  formatRequiresShaderF16,
   hasCompatibilityRule,
   isAssignable,
   isCompatible,
@@ -320,6 +321,11 @@ describe('device/compatibility — WebGPU adapter without shader-f16', () => {
     // The gate is WebGPU-EP-specific: a wasm-only device runs f16 models on the
     // CPU WASM backend, which supports f16. qwen3-0.6b stays supported there.
     expect(isCompatible(model('local/qwen3-0.6b'), PROFILES.chromiumWasmOnly)).toBe('supported');
+  });
+
+  it('classifies both MLC builds as f16: q4f16_1 computes in f16, q0f16 stores its weights in f16', () => {
+    expect(formatRequiresShaderF16('mlc-q4f16')).toBe(true);
+    expect(formatRequiresShaderF16('mlc-q0f16')).toBe(true);
   });
 });
 
