@@ -59,7 +59,9 @@ const RULES: ReadonlyMap<string, ModelCompat> = new Map(
  * WebKit on a mobile form factor — iOS Safari, and in fact EVERY iOS browser
  * (Chrome/CriOS, Firefox/FxiOS) since they all render through WebKit and
  * classify `'safari'` + `isMobile` in `device/profile.ts`. So this predicate is
- * "iOS WebKit" exactly.
+ * "iOS WebKit" exactly. That includes an iPad sending the desktop Mac UA: the
+ * profile reads it as mobile from its touch points, so it routes like an iPhone
+ * (owner ruling 2026-09-22, PREDICTED — no iPad measured).
  *
  * Why it gates before any load: real-device testing (iPhone, iOS Safari)
  * showed every ONNX model LOAD crashes the tab in a restart loop — onnxruntime-web
@@ -72,8 +74,9 @@ const RULES: ReadonlyMap<string, ModelCompat> = new Map(
  * surface, never a crash loop.
  *
  * Scope: this is WebKit-mobile only. Android Chrome classifies `'chromium'` +
- * `isMobile` and is unaffected (it keeps serving with-warning); the UA-stripped
- * `'mobile'` class is likewise untouched.
+ * `isMobile` and is unaffected by this gate (it is capped at the 1.2B by
+ * `compat.declineOnMobile` instead); the UA-stripped `'mobile'` class is
+ * likewise untouched.
  */
 export function isWebKitMobile(profile: DeviceProfile): boolean {
   return profile.isMobile && profile.browserClass === 'safari';
@@ -219,6 +222,14 @@ export function isCompatible(model: ModelConfig, profile: DeviceProfile): Compat
   }
 
   if (!rule.allowedBrowsers.includes(profile.browserClass)) {
+    return 'unsupported';
+  }
+
+  // Mobile cap: a phone or tablet is offered nothing larger than the 1.2B. No
+  // Android device has been measured and Chrome caps reported memory at 8 GB, so
+  // a phone cannot be told from a laptop by memory — the decline is precautionary
+  // (owner ruling 2026-09-22), set per entry in `compat.declineOnMobile`.
+  if (rule.declineOnMobile && profile.isMobile) {
     return 'unsupported';
   }
 

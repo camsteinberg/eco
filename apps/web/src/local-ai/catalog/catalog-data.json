@@ -402,7 +402,8 @@
           "chromium"
         ],
         "warnIfMobile": true,
-        "_rationale": "Smart pick (chat #7 graduation). 1.40GB q4f16 weights + near-constant DeltaNet recurrent state sits between Bonsai (1.15GB, 8GB floor) and Phi-3 (2.14GB, 16GB floor); measured only on high-memory hardware, but the Bonsai precedent + the first-use smoke gate make 8GB the honest floor."
+        "declineOnMobile": true,
+        "_rationale": "Smart pick (chat #7 graduation). 1.40GB q4f16 weights + near-constant DeltaNet recurrent state sits between Bonsai (1.15GB, 8GB floor) and Phi-3 (2.14GB, 16GB floor); measured only on high-memory hardware, but the Bonsai precedent + the first-use smoke gate make 8GB the honest floor. declineOnMobile (owner ruling 2026-09-22, PREDICTED — no Android device has been measured): declined on every mobile form factor, so a phone on Android Chromium is offered nothing larger than the 1.2B. Precautionary: Chrome caps reported memory at 8 GB, so a phone reading 8 cannot be told from a laptop. On mobile this supersedes the with-warning note above; lift it only after a real Android phone is measured."
       },
       "display": {
         "friendlyName": "Eco (Qwen)",
@@ -484,7 +485,8 @@
           "chromium"
         ],
         "warnIfMobile": true,
-        "_rationale": "Gemma 4 E2B via LiteRT (the f16-less C2/C3 answer — model-offering overhaul 2026-06-29). LiteRT is WebGPU-only and Chromium-only by construction (runtime/litert-adapter.ts), so requireWebgpu + chromium. Crucially its `litertlm` format does NOT need shader-f16 (formatRequiresShaderF16 -> false), so the f16 gate keeps it ASSIGNABLE on f16-less adapters where every q4f16 model is filtered out — exactly the desktop-Intel / Adreno-Android hole it fills. 8GB floor matches Bonsai/Qwen (mmap keeps resident weights ~0.8GB of the ~1.9GB download). warnIfMobile: real Android per-tab memory is unvalidated (Track C C3 is provisional) — offered with a caveat, smoke-gated."
+        "declineOnMobile": true,
+        "_rationale": "Gemma 4 E2B via LiteRT (the f16-less C2/C3 answer — model-offering overhaul 2026-06-29). LiteRT is WebGPU-only and Chromium-only by construction (runtime/litert-adapter.ts), so requireWebgpu + chromium. Crucially its `litertlm` format does NOT need shader-f16 (formatRequiresShaderF16 -> false), so the f16 gate keeps it ASSIGNABLE on f16-less adapters where every q4f16 model is filtered out — exactly the desktop-Intel / Adreno-Android hole it fills. 8GB floor matches Bonsai/Qwen (mmap keeps resident weights ~0.8GB of the ~1.9GB download). warnIfMobile: real Android per-tab memory is unvalidated (Track C C3 is provisional) — offered with a caveat, smoke-gated. declineOnMobile (owner ruling 2026-09-22, PREDICTED — no Android device has been measured): declined on every mobile form factor, so a phone on Android Chromium is offered nothing larger than the 1.2B. Precautionary: Chrome caps reported memory at 8 GB, so a phone reading 8 cannot be told from a laptop. On mobile this supersedes the with-warning note above; lift it only after a real Android phone is measured."
       },
       "display": {
         "friendlyName": "Eco Capable (Gemma)",
@@ -914,7 +916,8 @@
           "chromium"
         ],
         "warnIfMobile": true,
-        "_rationale": "LFM2-2.6B — the graduated deeper/smart pick (model-ladder by-eye read 2026-08-10; beats the 2B on reasoning/history/code at equal speed). Same q4f16 shape and floor as the 1.2B/2B: WebGPU + shader-f16 (formatRequiresShaderF16 -> true, so it declines on f16-less adapters), an 8GB floor, Chromium-validated, with-warning on mobile."
+        "declineOnMobile": true,
+        "_rationale": "LFM2-2.6B — the graduated deeper/smart pick (model-ladder by-eye read 2026-08-10; beats the 2B on reasoning/history/code at equal speed). Same q4f16 shape and floor as the 1.2B/2B: WebGPU + shader-f16 (formatRequiresShaderF16 -> true, so it declines on f16-less adapters), an 8GB floor, Chromium-validated, with-warning on mobile. declineOnMobile (owner ruling 2026-09-22, PREDICTED — no Android device has been measured): declined on every mobile form factor, so a phone on Android Chromium is offered nothing larger than the 1.2B. Precautionary: Chrome caps reported memory at 8 GB, so a phone reading 8 cannot be told from a laptop. On mobile this supersedes the with-warning note above; lift it only after a real Android phone is measured."
       },
       "display": {
         "friendlyName": "Eco Deeper (Liquid)",

@@ -108,7 +108,7 @@ export function getDeviceProfile(): DeviceProfile {
     isMobile = false;
     override = 'user';
   } else {
-    isMobile = detectIsMobile(navigator.userAgent);
+    isMobile = detectIsMobile(navigator.userAgent, navigator.maxTouchPoints);
   }
 
   // Once setup's async adapter probe has run, prefer its verdict: the
@@ -219,8 +219,16 @@ function detectBrowserClass(userAgent: string): BrowserClass {
   return 'unknown';
 }
 
-function detectIsMobile(userAgent: string): boolean {
-  return /iphone|ipad|android|mobile|tablet/i.test(userAgent);
+function detectIsMobile(userAgent: string, maxTouchPoints: number | undefined): boolean {
+  if (/iphone|ipad|android|mobile|tablet/i.test(userAgent)) return true;
+  // iPadOS Safari sends the desktop Mac user agent by default, so the UA reads
+  // an iPad as a Mac. Touch support tells them apart: Safari on a Mac reports
+  // `maxTouchPoints` 0, an iPad reports 5. (Documented browser behaviour, not
+  // measured on a device here.) An iPad then routes like an iPhone.
+  return detectBrowserClass(userAgent) === 'safari'
+    && /macintosh/i.test(userAgent)
+    && typeof maxTouchPoints === 'number'
+    && maxTouchPoints > 1;
 }
 
 const PROBE_TIMEOUT_MS = 4_000;

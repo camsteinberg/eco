@@ -254,7 +254,7 @@ function assertCompat(value: unknown, id: string): void {
   }
   for (const key of [
     'requireWasmOnly', 'requireWebKitMobile', 'webkitMobileValidated',
-    'cpuEpIncompatible', 'requireNoShaderF16',
+    'cpuEpIncompatible', 'requireNoShaderF16', 'declineOnMobile',
   ] as const) {
     if (value[key] !== undefined) assertBoolean(value[key], id, `compat.${key}`);
   }
