@@ -1244,6 +1244,151 @@
           "gemma-4-E4B-it-web.litertlm"
         ]
       }
+    },
+    {
+      "id": "candidate/qwen3-0.6b-mlc-q0f16",
+      "shipping": false,
+      "tier": {},
+      "_laneNote": "Candidate for desktop Safari: the same Qwen3-0.6B as `candidate/qwen3-0.6b-mlc` (the shipping desktop-Safari pick), on the same runtime, but MLC's unquantised build (q0f16: f16 weights, no 4-bit step) instead of q4f16_1. It passed the real-Safari memory walk at a 4096-token window on one Mac; its known-answer quality has been measured in Chrome, not yet in Safari. It sits in the eval lane so the diagnostics harness can provision it by id while no device is routed to it. Every block a shipping entry owes is already here and equal to the sibling's except the artifact, size, copy and context window (4096 here, 16384 on the sibling; see `_provenance['capabilities.contextTokens']`), so a routing change is the `shipping` flip plus a `tier` rung. NOTE: the eval lane does not read this entry's `generation` or `maxNewTokens` — its sampling resolves from the id-keyed eval-lane rows in lib/chat-intent.ts and lib/local-model-generation-profiles.ts, which eval-candidates.test.ts pins equal to the sibling's, intent by intent.",
+      "_provenance": {
+        "evidenceTier": "Stays 'predicted': one Mac, and no known-answer run in Safari yet. MEASURED 2026-09-22 in Chrome, known-answer set (38 questions, 5 samples per question, each question sampled with the production profile for its intent, confirmed in every row's recorded generation options): this build scored 0.758; the original Qwen/Qwen3-0.6B in PyTorch fp32, given the same messages and sampling, scored 0.763, a paired difference of -0.005 [95% bootstrap -0.07, +0.05]. On the same set the shipping q4f16_1 build scored 0.566 and the ONNX q4f16 build 0.663; this build is +0.19 [+0.05, +0.34] over the q4f16_1 build and +0.10 [+0.04, +0.15] over the ONNX build (paired bootstrap over questions, 95% intervals). MEASURED the same day: the MLC runtime is faithful to the original — identical prefilled token ids, and simulating symmetric int4 group-32 quantisation on the original weights reproduces the q4f16_1 build's first-token logits — so the q4f16_1 build's loss is the 4-bit quantisation, and this build's first-token logits match the original's. PREDICTED, not measured: known-answer quality in Safari. Falsifier: a real-Safari known-answer run materially below 0.758, or any Safari walk that ends in a tab kill.",
+        "sizeGB": "MEASURED from the Hugging Face API at the pinned revision (2026-09-22): the 35 listed files total 1,208,073,413 bytes = 1.21 GB decimal (1.13 GiB), of which the 29 weight shards are 1,192,099,840 bytes (0.86 GB more than the q4f16_1 build's nine). About 3.4 times the q4f16_1 build's download. PREDICTED, not measured: how long that download takes on a slow connection.",
+        "capabilities.contextTokens": "MEASURED at 4096 in real Safari 26 on one Apple Silicon Mac (2026-09-22, ten-turn budgeting chat, n=3 at each window size). At the sibling's 16384 this build failed the memory gate (every walk completes and peaks below 7 GB): Safari killed one walk (ExceededMemoryLimit) at turn 1 after 5.2 GB at setup, and the other two peaked at 7.08 and 5.6 GB. At 4096 all three walks completed, peaking at 5.84, 4.39 and 4.48 GB (4.2–4.4 GB after setup); the rent was recalled at turn 10 in 3/3, one reply opening repeated in 30 turns, and time to first token at turn 10 was 1.5–2.7 s (4.7–4.9 s at 16384). Why the window and not the weights: the KV cache is f16 in both builds, about 115 KB per token (28 layers × 8 KV heads × 128 head dim × key and value × 2 bytes), so about 1.9 GB at 16384 and 0.47 GB at 4096; the footprint after setup measured about 1 GB lower at 4096. A ten-turn chat used about 1.5k prompt tokens, and the history window gets 4096 minus the 512-token reply reserve minus the system prompt. PREDICTED, not measured: other Macs and iPad. Falsifier: a desktop-Safari walk at 4096 that ends in a tab kill, or a peak within 1 GB of Safari's ~8 GB kill line.",
+        "compat": "INHERITED from `candidate/qwen3-0.6b-mlc` unchanged. MEASURED peak Safari footprint at the 4096 window, one Mac: 4.39–5.84 GB against Safari's ~8 GB per-tab kill (see capabilities.contextTokens). PREDICTED, not measured: other Apple Silicon Macs, Intel Macs and iPad (which, as for the sibling, classifies as desktop Safari).",
+        "maxNewTokens.ceiling": "INHERITED from `candidate/qwen3-0.6b-mlc` (MEASURED there at 512): same model, same runtime, so the same reply ceiling.",
+        "tier": "Empty on purpose: not a default anywhere, and `shipping: false` keeps it out of `getCatalog()` entirely. A routing change is a separate, gated decision."
+      },
+      "friendlyName": "Qwen3 0.6B (MLC, unquantised)",
+      "vendor": "Alibaba",
+      "sizeGB": 1.21,
+      "runtime": "webllm",
+      "format": "mlc-q0f16",
+      "capabilities": {
+        "intent": [
+          "snappy",
+          "balanced"
+        ],
+        "tasks": [
+          "chat",
+          "writing",
+          "reasoning"
+        ],
+        "contextTokens": 4096
+      },
+      "generation": {
+        "temperature": 0.6,
+        "topP": 0.95,
+        "topK": 20,
+        "repetitionPenalty": 1.08,
+        "intentOverrides": {
+          "quick": {
+            "temperature": 0.32,
+            "topP": 0.78,
+            "repetitionPenalty": 1.06
+          },
+          "explain": {
+            "temperature": 0.42,
+            "topP": 0.84,
+            "repetitionPenalty": 1.06
+          },
+          "code": {
+            "temperature": 0.2,
+            "topP": 0.8
+          },
+          "writing": {
+            "temperature": 0.48,
+            "topP": 0.84,
+            "repetitionPenalty": 1.09
+          }
+        }
+      },
+      "maxNewTokens": {
+        "ceiling": 512,
+        "default": 1024,
+        "max": 4096,
+        "intentTokens": {
+          "quick": 1024,
+          "explain": 1536,
+          "deep": 2048,
+          "code": 2048,
+          "writing": 1536,
+          "file": 2048,
+          "research": 2048
+        }
+      },
+      "compat": {
+        "requireWebgpu": true,
+        "minDeviceMemoryGB": 4,
+        "allowedBrowsers": [
+          "safari"
+        ],
+        "warnIfMobile": false,
+        "_rationale": "The same device rules as `candidate/qwen3-0.6b-mlc`, so a routing change needs no new scoping: `allowedBrowsers: ['safari']` keeps it off Chromium, Firefox, 'mobile' and 'unknown'; the WebKit-mobile gate keeps it off iPhone (no `webkitMobileValidated`); requireWebgpu holds because the MLC engine is WebGPU-only; and its f16 weights need shader-f16 (`formatRequiresShaderF16('mlc-q0f16')`), so an f16-less adapter declines it. None of this is consulted while the entry is in the eval lane — the harness loads it by id."
+      },
+      "display": {
+        "friendlyName": "Eco Compact (Qwen)",
+        "qualityPhrase": "Made for Safari on Mac · uncompressed, larger download",
+        "provider": "Alibaba",
+        "_rationale": "The same Qwen3-0.6B as Eco Compact, so the same name; if it ever replaces the q4f16_1 build in Safari, dedupeByDisplayName shows one row, as it does for the ONNX and MLC builds today."
+      },
+      "quirks": {
+        "webllmModelLibFile": "Qwen3-0.6B-q0f16_cs1k-webgpu.wasm",
+        "hasThinkingMode": true
+      },
+      "bestFor": "Quick chat, short explanations and light writing in Safari on a Mac — the same small model as Eco Compact, left uncompressed so it gets more facts right, for a download more than three times the size.",
+      "knownLimitation": "A small model: answers are brief, and facts can still be wrong. The download is about 1.2 GB, and to fit in Safari's memory it keeps a shorter conversation window than Eco Compact, so in a long chat it loses the earliest messages sooner.",
+      "evidenceTier": "predicted",
+      "systemRoleSupport": "native",
+      "license": {
+        "spdx": "Apache-2.0",
+        "name": "Apache License 2.0",
+        "url": "https://www.apache.org/licenses/LICENSE-2.0",
+        "upstreamRepo": "Qwen/Qwen3-0.6B",
+        "confirmed": true,
+        "textFile": "apache-2.0.txt",
+        "artifactLicenseFile": null
+      },
+      "artifact": {
+        "hfId": "mlc-ai/Qwen3-0.6B-q0f16-MLC",
+        "revision": "2d6c15b9dd8b99e021d978ada68faebbcfc12bb9",
+        "files": [
+          "params_shard_0.bin",
+          "params_shard_1.bin",
+          "params_shard_2.bin",
+          "params_shard_3.bin",
+          "params_shard_4.bin",
+          "params_shard_5.bin",
+          "params_shard_6.bin",
+          "params_shard_7.bin",
+          "params_shard_8.bin",
+          "params_shard_9.bin",
+          "params_shard_10.bin",
+          "params_shard_11.bin",
+          "params_shard_12.bin",
+          "params_shard_13.bin",
+          "params_shard_14.bin",
+          "params_shard_15.bin",
+          "params_shard_16.bin",
+          "params_shard_17.bin",
+          "params_shard_18.bin",
+          "params_shard_19.bin",
+          "params_shard_20.bin",
+          "params_shard_21.bin",
+          "params_shard_22.bin",
+          "params_shard_23.bin",
+          "params_shard_24.bin",
+          "params_shard_25.bin",
+          "params_shard_26.bin",
+          "params_shard_27.bin",
+          "params_shard_28.bin",
+          "tensor-cache.json",
+          "mlc-chat-config.json",
+          "tokenizer.json",
+          "tokenizer_config.json",
+          "vocab.json",
+          "merges.txt"
+        ]
+      }
     }
   ]
 }

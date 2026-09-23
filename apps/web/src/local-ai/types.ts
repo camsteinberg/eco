@@ -371,7 +371,8 @@ export type ModelConfig = {
   vendor: string;
   sizeGB: number;
   runtime: ModelRuntime;
-  format: 'onnx-q4' | 'onnx-q4f16' | 'onnx-q2f16' | 'onnx-int8' | 'litertlm' | 'mlc-q4f16';
+  format:
+    'onnx-q4' | 'onnx-q4f16' | 'onnx-q2f16' | 'onnx-int8' | 'litertlm' | 'mlc-q4f16' | 'mlc-q0f16';
   capabilities: {
     intent: Intent[];
     tasks: ('chat' | 'code' | 'writing' | 'reasoning')[];

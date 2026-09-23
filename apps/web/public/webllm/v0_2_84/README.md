@@ -33,6 +33,18 @@ directory and updating `WEBLLM_MODEL_LIB_VERSION` in
   Apache-2.0. Serves the Qwen3-0.6B q4f16 MLC build (`candidate/qwen3-0.6b-mlc`),
   the desktop-Safari pick.
 
+### `Qwen3-0.6B-q0f16_cs1k-webgpu.wasm`
+
+- Source: <https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/web-llm-models/v0_2_84/base/Qwen3-0.6B-q0f16_cs1k-webgpu.wasm>
+- Size: 5,392,341 bytes
+- sha256: `5e9726c94a760986cc356a3213aeded03cf1ece982c716cd197a9179fb252bee`
+- Integrity: git blob sha (`895bc757692391fbdc4c25cd171e418e474a3f96`) verified
+  identical to the upstream repository's blob metadata at vendoring time.
+- Upstream project: [mlc-ai/binary-mlc-llm-libs](https://github.com/mlc-ai/binary-mlc-llm-libs),
+  Apache-2.0. Serves the unquantised (q0f16) Qwen3-0.6B MLC build
+  (`candidate/qwen3-0.6b-mlc-q0f16`), an eval-lane candidate that is not
+  offered to users.
+
 ## Re-verifying
 
 ```sh
@@ -43,4 +55,8 @@ gh api "repos/mlc-ai/binary-mlc-llm-libs/contents/web-llm-models/v0_2_84/base/Qw
 shasum -a 256 Qwen3-0.6B-q4f16_1_cs1k-webgpu.wasm
 git hash-object Qwen3-0.6B-q4f16_1_cs1k-webgpu.wasm
 gh api "repos/mlc-ai/binary-mlc-llm-libs/contents/web-llm-models/v0_2_84/base/Qwen3-0.6B-q4f16_1_cs1k-webgpu.wasm?ref=main" --jq .sha
+
+shasum -a 256 Qwen3-0.6B-q0f16_cs1k-webgpu.wasm
+git hash-object Qwen3-0.6B-q0f16_cs1k-webgpu.wasm
+gh api "repos/mlc-ai/binary-mlc-llm-libs/contents/web-llm-models/v0_2_84/base/Qwen3-0.6B-q0f16_cs1k-webgpu.wasm?ref=main" --jq .sha
 ```

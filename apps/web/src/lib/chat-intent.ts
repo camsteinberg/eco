@@ -98,6 +98,15 @@ const CHAT_INTENT_MODEL_DATA: Record<string, ChatIntentModelSlice> = {
       },
     },
   },
+  // The unquantised (q0f16) MLC build of Qwen3-0.6B, awaiting its real-Safari
+  // gate: same qwen3 family / fast tier / 512 ceiling as the shipping
+  // candidate/qwen3-0.6b-mlc, so a harness run samples exactly as that entry does.
+  "candidate/qwen3-0.6b-mlc-q0f16": {
+    id: "candidate/qwen3-0.6b-mlc-q0f16",
+    family: "qwen3",
+    qualityTier: "fast",
+    maxNewTokens: { webgpu: 512 },
+  },
   // ─── Chat #7 M2 bake-off candidates (2026-06-10, dev-only lane) ───────
   // The gemma4 entries carry no `family`: it is optional on the slice and
   // exists only to reach the eval-lane family fallback, which they never use —
