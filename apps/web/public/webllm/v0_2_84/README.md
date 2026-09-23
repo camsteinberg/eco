@@ -31,7 +31,8 @@ directory and updating `WEBLLM_MODEL_LIB_VERSION` in
   identical to the upstream repository's blob metadata at vendoring time.
 - Upstream project: [mlc-ai/binary-mlc-llm-libs](https://github.com/mlc-ai/binary-mlc-llm-libs),
   Apache-2.0. Serves the Qwen3-0.6B q4f16 MLC build (`candidate/qwen3-0.6b-mlc`),
-  the desktop-Safari pick.
+  an eval-lane comparison build that is not offered to users (it was the
+  desktop-Safari pick until the unquantised build replaced it).
 
 ### `Qwen3-0.6B-q0f16_cs1k-webgpu.wasm`
 
@@ -42,8 +43,7 @@ directory and updating `WEBLLM_MODEL_LIB_VERSION` in
   identical to the upstream repository's blob metadata at vendoring time.
 - Upstream project: [mlc-ai/binary-mlc-llm-libs](https://github.com/mlc-ai/binary-mlc-llm-libs),
   Apache-2.0. Serves the unquantised (q0f16) Qwen3-0.6B MLC build
-  (`candidate/qwen3-0.6b-mlc-q0f16`), an eval-lane candidate that is not
-  offered to users.
+  (`candidate/qwen3-0.6b-mlc-q0f16`), the desktop-Safari pick.
 
 ## Re-verifying
 

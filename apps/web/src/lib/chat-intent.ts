@@ -98,11 +98,12 @@ const CHAT_INTENT_MODEL_DATA: Record<string, ChatIntentModelSlice> = {
       },
     },
   },
-  // The unquantised (q0f16) MLC build of Qwen3-0.6B, awaiting its real-Safari
-  // gate: same qwen3 family / fast tier / 512 ceiling as the shipping
-  // candidate/qwen3-0.6b-mlc, so a harness run samples exactly as that entry does.
-  "candidate/qwen3-0.6b-mlc-q0f16": {
-    id: "candidate/qwen3-0.6b-mlc-q0f16",
+  // The 4-bit (q4f16_1) MLC build of Qwen3-0.6B, kept as the comparison build
+  // for the quantisation gap: same qwen3 family / fast tier / 512 ceiling as the
+  // shipping candidate/qwen3-0.6b-mlc-q0f16, so a harness run samples exactly as
+  // that entry does.
+  "candidate/qwen3-0.6b-mlc": {
+    id: "candidate/qwen3-0.6b-mlc",
     family: "qwen3",
     qualityTier: "fast",
     maxNewTokens: { webgpu: 512 },

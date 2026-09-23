@@ -241,10 +241,10 @@ const GEMMA4_LITERT_GEN: GenerationProfileSlice = {
 const PROFILE_BY_MODEL_ID: Record<string, GenerationProfileSlice> = {
   // Phase-2 eval candidate.
   "candidate/qwen3-1.7b-onnx": QWEN_GEN,
-  // The unquantised MLC build of Qwen3-0.6B. QWEN_GEN is equal to the shipping
-  // candidate/qwen3-0.6b-mlc entry's catalog sampling and budgets
-  // (eval-candidates.test.ts pins it intent by intent).
-  "candidate/qwen3-0.6b-mlc-q0f16": QWEN_GEN,
+  // The 4-bit MLC build of Qwen3-0.6B (the comparison build). QWEN_GEN is equal
+  // to the shipping candidate/qwen3-0.6b-mlc-q0f16 entry's catalog sampling and
+  // budgets (eval-candidates.test.ts pins it intent by intent).
+  "candidate/qwen3-0.6b-mlc": QWEN_GEN,
   // Chat #7 M2 bake-off candidates. The qwen3.5-4b shares the Qwen3.5 family
   // rec, so it rides the same slice as the shipping 2B (top_p 0.8
   // tail-narrowing, CJK suppression). Gemma 4 gets its own vendor-anchored slice.

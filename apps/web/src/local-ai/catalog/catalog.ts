@@ -22,9 +22,10 @@
  *   7. candidate/lfm2-2.6b-onnx    — LFM2 2.6B   (capable-laptop; the graduated DEEPER
  *                                    eco-smart pick, 2026-08-10 — 'predicted' pending a
  *                                    second-machine by-eye validation)
- *   8. candidate/qwen3-0.6b-mlc    — Qwen3 0.6B  (WebLLM/MLC; the desktop-Safari pick —
- *                                    the same weights as #1 on a runtime that stays well
- *                                    inside Safari's per-tab memory limit)
+ *   8. candidate/qwen3-0.6b-mlc-q0f16 — Qwen3 0.6B (WebLLM/MLC, unquantised; the
+ *                                    desktop-Safari pick — the same weights as #1 on a
+ *                                    runtime that stays inside Safari's per-tab memory
+ *                                    limit, without the 4-bit build's accuracy loss)
  *
  * SmolLM2 (WebLLM/MLC) was retired 2026-07-10 and Bonsai 2026-07-11 — see the
  * retirement migrations in lifecycle/self-heal.ts and CHANGES.md.
@@ -90,7 +91,8 @@ const SLOTS: readonly Slot[] = ['eco-fast', 'eco-smart'];
  * The tier ladder, best rung first. `selection/recommend.ts` walks it in this
  * order, so the array IS the fallback order — see {@link ModelTierAssignment}.
  * `light` and `webkit-mobile` were added in R5c when the fit scorer was
- * deleted, `safari-desktop` when desktop Safari moved to the MLC runtime (see
+ * deleted, `safari-desktop` when desktop Safari moved to the MLC runtime (its
+ * occupant is now the unquantised MLC build of Qwen3-0.6B; see
  * `ModelTier`'s doc comment for what each rung means).
  */
 export const TIER_ORDER: readonly ModelTier[] =

@@ -327,7 +327,10 @@ export type ModelQuirks = {
  *   - `safari-desktop` desktop Safari with WebGPU (`allowedBrowsers: ['safari']`
  *                      + `requireWebgpu`; iOS never reaches it because the
  *                      WebKit-mobile gate declines every model without
- *                      `webkitMobileValidated`). Ordered BEFORE `floor`: the
+ *                      `webkitMobileValidated`, and an iPad is classed as
+ *                      mobile by its touch points). Its occupant is the
+ *                      unquantised MLC build of Qwen3-0.6B
+ *                      (`candidate/qwen3-0.6b-mlc-q0f16`). Ordered BEFORE `floor`: the
  *                      floor's ONNX build runs in Safari too, but at a memory
  *                      footprint close to Safari's per-tab kill, so this
  *                      rung's occupant must win wherever it is assignable.

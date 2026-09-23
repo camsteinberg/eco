@@ -187,8 +187,14 @@ function promotePreferred<T extends { model: { id: string } }>(
  * default (0.76GB) fits; a larger class-best (e.g. Gemma 4 LiteRT, 1.87GB, on
  * f16-less adapters) does not, so those devices still get a small instant-start
  * rung instead of a multi-minute first download.
+ *
+ * 1.25 rather than 1.0 because of the desktop-Safari pick, the unquantised
+ * Qwen3-0.6B MLC build, at 1.21 GB: under 1.0 its step-down on desktop Safari
+ * was LFM2.5-350M, the extraction model the fix below already calls a
+ * wrong-type first impression. The larger class-best picks (1.65 GB, 1.87 GB)
+ * still step down.
  */
-export const STARTER_MAX_SIZE_GB = 1.0;
+export const STARTER_MAX_SIZE_GB = 1.25;
 
 /**
  * Instant-start Stage A pick (slice 2b): the fastest trustworthy path to a

@@ -5540,8 +5540,8 @@
     ]
   },
   {
-    "key": "candidate/qwen3-0.6b-mlc|closed-fact|none|send",
-    "modelId": "candidate/qwen3-0.6b-mlc",
+    "key": "candidate/qwen3-0.6b-mlc-q0f16|closed-fact|none|send",
+    "modelId": "candidate/qwen3-0.6b-mlc-q0f16",
     "conversation": "closed-fact",
     "customInstructions": "none",
     "path": "send",
@@ -5557,7 +5557,7 @@
             "content": "what is the capital of France"
           }
         ],
-        "modelId": "candidate/qwen3-0.6b-mlc",
+        "modelId": "candidate/qwen3-0.6b-mlc-q0f16",
         "options": {
           "max_new_tokens": 512,
           "temperature": 0.32,
@@ -5569,8 +5569,8 @@
     ]
   },
   {
-    "key": "candidate/qwen3-0.6b-mlc|closed-fact|set|send",
-    "modelId": "candidate/qwen3-0.6b-mlc",
+    "key": "candidate/qwen3-0.6b-mlc-q0f16|closed-fact|set|send",
+    "modelId": "candidate/qwen3-0.6b-mlc-q0f16",
     "conversation": "closed-fact",
     "customInstructions": "set",
     "path": "send",
@@ -5586,7 +5586,7 @@
             "content": "what is the capital of France"
           }
         ],
-        "modelId": "candidate/qwen3-0.6b-mlc",
+        "modelId": "candidate/qwen3-0.6b-mlc-q0f16",
         "options": {
           "max_new_tokens": 512,
           "temperature": 0.32,
@@ -5598,8 +5598,8 @@
     ]
   },
   {
-    "key": "candidate/qwen3-0.6b-mlc|open-explain|none|send",
-    "modelId": "candidate/qwen3-0.6b-mlc",
+    "key": "candidate/qwen3-0.6b-mlc-q0f16|open-explain|none|send",
+    "modelId": "candidate/qwen3-0.6b-mlc-q0f16",
     "conversation": "open-explain",
     "customInstructions": "none",
     "path": "send",
@@ -5615,7 +5615,7 @@
             "content": "how does a heat pump actually work, and is it worth it in an old house"
           }
         ],
-        "modelId": "candidate/qwen3-0.6b-mlc",
+        "modelId": "candidate/qwen3-0.6b-mlc-q0f16",
         "options": {
           "max_new_tokens": 512,
           "temperature": 0.42,
@@ -5627,8 +5627,8 @@
     ]
   },
   {
-    "key": "candidate/qwen3-0.6b-mlc|open-explain|set|send",
-    "modelId": "candidate/qwen3-0.6b-mlc",
+    "key": "candidate/qwen3-0.6b-mlc-q0f16|open-explain|set|send",
+    "modelId": "candidate/qwen3-0.6b-mlc-q0f16",
     "conversation": "open-explain",
     "customInstructions": "set",
     "path": "send",
@@ -5644,7 +5644,7 @@
             "content": "how does a heat pump actually work, and is it worth it in an old house"
           }
         ],
-        "modelId": "candidate/qwen3-0.6b-mlc",
+        "modelId": "candidate/qwen3-0.6b-mlc-q0f16",
         "options": {
           "max_new_tokens": 512,
           "temperature": 0.42,
@@ -5656,8 +5656,8 @@
     ]
   },
   {
-    "key": "candidate/qwen3-0.6b-mlc|code|none|send",
-    "modelId": "candidate/qwen3-0.6b-mlc",
+    "key": "candidate/qwen3-0.6b-mlc-q0f16|code|none|send",
+    "modelId": "candidate/qwen3-0.6b-mlc-q0f16",
     "conversation": "code",
     "customInstructions": "none",
     "path": "send",
@@ -5673,7 +5673,7 @@
             "content": "write a python function that reverses a list"
           }
         ],
-        "modelId": "candidate/qwen3-0.6b-mlc",
+        "modelId": "candidate/qwen3-0.6b-mlc-q0f16",
         "options": {
           "max_new_tokens": 512,
           "temperature": 0.2,
@@ -5685,8 +5685,8 @@
     ]
   },
   {
-    "key": "candidate/qwen3-0.6b-mlc|code|set|send",
-    "modelId": "candidate/qwen3-0.6b-mlc",
+    "key": "candidate/qwen3-0.6b-mlc-q0f16|code|set|send",
+    "modelId": "candidate/qwen3-0.6b-mlc-q0f16",
     "conversation": "code",
     "customInstructions": "set",
     "path": "send",
@@ -5702,7 +5702,7 @@
             "content": "write a python function that reverses a list"
           }
         ],
-        "modelId": "candidate/qwen3-0.6b-mlc",
+        "modelId": "candidate/qwen3-0.6b-mlc-q0f16",
         "options": {
           "max_new_tokens": 512,
           "temperature": 0.2,
@@ -5714,8 +5714,8 @@
     ]
   },
   {
-    "key": "candidate/qwen3-0.6b-mlc|strict-format|none|send",
-    "modelId": "candidate/qwen3-0.6b-mlc",
+    "key": "candidate/qwen3-0.6b-mlc-q0f16|strict-format|none|send",
+    "modelId": "candidate/qwen3-0.6b-mlc-q0f16",
     "conversation": "strict-format",
     "customInstructions": "none",
     "path": "send",
@@ -5731,7 +5731,7 @@
             "content": "reply with just the number: 17 * 23"
           }
         ],
-        "modelId": "candidate/qwen3-0.6b-mlc",
+        "modelId": "candidate/qwen3-0.6b-mlc-q0f16",
         "options": {
           "max_new_tokens": 512,
           "temperature": 0.32,
@@ -5743,8 +5743,8 @@
     ]
   },
   {
-    "key": "candidate/qwen3-0.6b-mlc|strict-format|set|send",
-    "modelId": "candidate/qwen3-0.6b-mlc",
+    "key": "candidate/qwen3-0.6b-mlc-q0f16|strict-format|set|send",
+    "modelId": "candidate/qwen3-0.6b-mlc-q0f16",
     "conversation": "strict-format",
     "customInstructions": "set",
     "path": "send",
@@ -5760,7 +5760,7 @@
             "content": "reply with just the number: 17 * 23"
           }
         ],
-        "modelId": "candidate/qwen3-0.6b-mlc",
+        "modelId": "candidate/qwen3-0.6b-mlc-q0f16",
         "options": {
           "max_new_tokens": 512,
           "temperature": 0.32,
@@ -5772,8 +5772,8 @@
     ]
   },
   {
-    "key": "candidate/qwen3-0.6b-mlc|multi-turn-figure|none|send",
-    "modelId": "candidate/qwen3-0.6b-mlc",
+    "key": "candidate/qwen3-0.6b-mlc-q0f16|multi-turn-figure|none|send",
+    "modelId": "candidate/qwen3-0.6b-mlc-q0f16",
     "conversation": "multi-turn-figure",
     "customInstructions": "none",
     "path": "send",
@@ -5789,7 +5789,7 @@
             "content": "my package weighs 42.5 kg, what does that cost to ship"
           }
         ],
-        "modelId": "candidate/qwen3-0.6b-mlc",
+        "modelId": "candidate/qwen3-0.6b-mlc-q0f16",
         "options": {
           "max_new_tokens": 512,
           "temperature": 0.42,
@@ -5817,7 +5817,7 @@
             "content": "and if I split it into two boxes"
           }
         ],
-        "modelId": "candidate/qwen3-0.6b-mlc",
+        "modelId": "candidate/qwen3-0.6b-mlc-q0f16",
         "options": {
           "max_new_tokens": 512,
           "temperature": 0.32,
@@ -5829,8 +5829,8 @@
     ]
   },
   {
-    "key": "candidate/qwen3-0.6b-mlc|multi-turn-figure|set|send",
-    "modelId": "candidate/qwen3-0.6b-mlc",
+    "key": "candidate/qwen3-0.6b-mlc-q0f16|multi-turn-figure|set|send",
+    "modelId": "candidate/qwen3-0.6b-mlc-q0f16",
     "conversation": "multi-turn-figure",
     "customInstructions": "set",
     "path": "send",
@@ -5846,7 +5846,7 @@
             "content": "my package weighs 42.5 kg, what does that cost to ship"
           }
         ],
-        "modelId": "candidate/qwen3-0.6b-mlc",
+        "modelId": "candidate/qwen3-0.6b-mlc-q0f16",
         "options": {
           "max_new_tokens": 512,
           "temperature": 0.42,
@@ -5874,7 +5874,7 @@
             "content": "and if I split it into two boxes"
           }
         ],
-        "modelId": "candidate/qwen3-0.6b-mlc",
+        "modelId": "candidate/qwen3-0.6b-mlc-q0f16",
         "options": {
           "max_new_tokens": 512,
           "temperature": 0.32,
@@ -5886,8 +5886,8 @@
     ]
   },
   {
-    "key": "candidate/qwen3-0.6b-mlc|multi-turn-recap|none|send",
-    "modelId": "candidate/qwen3-0.6b-mlc",
+    "key": "candidate/qwen3-0.6b-mlc-q0f16|multi-turn-recap|none|send",
+    "modelId": "candidate/qwen3-0.6b-mlc-q0f16",
     "conversation": "multi-turn-recap",
     "customInstructions": "none",
     "path": "send",
@@ -5903,7 +5903,7 @@
             "content": "im booking a table at the italian on bridgford road for sunday 8th march, 1pm, six of us"
           }
         ],
-        "modelId": "candidate/qwen3-0.6b-mlc",
+        "modelId": "candidate/qwen3-0.6b-mlc-q0f16",
         "options": {
           "max_new_tokens": 512,
           "temperature": 0.42,
@@ -5931,7 +5931,7 @@
             "content": "nobody can do more than about 25 quid a head - can you draft the message to the group\n\nDetails I gave earlier in this chat: date: sunday 8th march, 1; time: 1pm; place: italian on bridgford road"
           }
         ],
-        "modelId": "candidate/qwen3-0.6b-mlc",
+        "modelId": "candidate/qwen3-0.6b-mlc-q0f16",
         "options": {
           "max_new_tokens": 512,
           "temperature": 0.48,
@@ -5943,8 +5943,8 @@
     ]
   },
   {
-    "key": "candidate/qwen3-0.6b-mlc|multi-turn-recap|set|send",
-    "modelId": "candidate/qwen3-0.6b-mlc",
+    "key": "candidate/qwen3-0.6b-mlc-q0f16|multi-turn-recap|set|send",
+    "modelId": "candidate/qwen3-0.6b-mlc-q0f16",
     "conversation": "multi-turn-recap",
     "customInstructions": "set",
     "path": "send",
@@ -5960,7 +5960,7 @@
             "content": "im booking a table at the italian on bridgford road for sunday 8th march, 1pm, six of us"
           }
         ],
-        "modelId": "candidate/qwen3-0.6b-mlc",
+        "modelId": "candidate/qwen3-0.6b-mlc-q0f16",
         "options": {
           "max_new_tokens": 512,
           "temperature": 0.42,
@@ -5988,7 +5988,7 @@
             "content": "nobody can do more than about 25 quid a head - can you draft the message to the group\n\nDetails I gave earlier in this chat: date: sunday 8th march, 1; time: 1pm; place: italian on bridgford road"
           }
         ],
-        "modelId": "candidate/qwen3-0.6b-mlc",
+        "modelId": "candidate/qwen3-0.6b-mlc-q0f16",
         "options": {
           "max_new_tokens": 512,
           "temperature": 0.48,
