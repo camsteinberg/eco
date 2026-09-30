@@ -98,15 +98,15 @@ describe('buildWebLLMModelRecord / buildWebLLMAppConfig', () => {
 
   it('points model_lib at the same-origin versioned wasm dir', () => {
     expect(QWEN2_LIB_PATH).toBe(
-      '/webllm/v0_2_84/Qwen2-0.5B-Instruct-q4f16_1_cs1k-webgpu.wasm',
+      '/webllm/v0_2_84/Qwen2-0.5B-Instruct-q4f16_1_cs1k_b1-webgpu.wasm',
     );
   });
 });
 
 describe('webllmModelLibPathFor', () => {
-  it('returns the Qwen2 library for the catalog entry', () => {
+  it('returns the batch-1 Qwen2 library for the catalog entry', () => {
     expect(webllmModelLibPathFor(QWEN2_MODEL)).toBe(
-      '/webllm/v0_2_84/Qwen2-0.5B-Instruct-q4f16_1_cs1k-webgpu.wasm',
+      '/webllm/v0_2_84/Qwen2-0.5B-Instruct-q4f16_1_cs1k_b1-webgpu.wasm',
     );
   });
 

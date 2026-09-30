@@ -518,7 +518,8 @@
       "tier": { "eco-fast": "webkit-mobile", "eco-smart": "webkit-mobile" },
       "_provenance": {
         "tier.eco-fast": "MEASURED 2026-09-01: tier-walk vs scorer diff over 750 profiles, the only assignable model on these cells — iOS/WebKit-mobile (30 cells for eco-fast, 30 for eco-smart, both slots since this model is the sole survivor there regardless of slot). Every onnx build (including the `floor` rung's qwen3-0.6b) is declined by the WebKit-mobile gate before any capability check (`device/compatibility.ts` `isWebKitMobile`), so this rung never competes with another rung's occupant on the same device — it exists purely to give the WebKit-mobile niche a tier-walk answer instead of relying on it being the sole scorer survivor.",
-        "tier.eco-smart": "Same as tier.eco-fast — see that entry."
+        "tier.eco-smart": "Same as tier.eco-fast — see that entry.",
+        "quirks.webllmModelLibFile": "MEASURED 2026-09-29: Eco's own build of the Qwen2 model library at max_batch_size 1, compiled from source at the toolchain commits upstream used for its v0_2_84 libraries (recipe, commits and sha256 in apps/web/public/webllm/v0_2_84/README.md). Upstream's library is compiled for 128 sequences and reserves six 128 × 151,936 × 4-byte sampler buffers at load, while web-llm 0.2.84 only ever runs one sequence; against a batch-128 rebuild from the same toolchain, 0 of 87 GPU kernels differ, the weights layout and VM function table are identical, and sampler storage falls from 466,747,392 to 3,646,464 bytes. In Safari 26.4 on one Apple Silicon Mac (16 GB), loading through the eval harness (load only, both arms with a separate loader-memory change applied), GPU memory requested fell from 804.6 to 363.0 MiB (−441.6 MiB, the predicted amount) and the tab's footprint after load from 1,018 to 574 MB in 3 of 3 runs (peak 1,113 to 726–758 MB); greedy output was identical to the batch-128 library on 5 prompts of up to 1,349 characters, and web-llm passes every token through the changed sampling functions even at temperature 0. PREDICTED, not measured: the same saving on a real iPhone. Falsifier: a greedy output that differs from the batch-128 library's, or a web-llm code path that needs more than one sequence."
       },
       "friendlyName": "Qwen2.5 0.5B",
       "vendor": "Alibaba",
@@ -565,7 +566,7 @@
         "provider": "Alibaba"
       },
       "quirks": {
-        "webllmModelLibFile": "Qwen2-0.5B-Instruct-q4f16_1_cs1k-webgpu.wasm"
+        "webllmModelLibFile": "Qwen2-0.5B-Instruct-q4f16_1_cs1k_b1-webgpu.wasm"
       },
       "bestFor": "A tiny, fast model built for iPhone and other Safari mobile browsers — quick private chat and light writing that runs on a phone.",
       "knownLimitation": "Validated on recent iPhone hardware. A small model with a narrower quality envelope: answers are briefer than the everyday pick, and open-world facts can be wrong without grounding.",
