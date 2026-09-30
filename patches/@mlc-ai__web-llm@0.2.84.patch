@@ -1,0 +1,95 @@
+diff --git a/lib/index.js b/lib/index.js
+index 17d1d18871d89822baf386d111d66088b2c808c8..eba71aa0b45aecb95d44d6525cbdaef3f7b5616a 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -4063,6 +4063,9 @@ function requireLib$2 () {
+ 		                            `limit=${computeMB(adapter.limits.maxBufferSize)}. ` +
+ 		                            `Consider upgrading your browser.`);
+ 		                    }
++		                    // Eco patch: the 256 MB fallback is only a floor. Request what the adapter actually
++		                    // supports, so any buffer between the two still fits.
++		                    requiredMaxBufferSize = adapter.limits.maxBufferSize;
+ 		                }
+ 		                let requiredMaxStorageBufferBindingSize = 1 << 30; // 1GB
+ 		                if (requiredMaxStorageBufferBindingSize > adapter.limits.maxStorageBufferBindingSize) {
+@@ -4079,6 +4082,10 @@ function requireLib$2 () {
+ 		                            `exceeds limit. requested=${computeMB(backupRequiredMaxStorageBufferBindingSize)}, ` +
+ 		                            `limit=${computeMB(adapter.limits.maxStorageBufferBindingSize)}. `);
+ 		                    }
++		                    // Eco patch: request the adapter's actual limit, not the 128 MB floor. Phone-class
++		                    // adapters allow about 256 MB; with only 128 MB, a model with a larger single tensor
++		                    // loads without any error and then produces wrong output.
++		                    requiredMaxStorageBufferBindingSize = adapter.limits.maxStorageBufferBindingSize;
+ 		                }
+ 		                const requiredMaxComputeWorkgroupStorageSize = 32 << 10;
+ 		                if (requiredMaxComputeWorkgroupStorageSize > adapter.limits.maxComputeWorkgroupStorageSize) {
+@@ -5490,8 +5497,11 @@ fn fragment_clear(@location(0) uv : vec2<f32>) -> @location(0) vec4<f32> {
+ 		                if (this.cache === undefined) {
+ 		                    this.cache = yield caches.open(this.scope);
+ 		                }
+-		                const result = yield this.cache.match(request);
+-		                if (result === undefined) {
++		                // Eco patch: check presence with keys(), not match(). Safari loads the whole cached body
++		                // into the tab's memory for match() even when it is never read, and fetchWithCache
++		                // matches again anyway to read it. keys() uses the same matching and loads no body.
++		                const present = (yield this.cache.keys(request)).length > 0;
++		                if (!present) {
+ 		                    yield this.cache.add(request);
+ 		                }
+ 		            });
+@@ -7083,6 +7093,35 @@ fn fragment_clear(@location(0) uv : vec2<f32>) -> @location(0) vec4<f32> {
+ 		                    for (let j = 0; j < shardRecords.length; ++j) {
+ 		                        try {
+ 		                            const rec = shardRecords[j];
++		                            // Eco patch: for every record whose storage decode is a plain byte copy (all but
++		                            // bf16-encoded float32), write it to the GPU straight from a view of the shard. Upstream
++		                            // copies each record twice more first (buffer.slice + a wasm-heap staging tensor); on
++		                            // iOS Safari that garbage outlives the tab's memory limit before the collector runs.
++		                            if (device.deviceType !== DeviceStrToEnum.cpu && !(rec.format === "f32-to-bf16" && rec.dtype === "float32")) {
++		                                const gpu_arr = this.withNewScope(() => {
++		                                    return this.detachFromCurrentScope(this.empty(rec.shape, rec.dtype, device));
++		                                });
++		                                // Eco patch: write a large record in 16 MiB slices. Safari stages each GPU write in
++		                                // one block of shared memory as big as the write (130 MB for a large embedding);
++		                                // slicing caps that at one slice. This is the same queue write copyFromRawBytes
++		                                // makes, at an offset; the slice size is a multiple of 4, as writeBuffer requires.
++		                                const sliceBytes = 16 << 20;
++		                                const gpuCtx = this.lib.webGPUContext;
++		                                if (rec.nbytes > sliceBytes && device.deviceType === DeviceStrToEnum.webgpu && gpuCtx !== undefined) {
++		                                    const ptr = gpu_arr.getDataPtr();
++		                                    for (let off = 0; off < rec.nbytes; off += sliceBytes) {
++		                                        const len = Math.min(sliceBytes, rec.nbytes - off);
++		                                        gpuCtx.copyRawBytesToBuffer(new Uint8Array(buffer, rec.byteOffset + off, len), ptr, off, len);
++		                                    }
++		                                }
++		                                else {
++		                                    gpu_arr.copyFromRawBytes(new Uint8Array(buffer, rec.byteOffset, rec.nbytes));
++		                                }
++		                                yield device.sync();
++		                                this.tensorCacheUpdate(rec.name, gpu_arr, false);
++		                                gpu_arr.dispose();
++		                                continue;
++		                            }
+ 		                            const cpu_arr = this.withNewScope(() => {
+ 		                                return this.detachFromCurrentScope(this.empty(rec.shape, rec.dtype, this.cpu()));
+ 		                            });
+@@ -7112,6 +7151,19 @@ fn fragment_clear(@location(0) uv : vec2<f32>) -> @location(0) vec4<f32> {
+ 		                            throw err;
+ 		                        }
+ 		                    }
++		                    // Eco patch: every record of this shard has been copied out of `buffer` by now (each GPU
++		                    // write above is awaited with device.sync()), and nothing below reads it. Free its memory
++		                    // now: dropping the reference frees nothing until a garbage collection, and none runs
++		                    // during a load. transfer(0) detaches the buffer and releases its bytes immediately.
++		                    if (buffer && typeof buffer.transfer === "function") {
++		                        try {
++		                            buffer.transfer(0);
++		                        }
++		                        catch (err) {
++		                            console.warn("Eco patch: could not release a loaded shard's memory early; continuing", err);
++		                        }
++		                    }
++		                    buffer = undefined;
+ 		                    fetchedBytes += shard.nbytes;
+ 		                    timeElapsed = Math.ceil((perf.now() - tstart) / 1000);
+ 		                    reportCallback(++fetchedShards, /*loading=*/ true);

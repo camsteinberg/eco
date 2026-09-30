@@ -69,7 +69,8 @@
       ]
     },
     "patchedDependencies": {
-      "@huggingface/transformers@4.2.0": "patches/@huggingface__transformers@4.2.0.patch"
+      "@huggingface/transformers@4.2.0": "patches/@huggingface__transformers@4.2.0.patch",
+      "@mlc-ai/web-llm@0.2.84": "patches/@mlc-ai__web-llm@0.2.84.patch"
     }
   },
   "license": "AGPL-3.0-or-later",
