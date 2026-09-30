@@ -40,6 +40,9 @@ patchedDependencies:
   '@huggingface/transformers@4.2.0':
     hash: 6zp47ml4os7xukpxmidb2attum
     path: patches/@huggingface__transformers@4.2.0.patch
+  '@mlc-ai/web-llm@0.2.84':
+    hash: q4sg5s3gbrvtagrqghfwvubmdq
+    path: patches/@mlc-ai__web-llm@0.2.84.patch
 
 importers:
 
@@ -147,7 +150,7 @@ importers:
         version: 0.13.1
       '@mlc-ai/web-llm':
         specifier: 0.2.84
-        version: 0.2.84
+        version: 0.2.84(patch_hash=q4sg5s3gbrvtagrqghfwvubmdq)
       '@noble/hashes':
         specifier: ^2.0.1
         version: 2.0.1
@@ -5865,7 +5868,7 @@ snapshots:
 
   '@litertjs/wasm-utils@2.5.0': {}
 
-  '@mlc-ai/web-llm@0.2.84':
+  '@mlc-ai/web-llm@0.2.84(patch_hash=q4sg5s3gbrvtagrqghfwvubmdq)':
     dependencies:
       loglevel: 1.9.2
 

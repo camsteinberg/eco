@@ -30,6 +30,7 @@ source of truth for the stack.
 **Pinned versions worth knowing:**
 
 - `@huggingface/transformers`: **4.2.0, pinned exact** — it carries a local `pnpm` patch, so a version bump needs a deliberate, careful PR. Don't float it.
+- `@mlc-ai/web-llm`: **0.2.84, pinned exact** — it carries a local `pnpm` patch that cuts the model loader's memory, and the vendored model libraries in `apps/web/public/webllm/v0_2_84/` are only valid for this version. A version bump needs a deliberate, careful PR. Don't float it.
 - `motion`: this is **not** `framer-motion`. The package was renamed; import from `motion/react`.
 - `next`: bounded to the 16 major (`>=16.2.6 <17`).
 - `tailwindcss`: 4.x — note the v4 CSS-first `@theme` conventions differ from v3.
