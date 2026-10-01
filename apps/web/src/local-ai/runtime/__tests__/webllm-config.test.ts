@@ -110,10 +110,10 @@ describe('webllmModelLibPathFor', () => {
     );
   });
 
-  it('returns the unquantised Qwen3 library for the desktop-Safari entry', () => {
+  it('returns the batch-1 unquantised Qwen3 library for the desktop-Safari entry', () => {
     const model = getModel('candidate/qwen3-0.6b-mlc-q0f16')!;
     expect(webllmModelLibPathFor(model)).toBe(
-      '/webllm/v0_2_84/Qwen3-0.6B-q0f16_cs1k-webgpu.wasm',
+      '/webllm/v0_2_84/Qwen3-0.6B-q0f16_cs1k_b1-webgpu.wasm',
     );
   });
 
