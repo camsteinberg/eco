@@ -216,7 +216,7 @@ export interface CacheStorageLike {
 export interface CacheLike {
   put(request: RequestInfo | URL, response: Response): Promise<void>;
   match(request: RequestInfo | URL): Promise<Response | undefined>;
-  keys(): Promise<readonly Request[]>;
+  keys(request?: RequestInfo | URL): Promise<readonly Request[]>;
   delete(request: RequestInfo | URL): Promise<boolean>;
 }
 
@@ -285,7 +285,10 @@ export class CacheApiStorage implements Storage {
     const cached = await cache.match(key.url);
     if (!cached) return null;
     const sizeBytes = readCacheSize(cached);
-    if (sizeBytes == null) return null;
+    if (sizeBytes == null) {
+      discardBody(cached);
+      return null;
+    }
     if (cached.headers.get(ECO_PARTS_NATIVE_HEADER) == null) {
       // Plain whole-file entry — the body IS the file.
       return { response: cached, sizeBytes };
@@ -304,14 +307,16 @@ export class CacheApiStorage implements Storage {
 
   async has(key: StorageKey): Promise<boolean> {
     const cache = await this.cacheStorage.open(cacheNameFor(key.modelId));
-    const cached = await cache.match(key.url);
-    return cached != null;
+    return cacheHasEntry(cache, key.url);
   }
 
   async isPartsNative(key: StorageKey): Promise<boolean> {
     const cache = await this.cacheStorage.open(cacheNameFor(key.modelId));
     const cached = await cache.match(key.url);
-    return cached != null && cached.headers.get(ECO_PARTS_NATIVE_HEADER) != null;
+    if (cached == null) return false;
+    const partsNative = cached.headers.get(ECO_PARTS_NATIVE_HEADER) != null;
+    discardBody(cached);
+    return partsNative;
   }
 
   async verify(key: StorageKey, expectedSizeBytes: number): Promise<boolean> {
@@ -327,8 +332,10 @@ export class CacheApiStorage implements Storage {
   /**
    * Shared verify core: the entry exists with a readable stamped size that
    * satisfies `sizeMatches`, and — when parts-native — every listed part still
-   * exists (existence only, O(parts), no byte reads) so a manifest whose parts
-   * were swept out from under it doesn't verify. verify() and verifyIntact()
+   * exists (looked up by key, O(parts), never opening a part's body) so a
+   * manifest whose parts were swept out from under it doesn't verify. The
+   * identity's own body is read only when it is a small manifest; otherwise it
+   * is cancelled once the headers are read. verify() and verifyIntact()
    * differ ONLY in the size predicate.
    */
   private async verifyCore(
@@ -339,13 +346,18 @@ export class CacheApiStorage implements Storage {
     const cached = await cache.match(key.url);
     if (!cached) return false;
     const sizeBytes = readCacheSize(cached);
-    if (sizeBytes == null || !sizeMatches(sizeBytes)) return false;
-    if (cached.headers.get(ECO_PARTS_NATIVE_HEADER) == null) return true;
+    if (sizeBytes == null || !sizeMatches(sizeBytes)) {
+      discardBody(cached);
+      return false;
+    }
+    if (cached.headers.get(ECO_PARTS_NATIVE_HEADER) == null) {
+      discardBody(cached);
+      return true;
+    }
     const partKeys = await readManifestPartKeys(cached);
     if (partKeys.length === 0) return false;
     for (const partKey of partKeys) {
-      const part = await cache.match(partKey);
-      if (part == null) return false;
+      if (!(await cacheHasEntry(cache, partKey))) return false;
     }
     return true;
   }
@@ -353,13 +365,16 @@ export class CacheApiStorage implements Storage {
   async remove(key: StorageKey): Promise<void> {
     const cache = await this.cacheStorage.open(cacheNameFor(key.modelId));
     // A parts-native manifest owns its parts — delete them too, or removing the
-    // identity would orphan hundreds of MB of chunk entries.
+    // identity would orphan hundreds of MB of chunk entries. Any other entry's
+    // body is released unread.
     const cached = await cache.match(key.url);
     if (cached != null && cached.headers.get(ECO_PARTS_NATIVE_HEADER) != null) {
       const partKeys = await readManifestPartKeys(cached);
       for (const partKey of partKeys) {
         await cache.delete(partKey).catch(() => false);
       }
+    } else if (cached != null) {
+      discardBody(cached);
     }
     await cache.delete(key.url).catch(() => false);
   }
@@ -372,10 +387,12 @@ export class CacheApiStorage implements Storage {
     const out: { url: string; sizeBytes: number | null }[] = [];
     for (const request of requests) {
       const cached = await cache.match(request);
-      out.push({
-        url: request.url,
-        sizeBytes: cached ? readCacheSize(cached) : null,
-      });
+      let sizeBytes: number | null = null;
+      if (cached) {
+        sizeBytes = readCacheSize(cached);
+        discardBody(cached);
+      }
+      out.push({ url: request.url, sizeBytes });
     }
     return out;
   }
@@ -404,9 +421,11 @@ export class CacheApiStorage implements Storage {
     for (const request of requests) {
       if (request.url.includes(ECO_PART_MARKER)) continue;
       const cached = await cache.match(request);
-      if (cached != null && cached.headers.get(ECO_PARTS_NATIVE_HEADER) != null) {
+      if (cached == null) continue;
+      if (cached.headers.get(ECO_PARTS_NATIVE_HEADER) != null) {
         manifestBases.add(request.url);
       }
+      discardBody(cached);
     }
     let removed = 0;
     for (const request of requests) {
@@ -684,6 +703,32 @@ function readCacheSize(response: Response): number | null {
   if (!raw) return null;
   const parsed = Number.parseInt(raw, 10);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+/**
+ * True when `cache` holds an entry for `request`. Uses `keys(request)`, which,
+ * by the Cache API spec, matches as `match()` does but returns no Response. A
+ * `match()` result carries the entry's body. In Safari (measured on macOS) that
+ * body is loaded into memory and held, even when it is never read, until
+ * allocation pressure triggers a garbage collection, so a presence check over a
+ * model's files must not use `match()`.
+ */
+export async function cacheHasEntry(
+  cache: CacheLike,
+  request: RequestInfo | URL,
+): Promise<boolean> {
+  return (await cache.keys(request)).length > 0;
+}
+
+/**
+ * Release a matched Response whose body will not be read (only its headers
+ * were needed). The cancel is issued and not awaited: a cloned body's cancel
+ * does not settle until every clone is cancelled, and a presence or verify
+ * pass must not depend on that. Memory release was measured only with an
+ * awaited cancel. Never call this on a body that has been or will be read.
+ */
+export function discardBody(response: Response): void {
+  void response.body?.cancel().catch(() => undefined);
 }
 
 /**

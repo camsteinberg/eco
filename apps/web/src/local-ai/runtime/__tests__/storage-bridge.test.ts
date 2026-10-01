@@ -14,8 +14,11 @@ class MemoryCache implements CacheLike {
     const r = this.store.get(key(req));
     return r ? r.clone() : undefined;
   }
-  async keys(): Promise<readonly Request[]> {
-    return Array.from(this.store.keys()).map((u) => new Request(u));
+  async keys(req?: RequestInfo | URL): Promise<readonly Request[]> {
+    const urls = req === undefined
+      ? Array.from(this.store.keys())
+      : this.store.has(key(req)) ? [key(req)] : [];
+    return urls.map((u) => new Request(u));
   }
   async delete(req: RequestInfo | URL): Promise<boolean> {
     return this.store.delete(key(req));
@@ -35,9 +38,10 @@ class MemoryCacheStorage implements CacheStorageLike {
 }
 
 function key(req: RequestInfo | URL): string {
-  if (typeof req === 'string') return req;
-  if (req instanceof URL) return req.toString();
-  return req.url;
+  const raw = typeof req === 'string' ? req : req instanceof URL ? req.toString() : req.url;
+  // Normalised as the browser's Cache does (`new Request(x).url`), relative
+  // paths resolved against a fixed origin.
+  return new Request(new URL(raw, 'http://localhost/')).url;
 }
 
 const MODEL_ID = 'local/qwen3-0.6b';

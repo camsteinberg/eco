@@ -613,6 +613,10 @@ async function probeCache(
           const parsed = parseInt(sizeHeader, 10);
           if (Number.isFinite(parsed)) totalSize += parsed;
         }
+        // Only the header is needed. Release the body, which Safari otherwise
+        // holds in memory until a garbage collection (not awaited; see
+        // discardBody in download/storage.ts).
+        void resp.body?.cancel().catch(() => undefined);
       }
     }
 

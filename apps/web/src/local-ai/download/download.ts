@@ -942,10 +942,11 @@ type PersistedPart = { url: string; offset: number; sizeBytes: number };
 
 /**
  * The current-stamp chunk-parts for `file` from a storage enumeration, sorted
- * by byte offset. Reads only each part's STAMPED size from the enumeration —
- * never a part's bytes. Shared by the resume walk and the preflight credit so
- * the two never diverge on which parts "belong" to the file (a stale-stamp part
- * — bound to a superseded oid/size — is excluded from both).
+ * by byte offset. Uses only each part's STAMPED size from the enumeration,
+ * which reads that header and cancels the part's body unread. Shared by the
+ * resume walk and the preflight credit so the two never diverge on which
+ * parts "belong" to the file (a stale-stamp part — bound to a superseded
+ * oid/size — is excluded from both).
  */
 function currentStampParts(
   entries: ReadonlyArray<{ url: string; sizeBytes: number | null }>,
@@ -1459,8 +1460,9 @@ async function downloadFileInChunks(
  * the resumed byte count (0 when nothing usable is present).
  *
  * Zero-retention: the walk confirms each part exists and reads its stamped size
- * from the enumeration — it never reads a part's BYTES. The bytes are streamed
- * only later, one at a time, by the integrity pass and the streamed store.
+ * from the enumeration, which reads that header and cancels the body unread —
+ * it never reads a part's BYTES. The bytes are streamed only later, one at a
+ * time, by the integrity pass and the streamed store.
  */
 async function resumeFromPersistedParts(
   file: DownloadFileSpec,

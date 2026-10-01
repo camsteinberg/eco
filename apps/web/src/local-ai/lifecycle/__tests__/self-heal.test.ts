@@ -34,7 +34,7 @@ class MemoryCache implements CacheLike {
   store = new Map<string, Response>();
   async put(r: RequestInfo | URL, res: Response): Promise<void> { this.store.set(k(r), res.clone()); }
   async match(r: RequestInfo | URL): Promise<Response | undefined> { const v = this.store.get(k(r)); return v ? v.clone() : undefined; }
-  async keys(): Promise<readonly Request[]> { return Array.from(this.store.keys()).map((u) => new Request(u)); }
+  async keys(r?: RequestInfo | URL): Promise<readonly Request[]> { const urls = r === undefined ? Array.from(this.store.keys()) : this.store.has(k(r)) ? [k(r)] : []; return urls.map((u) => new Request(u)); }
   async delete(r: RequestInfo | URL): Promise<boolean> { return this.store.delete(k(r)); }
 }
 class MemoryCacheStorage implements CacheStorageLike {
@@ -44,7 +44,8 @@ class MemoryCacheStorage implements CacheStorageLike {
   async keys(): Promise<string[]> { return Array.from(this.caches.keys()); }
   async delete(name: string): Promise<boolean> { return this.caches.delete(name); }
 }
-function k(r: RequestInfo | URL): string { if (typeof r === 'string') return r; if (r instanceof URL) return r.toString(); return r.url; }
+// Normalised as the browser's Cache does (`new Request(x).url`), relative paths against a fixed origin.
+function k(r: RequestInfo | URL): string { const raw = typeof r === 'string' ? r : r instanceof URL ? r.toString() : r.url; return new Request(new URL(raw, 'http://localhost/')).url; }
 
 let storage: FakeStorage;
 let nowMs: number;

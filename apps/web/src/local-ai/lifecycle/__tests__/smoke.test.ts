@@ -948,6 +948,55 @@ describe('runSmoke — cache file name capture', () => {
     expect(entry.cache!.files).toHaveLength(20);
     expect(entry.cache!.fileCount).toBe(25);
   });
+
+  it('releases every cached body it opens — the probe reads only the size header', async () => {
+    // In Safari (measured on macOS) a matched body is loaded into memory and
+    // held until a GC unless it is read or cancelled. The probe needs only the
+    // header.
+    let opened = 0;
+    let read = 0;
+    let cancelled = 0;
+    const fakeCache = {
+      keys: async () => [
+        new Request('https://example.com/onnx/model_q4f16.onnx'),
+        new Request('https://example.com/tokenizer.json'),
+      ],
+      match: async () => {
+        opened += 1;
+        const body = new ReadableStream<Uint8Array>({
+          pull(controller) {
+            read += 1;
+            controller.enqueue(new Uint8Array([1]));
+            controller.close();
+          },
+          cancel() {
+            cancelled += 1;
+          },
+        }, { highWaterMark: 0 });
+        return new Response(body, { headers: { 'x-eco-cache-size-bytes': '1024' } });
+      },
+      put: async () => undefined,
+      delete: async () => true,
+    };
+    vi.stubGlobal('caches', {
+      has: async () => true,
+      open: async () => fakeCache,
+      keys: async () => ['eco-local-ai-local_qwen3-0.6b'],
+      delete: async () => true,
+    });
+
+    const seam: SmokeGenerationFn = async function* (): AsyncIterable<TokenEvent> {
+      yield { kind: 'token', text: 'OK' };
+      yield { kind: 'done' };
+    };
+    await runSmoke('eco-fast', MODEL, { generationFn: seam });
+    const entry = loadDiagnostics()[0]!;
+
+    expect(entry.cache!.sizeBytes).toBe(2048);
+    expect(opened).toBe(2);
+    expect(read).toBe(0);
+    expect(cancelled).toBe(opened);
+  });
 });
 
 // ── AdapterError code capture (T8) ──────────────────────────────────────────
