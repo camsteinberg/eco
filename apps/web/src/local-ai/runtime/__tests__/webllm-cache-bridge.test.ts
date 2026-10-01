@@ -45,7 +45,8 @@ class MemCache {
   // browser is not).
   store = new Map<string, ArrayBuffer>();
   private urlOf(req: RequestInfo | URL): string {
-    return typeof req === 'string' ? new Request(req).url : (req as Request).url;
+    if (req instanceof URL) return new Request(req).url;
+    return typeof req === 'string' ? new Request(req).url : req.url;
   }
   async put(req: RequestInfo | URL, res: Response): Promise<void> {
     this.store.set(this.urlOf(req), await res.arrayBuffer());
@@ -54,8 +55,12 @@ class MemCache {
     const buf = this.store.get(this.urlOf(req));
     return buf === undefined ? undefined : new Response(buf);
   }
-  async keys(): Promise<readonly Request[]> {
-    return [...this.store.keys()].map((u) => new Request(u));
+  async keys(req?: RequestInfo | URL): Promise<readonly Request[]> {
+    // Honour the argument exactly as the browser does: only the matching entry.
+    const urls = req === undefined
+      ? [...this.store.keys()]
+      : this.store.has(this.urlOf(req)) ? [this.urlOf(req)] : [];
+    return urls.map((u) => new Request(u));
   }
   async delete(req: RequestInfo | URL): Promise<boolean> {
     return this.store.delete(this.urlOf(req));
@@ -304,6 +309,29 @@ describe('webllmModelCachePresence', () => {
     expect(await webllmModelCachePresence(MODEL)).toBe(true);
   });
 
+  it('looks files up by key and never opens a cached body', async () => {
+    // A match() result carries the entry's body; in Safari (measured on macOS)
+    // it is loaded into memory and held until a GC even when unread. Presence
+    // must not pay that for every weight shard on every boot.
+    const { storage } = makeEcoStorage();
+    await bridgeDownloadWebLLMModel(MODEL, {
+      storage,
+      download: vi.fn().mockResolvedValue(undefined),
+    });
+    const matchSpies = [...memCaches.caches.values()].map((cache) => vi.spyOn(cache, 'match'));
+    expect(matchSpies.length).toBeGreaterThan(0);
+
+    expect(await webllmModelCachePresence(MODEL)).toBe(true);
+
+    // Absence is still seen, still without opening anything.
+    const modelCache = await memCaches.open('webllm/model');
+    const evicted = [...modelCache.store.keys()].find((k) => k.endsWith('tokenizer.json'));
+    modelCache.store.delete(evicted!);
+    expect(await webllmModelCachePresence(MODEL)).toBe(false);
+
+    for (const spy of matchSpies) expect(spy).not.toHaveBeenCalled();
+  });
+
   it('returns false when a cached file is missing — a partial wipe still needs repair', async () => {
     const { storage } = makeEcoStorage();
     await bridgeDownloadWebLLMModel(MODEL, {
@@ -337,8 +365,9 @@ describe('webllmModelCachePresence', () => {
   it('THROWS when a per-key lookup rejects — indistinguishable from absence otherwise', async () => {
     const rejectingCaches = {
       open: async () => ({
-        match: async () => {
-          throw new Error('match rejected');
+        match: async () => new Response('cached'),
+        keys: async () => {
+          throw new Error('keys rejected');
         },
       }),
       has: async () => true,
@@ -348,7 +377,7 @@ describe('webllmModelCachePresence', () => {
 
     await expect(
       webllmModelCachePresence(MODEL, { caches: rejectingCaches }),
-    ).rejects.toThrow(/match rejected/);
+    ).rejects.toThrow(/keys rejected/);
   });
 
   it('THROWS for a model with no artifact file list — absence is unprovable', async () => {
@@ -391,6 +420,37 @@ describe('measureWebllmModelCacheBytes', () => {
     modelCache.store.delete(evicted!);
 
     expect(await measureWebllmModelCacheBytes(MODEL)).toBe(fullTotal! - evictedBytes);
+  });
+
+  it('uses a declared content-length and releases that body unread', async () => {
+    let pulled = 0;
+    let cancelled = 0;
+    const declaredCache = {
+      match: async () =>
+        new Response(
+          new ReadableStream<Uint8Array>(
+            {
+              pull(controller) {
+                pulled++;
+                controller.enqueue(new Uint8Array(4));
+                controller.close();
+              },
+              cancel() {
+                cancelled++;
+              },
+            },
+            { highWaterMark: 0 },
+          ),
+          { headers: { 'content-length': '1000' } },
+        ),
+    };
+    const declaredCaches = { open: async () => declaredCache } as unknown as CacheStorageLike;
+
+    const total = await measureWebllmModelCacheBytes(MODEL, { caches: declaredCaches });
+
+    expect(total).toBe(1000 * MODEL.artifact!.files!.length);
+    expect(pulled).toBe(0);
+    expect(cancelled).toBe(MODEL.artifact!.files!.length);
   });
 
   it('returns null (not zero) when the Cache API itself cannot be asked', async () => {

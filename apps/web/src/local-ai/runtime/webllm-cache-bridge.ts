@@ -47,6 +47,8 @@ import { AdapterError } from './types';
 import { downloadModel, DownloadAbortedError, type DownloadOptions } from '../download/download';
 import { buildProxyURL } from '../download/proxy';
 import {
+  cacheHasEntry,
+  discardBody,
   pickStorage,
   type CacheLike,
   type CacheStorageLike,
@@ -197,18 +199,21 @@ export async function webllmModelCachePresence(
       cache = await cacheStorage.open(scope);
       openCaches.set(scope, cache);
     }
-    const hit = await cache.match(key);
-    if (!hit) return false;
+    // By key only: in Safari a match() here loads each shard's body into
+    // memory, and holds it until a GC, just to learn that the shard exists.
+    if (!(await cacheHasEntry(cache, key))) return false;
   }
   return true;
 }
 
 /**
  * Actual bytes of this model's files sitting in WebLLM's cache namespaces, for
- * storage accounting. The entries carry no size headers (WebLLM writes them,
- * not Eco), so sizes are stream-counted — one chunk in memory at a time, no
- * body retained. Missing files are skipped (a partial wipe still has real
- * bytes on disk worth reporting).
+ * storage accounting. Entries Eco's bridge writes carry no size header, so
+ * they are stream-counted, one chunk at a time; an entry with a declared
+ * content-length uses it and its body is released unread. On Safari,
+ * match() results left unread over a model's files held ~570 MB until a GC in
+ * a test; this read path itself has not been measured. Missing files are
+ * skipped (a partial wipe still has real bytes on disk worth reporting).
  *
  *   - number ⇒ measured bytes (0 = genuinely nothing present)
  *   - null   ⇒ could not look. Callers must not render this as "0 bytes".
@@ -246,7 +251,10 @@ async function countResponseBytes(response: Response): Promise<number> {
   const declared = response.headers.get('content-length');
   if (declared != null) {
     const bytes = Number(declared);
-    if (Number.isFinite(bytes) && bytes >= 0) return bytes;
+    if (Number.isFinite(bytes) && bytes >= 0) {
+      discardBody(response);
+      return bytes;
+    }
   }
   const body = response.body;
   if (!body) return 0;

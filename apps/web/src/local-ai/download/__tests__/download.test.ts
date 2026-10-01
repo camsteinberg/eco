@@ -100,8 +100,12 @@ class MemoryCache implements CacheLike {
     return cached ? cached.clone() : undefined;
   }
 
-  async keys(): Promise<readonly Request[]> {
-    return Array.from(this.store.keys()).map((url) => new Request(url));
+  async keys(request?: RequestInfo | URL): Promise<readonly Request[]> {
+    // Honour the argument exactly as the browser does: only the matching entry.
+    const urls = request === undefined
+      ? Array.from(this.store.keys())
+      : this.store.has(requestKey(request)) ? [requestKey(request)] : [];
+    return urls.map((url) => new Request(url));
   }
 
   async delete(request: RequestInfo | URL): Promise<boolean> {
@@ -135,9 +139,11 @@ class MemoryCacheStorage implements CacheStorageLike {
 }
 
 function requestKey(input: RequestInfo | URL): string {
-  if (typeof input === 'string') return input;
-  if (input instanceof URL) return input.toString();
-  return input.url;
+  const raw = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+  // Normalise as the browser's Cache does (`new Request(x).url`), resolving a
+  // relative proxy path against a fixed origin, so a url read back from keys()
+  // addresses the same entry as the string it was stored under.
+  return new Request(new URL(raw, 'http://localhost/')).url;
 }
 
 // ─── Fake fetcher ──────────────────────────────────────────────────────────

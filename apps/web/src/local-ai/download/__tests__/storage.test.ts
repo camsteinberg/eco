@@ -52,8 +52,12 @@ class MemoryCache implements CacheLike {
     return cached ? cached.clone() : undefined;
   }
 
-  async keys(): Promise<readonly Request[]> {
-    return Array.from(this.store.keys()).map((url) => new Request(url));
+  async keys(request?: RequestInfo | URL): Promise<readonly Request[]> {
+    // Honour the argument exactly as the browser does: only the matching entry.
+    const urls = request === undefined
+      ? Array.from(this.store.keys())
+      : this.store.has(requestKey(request)) ? [requestKey(request)] : [];
+    return urls.map((url) => new Request(url));
   }
 
   async delete(request: RequestInfo | URL): Promise<boolean> {
@@ -87,9 +91,11 @@ class MemoryCacheStorage implements CacheStorageLike {
 }
 
 function requestKey(input: RequestInfo | URL): string {
-  if (typeof input === 'string') return input;
-  if (input instanceof URL) return input.toString();
-  return input.url;
+  const raw = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+  // Normalise as the browser's Cache does (`new Request(x).url`), resolving a
+  // relative proxy path against a fixed origin, so a url read back from keys()
+  // addresses the same entry as the string it was stored under.
+  return new Request(new URL(raw, 'http://localhost/')).url;
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -742,4 +748,198 @@ describe('CacheApiStorage.sweepOrphanedParts — keeps terminal parts, removes o
 
 afterEach(() => {
   // No-op; tests own their own storage fakes.
+});
+
+// ─── Cached bodies are opened only when they are read ───────────────────────
+//
+// A `match()` result carries the entry's body. In Safari (measured on macOS)
+// that body is loaded into memory and held until a garbage collection even
+// when it is never read, so a presence check must not call `match()` at all,
+// and a header-only read must cancel the body it opened. This cache hands out bodies that record
+// whether they were read or cancelled (`highWaterMark: 0`, so `pull` runs only
+// on an actual read).
+
+class BodyTrackingCache implements CacheLike {
+  private readonly store = new Map<string, { bytes: Uint8Array; headers: Headers }>();
+  readonly matchedUrls: string[] = [];
+  opened = 0;
+  read = 0;
+  cancelled = 0;
+
+  async put(request: RequestInfo | URL, response: Response): Promise<void> {
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    this.store.set(requestKey(request), { bytes, headers: new Headers(response.headers) });
+  }
+
+  async match(request: RequestInfo | URL): Promise<Response | undefined> {
+    const url = requestKey(request);
+    this.matchedUrls.push(url);
+    const entry = this.store.get(url);
+    if (!entry) return undefined;
+    this.opened += 1;
+    const body = new ReadableStream<Uint8Array>({
+      pull: (controller) => {
+        this.read += 1;
+        controller.enqueue(entry.bytes);
+        controller.close();
+      },
+      cancel: () => {
+        this.cancelled += 1;
+      },
+    }, { highWaterMark: 0 });
+    return new Response(body, { headers: entry.headers });
+  }
+
+  async keys(request?: RequestInfo | URL): Promise<readonly Request[]> {
+    const urls = request === undefined
+      ? Array.from(this.store.keys())
+      : this.store.has(requestKey(request)) ? [requestKey(request)] : [];
+    return urls.map((url) => new Request(url));
+  }
+
+  async delete(request: RequestInfo | URL): Promise<boolean> {
+    return this.store.delete(requestKey(request));
+  }
+
+  /** Bodies handed out that were neither read nor cancelled. */
+  get openBodies(): number {
+    return this.opened - this.read - this.cancelled;
+  }
+
+  resetTally(): void {
+    this.matchedUrls.length = 0;
+    this.opened = 0;
+    this.read = 0;
+    this.cancelled = 0;
+  }
+}
+
+class BodyTrackingCacheStorage implements CacheStorageLike {
+  readonly caches = new Map<string, BodyTrackingCache>();
+  async open(name: string): Promise<BodyTrackingCache> {
+    let cache = this.caches.get(name);
+    if (!cache) {
+      cache = new BodyTrackingCache();
+      this.caches.set(name, cache);
+    }
+    return cache;
+  }
+  async has(name: string): Promise<boolean> {
+    return this.caches.has(name);
+  }
+  async keys(): Promise<string[]> {
+    return Array.from(this.caches.keys());
+  }
+  async delete(name: string): Promise<boolean> {
+    return this.caches.delete(name);
+  }
+}
+
+describe('CacheApiStorage — cached bodies are opened only when read', () => {
+  const IDENTITY = 'https://cdn/qwen3/model.onnx_data';
+  const WHOLE = 'https://cdn/qwen3/model.onnx';
+  const LEGACY = 'https://cdn/qwen3/legacy.onnx';
+  const ORPHAN = 'https://cdn/qwen3/abandoned.bin.ecopart.s3.0';
+  const PART_BYTES = 8;
+  const PART_COUNT = 3;
+
+  let storage: CacheApiStorage;
+  let cache: BodyTrackingCache;
+  let partKeys: string[];
+
+  // Cancels are issued, not awaited, by the code under test; let them land.
+  const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+
+  beforeEach(async () => {
+    const cacheStorage = new BodyTrackingCacheStorage();
+    storage = new CacheApiStorage(cacheStorage);
+    cache = await cacheStorage.open('eco-local-ai-' + MODEL.replace(/[^a-zA-Z0-9._-]/g, '_'));
+    partKeys = [];
+    for (let i = 0; i < PART_COUNT; i++) {
+      const key = `${IDENTITY}.ecopart.s24.${i * PART_BYTES}`;
+      await storage.put({ modelId: MODEL, url: key }, new Response(new Uint8Array(PART_BYTES).fill(i)));
+      partKeys.push(key);
+    }
+    await storage.finalizeParts({ modelId: MODEL, url: IDENTITY }, partKeys, PART_BYTES * PART_COUNT);
+    await storage.put({ modelId: MODEL, url: WHOLE }, new Response(new Uint8Array(5)));
+    await cache.put(LEGACY, new Response(new Uint8Array(4))); // no size stamp
+    await storage.put({ modelId: MODEL, url: ORPHAN }, new Response(new Uint8Array(3)));
+    cache.resetTally();
+  });
+
+  it('has() answers by key for an identity, a part and a missing url, opening no entry', async () => {
+    expect(await storage.has({ modelId: MODEL, url: IDENTITY })).toBe(true);
+    expect(await storage.has({ modelId: MODEL, url: partKeys[1]! })).toBe(true);
+    expect(await storage.has({ modelId: MODEL, url: WHOLE })).toBe(true);
+    // Absent while the cache holds other entries: the lookup honours its key.
+    expect(await storage.has({ modelId: MODEL, url: 'https://cdn/qwen3/absent.onnx' })).toBe(false);
+    expect(cache.matchedUrls).toEqual([]);
+  });
+
+  it('verify() checks a parts-native file\'s parts by key, still catching a missing part', async () => {
+    expect(await storage.verify({ modelId: MODEL, url: IDENTITY }, PART_BYTES * PART_COUNT)).toBe(true);
+    expect(await storage.verifyIntact!({ modelId: MODEL, url: IDENTITY })).toBe(true);
+
+    await cache.delete(partKeys[1]!);
+    expect(await storage.verify({ modelId: MODEL, url: IDENTITY }, PART_BYTES * PART_COUNT)).toBe(false);
+
+    await settle();
+    expect(cache.matchedUrls.filter((url) => url.includes('.ecopart.'))).toEqual([]);
+    // Only the identity's small manifest was opened, and it was read.
+    expect(cache.matchedUrls).toEqual([IDENTITY, IDENTITY, IDENTITY]);
+    expect(cache.openBodies).toBe(0);
+  });
+
+  it('remove() deletes a parts-native file\'s listed parts and releases every body it opens', async () => {
+    await storage.remove({ modelId: MODEL, url: IDENTITY });
+    // A parts-native remove opens only the manifest, never a part.
+    expect(cache.matchedUrls).toEqual([IDENTITY]);
+    await storage.remove({ modelId: MODEL, url: WHOLE });
+    await storage.remove({ modelId: MODEL, url: ORPHAN }); // a part key, passed directly
+
+    const left = (await cache.keys()).map((request) => request.url);
+    expect(left).toEqual([LEGACY]);
+    expect(cache.matchedUrls).toEqual([IDENTITY, WHOLE, ORPHAN]);
+    await settle();
+    expect(cache.openBodies).toBe(0);
+  });
+
+  // Each header-only read keeps its answer and releases every body it opens.
+  it.each<[string, (s: CacheApiStorage) => Promise<unknown>, (result: unknown) => void]>([
+    ['isPartsNative on a whole entry', (s) => s.isPartsNative({ modelId: MODEL, url: WHOLE }),
+      (r) => expect(r).toBe(false)],
+    ['isPartsNative on a manifest', (s) => s.isPartsNative({ modelId: MODEL, url: IDENTITY }),
+      (r) => expect(r).toBe(true)],
+    ['verifyIntact on a whole entry', (s) => s.verifyIntact({ modelId: MODEL, url: WHOLE }),
+      (r) => expect(r).toBe(true)],
+    ['verify with a mismatched size', (s) => s.verify({ modelId: MODEL, url: WHOLE }, 99),
+      (r) => expect(r).toBe(false)],
+    ['verify on an unstamped entry', (s) => s.verify({ modelId: MODEL, url: LEGACY }, 4),
+      (r) => expect(r).toBe(false)],
+    ['get on an unstamped entry', (s) => s.get({ modelId: MODEL, url: LEGACY }),
+      (r) => expect(r).toBeNull()],
+    ['listForModel over the whole namespace', (s) => s.listForModel(MODEL), (r) => {
+      const sizes = new Map((r as { url: string; sizeBytes: number | null }[]).map((e) => [e.url, e.sizeBytes]));
+      expect(sizes.size).toBe(PART_COUNT + 4);
+      expect(sizes.get(IDENTITY)).toBe(PART_BYTES * PART_COUNT);
+      expect(sizes.get(partKeys[0]!)).toBe(PART_BYTES);
+      expect(sizes.get(WHOLE)).toBe(5);
+      expect(sizes.get(LEGACY)).toBeNull();
+    }],
+    ['sweepOrphanedParts', (s) => s.sweepOrphanedParts(MODEL), (r) => expect(r).toBe(1)],
+  ])('%s releases every body it opens', async (_name, run, check) => {
+    check(await run(storage));
+    await settle();
+    expect(cache.opened).toBeGreaterThan(0);
+    expect(cache.openBodies).toBe(0);
+  });
+
+  it('sweepOrphanedParts still keeps a manifest\'s parts and drops an orphan', async () => {
+    await storage.sweepOrphanedParts(MODEL);
+    const left = (await cache.keys()).map((request) => request.url);
+    expect(left).not.toContain(ORPHAN);
+    for (const key of partKeys) expect(left).toContain(key);
+    await settle();
+    expect(cache.openBodies).toBe(0);
+  });
 });
