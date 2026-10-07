@@ -263,7 +263,11 @@ export function stream(
           logDoneTelemetry(event);
           // The window is this layer's decision, so this layer reports it —
           // adapters know nothing about it.
-          yield { ...event, windowStartIndex: selection.windowStartIndex };
+          yield {
+            ...event,
+            windowStartIndex: selection.windowStartIndex,
+            countedWithTokenizer: selection.countedWithTokenizer,
+          };
           continue;
         }
         yield event;

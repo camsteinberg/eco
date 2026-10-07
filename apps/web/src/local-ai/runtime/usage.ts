@@ -35,6 +35,8 @@ export type LocalAiUsage = {
    * from this — see `runtime/window.ts`.
    */
   windowStartIndex?: number;
+  /** Whether that window was chosen with a real token count — see `TokenEvent`. */
+  countedWithTokenizer?: boolean;
   /**
    * KV-cache reuse telemetry from the transformers worker (absent on the
    * WebLLM path, which manages its own cache internally). Threaded into the
@@ -82,6 +84,9 @@ export function usageFromDone(
     ...(done?.promptTokens != null ? { promptTokens: done.promptTokens } : {}),
     ...(done?.completionTokens != null ? { completionTokens: done.completionTokens } : {}),
     ...(done?.windowStartIndex != null ? { windowStartIndex: done.windowStartIndex } : {}),
+    ...(done?.countedWithTokenizer != null
+      ? { countedWithTokenizer: done.countedWithTokenizer }
+      : {}),
     ...(maxTokens != null ? { maxTokens } : {}),
     ...(done?.kvReuse != null ? { kvReuse: done.kvReuse } : {}),
     ...(done?.cjkSuppression != null ? { cjkSuppression: done.cjkSuppression } : {}),

@@ -195,13 +195,14 @@ describe('stream()', () => {
       stream([{ role: 'user', content: 'x' }], FAKE_MODEL.id, { maxTokens: 16 }),
     );
 
-    // `windowStartIndex` is added by `stream()` itself (R5a) — the adapter's
-    // done event knows nothing about the window.
+    // `windowStartIndex` and `countedWithTokenizer` are added by `stream()`
+    // itself (R5a) — the adapter's done event knows nothing about the window.
     expect(doneOf(events)).toEqual({
       kind: 'done',
       promptTokens: 4,
       completionTokens: 1,
       windowStartIndex: 0,
+      countedWithTokenizer: true,
     });
   });
 
@@ -493,6 +494,17 @@ describe('stream()', () => {
       1,
     );
     expect(mockGenerate).toHaveBeenCalled();
+  });
+
+  it('reports on the done event that the bound, not a tokenizer, chose the window', async () => {
+    mockLoad.mockResolvedValue({ countTokens: async () => null } as unknown);
+    mockGenerate.mockReturnValueOnce(asyncIterable([{ kind: 'done' }]));
+
+    const events = await readAll(
+      stream([{ role: 'user', content: 'x' }], FAKE_MODEL.id, { maxTokens: 16 }),
+    );
+
+    expect(doneOf(events)?.countedWithTokenizer).toBe(false);
   });
 
   it('passes maxTokens and temperature through to lifecycle.generate', async () => {

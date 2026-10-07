@@ -33,6 +33,14 @@ describe('usageFromDone', () => {
     expect('maxInterTokenGapMs' in usageFromDone({ kind: 'done' }, 64)).toBe(false);
   });
 
+  it('carries which counter chose the window, keeping false (the bound) distinct from absent', () => {
+    expect(usageFromDone({ kind: 'done', countedWithTokenizer: true }, 64).countedWithTokenizer)
+      .toBe(true);
+    expect(usageFromDone({ kind: 'done', countedWithTokenizer: false }, 64).countedWithTokenizer)
+      .toBe(false);
+    expect('countedWithTokenizer' in usageFromDone({ kind: 'done' }, 64)).toBe(false);
+  });
+
   it('still records the requested budget when the adapter emitted no done event', () => {
     // The pre-R4b shim's `!lastUsageRecorded` branch: downstream truncation and
     // ran-to-cap logic needs the cap even when the counts never arrived.

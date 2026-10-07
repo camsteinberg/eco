@@ -1274,6 +1274,9 @@ export function useChat() {
         completionTokens: lastUsage.completionTokens ?? 0,
         ...(lastUsage.kvReuse != null ? { kvReuse: lastUsage.kvReuse } : {}),
         ...(lastUsage.windowStartIndex != null ? { windowStartIndex: lastUsage.windowStartIndex } : {}),
+        ...(lastUsage.countedWithTokenizer != null
+          ? { countedWithTokenizer: lastUsage.countedWithTokenizer }
+          : {}),
         ...(lastUsage.cjkSuppression != null ? { cjkSuppression: lastUsage.cjkSuppression } : {}),
         ...(lastUsage.maxInterTokenGapMs !== undefined
           ? { maxInterTokenGapMs: lastUsage.maxInterTokenGapMs }

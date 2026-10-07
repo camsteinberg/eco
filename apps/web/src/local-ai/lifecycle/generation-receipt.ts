@@ -74,6 +74,12 @@ export interface GenerationReceipt {
    */
   windowStartIndex?: number;
   /**
+   * Whether that window was chosen with the model's real token count (true) or
+   * the one-token-per-character bound (false), which evicts far more history.
+   * Absent when the runtime did not report it.
+   */
+  countedWithTokenizer?: boolean;
+  /**
    * CJK-token suppression telemetry (transformers worker only). Answers
    * "was the deterministic CJK guard active on this turn?" — a CJK leak with
    * `applied: false` here points at the gate/scan, with `applied: true` at
