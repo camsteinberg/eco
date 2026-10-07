@@ -213,6 +213,15 @@ function detectBrowserClass(userAgent: string): BrowserClass {
   ) {
     return 'safari';
   }
+  // Classify by engine, not by the Safari token: iOS in-app browsers (the
+  // WKWebView inside Instagram, Facebook, LinkedIn, TikTok, …) send the iPhone
+  // UA without `Safari/…`, and an iPad in-app view can send the bare Mac UA.
+  // They are WebKit all the same, so they must reach the WebKit-mobile gate
+  // (compatibility.ts) rather than the generic mobile class. Android is
+  // excluded: its AppleWebKit token belongs to Chromium-based WebViews.
+  if (ua.includes('applewebkit') && !ua.includes('android')) {
+    return 'safari';
+  }
   if (/iphone|ipad|android|mobile|tablet/.test(ua)) {
     return 'mobile';
   }
@@ -221,8 +230,9 @@ function detectBrowserClass(userAgent: string): BrowserClass {
 
 function detectIsMobile(userAgent: string, maxTouchPoints: number | undefined): boolean {
   if (/iphone|ipad|android|mobile|tablet/i.test(userAgent)) return true;
-  // iPadOS Safari sends the desktop Mac user agent by default, so the UA reads
-  // an iPad as a Mac. Touch support tells them apart: Safari on a Mac reports
+  // iPadOS Safari sends the desktop Mac user agent by default (and an iPad
+  // in-app WebKit view may send the bare Mac UA), so the UA reads an iPad as a
+  // Mac. Touch support tells them apart: Safari on a Mac reports
   // `maxTouchPoints` 0, an iPad reports 5. (Documented browser behaviour, not
   // measured on a device here.) An iPad then routes like an iPhone.
   return detectBrowserClass(userAgent) === 'safari'
