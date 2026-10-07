@@ -537,10 +537,8 @@ export async function reconcileReadySlots(
     if (model?.runtime === 'webllm') {
       // Offline, a 'preparing' flip drives a re-download that cannot succeed,
       // so skip the probe entirely: the next ONLINE boot runs it and repairs.
-      // (A genuinely-evicted model then fails at engine load — executeSetup
-      // trusts a 'ready' slot and returns, and no chat-path failure flips the
-      // slot — so the boot probe is the actual repair mechanism, not
-      // in-session recovery.)
+      // (Within a session, a chat-path load failure runs the same probe —
+      // `demoteWebllmSlotsWithMissingFiles` below.)
       // `=== false` is load-bearing, not redundant: Node defines a global
       // `navigator` with NO `onLine` property, so `!navigator.onLine` would
       // read a missing property as "definitely offline" and skip verification
@@ -607,6 +605,34 @@ export async function reconcileReadySlots(
   }
 
   return report;
+}
+
+/**
+ * The chat path's half of the `webllm` demote pass above. After a `webllm`
+ * load fails mid-session, ask the same presence question and, when a file is
+ * proven missing, flip every 'ready' slot bound to the model to 'preparing'.
+ * The engine cannot fetch a missing file back (the bridge's cache keys point
+ * at a route that is never served), so without this every send fails until
+ * the next landing; a 'preparing' slot puts the readiness surface's setup run
+ * in front of the person instead, and that run re-stages the files. An
+ * `unknown` answer changes nothing, as at boot. Returns the slots it flipped.
+ */
+export async function demoteWebllmSlotsWithMissingFiles(
+  model: ModelConfig,
+  options?: { webllmInCache?: (model: ModelConfig) => Promise<boolean> },
+): Promise<Slot[]> {
+  if (model.runtime !== 'webllm') return [];
+  const presence = await probeWebllmPresence(model, options?.webllmInCache);
+  if (presence.state !== 'absent') return [];
+  const demoted: Slot[] = [];
+  const slotState = getAllSlots();
+  for (const slot of SLOTS) {
+    const state = slotState[slot];
+    if (state.status !== 'ready' || state.modelId !== model.id) continue;
+    setSlotStatus(slot, 'preparing');
+    demoted.push(slot);
+  }
+  return demoted;
 }
 
 // ─── Boot-time slot promotion (the reverse of reconcileReadySlots) ─────────

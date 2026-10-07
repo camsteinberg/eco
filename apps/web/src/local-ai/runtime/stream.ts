@@ -212,6 +212,19 @@ export function stream(
         if (err instanceof AdapterError && err.code === 'oom') {
           throw new LocalInferenceStreamError('LOAD_OOM', err.message, true);
         }
+        // A WebLLM engine cannot fetch a missing file back (its fetch errors
+        // classify as 'generation-failed'), so when presence proves a file is
+        // gone, move the slot off 'ready': the next send then offers the setup
+        // run that re-stages the files, instead of failing the same way again.
+        if (
+          model.runtime === 'webllm'
+          && !abortController.signal.aborted
+          && (!(err instanceof AdapterError) || err.code === 'generation-failed')
+        ) {
+          await import('../lifecycle/self-heal')
+            .then(({ demoteWebllmSlotsWithMissingFiles }) => demoteWebllmSlotsWithMissingFiles(model))
+            .catch(() => undefined);
+        }
         throw err;
       }
       if (abortController.signal.aborted) return;

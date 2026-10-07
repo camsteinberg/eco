@@ -10,6 +10,7 @@ import {
   type KeyValueStorage as CooldownStorage,
 } from '../../runtime/lifecycle';
 import {
+  demoteWebllmSlotsWithMissingFiles,
   reconcilePreparingSlots,
   reconcileReadySlots,
   repairModelCache,
@@ -601,6 +602,34 @@ describe('reconcileReadySlots — webllm models verify against the engine cache'
     expect(getSlot('eco-fast').status).toBe('ready');
     expect(getSlot('eco-smart').status).toBe('preparing');
     expect(report.slotsFlippedToPreparing).toEqual(['eco-smart']);
+  });
+});
+
+// ─── In-session demotion after a webllm load failure ────────────────────────
+
+describe('demoteWebllmSlotsWithMissingFiles', () => {
+  const MLC_ID = 'candidate/qwen2.5-0.5b-mlc';
+  const OTHER_ID = 'candidate/qwen3.5-2b-onnx';
+
+  it('flips only the ready slots bound to the failed model, and only on proven absence', async () => {
+    const model = getModel(MLC_ID);
+    if (!model) throw new Error(`catalog fixture ${MLC_ID} is missing`);
+    setSlot('eco-fast', MLC_ID);
+    setSlotStatus('eco-fast', 'ready');
+    setSlot('eco-smart', OTHER_ID);
+    setSlotStatus('eco-smart', 'ready');
+
+    expect(await demoteWebllmSlotsWithMissingFiles(model, { webllmInCache: async () => true })).toEqual([]);
+    expect(
+      await demoteWebllmSlotsWithMissingFiles(model, {
+        webllmInCache: async () => { throw new Error('could not look'); },
+      }),
+    ).toEqual([]);
+    expect(getSlot('eco-fast').status).toBe('ready');
+
+    expect(await demoteWebllmSlotsWithMissingFiles(model, { webllmInCache: async () => false })).toEqual(['eco-fast']);
+    expect(getSlot('eco-fast').status).toBe('preparing');
+    expect(getSlot('eco-smart').status).toBe('ready');
   });
 });
 
