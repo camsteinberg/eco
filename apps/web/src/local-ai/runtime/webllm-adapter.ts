@@ -137,13 +137,12 @@ export type WebLLMEngine = {
    */
   resetChat(): Promise<void>;
   unload(): Promise<void>;
-  /** Optional: encode text to token ids (for countTokens support). */
-  tokenize?: (text: string) => number[] | Promise<number[]>;
   /**
    * The real engine's loaded pipelines, keyed by MLC model id. NOT public API:
-   * read only to install the prompt-wide repetition penalty (`mlcPipelineOf`
-   * below). `@mlc-ai/web-llm` is pinned exact, so a version bump must re-check
-   * the fields `MlcPipeline` names.
+   * read only to install the prompt-wide repetition penalty and to count
+   * tokens with the model's own tokenizer (`mlcPipelineOf` below).
+   * `@mlc-ai/web-llm` is pinned exact, so a version bump must re-check the
+   * fields `MlcPipeline` names.
    */
   loadedModelIdToPipeline?: Map<string, unknown>;
 };
@@ -585,11 +584,18 @@ export class WebLLMAdapter implements RuntimeAdapter {
     }
   }
 
+  /**
+   * Count with the loaded model's own tokenizer — the instance the engine
+   * prefills with (`mlcPipelineOf`). WebLLM 0.2.84 has no public tokenize
+   * call; its pipeline's `tokenizer.encode` is synchronous. Null only when no
+   * pipeline is reachable or the tokenizer throws, which sends the history
+   * window to its one-token-per-character bound (`runtime/window.ts`).
+   */
   async countTokens(text: string): Promise<number | null> {
-    if (!this.engine?.tokenize) return null;
+    if (!this.engine || !this.currentModel) return null;
     try {
-      const tokens = await this.engine.tokenize(text);
-      return tokens.length;
+      const pipeline = mlcPipelineOf(this.engine, this.mlcIdFor(this.currentModel));
+      return pipeline ? pipeline.tokenizer.encode(text).length : null;
     } catch {
       return null;
     }
@@ -615,9 +621,13 @@ export class WebLLMAdapter implements RuntimeAdapter {
 
 // ─── Prompt-wide repetition penalty ────────────────────────────────────────
 
-/** The fields of WebLLM 0.2.84's `LLMChatPipeline` the penalty reads and sets. */
+/**
+ * The fields of WebLLM 0.2.84's `LLMChatPipeline` the penalty reads and sets,
+ * and `countTokens` reads. `encode` is synchronous and returns a fresh
+ * `Int32Array` (`Tokenizer.prototype.encode` in `lib/index.js`).
+ */
 type MlcPipeline = {
-  tokenizer: { encode(text: string): Iterable<number> };
+  tokenizer: { encode(text: string): Int32Array };
   conversation: {
     config: { system_prefix_token_ids?: number[] | null };
     getPromptArray(config: unknown): (string | (string | object)[])[];
@@ -630,7 +640,8 @@ type MlcPipeline = {
  * The engine's loaded pipeline for `mlcId`, or null when it is not reachable
  * (a test fake, or a library whose internals moved). Null means the adapter
  * falls back to forwarding the penalty to WebLLM, which covers only the
- * generated tokens — the behaviour before this processor existed.
+ * generated tokens — the behaviour before this processor existed — and
+ * `countTokens` answers null.
  */
 function mlcPipelineOf(engine: WebLLMEngine, mlcId: string): MlcPipeline | null {
   const pipeline: unknown = engine.loadedModelIdToPipeline?.get(mlcId);

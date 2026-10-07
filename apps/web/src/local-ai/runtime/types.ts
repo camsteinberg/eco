@@ -109,6 +109,12 @@ export type TokenEvent =
        * client, which is what R5a deleted. Absent when no windowing ran.
        */
       windowStartIndex?: number;
+      /**
+       * Whether that window was chosen with the adapter's real token count
+       * (true) or the one-token-per-character bound (false). Set by `stream()`
+       * alongside `windowStartIndex`; absent when no windowing ran.
+       */
+      countedWithTokenizer?: boolean;
       tokenizerName?: string;
       kvReuse?: KvReuseTelemetry;
       cjkSuppression?: CjkSuppressionTelemetry;

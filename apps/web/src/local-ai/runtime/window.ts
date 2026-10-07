@@ -10,7 +10,9 @@
  * Ollama, LM Studio, Jan, WebLLM, Chrome's Prompt API — counts with the model's
  * own tokenizer and evicts WHOLE messages oldest-first with the system prompt
  * pinned. Nobody estimates. This module is that shape: the adapter is loaded, so
- * `countTokens` is reachable, so the estimate is gone.
+ * `countTokens` is reachable — the Transformers adapter asks its worker's
+ * tokenizer, the WebLLM adapter its loaded pipeline's tokenizer. LiteRT has no
+ * tokenizer to ask and answers null, so its windows use the upper bound below.
  *
  * The selection ALGORITHM is deliberately unchanged from the one it replaces —
  * pin system, walk backward over whole turns, never drop the final user turn.

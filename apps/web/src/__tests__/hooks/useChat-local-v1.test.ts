@@ -132,6 +132,8 @@ describe('Stage 5a wiring — stream composition', () => {
       maxTokens: 64,
       // Where the runtime's window started (R5a) — nothing was evicted here.
       windowStartIndex: 0,
+      // The mocked adapter has no `countTokens`, so the bound chose the window.
+      countedWithTokenizer: false,
     });
   });
 });

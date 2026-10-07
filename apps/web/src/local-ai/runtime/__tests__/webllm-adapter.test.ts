@@ -1141,3 +1141,80 @@ describe('WebLLMAdapter — thinking switch', () => {
     expect(args?.extra_body?.enable_thinking).toBe(false);
   });
 });
+
+// ─── countTokens ────────────────────────────────────────────────────────────
+// The history window is picked with this count (`runtime/window.ts`). WebLLM
+// 0.2.84 has no public tokenize call, so the adapter asks the loaded model's
+// own pipeline tokenizer — the one the engine prefills with. A null here sends
+// the window to the one-token-per-character bound, which on a real iPhone chat
+// evicted every earlier message by turn 7.
+
+describe('WebLLMAdapter — countTokens', () => {
+  const MLC_ID = 'SmolLM2-1.7B-Instruct-q4f16_1-MLC';
+
+  /** One token id per whitespace-separated word — a deterministic stand-in. */
+  function makePipeline(encode?: (text: string) => Int32Array): unknown {
+    return {
+      tokenizer: {
+        encode:
+          encode ??
+          ((text: string) => Int32Array.from(text.split(/\s+/).filter(Boolean), (_w, i) => i)),
+      },
+      conversation: { config: {}, getPromptArray: () => [] },
+      config: {},
+      logitProcessor: undefined,
+    };
+  }
+
+  async function loadWith(pipelines?: Map<string, unknown>): Promise<void> {
+    engine = { ...makeEngine(), ...(pipelines ? { loadedModelIdToPipeline: pipelines } : {}) };
+    adapter = new WebLLMAdapter({ engineFactory: async () => engine });
+    await adapter.load(MODEL);
+  }
+
+  it("counts with the loaded model's own pipeline tokenizer", async () => {
+    await loadWith(new Map([[MLC_ID, makePipeline()]]));
+    await expect(adapter.countTokens('how far is the moon')).resolves.toBe(5);
+    await expect(adapter.countTokens('')).resolves.toBe(0);
+  });
+
+  it('returns null before a model is loaded', async () => {
+    adapter = new WebLLMAdapter({ engineFactory: async () => engine });
+    await expect(adapter.countTokens('hello')).resolves.toBeNull();
+  });
+
+  it('returns null when the engine exposes no pipelines', async () => {
+    await loadWith();
+    await expect(adapter.countTokens('hello')).resolves.toBeNull();
+  });
+
+  it("returns null when no pipeline is loaded under this model's id", async () => {
+    await loadWith(new Map([['Some-Other-Model-MLC', makePipeline()]]));
+    await expect(adapter.countTokens('hello')).resolves.toBeNull();
+  });
+
+  it('returns null when the pipeline has no usable tokenizer', async () => {
+    await loadWith(new Map([[MLC_ID, { tokenizer: {}, conversation: { getPromptArray: () => [] } }]]));
+    await expect(adapter.countTokens('hello')).resolves.toBeNull();
+  });
+
+  it('returns null when the tokenizer throws', async () => {
+    await loadWith(
+      new Map([
+        [
+          MLC_ID,
+          makePipeline(() => {
+            throw new Error('tokenizer disposed');
+          }),
+        ],
+      ]),
+    );
+    await expect(adapter.countTokens('hello')).resolves.toBeNull();
+  });
+
+  it('returns null again after unload', async () => {
+    await loadWith(new Map([[MLC_ID, makePipeline()]]));
+    await adapter.unload();
+    await expect(adapter.countTokens('hello')).resolves.toBeNull();
+  });
+});
