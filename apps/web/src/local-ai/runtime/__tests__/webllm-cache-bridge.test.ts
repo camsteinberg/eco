@@ -461,35 +461,78 @@ describe('measureWebllmModelCacheBytes', () => {
     expect(await measureWebllmModelCacheBytes(MODEL)).toBe(fullTotal! - evictedBytes);
   });
 
-  it('uses a declared content-length and releases that body unread', async () => {
+  it('sizes weight shards from tensor-cache.json and never opens their entries', async () => {
+    // The bridge writes entries with no content-length, so a count that matches
+    // each file reads every weight shard's body — and in Safari a match() alone
+    // loads the body into memory. Opening Settings must not pay that.
+    const { storage } = makeEcoStorage();
+    await bridgeDownloadWebLLMModel(MODEL, {
+      storage,
+      download: vi.fn().mockResolvedValue(undefined),
+    });
+    const modelCache = await memCaches.open('webllm/model');
+    const configCache = await memCaches.open('webllm/config');
+    const expected = [...modelCache.store.values(), ...configCache.store.values()]
+      .reduce((sum, buf) => sum + buf.byteLength, 0);
+    const matchSpies = [modelCache, configCache].map((cache) => vi.spyOn(cache, 'match'));
+
+    expect(await measureWebllmModelCacheBytes(MODEL)).toBe(expected);
+
+    const opened = matchSpies.flatMap((spy) =>
+      spy.mock.calls.map(([req]) => (typeof req === 'string' ? req : req instanceof URL ? req.href : req.url)),
+    );
+    expect(opened.filter((url) => url.includes('params_shard_'))).toEqual([]);
+  });
+
+  it('still counts the shards when the index that sizes them is gone', async () => {
+    await bridgeDownloadWebLLMModel(MODEL, {
+      storage: makeEcoStorage().storage,
+      download: vi.fn().mockResolvedValue(undefined),
+    });
+    const modelCache = await memCaches.open('webllm/model');
+    const indexKey = [...modelCache.store.keys()].find((key) => key.endsWith('tensor-cache.json'))!;
+    const indexBytes = modelCache.store.get(indexKey)!.byteLength;
+    const fullTotal = await measureWebllmModelCacheBytes(MODEL);
+    modelCache.store.delete(indexKey);
+
+    expect(await measureWebllmModelCacheBytes(MODEL)).toBe(fullTotal! - indexBytes);
+  });
+
+  it('uses a declared content-length for a small file and releases that body unread', async () => {
     let pulled = 0;
     let cancelled = 0;
+    const indexBytes = FILE_BYTES['tensor-cache.json']!;
     const declaredCache = {
-      match: async () =>
-        new Response(
-          new ReadableStream<Uint8Array>(
-            {
-              pull(controller) {
-                pulled++;
-                controller.enqueue(new Uint8Array(4));
-                controller.close();
-              },
-              cancel() {
-                cancelled++;
-              },
-            },
-            { highWaterMark: 0 },
-          ),
-          { headers: { 'content-length': '1000' } },
-        ),
+      keys: async (req: RequestInfo | URL) => [new Request(req)],
+      match: async (req: RequestInfo | URL) =>
+        new Request(req).url.endsWith('tensor-cache.json')
+          ? new Response(indexBytes as unknown as BodyInit)
+          : new Response(
+              new ReadableStream<Uint8Array>(
+                {
+                  pull(controller) {
+                    pulled++;
+                    controller.enqueue(new Uint8Array(4));
+                    controller.close();
+                  },
+                  cancel() {
+                    cancelled++;
+                  },
+                },
+                { highWaterMark: 0 },
+              ),
+              { headers: { 'content-length': '1000' } },
+            ),
     };
     const declaredCaches = { open: async () => declaredCache } as unknown as CacheStorageLike;
 
     const total = await measureWebllmModelCacheBytes(MODEL, { caches: declaredCaches });
 
-    expect(total).toBe(1000 * MODEL.artifact!.files!.length);
+    // The index (read to parse it), its one 4-byte shard (sized from the index,
+    // never opened), and the two small files at their declared 1000 bytes.
+    expect(total).toBe(indexBytes.length + 4 + 2 * 1000);
     expect(pulled).toBe(0);
-    expect(cancelled).toBe(MODEL.artifact!.files!.length);
+    expect(cancelled).toBe(2);
   });
 
   it('returns null (not zero) when the Cache API itself cannot be asked', async () => {
