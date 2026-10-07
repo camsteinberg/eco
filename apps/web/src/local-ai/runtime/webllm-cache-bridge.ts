@@ -37,8 +37,7 @@
  * The cache-copy leg is not itself resumable — an interruption mid-copy is
  * recovered by re-running, where the Eco download verify-skips what it already
  * has and the copies re-run (idempotent overwrites). A returning user whose
- * WebLLM cache is already populated skips both legs (the `hasModelInCache`
- * fast path).
+ * WebLLM cache already holds every file skips both legs (the fast path).
  */
 
 import type { AppConfig } from '@mlc-ai/web-llm';
@@ -208,12 +207,17 @@ export async function webllmModelCachePresence(
 
 /**
  * Actual bytes of this model's files sitting in WebLLM's cache namespaces, for
- * storage accounting. Entries Eco's bridge writes carry no size header, so
- * they are stream-counted, one chunk at a time; an entry with a declared
- * content-length uses it and its body is released unread. On Safari,
- * match() results left unread over a model's files held ~570 MB until a GC in
- * a test; this read path itself has not been measured. Missing files are
- * skipped (a partial wipe still has real bytes on disk worth reporting).
+ * storage accounting. Presence is looked up by key. Weight shards are sized
+ * from the model's own `tensor-cache.json` (each shard record's `nbytes` is
+ * the shard file's size), so their entries are never opened: in Safari a
+ * match() alone loads the body into memory, and a model's shards are hundreds
+ * of MB. The remaining small files (the index, config and tokenizer files) are
+ * opened: an entry with a declared content-length uses it and its body is
+ * released unread; Eco's bridge writes no size header, so those are
+ * stream-counted one chunk at a time. A shard the index does not size (the
+ * index itself is gone or unreadable) falls back to the same count. Missing
+ * files are skipped (a partial wipe still has real bytes on disk worth
+ * reporting).
  *
  *   - number ⇒ measured bytes (0 = genuinely nothing present)
  *   - null   ⇒ could not look. Callers must not render this as "0 bytes".
@@ -229,13 +233,25 @@ export async function measureWebllmModelCacheBytes(
     const origin = resolveOrigin(deps.origin);
     const base = webllmModelBaseUrl(stripMlcOrgPrefix(artifact.hfId), origin);
     const openCaches = new Map<WebLLMCacheScope, CacheLike>();
-    let total = 0;
-    for (const fileName of artifact.files) {
-      const { scope, key } = webllmCacheTargetFor(fileName, base);
+    const openCache = async (scope: WebLLMCacheScope): Promise<CacheLike> => {
       let cache = openCaches.get(scope);
       if (!cache) {
         cache = await cacheStorage.open(scope);
         openCaches.set(scope, cache);
+      }
+      return cache;
+    };
+    const index = webllmCacheTargetFor('tensor-cache.json', base);
+    const knownBytes = await readTensorCacheSizes(await openCache(index.scope), index.key, base);
+    let total = 0;
+    for (const fileName of artifact.files) {
+      const { scope, key } = webllmCacheTargetFor(fileName, base);
+      const cache = await openCache(scope);
+      if (!(await cacheHasEntry(cache, key))) continue;
+      const known = knownBytes.get(key);
+      if (known !== undefined) {
+        total += known;
+        continue;
       }
       const hit = await cache.match(key);
       if (!hit) continue;
@@ -245,6 +261,37 @@ export async function measureWebllmModelCacheBytes(
   } catch {
     return null;
   }
+}
+
+/**
+ * Sizes read from a cached `tensor-cache.json`, keyed by cache key: the index
+ * itself (its body is read to parse it) and every shard it lists. Empty when
+ * the index is not cached; only the index's own size when it does not parse.
+ */
+async function readTensorCacheSizes(
+  cache: CacheLike,
+  indexKey: string,
+  base: string,
+): Promise<Map<string, number>> {
+  const sizes = new Map<string, number>();
+  const hit = await cache.match(indexKey);
+  if (!hit) return sizes;
+  const bytes = await hit.arrayBuffer();
+  sizes.set(indexKey, bytes.byteLength);
+  try {
+    const parsed: unknown = JSON.parse(new TextDecoder().decode(bytes));
+    const records = (parsed as { records?: unknown } | null)?.records;
+    if (!Array.isArray(records)) return sizes;
+    for (const record of records) {
+      const { dataPath, nbytes } = (record ?? {}) as { dataPath?: unknown; nbytes?: unknown };
+      if (typeof dataPath !== 'string' || typeof nbytes !== 'number') continue;
+      if (!Number.isFinite(nbytes) || nbytes < 0) continue;
+      sizes.set(webllmCacheTargetFor(dataPath, base).key, nbytes);
+    }
+  } catch {
+    // An unreadable index sizes nothing; its shards fall back to a counted read.
+  }
+  return sizes;
 }
 
 async function countResponseBytes(response: Response): Promise<number> {
@@ -301,10 +348,17 @@ export async function bridgeDownloadWebLLMModel(
   const base = webllmModelBaseUrl(mlcId, origin);
   const hasModelInCache = options.hasModelInCache ?? defaultHasModelInCache;
 
-  // Returning-user fast path: the weights are already in WebLLM's cache, so
+  // Returning-user fast path: every file is already in WebLLM's cache, so
   // neither re-download nor re-copy. Mark the download phase complete so the
-  // setup UI advances straight to smoke.
-  if (await hasModelInCache(mlcId, appConfig).catch(() => false)) {
+  // setup UI advances straight to smoke. The library's check alone is not
+  // enough: it covers tensor-cache.json and the weight shards, never
+  // mlc-chat-config.json or the tokenizer files, which the engine also reads
+  // at reload — and would request from a route that is never served.
+  const allFilesPresent = await webllmModelCachePresence(model, {
+    ...(options.caches ? { caches: options.caches } : {}),
+    origin,
+  }).catch(() => false);
+  if (allFilesPresent && (await hasModelInCache(mlcId, appConfig).catch(() => false))) {
     options.tracker?.reportDownloadProgress(1, 1);
     return;
   }
