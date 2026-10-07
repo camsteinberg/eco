@@ -208,6 +208,11 @@ describe('bridgeDownloadWebLLMModel — acceptance invariant', () => {
 
 describe('bridgeDownloadWebLLMModel — fast path', () => {
   it('skips download and copy when the model is already cached, marking download complete', async () => {
+    // A returning user: an earlier visit staged every file.
+    await bridgeDownloadWebLLMModel(MODEL, {
+      storage: makeEcoStorage().storage,
+      download: vi.fn().mockResolvedValue(undefined),
+    });
     const { storage, removed } = makeEcoStorage();
     const download = vi.fn().mockResolvedValue(undefined);
     const tracker = { reportDownloadProgress: vi.fn() } as never;
@@ -223,6 +228,40 @@ describe('bridgeDownloadWebLLMModel — fast path', () => {
     expect(removed).toHaveLength(0);
     expect((tracker as { reportDownloadProgress: ReturnType<typeof vi.fn> }).reportDownloadProgress)
       .toHaveBeenCalledWith(1, 1);
+  });
+});
+
+// ─── Fast path checks every file the engine reads ────────────────────────────
+//
+// The library's hasModelInCache checks tensor-cache.json and the shards it
+// lists — never mlc-chat-config.json or the tokenizer files, which the engine
+// also reads at reload. With one of those gone, a fast path that trusts the
+// library skips the download, and the engine's add-on-miss then asks for the
+// file at a same-origin route that is never served: the load fails, and setup
+// demotes the model without ever re-staging the file.
+
+describe('bridgeDownloadWebLLMModel — fast path checks every file the engine reads', () => {
+  it.each([
+    ['mlc-chat-config.json', 'webllm/config'],
+    ['tokenizer.json', 'webllm/model'],
+  ])('re-stages the model when %s is missing though the weights are cached', async (missing, scope) => {
+    await bridgeDownloadWebLLMModel(MODEL, {
+      storage: makeEcoStorage().storage,
+      download: vi.fn().mockResolvedValue(undefined),
+    });
+    const base = `${window.location.origin}/webllm/models/${MLC_ID}/resolve/main/`;
+    const cache = await memCaches.open(scope);
+    expect(cache.store.delete(`${base}${missing}`)).toBe(true);
+
+    // The gap: the library still calls the model cached; Eco's own check does not.
+    expect(await webllmModelInCache(MODEL)).toBe(true);
+    expect(await webllmModelCachePresence(MODEL)).toBe(false);
+
+    const download = vi.fn().mockResolvedValue(undefined);
+    await bridgeDownloadWebLLMModel(MODEL, { storage: makeEcoStorage().storage, download });
+
+    expect(download).toHaveBeenCalledTimes(1);
+    expect(await webllmModelCachePresence(MODEL)).toBe(true);
   });
 });
 

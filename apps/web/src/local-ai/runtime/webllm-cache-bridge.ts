@@ -37,8 +37,7 @@
  * The cache-copy leg is not itself resumable — an interruption mid-copy is
  * recovered by re-running, where the Eco download verify-skips what it already
  * has and the copies re-run (idempotent overwrites). A returning user whose
- * WebLLM cache is already populated skips both legs (the `hasModelInCache`
- * fast path).
+ * WebLLM cache already holds every file skips both legs (the fast path).
  */
 
 import type { AppConfig } from '@mlc-ai/web-llm';
@@ -301,10 +300,17 @@ export async function bridgeDownloadWebLLMModel(
   const base = webllmModelBaseUrl(mlcId, origin);
   const hasModelInCache = options.hasModelInCache ?? defaultHasModelInCache;
 
-  // Returning-user fast path: the weights are already in WebLLM's cache, so
+  // Returning-user fast path: every file is already in WebLLM's cache, so
   // neither re-download nor re-copy. Mark the download phase complete so the
-  // setup UI advances straight to smoke.
-  if (await hasModelInCache(mlcId, appConfig).catch(() => false)) {
+  // setup UI advances straight to smoke. The library's check alone is not
+  // enough: it covers tensor-cache.json and the weight shards, never
+  // mlc-chat-config.json or the tokenizer files, which the engine also reads
+  // at reload — and would request from a route that is never served.
+  const allFilesPresent = await webllmModelCachePresence(model, {
+    ...(options.caches ? { caches: options.caches } : {}),
+    origin,
+  }).catch(() => false);
+  if (allFilesPresent && (await hasModelInCache(mlcId, appConfig).catch(() => false))) {
     options.tracker?.reportDownloadProgress(1, 1);
     return;
   }
