@@ -60,7 +60,26 @@ export const SETUP_NETWORK_WAITS_MAX = 5;
  * gets NO code, because it cannot be told apart from any other unexpected throw.
  * Guessing there would be the same dishonesty in the other direction.
  */
-export type AttemptFailureReasonCode = 'insufficient-storage' | 'network-or-host' | 'busy-other-tab';
+export type AttemptFailureReasonCode =
+  | 'insufficient-storage'
+  | 'network-or-host'
+  | 'busy-other-tab'
+  /** The load breaker refused the model: its last load closed the page.
+   *  Like 'busy-other-tab', no retry or demotion can help; the person decides. */
+  | 'load-interrupted';
+
+/**
+ * What the error surface needs to ask about a load that closed the page
+ * (`reasonCode: 'load-interrupted'`). Names are display names. `alternative`
+ * is present only when there is somewhere honest to go: a smaller rung on the
+ * ladder, or the model a killed switch replaced. `repeated` marks the second
+ * kill in a row with no alternative — the honest stop.
+ */
+export type LoadInterruptedInfo = {
+  modelName: string;
+  alternative?: { kind: 'lighter' | 'roll-back'; modelName: string };
+  repeated?: 'only-model' | 'lightest-model';
+};
 
 export type AttemptResult =
   | { ok: true }
@@ -122,6 +141,8 @@ export type RunSetupCascadeOptions = {
    */
   waitForNetwork?: () => Promise<boolean>;
   maxSteps?: number;
+  /** Models the ladder must not demote into (beyond the ones it tries). */
+  excludeIds?: readonly string[];
 };
 
 export async function runSetupCascade(opts: RunSetupCascadeOptions): Promise<SetupCascadeResult> {
@@ -178,11 +199,13 @@ export async function runSetupCascade(opts: RunSetupCascadeOptions): Promise<Set
     // Environment-level failure: the runtime is held by another tab. Retrying
     // or demoting cannot help — every model will hit the same gate — so stop
     // immediately WITHOUT recording the failure (no ledger row, no demotion).
-    if (result.reasonCode === 'busy-other-tab') {
+    // A load-breaker refusal is the same shape: nothing was tried, and the
+    // person, not the ladder, chooses what happens next.
+    if (result.reasonCode === 'busy-other-tab' || result.reasonCode === 'load-interrupted') {
       return {
         kind: 'exhausted',
         reason: result.reason,
-        reasonCode: 'busy-other-tab',
+        reasonCode: result.reasonCode,
         triedModelIds: tried,
       };
     }
@@ -225,7 +248,9 @@ export async function runSetupCascade(opts: RunSetupCascadeOptions): Promise<Set
     tried.push(model.id);
     attemptIndex++;
 
-    const next = opts.nextInCascade(model, opts.slot, opts.profile, undefined, { excludeIds: tried });
+    const next = opts.nextInCascade(model, opts.slot, opts.profile, undefined, {
+      excludeIds: [...(opts.excludeIds ?? []), ...tried],
+    });
     if (!next) {
       return exhausted();
     }

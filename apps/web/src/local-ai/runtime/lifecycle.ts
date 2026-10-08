@@ -18,6 +18,10 @@
  *      model and reproduce the crash. Cooldown is per-model, persisted
  *      to localStorage so it survives page reloads.
  *
+ * A load also leaves a mark the OS cannot wipe by killing the tab — see
+ * `load-breaker.ts`. A model whose last load killed its tab is refused here
+ * until the person answers.
+ *
  * Smoke testing lives in `lifecycle/smoke.ts`. Cross-tab BroadcastChannel
  * coordination is deferred post-v1.0 — single-tab correctness via Web
  * Locks is the v1.0 floor.
@@ -38,6 +42,13 @@ import type {
 } from './types';
 import { AdapterError } from './types';
 import { acquireGpuOwnership, releaseGpuOwnership } from './gpu-ownership';
+import {
+  beginLoadMark,
+  isLoadRefused,
+  recordLoadPass,
+  settleLoadMarks,
+  type LoadMarkHandle,
+} from './load-breaker';
 
 // ─── Cooldown ───────────────────────────────────────────────────────────────
 
@@ -132,6 +143,8 @@ type LifecycleState = {
   activeAdapter: RuntimeAdapter | null;
   activeModel: ModelConfig | null;
   lockQueue: Promise<unknown>;
+  /** The active model's load mark, held until the first token after its load. */
+  firstTokenMark: LoadMarkHandle | null;
 };
 
 const defaultOptions: ResolvedLifecycleOptions = {
@@ -145,6 +158,7 @@ const state: LifecycleState = {
   activeAdapter: null,
   activeModel: null,
   lockQueue: Promise.resolve(),
+  firstTokenMark: null,
 };
 
 function defaultStorage(): KeyValueStorage | null {
@@ -207,6 +221,18 @@ export async function loadModel(
       return state.activeAdapter;
     }
 
+    // Load breaker: a dead tab's mark becomes a kill first, then a model whose
+    // last load killed its tab is not loaded again until the person answers
+    // (setup asks; see lifecycle/setup-runner.ts).
+    await settleLoadMarks().catch(() => undefined);
+    if (isLoadRefused(model.id)) {
+      throw new AdapterError(
+        `${model.friendlyName} closed the page while loading last time; waiting for the person to choose what to do.`,
+        'load-interrupted',
+        true,
+      );
+    }
+
     // Cross-tab GPU ownership: refuse to spin up a second WebGPU device while
     // another tab owns one — that concurrent device init is what crashes the
     // other tab's device. A model already resident here means this tab already
@@ -226,6 +252,7 @@ export async function loadModel(
       await state.activeAdapter.unload().catch(() => undefined);
       state.activeAdapter = null;
       state.activeModel = null;
+      clearFirstTokenMark();
     }
 
     if (!adapterFactory) {
@@ -236,8 +263,24 @@ export async function loadModel(
       );
     }
 
+    // Written once its lock is held, before the load starts: if the OS kills
+    // the tab during the load, this is the only record that survives.
+    const mark = await beginLoadMark(
+      model.id,
+      options?.rollbackModelId ? { rollbackModelId: options.rollbackModelId } : {},
+    );
     const adapter = adapterFactory(model);
     const loadPromise = adapter.load(model, options);
+    // The mark follows the LOAD, not this call: a forced timeout below stops
+    // waiting, but the load keeps running and can still kill the tab. A rejected
+    // load clears it; a load that wins the race hands it to the first generation.
+    let loadAbandoned = false;
+    loadPromise.then(
+      () => {
+        if (loadAbandoned) mark.clear();
+      },
+      () => mark.clear(),
+    );
     // Set only on the forced-timeout path, where cleanup is DEFERRED to late
     // fulfillment (the non-cooperating load is still in flight). RT-1's eager
     // unload below must not fire there — unloading now can't dispose an engine
@@ -246,6 +289,7 @@ export async function loadModel(
     try {
       await raceLoadAgainstSignal(loadPromise, options?.signal, () => {
         deferredCleanupRegistered = true;
+        loadAbandoned = true;
         // The forced timeout won: this loadModel has already rejected and is
         // about to drop its reference to `adapter`. A non-cooperating load
         // (LiteRT's Engine.create, which cannot be cancelled) can still
@@ -285,6 +329,7 @@ export async function loadModel(
 
     state.activeAdapter = adapter;
     state.activeModel = model;
+    state.firstTokenMark = mark;
     return adapter;
   });
 }
@@ -307,8 +352,18 @@ export async function* generate(
   }
   let crashedCode: AdapterErrorCode | null = null;
   let faultCode: AdapterErrorCode | null = null;
+  // The first generation after a load is still inside the load mark's span:
+  // memory can peak on the first run. Only a real token clears the model's
+  // kill record; an abort or an early failure just ends the span.
+  let firstTokenMark = state.firstTokenMark;
+  state.firstTokenMark = null;
   try {
     for await (const event of adapter.generate(messages, options)) {
+      if (firstTokenMark && event.kind === 'token') {
+        recordLoadPass(firstTokenMark.modelId);
+        firstTokenMark.clear();
+        firstTokenMark = null;
+      }
       if (event.kind === 'error' && event.code && COOLDOWN_TRIGGER_CODES.has(event.code)) {
         crashedCode = event.code;
       }
@@ -325,6 +380,7 @@ export async function* generate(
     }
     throw err;
   } finally {
+    firstTokenMark?.clear();
     if (crashedCode && state.activeModel) {
       const modelId = state.activeModel.id;
       if (hasFaultStrike(modelId)) {
@@ -352,6 +408,7 @@ export async function unloadActive(): Promise<void> {
     const adapter = state.activeAdapter;
     state.activeAdapter = null;
     state.activeModel = null;
+    clearFirstTokenMark();
     if (adapter) {
       await adapter.unload().catch(() => undefined);
     }
@@ -359,6 +416,11 @@ export async function unloadActive(): Promise<void> {
     // lock and let a blocked tab (if any) be promoted to owner.
     releaseGpuOwnership();
   });
+}
+
+function clearFirstTokenMark(): void {
+  state.firstTokenMark?.clear();
+  state.firstTokenMark = null;
 }
 
 // ─── Cooldown helpers ──────────────────────────────────────────────────────
@@ -496,6 +558,7 @@ export function _resetLifecycleForTesting(): void {
   state.activeAdapter = null;
   state.activeModel = null;
   state.lockQueue = Promise.resolve();
+  clearFirstTokenMark();
   state.options = {
     cooldownMs: COOLDOWN_DEFAULT_MS,
     now: () => Date.now(),

@@ -11,8 +11,18 @@ import { looksLikeStorageShortage } from '../../local-ai/adapters/storage-shorta
 import {
   SETUP_MODEL_HOST_UNREACHABLE_REASON,
   type AttemptFailureReasonCode,
+  type LoadInterruptedInfo,
 } from '../../local-ai/lifecycle/setup-cascade';
-import { LOCAL_MODEL_OTHER_TAB_MESSAGE } from '../../local-ai/adapters/error-messages';
+import {
+  LOAD_INTERRUPTED_CHAT_MESSAGE,
+  LOAD_INTERRUPTED_HEADLINE,
+  LOAD_INTERRUPTED_LIGHTER_LABEL,
+  LOAD_INTERRUPTED_REPEATED_HEADLINE,
+  LOCAL_MODEL_OTHER_TAB_MESSAGE,
+  loadInterruptedBody,
+  loadInterruptedRepeatedBody,
+  loadInterruptedRollBackLabel,
+} from '../../local-ai/adapters/error-messages';
 
 /**
  * Setup error state — shown after the download pipeline exhausts its
@@ -47,6 +57,14 @@ export type SetupErrorStateProps = {
    * free space rather than a doomed identical retry. Omitted = no reclaim path.
    */
   onManageStorage?(): void;
+  /**
+   * With `reasonCode: 'load-interrupted'`: the model whose load closed the page,
+   * and where else the person can go. Omitted = the screen can say what
+   * happened but not to which model (Try again re-runs setup, which asks).
+   */
+  loadInterrupted?: LoadInterruptedInfo;
+  /** The alternative `loadInterrupted` names: a lighter model, or going back. */
+  onUseAlternative?(): void;
 };
 
 /**
@@ -95,9 +113,13 @@ function headlineFor(
   exhausted: boolean,
   triedModelCount: number,
   reasonCode?: AttemptFailureReasonCode,
+  loadInterrupted?: LoadInterruptedInfo,
 ): string {
   if (reasonCode === 'busy-other-tab') {
     return 'Eco is open in another tab';
+  }
+  if (reasonCode === 'load-interrupted') {
+    return loadInterrupted?.repeated ? LOAD_INTERRUPTED_REPEATED_HEADLINE : LOAD_INTERRUPTED_HEADLINE;
   }
   if (isStorageShortage(reason, reasonCode)) {
     return 'Eco needs a little more free space to set up on this device.';
@@ -131,9 +153,16 @@ function subtitleFor(
   reason: string,
   exhausted: boolean,
   reasonCode?: AttemptFailureReasonCode,
+  loadInterrupted?: LoadInterruptedInfo,
 ): string {
   if (reasonCode === 'busy-other-tab') {
     return LOCAL_MODEL_OTHER_TAB_MESSAGE;
+  }
+  if (reasonCode === 'load-interrupted') {
+    if (!loadInterrupted) return LOAD_INTERRUPTED_CHAT_MESSAGE;
+    return loadInterrupted.repeated
+      ? loadInterruptedRepeatedBody(loadInterrupted.modelName, loadInterrupted.repeated)
+      : loadInterruptedBody(loadInterrupted.modelName);
   }
   if (isStorageShortage(reason, reasonCode)) {
     return `${reason} Free up some space and try again.`;
@@ -156,9 +185,12 @@ export function SetupErrorState({
   onTryAgain,
   onTellUsMore,
   onManageStorage,
+  loadInterrupted,
+  onUseAlternative,
 }: SetupErrorStateProps) {
   const [copied, setCopied] = useState(false);
   const storageShortage = isStorageShortage(reason, reasonCode);
+  const alternative = reasonCode === 'load-interrupted' ? loadInterrupted?.alternative : undefined;
 
   const handleCopy = async (): Promise<void> => {
     try {
@@ -197,15 +229,22 @@ export function SetupErrorState({
         <h1 className="font-display text-3xl tracking-tight">Eco</h1>
 
         <p className="text-base leading-relaxed" style={{ color: 'var(--eco-text)' }}>
-          {headlineFor(reason, exhausted, triedModelCount, reasonCode)}
+          {headlineFor(reason, exhausted, triedModelCount, reasonCode, loadInterrupted)}
           <br />
-          {subtitleFor(reason, exhausted, reasonCode)}
+          {subtitleFor(reason, exhausted, reasonCode, loadInterrupted)}
         </p>
 
         <div className="flex flex-row flex-wrap justify-center gap-3">
           <Button onClick={onTryAgain} variant="primary" aria-label="Try setting up Eco again">
             Try again
           </Button>
+          {alternative && onUseAlternative && (
+            <Button onClick={onUseAlternative} variant="primary">
+              {alternative.kind === 'roll-back'
+                ? loadInterruptedRollBackLabel(alternative.modelName)
+                : LOAD_INTERRUPTED_LIGHTER_LABEL}
+            </Button>
+          )}
           {storageShortage && onManageStorage && (
             <Button
               onClick={onManageStorage}

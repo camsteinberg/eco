@@ -43,6 +43,7 @@ import { ProgressTracker } from '../download/progress';
 import { hasRecentSuccess, recordEvidence } from '../evidence/ledger';
 import { loadSeedEvidenceForModel } from '../evidence/seed';
 import { loadModel } from '../runtime/lifecycle';
+import { AdapterError } from '../runtime/types';
 import { nextInCascade } from '../selection/cascade';
 import { runSmoke } from './smoke';
 import { setSlot, setSlotStatus, type SlotStatus } from './slots';
@@ -371,13 +372,18 @@ export async function prepareModelForSlot(
           options.onProgress?.({ kind: 'phase', phase: event.phase });
         },
         signal: internal.signal,
+        // If this load kills the tab, the next landing offers `previous` back.
+        ...(previous ? { rollbackModelId: previous.id } : {}),
       });
       resolvedBackend = loadResult.backend;
-    } catch {
+    } catch (err) {
       // The exact row Cam's Gemma incident was missing: a runtime load that
       // fails after a clean download left ZERO durable evidence, so the
-      // recommender kept re-offering it. Record it before rolling back.
-      seams.recordEvidence({ modelId: target.id, profile, outcome: 'load-fail' });
+      // recommender kept re-offering it. Record it before rolling back — unless
+      // the load breaker refused it, in which case nothing was tried.
+      if (!(err instanceof AdapterError && err.code === 'load-interrupted')) {
+        seams.recordEvidence({ modelId: target.id, profile, outcome: 'load-fail' });
+      }
       rollback();
       return failure('load-failed');
     }

@@ -32,7 +32,10 @@ import {
 } from "../lib/local-heavy-work-owner";
 import { executeSetup } from "../local-ai/lifecycle/setup-runner";
 import { SETUP_MODEL_HOST_UNREACHABLE_REASON } from "../local-ai/lifecycle/setup-cascade";
-import { LOCAL_MODEL_OTHER_TAB_MESSAGE } from "../local-ai/adapters/error-messages";
+import {
+  LOAD_INTERRUPTED_CHAT_MESSAGE,
+  LOCAL_MODEL_OTHER_TAB_MESSAGE,
+} from "../local-ai/adapters/error-messages";
 import {
   clearValidationConversationHistoryFixture,
   installValidationConversationHistoryFixture,
@@ -167,12 +170,16 @@ export function useLocalModelReadiness(): LocalModelReadiness {
                 // about this device (same rule SetupErrorState applies).
                 // A busy-other-tab failure is environment-level — no retry or
                 // demotion can help, so surface the honest other-tab message.
+                // A load-breaker refusal is answered on the setup screen, which
+                // a reload shows.
                 const message =
                   errOpts?.reasonCode === "busy-other-tab"
                     ? LOCAL_MODEL_OTHER_TAB_MESSAGE
                     : errOpts?.reasonCode === "network-or-host"
                       ? SETUP_MODEL_HOST_UNREACHABLE_REASON
-                      : reason;
+                      : errOpts?.reasonCode === "load-interrupted"
+                        ? LOAD_INTERRUPTED_CHAT_MESSAGE
+                        : reason;
                 setPrepareError({
                   modelId,
                   message,
