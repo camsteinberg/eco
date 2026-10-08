@@ -18,8 +18,11 @@
  *   - the person's answer is honoured exactly once per click.
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { executeSetup } from '../setup-runner';
+import { nextInCascade } from '../../selection/cascade';
+import { getModel } from '../../catalog/catalog';
+import { getDeviceProfile } from '../../device/profile';
 import type { DeviceProfile, ModelConfig, Slot } from '../../types';
 import type { SlotState } from '../slots';
 
@@ -254,5 +257,104 @@ describe('executeSetup — two kills in a row step down', () => {
     // No verdict row: on a one-model device it would only strand the person on
     // the below-floor screen at the next fresh setup.
     expect(s.recordEvidence).not.toHaveBeenCalled();
+  });
+});
+
+// The ladders above are seam fakes. These run the REAL cascade over the REAL
+// catalog, so they pin what each Safari class is actually offered after a kill.
+describe('executeSetup — load breaker on the real catalog', () => {
+  const IPHONE_ID = 'candidate/qwen2.5-0.5b-mlc';
+  const SAFARI_MLC_ID = 'candidate/qwen3-0.6b-mlc-q0f16';
+  const SAFARI_ONNX_ID = 'local/qwen3-0.6b';
+  const MAC_SAFARI_UA =
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15';
+  const originalUserAgent = navigator.userAgent;
+
+  afterEach(() => {
+    Object.defineProperty(navigator, 'userAgent', { value: originalUserAgent, configurable: true });
+    Object.defineProperty(navigator, 'maxTouchPoints', { value: 0, configurable: true });
+  });
+
+  const real = (id: string): ModelConfig => {
+    const model = getModel(id);
+    if (!model) throw new Error(`catalog lost ${id}`);
+    return model;
+  };
+
+  const iPhone: DeviceProfile = {
+    browserClass: 'safari', webgpuSupport: 'webgpu', deviceMemoryGB: 0, isMobile: true, override: 'auto', webgpuShaderF16: true,
+  };
+  // As profile.ts builds an iPad: a desktop Mac user agent, told apart by touch.
+  const iPadProfile = (): DeviceProfile => {
+    Object.defineProperty(navigator, 'userAgent', { value: MAC_SAFARI_UA, configurable: true });
+    Object.defineProperty(navigator, 'maxTouchPoints', { value: 5, configurable: true });
+    return { ...getDeviceProfile(), webgpuSupport: 'webgpu', webgpuShaderF16: true };
+  };
+  const desktopSafari: DeviceProfile = {
+    browserClass: 'safari', webgpuSupport: 'webgpu', deviceMemoryGB: 0, isMobile: false, override: 'auto', webgpuShaderF16: true,
+  };
+
+  const realSeams = (profile: DeviceProfile, killed: ModelConfig) => seams(
+    { 'eco-fast': bound(killed, 'preparing') },
+    { resolveProfile: vi.fn(async () => profile), nextInCascade, getModel },
+  );
+
+  for (const [label, profileOf] of [
+    ['an iPhone', () => iPhone],
+    ['an iPad', iPadProfile],
+  ] as const) {
+    it(`${label}: a second kill of its one model is the honest "only model" stop`, async () => {
+      const profile = profileOf();
+      expect(profile.isMobile).toBe(true);
+      const mobile = real(IPHONE_ID);
+      seedKillRecord(IPHONE_ID, 'retry');
+      seedDeadMark(IPHONE_ID, 'second-load');
+      const a = fakeActions();
+      const s = realSeams(profile, mobile);
+
+      await executeSetup(a, { slot: 'eco-fast', seams: s });
+
+      expect(s.runAttempt).not.toHaveBeenCalled();
+      expect(a.setBelowFloor).not.toHaveBeenCalled();
+      expect(a.setError).toHaveBeenCalledWith(...loadInterruptedError({
+        modelName: 'Eco Mobile',
+        repeated: 'only-model',
+      }));
+      const opts = a.setError.mock.calls[0]?.[1] as { loadInterrupted?: { alternative?: unknown } };
+      expect(opts.loadInterrupted?.alternative).toBeUndefined();
+    });
+  }
+
+  // KNOWN GAP (D1), pinned so the Safari-ladder PR must flip it: "lighter" is
+  // judged by download size, and after the MLC build closes the page the
+  // ladder's smaller rung is the ONNX build — smaller to download, higher
+  // recorded memory peak. Both carry the name "Eco Compact".
+  it('desktop Safari: one kill of the MLC build offers the ONNX Eco Compact as the lighter model', async () => {
+    seedDeadMark(SAFARI_MLC_ID);
+    const a = fakeActions();
+    const s = realSeams(desktopSafari, real(SAFARI_MLC_ID));
+
+    await executeSetup(a, { slot: 'eco-fast', seams: s });
+
+    expect(s.runAttempt).not.toHaveBeenCalled();
+    expect(a.setError).toHaveBeenCalledWith(...loadInterruptedError({
+      modelName: 'Eco Compact',
+      alternative: { kind: 'lighter', modelName: 'Eco Compact' },
+    }));
+  });
+
+  it('desktop Safari: choosing the lighter model sets up the ONNX build', async () => {
+    seedKillRecord(SAFARI_MLC_ID, 'step-down');
+    const a = fakeActions();
+    const s = realSeams(desktopSafari, real(SAFARI_MLC_ID));
+
+    await executeSetup(a, { slot: 'eco-fast', seams: s });
+
+    expect(s.runAttempt).toHaveBeenNthCalledWith(
+      1,
+      'eco-fast',
+      expect.objectContaining({ id: SAFARI_ONNX_ID }),
+      expect.any(Function),
+    );
   });
 });
