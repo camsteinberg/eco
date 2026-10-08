@@ -348,7 +348,10 @@ describe('non-iOS controls keep the profile and picks they had before the in-app
     for (const arm of ARM_NAMES) {
       const profile = profileFor(controlCase, arm);
       expect([pick('eco-fast', profile), pick('eco-smart', profile)], arm).toEqual(expected.picks[arm]);
-      expect(offeredIds(profile).has(IPHONE_ENTRY_ID), arm).toBe(false);
+      // Desktop Safari with WebGPU + shader-f16 has the iPhone entry as its
+      // fallback after the Mac build (2026-10-08); no other control is offered it.
+      const fallbackHere = expected.browserClass === 'safari' && arm === 'webgpu';
+      expect(offeredIds(profile).has(IPHONE_ENTRY_ID), arm).toBe(fallbackHere);
     }
   });
 });
@@ -373,7 +376,7 @@ describe('a Mac app WKWebView (Mac UA, no Safari token, no touch)', () => {
     for (const arm of ARM_NAMES) {
       const profile = profileFor(macApp, arm);
       expect([pick('eco-fast', profile), pick('eco-smart', profile)], arm).toEqual(DESKTOP_SAFARI_PICKS[arm]);
-      expect(offeredIds(profile).has(IPHONE_ENTRY_ID), arm).toBe(false);
+      expect(offeredIds(profile).has(IPHONE_ENTRY_ID), arm).toBe(arm === 'webgpu');
     }
   });
 });

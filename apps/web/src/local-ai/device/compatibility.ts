@@ -25,7 +25,7 @@
  *     informational, not a label.
  */
 
-import type { DeviceProfile, ModelCompat, ModelConfig } from '../types';
+import type { CompatDeclineRule, DeviceProfile, ModelCompat, ModelConfig } from '../types';
 import { getCatalog } from '../catalog/catalog';
 
 export type CompatibilityResult = 'supported' | 'unsupported' | 'with-warning';
@@ -94,35 +94,45 @@ export function isWebKitMobile(profile: DeviceProfile): boolean {
  * Derived from the catalog: an entry earns a place by setting
  * `compat.webkitMobileValidated`. Qwen2.5-0.5B (WebLLM/MLC runtime) is the first
  * — the MLC engine keeps the resident working set inside the iOS envelope, and a
- * real iPhone loaded it and produced coherent prose. Its block additionally
- * carries `requireWebKitMobile`, so validating it opens iOS/WebKit-mobile ONLY;
- * no desktop/Chromium profile is affected.
+ * real iPhone loaded it and produced coherent prose. Validation only lifts this
+ * iOS decline; where else the model runs is its other rules' business.
  */
 export const WEBKIT_MOBILE_VALIDATED_MODEL_IDS: readonly string[] =
   getCatalog().filter((model) => model.compat.webkitMobileValidated === true)
     .map((model) => model.id);
 
 /**
- * True when `modelId` is scoped to iOS/WebKit-mobile only. Form-factor facts
- * only (no capability probes), so callers can safely clear a persisted binding
- * on a device class the model was never meant for.
+ * True when `modelId` is a catalog model whose `compat.allowedBrowsers` excludes
+ * this profile's browser class. Reads the user-agent class only (no capability
+ * probes), so callers can safely clear a persisted binding on a browser the
+ * model was never meant for: a transient probe misread can never trigger it.
  */
-export function requiresWebKitMobile(modelId: string): boolean {
-  return RULES.get(modelId)?.requireWebKitMobile === true;
+export function isOutsideBrowserScope(modelId: string, profile: DeviceProfile): boolean {
+  const rule = RULES.get(modelId);
+  return rule !== undefined && !rule.allowedBrowsers.includes(profile.browserClass);
+}
+
+/**
+ * Whether a `compat.declineOn` rule names this profile: every field it sets must
+ * equal the profile's. `webgpuShaderF16: true` also matches an unprobed profile
+ * (`undefined`) — the shader-f16 gate below assumes an unprobed adapter capable,
+ * and a decline must follow the same assumption or a surface rendered before
+ * setup's probe would offer a model setup declines.
+ */
+function declineRuleMatches(rule: CompatDeclineRule, profile: DeviceProfile): boolean {
+  if (rule.browserClass !== undefined && rule.browserClass !== profile.browserClass) return false;
+  if (rule.isMobile !== undefined && rule.isMobile !== profile.isMobile) return false;
+  if (rule.webgpuSupport !== undefined && rule.webgpuSupport !== profile.webgpuSupport) return false;
+  if (rule.webgpuShaderF16 !== undefined) {
+    const shaderF16 = profile.webgpuShaderF16 ?? true;
+    if (rule.webgpuShaderF16 !== shaderF16) return false;
+  }
+  return true;
 }
 
 export function isCompatible(model: ModelConfig, profile: DeviceProfile): CompatibilityResult {
   const rule = RULES.get(model.id);
   if (!rule) return 'unsupported';
-
-  // Form-factor scope: a WebKit-mobile-only model (the rung-1 WebLLM pick) is
-  // unsupported on every non-iOS-WebKit profile — desktop (incl. desktop Safari,
-  // which also classifies `'safari'`), Android, and the UA-stripped `'mobile'`
-  // class. This is what keeps the entry from perturbing any currently-served
-  // desktop/Chromium recommendation; widening it is a separate envelope-gated call.
-  if (rule.requireWebKitMobile && !isWebKitMobile(profile)) {
-    return 'unsupported';
-  }
 
   // WebKit-mobile (iOS) gate — BEFORE any capability probe so no model is ever
   // load-attempted on a device where the load itself crash-loops the tab (see
@@ -222,6 +232,14 @@ export function isCompatible(model: ModelConfig, profile: DeviceProfile): Compat
   }
 
   if (!rule.allowedBrowsers.includes(profile.browserClass)) {
+    return 'unsupported';
+  }
+
+  // A device class the catalog entry itself declines, with the evidence in the
+  // rule (e.g. the ONNX Qwen3 build on desktop Safari with WebGPU + shader-f16,
+  // where its recorded peaks sit at the tab-kill line). Read from the catalog so
+  // re-admitting a model is a catalog edit, not a code change.
+  if (rule.declineOn?.some((decline) => declineRuleMatches(decline, profile))) {
     return 'unsupported';
   }
 

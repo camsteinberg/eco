@@ -814,14 +814,14 @@ describe('reconcilePreparingSlots', () => {
   });
 });
 
-// The desktop mirror of the WebKit-mobile re-gate. A slot can hold a binding to
-// the iOS-only WebLLM model on a desktop profile (seen live 2026-08-05: Settings
-// confidently announced "Eco Mobile (Qwen)" — "Made for iPhone" — on a Chromium
-// desktop). Selection would never pick it here (isCompatible → 'unsupported'),
-// but nothing re-checked a binding that already existed. Boot must clear it so
-// every surface reading the slots tells the truth.
+// The browser-scope re-gate. A slot can hold a binding to a model whose
+// `allowedBrowsers` excludes this browser (seen live 2026-08-05: Settings
+// confidently announced the iPhone's "Eco Mobile (Qwen)" on a Chromium desktop).
+// Selection would never pick it here (isCompatible → 'unsupported'), but nothing
+// re-checked a binding that already existed. Boot must clear it so every
+// surface reading the slots tells the truth.
 
-describe('runSelfHeal — iOS-only binding on a non-WebKit-mobile device', () => {
+describe('runSelfHeal — a binding outside the bound model\'s browser scope', () => {
   const MLC = 'candidate/qwen2.5-0.5b-mlc';
   const SMART = 'candidate/qwen3.5-2b-onnx';
 
@@ -840,7 +840,7 @@ describe('runSelfHeal — iOS-only binding on a non-WebKit-mobile device', () =>
     override: 'auto',
   };
 
-  it('clears a desktop slot bound to the iOS-only model, leaving the other slot alone', async () => {
+  it('clears a Chromium slot bound to the Safari-only Eco Mobile, leaving the other slot alone', async () => {
     setSlot('eco-fast', MLC);
     setSlotStatus('eco-fast', 'ready');
     setSlot('eco-smart', SMART);
@@ -859,7 +859,7 @@ describe('runSelfHeal — iOS-only binding on a non-WebKit-mobile device', () =>
     expect(getSlot('eco-smart').status).toBe('ready');
   });
 
-  it('leaves the iOS-only model bound on iOS WebKit itself (validated there)', async () => {
+  it('leaves Eco Mobile bound on iOS WebKit (validated there)', async () => {
     setSlot('eco-fast', MLC);
     setSlotStatus('eco-fast', 'ready');
 
@@ -929,6 +929,11 @@ describe('runSelfHeal — dead-bytes sweep', () => {
   ): SelfHealOptions {
     return {
       storage,
+      // A browser the Chromium-only BOUND_ID runs in, so the browser-scope
+      // re-gate leaves its binding for the sweep to see.
+      resolveDeviceProfile: () => ({
+        browserClass: 'chromium', webgpuSupport: 'webgpu', deviceMemoryGB: 16, isMobile: false, override: 'auto',
+      }),
       cacheStorage: new CacheApiStorage(backend),
       deleteCacheByName: (name: string) => backend.delete(name).then(() => undefined),
       resolveCatalogIds: () => [CATALOG_ID],

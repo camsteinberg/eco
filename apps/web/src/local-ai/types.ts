@@ -205,11 +205,12 @@ export type ModelCompat = {
    */
   declineOnMobile?: boolean;
   /**
-   * Restricts the model to iOS/WebKit-mobile devices: any other profile —
-   * desktop (Chromium/Safari/Firefox), Android, or the UA-stripped `'mobile'`
-   * class — is `'unsupported'`. Absent means "no form-factor restriction."
+   * Device classes this model is declined on although its other rules admit it
+   * — each rule a measured (or deliberately unmeasured) reason, with what would
+   * re-admit the model. A profile matching ANY rule is `'unsupported'`. Absent
+   * means "no class-specific decline."
    */
-  requireWebKitMobile?: boolean;
+  declineOn?: readonly CompatDeclineRule[];
   /**
    * Proven to LOAD and run inside the WebKit-mobile memory envelope by a real
    * iOS device pass. Until an entry sets this, WebKit-mobile declines it to the
@@ -241,6 +242,23 @@ export type ModelCompat = {
   requireNoShaderF16?: boolean;
   /** Provenance for the rules above — the measurement or decision behind them. */
   _rationale?: string;
+};
+
+/**
+ * One device class a model is declined on (`ModelCompat.declineOn`). The rule
+ * matches a profile when every field it sets equals the profile's value; a rule
+ * must set at least one. `webgpuShaderF16: true` also matches an unprobed
+ * profile (`undefined`), the same "unprobed means capable" assumption the
+ * shader-f16 gate makes, so a surface rendered before setup's adapter probe
+ * lands declines the same models setup would.
+ */
+export type CompatDeclineRule = {
+  browserClass?: BrowserClass;
+  isMobile?: boolean;
+  webgpuSupport?: WebGPUSupport;
+  webgpuShaderF16?: boolean;
+  /** The evidence for the decline and its falsifier: what would re-admit the model. */
+  _rationale: string;
 };
 
 /** Plain-language card copy for the first-run welcome surface. */
@@ -352,7 +370,10 @@ export type ModelQuirks = {
  *                      declined there before any capability check (see
  *                      `device/compatibility.ts` `isWebKitMobile`), so this
  *                      rung's occupant is the sole model that class can ever
- *                      run — it never competes with another rung's occupant.
+ *                      run. Desktop Safari with WebGPU + shader-f16 reaches it
+ *                      too, as the fallback after `safari-desktop`: `floor`'s
+ *                      and `light`'s occupants decline that class through
+ *                      their `compat.declineOn`.
  *
  * Rungs beyond the original four exist because a device niche had NO
  * assignable model among the four rung occupants while exactly one other
