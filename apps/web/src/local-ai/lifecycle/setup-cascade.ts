@@ -78,7 +78,7 @@ export type AttemptFailureReasonCode =
 export type LoadInterruptedInfo = {
   modelName: string;
   alternative?: { kind: 'lighter' | 'roll-back'; modelName: string };
-  repeated?: 'only-model' | 'lightest-model';
+  repeated?: true;
 };
 
 export type AttemptResult =

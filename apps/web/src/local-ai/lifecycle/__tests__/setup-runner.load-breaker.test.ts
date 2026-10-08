@@ -252,7 +252,7 @@ describe('executeSetup — two kills in a row step down', () => {
 
     expect(s.runAttempt).not.toHaveBeenCalled();
     expect(a.setBelowFloor).not.toHaveBeenCalled();
-    expect(a.setError).toHaveBeenCalledWith(...loadInterruptedError({ repeated: 'only-model' }));
+    expect(a.setError).toHaveBeenCalledWith(...loadInterruptedError({ repeated: true }));
     const opts = a.setError.mock.calls[0]?.[1] as { loadInterrupted?: { alternative?: unknown } };
     expect(opts.loadInterrupted?.alternative).toBeUndefined();
     // No verdict row: on a one-model device it would only strand the person on
@@ -304,7 +304,7 @@ describe('executeSetup — load breaker on the real catalog', () => {
     ['an iPhone', () => iPhone],
     ['an iPad', iPadProfile],
   ] as const) {
-    it(`${label}: a second kill of its one model is the honest "only model" stop`, async () => {
+    it(`${label}: a second kill of its one model is the honest stop`, async () => {
       const profile = profileOf();
       expect(profile.isMobile).toBe(true);
       const mobile = real(IPHONE_ID);
@@ -319,7 +319,7 @@ describe('executeSetup — load breaker on the real catalog', () => {
       expect(a.setBelowFloor).not.toHaveBeenCalled();
       expect(a.setError).toHaveBeenCalledWith(...loadInterruptedError({
         modelName: 'Eco Mobile',
-        repeated: 'only-model',
+        repeated: true,
       }));
       const opts = a.setError.mock.calls[0]?.[1] as { loadInterrupted?: { alternative?: unknown } };
       expect(opts.loadInterrupted?.alternative).toBeUndefined();
@@ -397,7 +397,7 @@ describe('executeSetup — load breaker on the real catalog', () => {
     expect(a.setBelowFloor).not.toHaveBeenCalled();
     expect(a.setError).toHaveBeenCalledWith(...loadInterruptedError({
       modelName: 'Eco Mobile',
-      repeated: 'only-model',
+      repeated: true,
     }));
     const opts = a.setError.mock.calls[0]?.[1] as { loadInterrupted?: { alternative?: unknown } };
     expect(opts.loadInterrupted?.alternative).toBeUndefined();

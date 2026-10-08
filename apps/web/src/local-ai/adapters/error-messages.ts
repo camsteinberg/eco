@@ -124,12 +124,8 @@ export function loadInterruptedBody(modelName: string): string {
 /** Second kill in a row with nowhere lighter to step down to: an honest stop. */
 export const LOAD_INTERRUPTED_REPEATED_HEADLINE = 'Eco closed twice while loading your AI on this device.';
 
-export function loadInterruptedRepeatedBody(
-  modelName: string,
-  repeated: 'only-model' | 'lightest-model',
-): string {
-  const which = repeated === 'only-model' ? 'the only model' : 'the lightest model';
-  return `${modelName} is ${which} Eco has for this device, so Eco stopped instead of trying again on its own. Closing other tabs and apps first can help.`;
+export function loadInterruptedRepeatedBody(modelName: string): string {
+  return `${modelName} is the last model Eco can try on this device right now, so Eco stopped instead of trying again on its own. Closing other tabs and apps first can help.`;
 }
 
 export const LOAD_INTERRUPTED_LIGHTER_LABEL = 'Use a lighter model';

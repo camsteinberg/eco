@@ -7,6 +7,7 @@ import {
   LOCAL_GENERATION_REPEATED_MESSAGE,
   LOCAL_RUNTIME_HICCUP_MESSAGE,
   describeLocalCooldownMessage,
+  loadInterruptedRepeatedBody,
 } from "../error-messages";
 
 describe("centralized on-device failure copy", () => {
@@ -21,6 +22,14 @@ describe("centralized on-device failure copy", () => {
     // ErrorMessage matches it by exact string — it must never drift.
     expect(LOCAL_RUNTIME_HICCUP_MESSAGE).toBe(
       "On-device AI needed a moment. Try again on this device to pick up where you left off.",
+    );
+  });
+
+  // One wording for every repeated stop (Cam, 2026-10-08): "the only model" was
+  // untrue once a failed rung was hidden, and "the lightest" claimed a ranking.
+  it("pins the load breaker's repeated-stop copy exactly", () => {
+    expect(loadInterruptedRepeatedBody("Eco Mobile")).toBe(
+      "Eco Mobile is the last model Eco can try on this device right now, so Eco stopped instead of trying again on its own. Closing other tabs and apps first can help.",
     );
   });
 });
