@@ -81,9 +81,10 @@ export function LocalAiSetupGate({
     // A load that closed the page: the answer is recorded on the breaker's
     // record, and the re-run reads it (setup-runner's planForLoadKills).
     const loadInterrupted = setup.errorLoadInterrupted ?? undefined;
+    // A click: the re-run may load a model that already failed on this device.
     const rerun = (): void => {
       setup.actions.reset();
-      void setup.start();
+      void setup.start({ retryFailed: true });
     };
     return (
       <SetupErrorState

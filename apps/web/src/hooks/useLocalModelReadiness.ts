@@ -189,7 +189,8 @@ export function useLocalModelReadiness(): LocalModelReadiness {
               markFindingFit: () => {},
               markResuming: () => {},
             },
-            { slot },
+            // Prepare is a click, so it may retry a model that failed here.
+            { slot, retryFailed: true },
           );
         } catch (err) {
           setPrepareError({

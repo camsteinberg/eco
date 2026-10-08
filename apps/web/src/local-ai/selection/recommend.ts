@@ -17,7 +17,8 @@
  *
  *   2. Filter to admitted candidates (`evidence/admission.admit()`).
  *      Models with recent smoke failures on this profile also drop out
- *      here (unless currently bound).
+ *      here (unless currently bound) — but only while another model can
+ *      still serve the slot: failure evidence never empties a slot.
  *
  *   3. Restrict to candidates whose declared capabilities match the slot
  *      preference: eco-fast prefers snappy/balanced; eco-smart prefers
@@ -48,8 +49,8 @@
  */
 
 import type { DeviceProfile, Intent, ModelConfig, ModelTier, Slot } from '../types';
-import { getCatalog, getModel, TIER_ORDER, type CatalogModel } from '../catalog/catalog';
-import { isAssignable, isWebKitMobile } from '../device/compatibility';
+import { getCatalog, TIER_ORDER, type CatalogModel } from '../catalog/catalog';
+import { isAssignable } from '../device/compatibility';
 import {
   admit,
   type AdmissionDecision,
@@ -298,6 +299,12 @@ export type ListCandidatesOptions = {
    * previous choice.
    */
   currentlyBoundModelId?: string | null;
+  /**
+   * Models already tried or being stepped away from (the cascade's own
+   * exclusions). Applied BEFORE the failure-evidence rule, so "would hiding
+   * this model leave the slot empty" means "leave nothing left to try".
+   */
+  excludeIds?: ReadonlyArray<string>;
 };
 
 export function recommend(
@@ -340,15 +347,51 @@ export function listCandidates(
   _intent: Intent = slotDefaultIntent(slot),
   options: ListCandidatesOptions = {},
 ): RecommendationCandidate[] {
+  // Failure evidence never empties a slot. A recent failure (30 days for a
+  // smoke or generate failure, 7 days after two download failures) hides a
+  // model only while another model can still serve the slot; when hiding would
+  // leave nothing, the evidence is set aside and the ladder runs in its normal
+  // order. A device that can run a model is thus never declined as if it could
+  // run none because its one model failed once — and a multi-model device still
+  // steps past a failed model while another rung serves. The rule reads no
+  // device class: a one-model ladder simply reaches it sooner.
+  const withEvidence = rankCandidates(slot, profile, options, true);
+  const ranked = withEvidence.length > 0
+    ? withEvidence
+    : rankCandidates(slot, profile, options, false);
+  return promotePreferred(ranked, preferredModelIdForSlot(slot, profile));
+}
+
+/**
+ * Whether the slot has a model this device can run with no recent failure
+ * recorded against it — false exactly when `listCandidates` is offering models
+ * only because failure evidence was set aside (or offers none). Setup uses it
+ * to keep a landing from reloading a model that already failed here: only a
+ * click (Try again, Prepare) retries one.
+ */
+export function hasCandidateWithoutFailures(slot: Slot, profile: DeviceProfile): boolean {
+  return rankCandidates(slot, profile, {}, true).length > 0;
+}
+
+/** The ranked list `listCandidates` offers, with or without failure evidence applied. */
+function rankCandidates(
+  slot: Slot,
+  profile: DeviceProfile,
+  options: ListCandidatesOptions,
+  applyFailureEvidence: boolean,
+): RecommendationCandidate[] {
+  const excluded = new Set(options.excludeIds ?? []);
   const ranked: RecommendationCandidate[] = [];
   for (const model of getCatalog()) {
+    if (excluded.has(model.id)) continue;
     if (!isAssignable(model, profile)) continue;
     const admission = admit(model, profile);
     if (!modelMatchesSlot(model, slot)) continue;
 
-    const floor = applyConfidenceFloor(model, profile, admission, {
+    const floor = applyConfidenceFloor(model, admission, {
       currentlyBoundModelId: options.currentlyBoundModelId,
-      demoteOnDownloadFail: true,
+      demoteOnDownloadFail: applyFailureEvidence,
+      hideOnRecentFailure: applyFailureEvidence,
     });
     if (!floor.admit) continue;
 
@@ -360,7 +403,7 @@ export function listCandidates(
     tierRank(a.model, slot) - tierRank(b.model, slot)
     || order.get(a.model.id)! - order.get(b.model.id)!,
   );
-  return promotePreferred(ranked, preferredModelIdForSlot(slot, profile));
+  return ranked;
 }
 
 /**
@@ -407,7 +450,7 @@ export function listCatalog(
     }
     const admission = admit(model, profile);
 
-    const floor = applyConfidenceFloor(model, profile, admission, {
+    const floor = applyConfidenceFloor(model, admission, {
       currentlyBoundModelId: options.currentlyBoundModelId,
       // Manual Settings list: never hide a model for download failures — the
       // user may always retry it by hand. Same for a single smoke-fail: hiding it
@@ -447,7 +490,9 @@ export function listCatalog(
 // recommendation engine (listCandidates, recommend). A model is admitted
 // when ALL hold:
 //   - Admission allows it (not denied) — unless currently bound
-//   - No recent smoke/generate failures — unless currently bound
+//   - No recent smoke/generate failures — unless currently bound, or the
+//     caller set failure evidence aside (listCandidates does, when applying it
+//     would leave the slot with no model)
 //
 // v1.0 policy: a confidence source is NOT required to surface a model.
 // The smoke test on first use is the actual quality gate. Models without
@@ -460,10 +505,11 @@ type FloorOptions = {
   currentlyBoundModelId?: string | null;
   /**
    * Apply the download-fail auto-demotion (slice 3). True for the auto-offer
-   * engine (`listCandidates`/`recommend`/starter/upgrade); FALSE for the manual
-   * Settings list (`listCatalog`) so a user can always retry a model by hand —
-   * a repeated download failure is usually environmental (disk/network) and may
-   * clear on the next attempt.
+   * engine (`listCandidates`/`recommend`/starter/upgrade) unless that would
+   * leave the slot with no model; FALSE for the manual Settings list
+   * (`listCatalog`) so a user can always retry a model by hand — a repeated
+   * download failure is usually environmental (disk/network) and may clear on
+   * the next attempt.
    */
   demoteOnDownloadFail?: boolean;
   /**
@@ -481,33 +527,8 @@ type FloorOutcome =
   | { admit: true; confidence: AvailableConfidence }
   | { admit: false };
 
-/**
- * Whether a model is EXEMPT from download-fail auto-demotion because it is the
- * DEVICE's effective instant-start floor — demoting it would leave the device with
- * nothing offerable (COV-3). Every clause reads the model's own catalog entry:
- *   - `starterFloor`: the universal instant-start rung, which covers most WebGPU
- *     devices (its onnx-q4 build loads on the WebGPU EP).
- *   - `wasm-only`: the starter build is `cpuEpIncompatible` and never assignable
- *     there, so the effective floor is that slot's `phone` tier occupant.
- *   - iOS/WebKit-mobile: every ONNX build (incl. the starter) is declined by the
- *     WebKit-mobile gate before any capability check, so the sole assignable floor
- *     is the `compat.webkitMobileValidated` entry — a WebGPU model, so the
- *     wasm-only branch never covers it.
- * Without these, two transient download failures of a device's sole assignable model
- * would over-decline a runnable device to below-floor for the 7-day window.
- */
-function isDemotionExemptFloor(modelId: string, profile: DeviceProfile): boolean {
-  const model = getModel(modelId);
-  if (model === null) return false;
-  if (model.starterFloor === true) return true;
-  if (profile.webgpuSupport === 'wasm-only' && model.tier['eco-fast'] === 'phone') return true;
-  if (isWebKitMobile(profile) && model.compat.webkitMobileValidated === true) return true;
-  return false;
-}
-
 function applyConfidenceFloor(
   model: ModelConfig,
-  profile: DeviceProfile,
   admission: AdmissionResult,
   options: FloorOptions,
 ): FloorOutcome {
@@ -521,13 +542,12 @@ function applyConfidenceFloor(
     return { admit: false };
   }
   // Auto-demote a model that keeps failing to DOWNLOAD (≥2 in 7d) from the
-  // auto-offer surfaces — this kills the re-offer nag loop. Two carve-outs: the
-  // currently-bound model (never lose the user's pick) and the device's effective
-  // floor (never leave a device with nothing offerable — see isDemotionExemptFloor).
+  // auto-offer surfaces — this kills the re-offer nag loop. The currently-bound
+  // model is exempt (never lose the user's pick); a device's last model is kept
+  // by listCandidates, which sets this evidence aside rather than empty a slot.
   if (
     options.demoteOnDownloadFail
     && !isBound
-    && !isDemotionExemptFloor(model.id, profile)
     && admission.recentDownloadFailureCount >= DOWNLOAD_FAIL_DEMOTION_THRESHOLD
   ) {
     return { admit: false };

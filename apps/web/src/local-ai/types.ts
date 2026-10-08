@@ -455,12 +455,6 @@ export type ModelConfig = {
    */
   tier?: ModelTierAssignment;
   /**
-   * Exempt from the repeated-download-failure auto-demotion because this model
-   * is the instant-start floor: demoting it would leave a device with nothing
-   * offerable at all. Exactly one shipping entry sets it.
-   */
-  starterFloor?: boolean;
-  /**
    * Why this entry's numbers are what they are, keyed by the field each note
    * justifies (`"tier.eco-fast"`, `"maxNewTokens.ceiling"`, …). A choice on the
    * serving path owes a measurement cited next to the code, so a note records
