@@ -879,15 +879,18 @@ describe('recommend — confidence floor', () => {
       expect(listCatalog(PROFILE_24GB).available.some((a) => a.model.id === top.id)).toBe(true);
     });
 
-    it('NEVER demotes the starter floor even after repeated download failures', () => {
-      // Sanity: the starter is normally offerable for eco-fast on this device.
+    // The 350M carries no standing exemption any more: like every model, it is
+    // demoted while another rung can serve the slot, and kept when it is the
+    // slot's last model (last-model-rule.test.ts, f16-less Safari).
+    it('demotes the 350M like any other model while other rungs serve the slot', () => {
+      // Sanity: it is normally offerable for eco-fast on this device.
       expect(
         listCandidates('eco-fast', PROFILE_24GB).some((c) => c.model.id === STARTER_ID),
       ).toBe(true);
       seedDownloadFails(STARTER_ID, [0, HOUR, 2 * HOUR]);
-      expect(
-        listCandidates('eco-fast', PROFILE_24GB).some((c) => c.model.id === STARTER_ID),
-      ).toBe(true);
+      const offered = listCandidates('eco-fast', PROFILE_24GB).map((c) => c.model.id);
+      expect(offered).not.toContain(STARTER_ID);
+      expect(offered.length).toBeGreaterThan(0);
     });
 
     it('NEVER demotes the wasm-only effective floor even after repeated failures (COV-3)', () => {
