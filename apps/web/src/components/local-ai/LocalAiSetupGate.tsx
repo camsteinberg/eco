@@ -16,6 +16,7 @@ import { WelcomeCard } from './WelcomeCard';
 import { toWelcomeChoices } from './welcome-choices';
 import { SetupErrorState } from './SetupErrorState';
 import { BelowFloorScreen } from './BelowFloorScreen';
+import { answerLoadKills } from '../../local-ai/runtime/load-breaker';
 
 /**
  * Wraps the chat shell. If the user has no model assigned yet, renders
@@ -77,6 +78,13 @@ export function LocalAiSetupGate({
   }
 
   if (setup.status === 'error') {
+    // A load that closed the page: the answer is recorded on the breaker's
+    // record, and the re-run reads it (setup-runner's planForLoadKills).
+    const loadInterrupted = setup.errorLoadInterrupted ?? undefined;
+    const rerun = (): void => {
+      setup.actions.reset();
+      void setup.start();
+    };
     return (
       <SetupErrorState
         reason={setup.errorReason ?? 'Setup failed'}
@@ -84,11 +92,20 @@ export function LocalAiSetupGate({
         exhausted={setup.errorExhausted}
         triedModelCount={setup.errorTriedModelCount}
         onTryAgain={() => {
-          setup.actions.reset();
-          void setup.start();
+          if (loadInterrupted) answerLoadKills('retry');
+          rerun();
         }}
         onTellUsMore={onTellUsMore ?? (() => undefined)}
         {...(onManageStorage ? { onManageStorage } : {})}
+        {...(loadInterrupted
+          ? {
+              loadInterrupted,
+              onUseAlternative: () => {
+                answerLoadKills(loadInterrupted.alternative?.kind === 'roll-back' ? 'roll-back' : 'step-down');
+                rerun();
+              },
+            }
+          : {})}
       />
     );
   }

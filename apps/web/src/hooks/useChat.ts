@@ -62,6 +62,7 @@ import {
   LOCAL_GENERATION_REPEATED_MESSAGE,
   DEVICE_PROTECTION_MESSAGE,
   LOCAL_MODEL_OTHER_TAB_MESSAGE,
+  LOAD_INTERRUPTED_CHAT_MESSAGE,
   LOCAL_MODEL_FILES_MISSING_MESSAGE,
   LOCAL_MODEL_FILES_MISSING_OFFLINE_MESSAGE,
   describeLocalCooldownMessage,
@@ -247,6 +248,7 @@ const DEDICATED_LOCAL_ERROR_CODES: ReadonlySet<string> = new Set([
   "OOM",
   "TEMPLATE_MISSING",
   "GPU_BUSY_OTHER_TAB",
+  "LOAD_INTERRUPTED",
   "MODEL_FILES_MISSING",
   "CONTEXT_WINDOW_EXCEEDED",
 ]);
@@ -454,6 +456,20 @@ export function useChat() {
           inferenceMethod: "local",
         });
         setError(message);
+        return;
+      }
+
+      if (err.code === "LOAD_INTERRUPTED") {
+        // The load breaker refused: this model's last load closed the page and
+        // the person has not chosen what to do (Settings, or a second tab that
+        // was open when the first one closed). Nothing loaded; point at the
+        // setup screen, where the choice is.
+        updateMessage(assistantId, {
+          status: "error",
+          errorMessage: LOAD_INTERRUPTED_CHAT_MESSAGE,
+          inferenceMethod: "local",
+        });
+        setError(LOAD_INTERRUPTED_CHAT_MESSAGE);
         return;
       }
 

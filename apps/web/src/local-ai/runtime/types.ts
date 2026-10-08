@@ -62,6 +62,11 @@ export type LoadOptions = {
   signal?: AbortSignal;
   /** Optional lifecycle event callback for diagnostic capture. */
   onLifecycleEvent?: OnLifecycleEvent;
+  /**
+   * The model a switch is replacing. Carried into the load breaker's mark so
+   * that, if this load kills the tab, the next landing can offer it back.
+   */
+  rollbackModelId?: string;
 };
 
 export type GenerateOptions = {
@@ -137,7 +142,10 @@ export type AdapterErrorCode =
   | 'aborted'
   | 'cooldown-active'
   | 'gpu-busy-other-tab'
-  | 'template-missing';
+  | 'template-missing'
+  /** The load breaker refused the load: this model's last load killed its tab
+   *  and the person has not chosen what to do yet (runtime/load-breaker.ts). */
+  | 'load-interrupted';
 
 export type RuntimeBackend = 'webgpu' | 'wasm';
 

@@ -29,8 +29,12 @@ import {
   type LocalHeavyWorkKind,
 } from '../../lib/local-heavy-work-owner';
 import { runSmoke } from './smoke';
-import { AdapterError } from '../runtime/types';
+import { AdapterError, type AdapterErrorCode } from '../runtime/types';
+import { forgetLoadKill, getLoadKills, settleLoadMarks } from '../runtime/load-breaker';
+import { LOAD_INTERRUPTED_HEADLINE } from '../adapters/error-messages';
+import { getModel } from '../catalog/catalog';
 import {
+  SLOTS,
   setSlot,
   setSlotStatus,
   getSlot,
@@ -54,6 +58,7 @@ import {
   runSetupCascade,
   type AttemptFailureReasonCode,
   type AttemptResult,
+  type LoadInterruptedInfo,
 } from './setup-cascade';
 import { logSetupAttemptFailure } from './setup-diagnostics';
 
@@ -68,6 +73,9 @@ export type SetupRunnerActions = {
       exhausted?: boolean;
       triedModelCount?: number;
       reasonCode?: AttemptFailureReasonCode;
+      /** Present with `reasonCode: 'load-interrupted'` when the runner is
+       *  asking what to do about a load that closed the page. */
+      loadInterrupted?: LoadInterruptedInfo;
     },
   ): void;
   markPriorAttemptFailed(): void;
@@ -102,6 +110,8 @@ export type SetupSeams = {
   isModelCached: (model: ModelConfig) => Promise<boolean>;
   /** See `RunSetupCascadeOptions.waitForNetwork`. Default: `waitForNetworkIfOffline`. */
   waitForNetwork: () => Promise<boolean>;
+  /** Catalog lookup — resolves the model a killed switch replaced. */
+  getModel: (modelId: string) => ModelConfig | null;
 };
 
 /** Longest the ladder will hold for a dropped connection before giving up. */
@@ -313,6 +323,13 @@ function downloadFailureReasonCode(err: unknown): AttemptFailureReasonCode | und
   return undefined;
 }
 
+/** Load/smoke failures the ladder must not treat as this model failing here. */
+function loadFailureReasonCode(code: AdapterErrorCode | undefined): AttemptFailureReasonCode | undefined {
+  if (code === 'gpu-busy-other-tab') return 'busy-other-tab';
+  if (code === 'load-interrupted') return 'load-interrupted';
+  return undefined;
+}
+
 /** Default real attempt: download → smoke, wired to the progress tracker. */
 export async function defaultRunAttempt(
   slot: Slot,
@@ -379,9 +396,7 @@ export async function defaultRunAttempt(
       const reason = err instanceof Error ? err.message : 'Smoke check failed.';
       logSetupAttemptFailure({ modelId: model.id, runtime: model.runtime, phase: 'load-or-smoke', reason, error: err });
       tracker.error(reason);
-      const reasonCode = err instanceof AdapterError && err.code === 'gpu-busy-other-tab'
-        ? 'busy-other-tab' as const
-        : undefined;
+      const reasonCode = loadFailureReasonCode(err instanceof AdapterError ? err.code : undefined);
       return reasonCode
         ? { ok: false, phase: 'load-or-smoke' as const, reason, reasonCode }
         : { ok: false, phase: 'load-or-smoke' as const, reason };
@@ -392,9 +407,7 @@ export async function defaultRunAttempt(
     }
     logSetupAttemptFailure({ modelId: model.id, runtime: model.runtime, phase: 'load-or-smoke', reason: result.reason });
     tracker.error(result.reason);
-    const reasonCode = result.code === 'gpu-busy-other-tab'
-      ? 'busy-other-tab' as const
-      : undefined;
+    const reasonCode = loadFailureReasonCode(result.code);
     return reasonCode
       ? { ok: false, phase: 'load-or-smoke' as const, reason: result.reason, reasonCode }
       : { ok: false, phase: 'load-or-smoke' as const, reason: result.reason };
@@ -421,7 +434,130 @@ export const DEFAULT_SEAMS: SetupSeams = {
   deriveFirstRunChoices,
   waitForNetwork: () => waitForNetworkIfOffline(),
   isModelCached: (model) => isModelDownloaded(model),
+  getModel,
 };
+
+// ─── Load breaker ───────────────────────────────────────────────────────────
+
+/** How far `lighterRung` walks the ladder before giving up. */
+const LIGHTER_RUNG_SEARCH_MAX = 16;
+
+/**
+ * The first rung below `killed` by download size, and whether the ladder has
+ * any other rung at all. The ladder is not monotonic in size (a demotion can
+ * land on a bigger model), and after a kill a bigger model is never "lighter".
+ * Download size stands in for memory: the catalog carries no peak-memory
+ * figure, and across runtimes the two can disagree.
+ */
+function lighterRung(
+  killed: ModelConfig,
+  slot: Slot,
+  profile: DeviceProfile,
+  next: SetupSeams['nextInCascade'],
+): { lighter: ModelConfig | null; anyOther: boolean } {
+  const excludeIds: string[] = [];
+  let anyOther = false;
+  for (let i = 0; i < LIGHTER_RUNG_SEARCH_MAX; i++) {
+    const candidate = next(killed, slot, profile, undefined, { excludeIds });
+    if (!candidate || excludeIds.includes(candidate.id)) break;
+    anyOther = true;
+    if (candidate.sizeGB < killed.sizeGB) return { lighter: candidate, anyOther };
+    excludeIds.push(candidate.id);
+  }
+  return { lighter: null, anyOther };
+}
+
+/** The name the person knows the model by, without the vendor suffix. */
+function displayName(model: ModelConfig): string {
+  return (model.display?.friendlyName ?? model.friendlyName).replace(/\s*\([^)]*\)$/, '');
+}
+
+type LoadKillPlan =
+  | { kind: 'none' }
+  | { kind: 'ask'; info: LoadInterruptedInfo }
+  | { kind: 'step-down'; slot: Slot; killed: ModelConfig; lighter: ModelConfig };
+
+/**
+ * What this landing does about models whose load closed the page (see
+ * `runtime/load-breaker.ts`). Runs before anything that could load:
+ *
+ *   - one unanswered kill → ask: Try again, plus the model a killed switch
+ *     replaced or a lighter rung when there is one. The slot keeps its binding
+ *     and status, so Try again resumes the same model and never re-enters
+ *     recommend (whose 30-day verdicts are not this PR's to change).
+ *   - two kills in a row → step down on our own: back to the switched-from
+ *     model, or to the lighter rung with a smoke-fail row (the killer is now
+ *     failed for this device) and the demotion notice. With nowhere lighter to
+ *     go, an honest stop. No verdict row then: on a one-model device it would
+ *     only strand the person on the below-floor screen later.
+ *   - the person's answer is carried out once: retry falls through to the
+ *     normal flow, step-down and roll-back act here.
+ *
+ * A kill against a model no slot holds is dropped: nothing would auto-load it.
+ */
+async function planForLoadKills(profile: DeviceProfile, seams: SetupSeams): Promise<LoadKillPlan> {
+  await settleLoadMarks().catch(() => undefined);
+  for (const kill of getLoadKills()) {
+    const killSlot = SLOTS.find((s) => seams.getSlot(s).modelId === kill.modelId);
+    const killed = killSlot ? seams.getSlot(killSlot).model : null;
+    if (!killSlot || !killed) {
+      forgetLoadKill(kill.modelId);
+      continue;
+    }
+    if (kill.decision === 'retry') continue;
+
+    const rollback = kill.rollbackModelId && kill.rollbackModelId !== killed.id
+      ? seams.getModel(kill.rollbackModelId)
+      : null;
+    const rollBackTo = (): void => {
+      if (!rollback) return;
+      seams.setSlot(killSlot, rollback);
+      // It was 'ready' before the switch bound the model that closed the page.
+      seams.setSlotStatus(killSlot, 'ready');
+      forgetLoadKill(kill.modelId);
+    };
+    if (kill.decision === 'roll-back' && rollback) {
+      rollBackTo();
+      continue;
+    }
+
+    const { lighter, anyOther } = lighterRung(killed, killSlot, profile, seams.nextInCascade);
+    if (kill.decision === 'step-down' && lighter) {
+      forgetLoadKill(kill.modelId);
+      return { kind: 'step-down', slot: killSlot, killed, lighter };
+    }
+
+    if (kill.kills >= 2) {
+      if (rollback || lighter) {
+        seams.recordEvidence({ modelId: killed.id, profile, outcome: 'smoke-fail' });
+      }
+      if (rollback) {
+        setDemotedFrom(killSlot, { modelId: killed.id, at: Date.now() });
+        rollBackTo();
+        continue;
+      }
+      if (lighter) {
+        forgetLoadKill(kill.modelId);
+        return { kind: 'step-down', slot: killSlot, killed, lighter };
+      }
+      return {
+        kind: 'ask',
+        info: { modelName: displayName(killed), repeated: anyOther ? 'lightest-model' : 'only-model' },
+      };
+    }
+
+    const alternative = rollback
+      ? { kind: 'roll-back' as const, modelName: displayName(rollback) }
+      : lighter
+        ? { kind: 'lighter' as const, modelName: displayName(lighter) }
+        : null;
+    return {
+      kind: 'ask',
+      info: { modelName: displayName(killed), ...(alternative ? { alternative } : {}) },
+    };
+  }
+  return { kind: 'none' };
+}
 
 export async function executeSetup(
   actions: SetupRunnerActions,
@@ -432,7 +568,7 @@ export async function executeSetup(
   // belongs to eco-smart even though eco-fast is the slot this run started for.
   // Collapsing the two is what wrote a deeper pick into eco-fast and left
   // eco-smart empty.
-  const slot: Slot = options.slot ?? 'eco-fast';
+  const requestedSlot: Slot = options.slot ?? 'eco-fast';
   const seams: SetupSeams = { ...DEFAULT_SEAMS, ...options.seams };
 
   if (!options.skipBootstrap) {
@@ -457,13 +593,28 @@ export async function executeSetup(
     return;
   }
 
+  // Before anything that could load: a model whose last load closed the page
+  // is never loaded again on its own (see planForLoadKills).
+  const loadKillPlan = await planForLoadKills(profile, seams);
+  if (loadKillPlan.kind === 'ask') {
+    actions.setError(LOAD_INTERRUPTED_HEADLINE, {
+      reasonCode: 'load-interrupted',
+      loadInterrupted: loadKillPlan.info,
+    });
+    return;
+  }
+  const stepDown = loadKillPlan.kind === 'step-down' ? loadKillPlan : null;
+  // A step-down sets up the slot whose model closed the page, which can be the
+  // other slot (a deeper pick on eco-smart).
+  const slot: Slot = stepDown?.slot ?? requestedSlot;
+
   const current = seams.getSlot(slot);
-  if (current.modelId && current.status === 'ready' && current.model) {
+  if (!stepDown && current.modelId && current.status === 'ready' && current.model) {
     clearDemotedFrom(slot, current.modelId);
     actions.setReady(current.model);
     return;
   }
-  if (current.modelId && current.status === 'error') {
+  if (!stepDown && current.modelId && current.status === 'error') {
     actions.markPriorAttemptFailed();
   }
 
@@ -493,8 +644,8 @@ export async function executeSetup(
   // interrupted UPGRADE or a prior error on eco-fast must keep its own flow.
   // A bound id the catalog no longer carries resolves to model === null, which
   // fails both checks and falls through to a fresh pick.
-  let resumeModel =
-    current.status === 'preparing' && current.model ? current.model : null;
+  let resumeModel = stepDown?.lighter
+    ?? (current.status === 'preparing' && current.model ? current.model : null);
   let firstPickSlot: Slot = slot;
   if (!resumeModel && current.status === 'empty') {
     const smart = seams.getSlot('eco-smart');
@@ -507,7 +658,13 @@ export async function executeSetup(
       return;
     }
   }
-  if (resumeModel) actions.markResuming();
+  if (stepDown) {
+    // The same notice a ladder demotion leaves: the chat names what changed.
+    setDemotedFrom(slot, { modelId: stepDown.killed.id, at: Date.now() });
+    actions.markFindingFit();
+  } else if (resumeModel) {
+    actions.markResuming();
+  }
 
   // The slot the run's current pick is bound to — where the terminal status
   // write lands. Starts at the slot being set up and moves only when a pick
@@ -549,6 +706,9 @@ export async function executeSetup(
       nextInCascade: seams.nextInCascade,
       runAttempt: (model) => seams.runAttempt(slot, model, actions.onProgressEvent),
       waitForNetwork: seams.waitForNetwork,
+      // A demotion after a step-down must not climb back to the model that
+      // closed the page.
+      ...(stepDown ? { excludeIds: [stepDown.killed.id] } : {}),
       recordFailure: (model) => seams.recordEvidence({ modelId: model.id, profile, outcome: 'smoke-fail' }),
       recordSuccess: (model) => seams.recordEvidence({ modelId: model.id, profile, outcome: 'smoke-pass' }),
       onSelect: (model, info) => {
@@ -591,6 +751,10 @@ export async function executeSetup(
     seams.setSlotStatus(boundSlot, 'ready');
     clearDemotedFrom(boundSlot, result.model.id);
     actions.setReady(result.model);
+  } else if (result.reasonCode === 'load-interrupted') {
+    // A kill another tab recorded mid-run. Not this slot's failure: leave its
+    // status alone; Try again re-runs setup, which asks properly.
+    actions.setError(LOAD_INTERRUPTED_HEADLINE, { reasonCode: 'load-interrupted' });
   } else {
     seams.setSlotStatus(boundSlot, 'error');
     // How many models the ladder actually tried. On a one-model platform (iOS,

@@ -21,6 +21,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { prepareModelForSlot, type SwitchModelSeams } from '../switch-model';
 import { DownloadFailedError, InsufficientStorageError } from '../../download/download';
 import { getModel } from '../../catalog/catalog';
+import { AdapterError } from '../../runtime/types';
 import {
   _resetSlotsForTesting,
   getSlot,
@@ -288,6 +289,28 @@ describe('load failure', () => {
     expect(seams.recordEvidence).toHaveBeenCalledWith(
       expect.objectContaining({ outcome: 'load-fail', modelId: target.id }),
     );
+  });
+});
+
+describe('load breaker (a killed switch)', () => {
+  it('hands the previous model to the load, so a killed switch can offer it back', async () => {
+    const { seams } = makeSeams();
+    await run(seams);
+    expect(seams.load).toHaveBeenCalledWith(
+      target,
+      expect.objectContaining({ rollbackModelId: previous.id }),
+    );
+  });
+
+  it('a load the breaker refused writes no load-fail row (nothing was tried)', async () => {
+    const { seams } = makeSeams({
+      load: vi.fn(async () => {
+        throw new AdapterError('refused', 'load-interrupted', true);
+      }),
+    });
+    const result = await run(seams);
+    expect(result.success).toBe(false);
+    expect(seams.recordEvidence).not.toHaveBeenCalled();
   });
 });
 

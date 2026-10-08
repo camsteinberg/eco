@@ -7,7 +7,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ProgressEvent } from '../../local-ai/download/progress';
 import type { ModelConfig } from '../../local-ai/types';
 import type { FirstRunChoiceOffer } from '../../local-ai/selection/first-run-choices';
-import type { AttemptFailureReasonCode } from '../../local-ai/lifecycle/setup-cascade';
+import type {
+  AttemptFailureReasonCode,
+  LoadInterruptedInfo,
+} from '../../local-ai/lifecycle/setup-cascade';
 
 /**
  * Setup state machine the WelcomeSetup component renders against.
@@ -63,6 +66,9 @@ export type EcoSetupState = {
    *  text, so this is the only signal that distinguishes a hosting failure from
    *  a device one. */
   errorReasonCode: AttemptFailureReasonCode | null;
+  /** With `errorReasonCode: 'load-interrupted'`: what the error surface asks
+   *  about a load that closed the page. Null otherwise. */
+  errorLoadInterrupted: LoadInterruptedInfo | null;
   /** True when start() resumed a bound-but-unfinished pick (interrupted
    * download / reconcile flip) rather than recommending fresh — WelcomeSetup
    * softens its copy to "finishing your download". */
@@ -87,6 +93,7 @@ export type EcoSetupActions = {
       exhausted?: boolean;
       triedModelCount?: number;
       reasonCode?: AttemptFailureReasonCode;
+      loadInterrupted?: LoadInterruptedInfo;
     },
   ): void;
   /** Called when the user clicks "Try again" from the error state. */
@@ -131,6 +138,7 @@ const INITIAL_STATE: EcoSetupState = {
   errorExhausted: false,
   errorTriedModelCount: 0,
   errorReasonCode: null,
+  errorLoadInterrupted: null,
   resuming: false,
   choiceOffer: null,
 };
@@ -203,6 +211,7 @@ export function useEcoSetup(): UseEcoSetupReturn {
         errorExhausted: opts?.exhausted ?? false,
         errorTriedModelCount: opts?.triedModelCount ?? 0,
         errorReasonCode: opts?.reasonCode ?? null,
+        errorLoadInterrupted: opts?.loadInterrupted ?? null,
       }));
     },
     [],

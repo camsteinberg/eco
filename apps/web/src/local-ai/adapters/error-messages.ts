@@ -107,3 +107,40 @@ export function describeLocalCooldownMessage(rawMessage: string): string {
 
   return `On-device AI needs a short breather after a snag — try again in ${wait}.`;
 }
+
+/**
+ * Load breaker copy (runtime/load-breaker.ts): the page closed while a model was
+ * loading, so Eco did not load it again on its own. Kept together so the
+ * wording can be signed off and edited in one place. "Can happen when a device
+ * runs short of memory" is as far as the claim goes: an OS kill mid-load is
+ * almost always memory, but the page cannot see why it was closed.
+ */
+export const LOAD_INTERRUPTED_HEADLINE = 'Eco closed before your AI finished loading.';
+
+export function loadInterruptedBody(modelName: string): string {
+  return `The page shut down while ${modelName} was loading, which can happen when a device runs short of memory. Eco didn't start it again on its own. Closing other tabs and apps first can help.`;
+}
+
+/** Second kill in a row with nowhere lighter to step down to: an honest stop. */
+export const LOAD_INTERRUPTED_REPEATED_HEADLINE = 'Eco closed twice while loading your AI on this device.';
+
+export function loadInterruptedRepeatedBody(
+  modelName: string,
+  repeated: 'only-model' | 'lightest-model',
+): string {
+  const which = repeated === 'only-model' ? 'the only model' : 'the lightest model';
+  return `${modelName} is ${which} Eco has for this device, so Eco stopped instead of trying again on its own. Closing other tabs and apps first can help.`;
+}
+
+export const LOAD_INTERRUPTED_LIGHTER_LABEL = 'Use a lighter model';
+
+export function loadInterruptedRollBackLabel(modelName: string): string {
+  return `Go back to ${modelName}`;
+}
+
+/**
+ * The same refusal met outside setup (Settings, or a second tab that was open
+ * when the first one closed): the choice lives on Eco's setup screen.
+ */
+export const LOAD_INTERRUPTED_CHAT_MESSAGE =
+  "Eco didn't start your AI because the page closed while it was loading last time. Reload Eco to choose what to do next.";

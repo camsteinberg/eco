@@ -270,3 +270,55 @@ describe('SetupErrorState', () => {
     expect(writeText).toHaveBeenCalledWith('{"entries":[]}');
   });
 });
+
+describe('SetupErrorState — a tab that closed while loading (load breaker)', () => {
+  it('says what happened, names the model, and offers Try again plus a lighter model', async () => {
+    const onUseAlternative = vi.fn();
+    render(
+      <SetupErrorState
+        reason="load interrupted"
+        reasonCode="load-interrupted"
+        loadInterrupted={{ modelName: 'Eco Big', alternative: { kind: 'lighter', modelName: 'Eco Small' } }}
+        onTryAgain={() => {}}
+        onUseAlternative={onUseAlternative}
+        onTellUsMore={() => {}}
+      />,
+    );
+    expect(screen.getByText(/Eco closed before your AI finished loading\./)).toBeInTheDocument();
+    expect(screen.getByText(/The page shut down while Eco Big was loading/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /try setting up eco again/i })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Use a lighter model' }));
+    expect(onUseAlternative).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers the previous model back after a killed switch', () => {
+    render(
+      <SetupErrorState
+        reason="load interrupted"
+        reasonCode="load-interrupted"
+        loadInterrupted={{ modelName: 'Eco Big', alternative: { kind: 'roll-back', modelName: 'Eco Previous' } }}
+        onTryAgain={() => {}}
+        onUseAlternative={() => {}}
+        onTellUsMore={() => {}}
+      />,
+    );
+    expect(screen.getByRole('button', { name: 'Go back to Eco Previous' })).toBeInTheDocument();
+  });
+
+  it('a second kill on a one-model device stops honestly: Try again only, no iOS advice', () => {
+    render(
+      <SetupErrorState
+        reason="load interrupted"
+        reasonCode="load-interrupted"
+        loadInterrupted={{ modelName: 'Eco Mobile', repeated: 'only-model' }}
+        onTryAgain={() => {}}
+        onTellUsMore={() => {}}
+      />,
+    );
+    expect(screen.getByText(/Eco closed twice while loading your AI on this device\./)).toBeInTheDocument();
+    expect(screen.getByText(/Eco Mobile is the only model Eco has for this device/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /try setting up eco again/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /lighter model|go back/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/iOS/)).not.toBeInTheDocument();
+  });
+});

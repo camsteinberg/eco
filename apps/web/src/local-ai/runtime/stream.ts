@@ -59,7 +59,7 @@ import {
 } from './types';
 import type { ModelConfig } from '../types';
 import { LocalInferenceStreamError } from './errors';
-import { TEMPLATE_MISSING_USER_MESSAGE } from '../adapters/error-messages';
+import { LOAD_INTERRUPTED_CHAT_MESSAGE, TEMPLATE_MISSING_USER_MESSAGE } from '../adapters/error-messages';
 import {
   getValidationLocalGenerationFixture,
   isValidationHarnessEnabled,
@@ -393,6 +393,11 @@ function translateAdapterError(
       // a moment" crash card, which would tell the person to retry something
       // that cannot work until they reconnect.
       return new LocalInferenceStreamError('MODEL_FILES_MISSING', message, true);
+    case 'load-interrupted':
+      // The load breaker refused: this model's last load closed the page and
+      // the person has not chosen what to do. Nothing was loaded; the choice is
+      // on the setup screen, so say that rather than "try again".
+      return new LocalInferenceStreamError('LOAD_INTERRUPTED', LOAD_INTERRUPTED_CHAT_MESSAGE, true);
     case 'webgpu-unavailable':
     case 'init-failed':
       return new LocalInferenceStreamError('WORKER_CRASHED', message, true);
