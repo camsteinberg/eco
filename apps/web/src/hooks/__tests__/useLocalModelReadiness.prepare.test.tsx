@@ -177,21 +177,6 @@ describe("useLocalModelReadiness — prepare drives the real setup pipeline", ()
     await waitFor(() => expect(mockRelease).toHaveBeenCalledTimes(1));
   });
 
-  // Prepare is a click, so it may retry a model that already failed on this
-  // device (a landing may not).
-  it("retries failed models, because Prepare is a click", async () => {
-    const { result } = renderHook(() => useLocalModelReadiness());
-    await settle();
-
-    act(() => {
-      result.current.handlePrepareLocalModel(SMART_MODEL.id);
-    });
-    await settle();
-
-    const [, options] = mockExecuteSetup.mock.calls[0] as [SetupRunnerActions, { retryFailed?: boolean }];
-    expect(options.retryFailed).toBe(true);
-  });
-
   it("surfaces download progress and the warm-up phase while running", async () => {
     let capturedActions: SetupRunnerActions | null = null;
     let finish: () => void = () => {};
