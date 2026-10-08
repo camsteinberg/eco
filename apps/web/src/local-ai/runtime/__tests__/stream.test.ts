@@ -306,6 +306,20 @@ describe('stream()', () => {
     });
   });
 
+  it('surfaces a load the breaker refused as LOAD_INTERRUPTED with its own copy, never a generic failure', async () => {
+    mockLoad.mockRejectedValueOnce(
+      new AdapterError('Refused: this model closed the page while loading.', 'load-interrupted', true),
+    );
+
+    await expect(
+      firstEvent(stream([{ role: 'user', content: 'x' }], FAKE_MODEL.id)),
+    ).rejects.toMatchObject({
+      name: 'LocalInferenceStreamError',
+      code: 'LOAD_INTERRUPTED',
+      message: expect.stringMatching(/page closed while it was loading/) as unknown,
+    });
+  });
+
   it('throws when the model id is not in the v1 catalog', async () => {
     await expect(
       firstEvent(stream([{ role: 'user', content: 'x' }], 'local/not-in-catalog')),
