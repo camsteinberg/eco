@@ -23,8 +23,9 @@ import { executeSetup } from '../setup-runner';
 import { nextInCascade } from '../../selection/cascade';
 import { getModel } from '../../catalog/catalog';
 import { getDeviceProfile } from '../../device/profile';
+import { recordEvidence } from '../../evidence/ledger';
 import type { DeviceProfile, ModelConfig, Slot } from '../../types';
-import type { SlotState } from '../slots';
+import { getDemotedFrom, type SlotState } from '../slots';
 
 const MARK_KEY = 'eco-local-ai-load-mark-v1';
 const KILLS_KEY = 'eco-local-ai-load-kills-v1';
@@ -325,11 +326,9 @@ describe('executeSetup — load breaker on the real catalog', () => {
     });
   }
 
-  // KNOWN GAP (D1), pinned so the Safari-ladder PR must flip it: "lighter" is
-  // judged by download size, and after the MLC build closes the page the
-  // ladder's smaller rung is the ONNX build — smaller to download, higher
-  // recorded memory peak. Both carry the name "Eco Compact".
-  it('desktop Safari: one kill of the MLC build offers the ONNX Eco Compact as the lighter model', async () => {
+  // Desktop Safari's lighter rung is the iPhone's MLC build ("Eco Mobile"): the
+  // ONNX builds are not offered on that class (their catalog `compat.declineOn`).
+  it('desktop Safari: one kill of the MLC build offers Eco Mobile as the lighter model', async () => {
     seedDeadMark(SAFARI_MLC_ID);
     const a = fakeActions();
     const s = realSeams(desktopSafari, real(SAFARI_MLC_ID));
@@ -339,11 +338,11 @@ describe('executeSetup — load breaker on the real catalog', () => {
     expect(s.runAttempt).not.toHaveBeenCalled();
     expect(a.setError).toHaveBeenCalledWith(...loadInterruptedError({
       modelName: 'Eco Compact',
-      alternative: { kind: 'lighter', modelName: 'Eco Compact' },
+      alternative: { kind: 'lighter', modelName: 'Eco Mobile' },
     }));
   });
 
-  it('desktop Safari: choosing the lighter model sets up the ONNX build', async () => {
+  it('desktop Safari: choosing the lighter model sets up Eco Mobile, and the notice names two models', async () => {
     seedKillRecord(SAFARI_MLC_ID, 'step-down');
     const a = fakeActions();
     const s = realSeams(desktopSafari, real(SAFARI_MLC_ID));
@@ -353,8 +352,67 @@ describe('executeSetup — load breaker on the real catalog', () => {
     expect(s.runAttempt).toHaveBeenNthCalledWith(
       1,
       'eco-fast',
-      expect.objectContaining({ id: SAFARI_ONNX_ID }),
+      expect.objectContaining({ id: IPHONE_ID }),
       expect.any(Function),
     );
+    expect(attemptedIds(s)).not.toContain(SAFARI_ONNX_ID);
+    expectNoticeNamesTwoModels(IPHONE_ID);
   });
+
+  it('desktop Safari: a smoke failure of the MLC build demotes to Eco Mobile, and the notice names two models', async () => {
+    const a = fakeActions();
+    const s = seams(
+      { 'eco-fast': bound(real(SAFARI_MLC_ID), 'preparing') },
+      {
+        resolveProfile: vi.fn(async () => desktopSafari),
+        nextInCascade,
+        getModel,
+        runAttempt: vi.fn(async (_slot: Slot, model: ModelConfig) => (
+          model.id === SAFARI_MLC_ID
+            ? { ok: false as const, phase: 'load-or-smoke' as const, reason: 'smoke failed' }
+            : { ok: true as const }
+        )),
+      },
+    );
+
+    await executeSetup(a, { slot: 'eco-fast', seams: s });
+
+    expect(attemptedIds(s)).toEqual([SAFARI_MLC_ID, IPHONE_ID]);
+    expect(a.setReady).toHaveBeenCalledWith(expect.objectContaining({ id: IPHONE_ID }));
+    expectNoticeNamesTwoModels(IPHONE_ID);
+  });
+
+  it('desktop Safari: a second kill of Eco Mobile after the step-down is the honest stop', async () => {
+    // The step-down left a smoke-fail row on the Mac build (the killer), which
+    // hides it from the ladder for this device.
+    recordEvidence({ modelId: SAFARI_MLC_ID, profile: desktopSafari, outcome: 'smoke-fail' });
+    seedKillRecord(IPHONE_ID, 'retry');
+    seedDeadMark(IPHONE_ID, 'second-load');
+    const a = fakeActions();
+    const s = realSeams(desktopSafari, real(IPHONE_ID));
+
+    await executeSetup(a, { slot: 'eco-fast', seams: s });
+
+    expect(s.runAttempt).not.toHaveBeenCalled();
+    expect(a.setBelowFloor).not.toHaveBeenCalled();
+    expect(a.setError).toHaveBeenCalledWith(...loadInterruptedError({
+      modelName: 'Eco Mobile',
+      repeated: 'only-model',
+    }));
+    const opts = a.setError.mock.calls[0]?.[1] as { loadInterrupted?: { alternative?: unknown } };
+    expect(opts.loadInterrupted?.alternative).toBeUndefined();
+  });
+
+  function attemptedIds(s: { runAttempt: { mock: { calls: unknown[][] } } }): string[] {
+    return s.runAttempt.mock.calls.map((call) => (call[1] as ModelConfig).id);
+  }
+
+  /** The demotion notice's two labels, read as `useChat` reads them. */
+  function expectNoticeNamesTwoModels(toId: string): void {
+    const label = (id: string) => real(id).display?.friendlyName.replace(/\s*\([^)]*\)$/, '');
+    const from = getDemotedFrom('eco-fast');
+    expect(from?.modelId).toBe(SAFARI_MLC_ID);
+    expect(label(SAFARI_MLC_ID)).toBe('Eco Compact');
+    expect(label(toId)).toBe('Eco Mobile');
+  }
 });

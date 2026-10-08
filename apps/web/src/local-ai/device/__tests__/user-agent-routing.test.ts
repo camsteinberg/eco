@@ -34,6 +34,7 @@ import type { BrowserClass, DeviceProfile, Slot } from '../../types';
 import { isWebKitMobile, WEBKIT_MOBILE_VALIDATED_MODEL_IDS } from '../compatibility';
 import { diagnoseUnsupportedProfile } from '../diagnosis';
 import { getDeviceProfile, resetProbedWebgpuCapability } from '../profile';
+import recordedLadders from '../../selection/__tests__/ladders-before-safari-ladder.json';
 
 type UaCase = {
   label: string;
@@ -311,6 +312,20 @@ describe('iOS user agents — every one is WebKit mobile, in-app or not', () => 
         expect(getModel(id)?.format, `${arm}: ${id}`).not.toMatch(/^onnx-/);
         expect(WEBKIT_MOBILE_VALIDATED_MODEL_IDS, `${arm}: ${id}`).toContain(id);
       }
+    }
+  });
+
+  // Pinned when desktop Safari's ladder changed (2026-10-08): every iOS user
+  // agent, iPad included, keeps exactly the ladders it had, slot by slot.
+  it.each(IOS_CASES)('$label keeps its full ladders on every capability arm', (uaCase) => {
+    const ladders: Record<string, { fast: string[]; smart: string[]; catalog: string[] }> = recordedLadders.ladders;
+    for (const arm of ARM_NAMES) {
+      const profile = profileFor(uaCase, arm);
+      expect({
+        fast: listCandidates('eco-fast', profile).map((c) => c.model.id),
+        smart: listCandidates('eco-smart', profile).map((c) => c.model.id),
+        catalog: listCatalog(profile).available.map((a) => a.model.id),
+      }, arm).toEqual(ladders[`iphone/${arm}`]);
     }
   });
 

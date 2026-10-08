@@ -1,0 +1,380 @@
+{
+  "_recorded": "listCandidates (both slots) and listCatalog per device class and capability arm, recorded on fix/load-breaker 761b8a7 before the desktop-Safari ladder change (2026-10-08). Only desktopSafari/webgpu and desktopSafari/webgpuUnprobed are expected to differ after it.",
+  "ladders": {
+    "iphone/webgpu": {
+      "fast": [
+        "candidate/qwen2.5-0.5b-mlc"
+      ],
+      "smart": [
+        "candidate/qwen2.5-0.5b-mlc"
+      ],
+      "catalog": [
+        "candidate/qwen2.5-0.5b-mlc"
+      ]
+    },
+    "iphone/webgpuUnprobed": {
+      "fast": [
+        "candidate/qwen2.5-0.5b-mlc"
+      ],
+      "smart": [
+        "candidate/qwen2.5-0.5b-mlc"
+      ],
+      "catalog": [
+        "candidate/qwen2.5-0.5b-mlc"
+      ]
+    },
+    "iphone/webgpuNoF16": {
+      "fast": [],
+      "smart": [],
+      "catalog": []
+    },
+    "iphone/wasmOnly": {
+      "fast": [],
+      "smart": [],
+      "catalog": []
+    },
+    "iphone/none": {
+      "fast": [],
+      "smart": [],
+      "catalog": []
+    },
+    "desktopSafari/webgpu": {
+      "fast": [
+        "candidate/qwen3-0.6b-mlc-q0f16",
+        "local/qwen3-0.6b",
+        "candidate/lfm2.5-350m-onnx"
+      ],
+      "smart": [
+        "candidate/qwen3-0.6b-mlc-q0f16",
+        "local/qwen3-0.6b"
+      ],
+      "catalog": [
+        "candidate/qwen3-0.6b-mlc-q0f16",
+        "local/qwen3-0.6b",
+        "candidate/lfm2.5-350m-onnx"
+      ]
+    },
+    "desktopSafari/webgpuUnprobed": {
+      "fast": [
+        "candidate/qwen3-0.6b-mlc-q0f16",
+        "local/qwen3-0.6b",
+        "candidate/lfm2.5-350m-onnx"
+      ],
+      "smart": [
+        "candidate/qwen3-0.6b-mlc-q0f16",
+        "local/qwen3-0.6b"
+      ],
+      "catalog": [
+        "candidate/qwen3-0.6b-mlc-q0f16",
+        "local/qwen3-0.6b",
+        "candidate/lfm2.5-350m-onnx"
+      ]
+    },
+    "desktopSafari/webgpuNoF16": {
+      "fast": [
+        "candidate/lfm2.5-350m-onnx"
+      ],
+      "smart": [],
+      "catalog": [
+        "candidate/lfm2.5-350m-onnx"
+      ]
+    },
+    "desktopSafari/wasmOnly": {
+      "fast": [
+        "candidate/smollm2-360m-instruct-onnx",
+        "local/qwen3-0.6b",
+        "candidate/granite-4.0-350m-onnx"
+      ],
+      "smart": [
+        "candidate/granite-4.0-350m-onnx",
+        "local/qwen3-0.6b",
+        "candidate/smollm2-360m-instruct-onnx"
+      ],
+      "catalog": [
+        "candidate/smollm2-360m-instruct-onnx",
+        "candidate/granite-4.0-350m-onnx",
+        "local/qwen3-0.6b"
+      ]
+    },
+    "desktopSafari/none": {
+      "fast": [],
+      "smart": [],
+      "catalog": []
+    },
+    "desktopChromium8/webgpu": {
+      "fast": [
+        "candidate/lfm2.5-1.2b-instruct-onnx",
+        "local/qwen3-0.6b",
+        "candidate/lfm2.5-350m-onnx",
+        "candidate/qwen3.5-2b-onnx",
+        "candidate/gemma-4-e2b-litert",
+        "candidate/lfm2-2.6b-onnx"
+      ],
+      "smart": [
+        "candidate/lfm2-2.6b-onnx",
+        "candidate/gemma-4-e2b-litert",
+        "local/qwen3-0.6b",
+        "candidate/lfm2.5-1.2b-instruct-onnx",
+        "candidate/qwen3.5-2b-onnx"
+      ],
+      "catalog": [
+        "candidate/lfm2.5-1.2b-instruct-onnx",
+        "candidate/lfm2-2.6b-onnx",
+        "candidate/gemma-4-e2b-litert",
+        "local/qwen3-0.6b",
+        "candidate/lfm2.5-350m-onnx",
+        "candidate/qwen3.5-2b-onnx"
+      ]
+    },
+    "desktopChromium8/webgpuUnprobed": {
+      "fast": [
+        "candidate/lfm2.5-1.2b-instruct-onnx",
+        "candidate/lfm2.5-1.2b-instruct-q4-onnx",
+        "local/qwen3-0.6b",
+        "candidate/lfm2.5-350m-onnx",
+        "candidate/qwen3.5-2b-onnx",
+        "candidate/gemma-4-e2b-litert",
+        "candidate/lfm2-2.6b-onnx"
+      ],
+      "smart": [
+        "candidate/lfm2-2.6b-onnx",
+        "candidate/gemma-4-e2b-litert",
+        "local/qwen3-0.6b",
+        "candidate/lfm2.5-1.2b-instruct-q4-onnx",
+        "candidate/lfm2.5-1.2b-instruct-onnx",
+        "candidate/qwen3.5-2b-onnx"
+      ],
+      "catalog": [
+        "candidate/lfm2.5-1.2b-instruct-onnx",
+        "candidate/lfm2-2.6b-onnx",
+        "candidate/lfm2.5-1.2b-instruct-q4-onnx",
+        "candidate/gemma-4-e2b-litert",
+        "local/qwen3-0.6b",
+        "candidate/lfm2.5-350m-onnx",
+        "candidate/qwen3.5-2b-onnx"
+      ]
+    },
+    "desktopChromium8/webgpuNoF16": {
+      "fast": [
+        "candidate/lfm2.5-1.2b-instruct-q4-onnx",
+        "candidate/lfm2.5-350m-onnx",
+        "candidate/gemma-4-e2b-litert"
+      ],
+      "smart": [
+        "candidate/gemma-4-e2b-litert",
+        "candidate/lfm2.5-1.2b-instruct-q4-onnx"
+      ],
+      "catalog": [
+        "candidate/lfm2.5-1.2b-instruct-q4-onnx",
+        "candidate/gemma-4-e2b-litert",
+        "candidate/lfm2.5-350m-onnx"
+      ]
+    },
+    "desktopChromium8/wasmOnly": {
+      "fast": [
+        "candidate/smollm2-360m-instruct-onnx",
+        "local/qwen3-0.6b",
+        "candidate/granite-4.0-350m-onnx"
+      ],
+      "smart": [
+        "candidate/granite-4.0-350m-onnx",
+        "local/qwen3-0.6b",
+        "candidate/smollm2-360m-instruct-onnx"
+      ],
+      "catalog": [
+        "candidate/smollm2-360m-instruct-onnx",
+        "candidate/granite-4.0-350m-onnx",
+        "local/qwen3-0.6b"
+      ]
+    },
+    "desktopChromium8/none": {
+      "fast": [],
+      "smart": [],
+      "catalog": []
+    },
+    "mobileChromium8/webgpu": {
+      "fast": [
+        "candidate/lfm2.5-1.2b-instruct-onnx",
+        "local/qwen3-0.6b",
+        "candidate/lfm2.5-350m-onnx"
+      ],
+      "smart": [
+        "local/qwen3-0.6b",
+        "candidate/lfm2.5-1.2b-instruct-onnx"
+      ],
+      "catalog": [
+        "candidate/lfm2.5-1.2b-instruct-onnx",
+        "local/qwen3-0.6b",
+        "candidate/lfm2.5-350m-onnx"
+      ]
+    },
+    "mobileChromium8/webgpuUnprobed": {
+      "fast": [
+        "candidate/lfm2.5-1.2b-instruct-onnx",
+        "candidate/lfm2.5-1.2b-instruct-q4-onnx",
+        "local/qwen3-0.6b",
+        "candidate/lfm2.5-350m-onnx"
+      ],
+      "smart": [
+        "local/qwen3-0.6b",
+        "candidate/lfm2.5-1.2b-instruct-q4-onnx",
+        "candidate/lfm2.5-1.2b-instruct-onnx"
+      ],
+      "catalog": [
+        "candidate/lfm2.5-1.2b-instruct-onnx",
+        "candidate/lfm2.5-1.2b-instruct-q4-onnx",
+        "local/qwen3-0.6b",
+        "candidate/lfm2.5-350m-onnx"
+      ]
+    },
+    "mobileChromium8/webgpuNoF16": {
+      "fast": [
+        "candidate/lfm2.5-1.2b-instruct-q4-onnx",
+        "candidate/lfm2.5-350m-onnx"
+      ],
+      "smart": [
+        "candidate/lfm2.5-1.2b-instruct-q4-onnx"
+      ],
+      "catalog": [
+        "candidate/lfm2.5-1.2b-instruct-q4-onnx",
+        "candidate/lfm2.5-350m-onnx"
+      ]
+    },
+    "mobileChromium8/wasmOnly": {
+      "fast": [
+        "candidate/smollm2-360m-instruct-onnx",
+        "local/qwen3-0.6b",
+        "candidate/granite-4.0-350m-onnx"
+      ],
+      "smart": [
+        "candidate/granite-4.0-350m-onnx",
+        "local/qwen3-0.6b",
+        "candidate/smollm2-360m-instruct-onnx"
+      ],
+      "catalog": [
+        "candidate/smollm2-360m-instruct-onnx",
+        "candidate/granite-4.0-350m-onnx",
+        "local/qwen3-0.6b"
+      ]
+    },
+    "mobileChromium8/none": {
+      "fast": [],
+      "smart": [],
+      "catalog": []
+    },
+    "firefoxDesktop/webgpu": {
+      "fast": [
+        "local/qwen3-0.6b",
+        "candidate/lfm2.5-350m-onnx"
+      ],
+      "smart": [
+        "local/qwen3-0.6b"
+      ],
+      "catalog": [
+        "local/qwen3-0.6b",
+        "candidate/lfm2.5-350m-onnx"
+      ]
+    },
+    "firefoxDesktop/webgpuUnprobed": {
+      "fast": [
+        "local/qwen3-0.6b",
+        "candidate/lfm2.5-350m-onnx"
+      ],
+      "smart": [
+        "local/qwen3-0.6b"
+      ],
+      "catalog": [
+        "local/qwen3-0.6b",
+        "candidate/lfm2.5-350m-onnx"
+      ]
+    },
+    "firefoxDesktop/webgpuNoF16": {
+      "fast": [
+        "candidate/lfm2.5-350m-onnx"
+      ],
+      "smart": [],
+      "catalog": [
+        "candidate/lfm2.5-350m-onnx"
+      ]
+    },
+    "firefoxDesktop/wasmOnly": {
+      "fast": [
+        "candidate/smollm2-360m-instruct-onnx",
+        "local/qwen3-0.6b",
+        "candidate/granite-4.0-350m-onnx"
+      ],
+      "smart": [
+        "candidate/granite-4.0-350m-onnx",
+        "local/qwen3-0.6b",
+        "candidate/smollm2-360m-instruct-onnx"
+      ],
+      "catalog": [
+        "candidate/smollm2-360m-instruct-onnx",
+        "candidate/granite-4.0-350m-onnx",
+        "local/qwen3-0.6b"
+      ]
+    },
+    "firefoxDesktop/none": {
+      "fast": [],
+      "smart": [],
+      "catalog": []
+    },
+    "firefoxMobile/webgpu": {
+      "fast": [
+        "local/qwen3-0.6b",
+        "candidate/lfm2.5-350m-onnx"
+      ],
+      "smart": [
+        "local/qwen3-0.6b"
+      ],
+      "catalog": [
+        "local/qwen3-0.6b",
+        "candidate/lfm2.5-350m-onnx"
+      ]
+    },
+    "firefoxMobile/webgpuUnprobed": {
+      "fast": [
+        "local/qwen3-0.6b",
+        "candidate/lfm2.5-350m-onnx"
+      ],
+      "smart": [
+        "local/qwen3-0.6b"
+      ],
+      "catalog": [
+        "local/qwen3-0.6b",
+        "candidate/lfm2.5-350m-onnx"
+      ]
+    },
+    "firefoxMobile/webgpuNoF16": {
+      "fast": [
+        "candidate/lfm2.5-350m-onnx"
+      ],
+      "smart": [],
+      "catalog": [
+        "candidate/lfm2.5-350m-onnx"
+      ]
+    },
+    "firefoxMobile/wasmOnly": {
+      "fast": [
+        "candidate/smollm2-360m-instruct-onnx",
+        "local/qwen3-0.6b",
+        "candidate/granite-4.0-350m-onnx"
+      ],
+      "smart": [
+        "candidate/granite-4.0-350m-onnx",
+        "local/qwen3-0.6b",
+        "candidate/smollm2-360m-instruct-onnx"
+      ],
+      "catalog": [
+        "candidate/smollm2-360m-instruct-onnx",
+        "candidate/granite-4.0-350m-onnx",
+        "local/qwen3-0.6b"
+      ]
+    },
+    "firefoxMobile/none": {
+      "fast": [],
+      "smart": [],
+      "catalog": []
+    }
+  }
+}

@@ -873,6 +873,36 @@ describe('runSelfHeal — iOS-only binding on a non-WebKit-mobile device', () =>
     expect(getSlot('eco-fast').modelId).toBe(MLC);
     expect(getSlot('eco-fast').status).toBe('ready');
   });
+
+  // Desktop Safari's fallback rung is this model now (owner ruling 2026-10-08).
+  it('leaves Eco Mobile bound on desktop Safari, where it is the fallback rung', async () => {
+    setSlot('eco-fast', MLC);
+    setSlotStatus('eco-fast', 'ready');
+
+    const report = await runSelfHeal({
+      storage,
+      resolveDeviceProfile: () => ({ ...iosWebKit, isMobile: false, deviceMemoryGB: 0 }),
+    });
+
+    expect(report.incompatibleSlotsRegated).toEqual([]);
+    expect(getSlot('eco-fast').modelId).toBe(MLC);
+    expect(getSlot('eco-fast').status).toBe('ready');
+  });
+
+  // The re-gate reads the bound model's own browser scope (`allowedBrowsers`),
+  // so a Safari-only build bound on Chromium is cleared like the iPhone one was.
+  it('clears a Chromium slot bound to the Safari-only Mac build', async () => {
+    setSlot('eco-fast', 'candidate/qwen3-0.6b-mlc-q0f16');
+    setSlotStatus('eco-fast', 'ready');
+
+    const report = await runSelfHeal({
+      storage,
+      resolveDeviceProfile: () => chromiumDesktop,
+    });
+
+    expect(report.incompatibleSlotsRegated).toEqual(['eco-fast']);
+    expect(getSlot('eco-fast').modelId).toBeNull();
+  });
 });
 
 // ─── Dead-bytes sweep (non-catalog namespaces + orphaned chunk-parts) ────────
