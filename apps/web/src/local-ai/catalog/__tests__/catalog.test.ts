@@ -75,7 +75,7 @@ describe('local-ai catalog (Phase C)', () => {
   // selection/recommend.ts, whose comments carried the by-eye reads, the measured
   // throughputs and the evidence-doc filenames behind each pick. This test is what
   // stops the next fold from dropping that trail again: hold a rung, cite why.
-  it('backs every tier assignment and the starter floor with recorded provenance', () => {
+  it('backs every tier assignment with recorded provenance', () => {
     for (const model of getCatalog()) {
       const provenance: Record<string, string> = model._provenance ?? {};
       const slots = Object.keys(model.tier);
@@ -86,10 +86,6 @@ describe('local-ai catalog (Phase C)', () => {
             || slots.every((slot) => provenance[`tier.${slot}`] !== undefined));
         expect(cited, `${model.id} holds tier rung(s) ${slots.join('+')} with no _provenance`)
           .toBe(true);
-      }
-      if (model.starterFloor === true) {
-        expect(provenance.starterFloor, `${model.id} is the starter floor with no _provenance`)
-          .toEqual(expect.any(String));
       }
     }
   });

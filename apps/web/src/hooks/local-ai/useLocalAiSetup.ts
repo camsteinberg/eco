@@ -35,8 +35,13 @@ export type UseLocalAiSetupOptions = {
   skipBootstrap?: boolean;
 };
 
+export type UseLocalAiSetupStartOptions = {
+  /** A click started this run (Try again), so it may retry a failed model. */
+  retryFailed?: boolean;
+};
+
 export type UseLocalAiSetupReturn = UseEcoSetupReturn & {
-  start(): Promise<void>;
+  start(options?: UseLocalAiSetupStartOptions): Promise<void>;
   /** Commit the user's first-run model choice (by catalog id). Resolves the
    * runner's pending choice request so the download begins with that model. */
   choose(modelId: string): void;
@@ -46,6 +51,11 @@ export function useLocalAiSetup(options: UseLocalAiSetupOptions = {}): UseLocalA
   const slot: Slot = options.slot ?? 'eco-fast';
   const setup = useEcoSetup();
   const startedRef = useRef(false);
+  // A click's retry request (Try again) outlives the latch. The click resets
+  // and starts in one tick, while the latch is still set, so that start() is a
+  // no-op; the run the gate's mount effect starts after the reset re-render is
+  // the one that must carry it. The next run that actually starts consumes it.
+  const retryFailedRef = useRef(false);
   // Resolver for the in-flight first-run choice promise. Set when the runner
   // asks for a choice; called by `choose()` when the user commits.
   const choiceResolverRef = useRef<((choice: FirstRunChoiceEntry) => void) | null>(null);
@@ -92,9 +102,12 @@ export function useLocalAiSetup(options: UseLocalAiSetupOptions = {}): UseLocalA
     [slot, setReadyState],
   );
 
-  const start = useCallback(async (): Promise<void> => {
+  const start = useCallback(async (startOptions: UseLocalAiSetupStartOptions = {}): Promise<void> => {
+    if (startOptions.retryFailed === true) retryFailedRef.current = true;
     if (startedRef.current) return;
     startedRef.current = true;
+    const retryFailed = retryFailedRef.current;
+    retryFailedRef.current = false;
     await executeSetup(
       {
         onProgressEvent: setup.actions.onProgressEvent,
@@ -105,7 +118,12 @@ export function useLocalAiSetup(options: UseLocalAiSetupOptions = {}): UseLocalA
         markFindingFit: setup.actions.markFindingFit,
         markResuming: setup.actions.markResuming,
       },
-      { slot, skipBootstrap: options.skipBootstrap, requestChoice },
+      {
+        slot,
+        skipBootstrap: options.skipBootstrap,
+        requestChoice,
+        retryFailed,
+      },
     );
   }, [slot, setup.actions, setReady, options.skipBootstrap, requestChoice]);
 

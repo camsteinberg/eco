@@ -342,6 +342,23 @@ describe('executeSetup — load breaker on the real catalog', () => {
     }));
   });
 
+  // Failure evidence never empties a slot: with the Mac build being stepped
+  // away from, Eco Mobile is the slot's last model even though it failed before.
+  it('desktop Safari: one kill of the MLC build still offers Eco Mobile when Eco Mobile failed earlier', async () => {
+    recordEvidence({ modelId: IPHONE_ID, profile: desktopSafari, outcome: 'smoke-fail' });
+    seedDeadMark(SAFARI_MLC_ID);
+    const a = fakeActions();
+    const s = realSeams(desktopSafari, real(SAFARI_MLC_ID));
+
+    await executeSetup(a, { slot: 'eco-fast', seams: s });
+
+    expect(s.runAttempt).not.toHaveBeenCalled();
+    expect(a.setError).toHaveBeenCalledWith(...loadInterruptedError({
+      modelName: 'Eco Compact',
+      alternative: { kind: 'lighter', modelName: 'Eco Mobile' },
+    }));
+  });
+
   it('desktop Safari: choosing the lighter model sets up Eco Mobile, and the notice names two models', async () => {
     seedKillRecord(SAFARI_MLC_ID, 'step-down');
     const a = fakeActions();

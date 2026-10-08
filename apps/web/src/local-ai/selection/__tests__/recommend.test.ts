@@ -19,7 +19,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getCatalog, getModel, TIER_ORDER } from '../../catalog/catalog';
 import { isAssignable } from '../../device/compatibility';
 import { CURRENT_LEDGER_VERSION, FAILURE_EVIDENCE_VALID_FROM, profileKey } from '../../evidence/ledger';
-import { canServe, listCandidates, listCatalog, NoAssignableModelError, recommend, STARTER_MAX_SIZE_GB, starterModelForSlot, tierDefaultModelId } from '../recommend';
+import { canServe, hasCandidateWithoutFailures, listCandidates, listCatalog, NoAssignableModelError, recommend, STARTER_MAX_SIZE_GB, starterModelForSlot, tierDefaultModelId } from '../recommend';
 import { isBelowFloor } from '../../device/below-floor';
 import { getDeviceProfile } from '../../device/profile';
 import { dedupeByDisplayName } from '../../display';
@@ -755,10 +755,10 @@ describe('recommend — confidence floor', () => {
     expect(recommend('eco-fast', PROFILE_24GB).id).toBe('candidate/lfm2.5-1.2b-instruct-onnx');
   });
 
-  it('throws NoAssignableModelError when every model has a recent smoke-fail on this profile', () => {
+  it('offers the ladder again, in its normal order, when every model has a recent smoke-fail on this profile', () => {
     // Pre-seed ledger with smoke-fail for every catalog model on the Firefox
-    // WASM profile. With no seed proof exemption and no currently-bound model,
-    // the confidence floor rejects everything.
+    // WASM profile. The confidence floor would reject everything, so the
+    // failure evidence is set aside: it never empties a slot (M1, 2026-10-08).
     const catalog = getCatalog();
     const entries = catalog
       .filter((m) => {
@@ -774,8 +774,15 @@ describe('recommend — confidence floor', () => {
         ledgerVersion: CURRENT_LEDGER_VERSION,
       }));
     localStorage.setItem('eco-local-ai-ledger-v1', JSON.stringify(entries));
+    const before = localStorage.getItem('eco-local-ai-ledger-v1');
+    localStorage.removeItem('eco-local-ai-ledger-v1');
+    const clean = listCandidates('eco-fast', PROFILE_FIREFOX).map((c) => c.model.id);
+    localStorage.setItem('eco-local-ai-ledger-v1', before!);
 
-    expect(() => recommend('eco-fast', PROFILE_FIREFOX)).toThrow(NoAssignableModelError);
+    // Non-vacuous: the seeded rows really do cover every model this slot runs.
+    expect(hasCandidateWithoutFailures('eco-fast', PROFILE_FIREFOX)).toBe(false);
+    expect(listCandidates('eco-fast', PROFILE_FIREFOX).map((c) => c.model.id)).toEqual(clean);
+    expect(recommend('eco-fast', PROFILE_FIREFOX).id).toBe(clean[0]);
   });
 
   it('skips a model with recentFailureCount >= 1 when no exemption', () => {
@@ -879,23 +886,26 @@ describe('recommend — confidence floor', () => {
       expect(listCatalog(PROFILE_24GB).available.some((a) => a.model.id === top.id)).toBe(true);
     });
 
-    it('NEVER demotes the starter floor even after repeated download failures', () => {
-      // Sanity: the starter is normally offerable for eco-fast on this device.
+    // The 350M carries no standing exemption any more: like every model, it is
+    // demoted while another rung can serve the slot, and kept when it is the
+    // slot's last model (last-model-rule.test.ts, f16-less Safari).
+    it('demotes the 350M like any other model while other rungs serve the slot', () => {
+      // Sanity: it is normally offerable for eco-fast on this device.
       expect(
         listCandidates('eco-fast', PROFILE_24GB).some((c) => c.model.id === STARTER_ID),
       ).toBe(true);
       seedDownloadFails(STARTER_ID, [0, HOUR, 2 * HOUR]);
-      expect(
-        listCandidates('eco-fast', PROFILE_24GB).some((c) => c.model.id === STARTER_ID),
-      ).toBe(true);
+      const offered = listCandidates('eco-fast', PROFILE_24GB).map((c) => c.model.id);
+      expect(offered).not.toContain(STARTER_ID);
+      expect(offered.length).toBeGreaterThan(0);
     });
 
     it('NEVER demotes the wasm-only effective floor even after repeated failures (COV-3)', () => {
-      // On a wasm-only device the universal starter floor (lfm2.5-350m) is
+      // On a wasm-only device the light-rung 350M (lfm2.5-350m) is
       // cpuEpIncompatible and never assignable, so PREFERRED_WASM_FLOOR_MODEL_ID is
       // the effective floor — often the SOLE offerable model on a small device.
       // Demoting it on transient download failures would decline a runnable device
-      // to below-floor for the 7-day window; the exemption must track the device.
+      // to below-floor for the 7-day window; failure evidence never empties a slot.
       const WASM_LOW: DeviceProfile = {
         browserClass: 'chromium',
         webgpuSupport: 'wasm-only',
@@ -904,7 +914,7 @@ describe('recommend — confidence floor', () => {
         override: 'auto',
       };
       const floorId = tierDefaultModelId('eco-fast', 'phone')!;
-      // Sanity: it is the offered floor here (and not the universal starter floor).
+      // Sanity: it is the offered floor here (and not the 350M).
       expect(floorId).not.toBe(STARTER_ID);
       expect(
         listCandidates('eco-fast', WASM_LOW).some((c) => c.model.id === floorId),
@@ -931,7 +941,7 @@ describe('recommend — confidence floor', () => {
     });
 
     it('NEVER demotes the iOS/WebKit-mobile floor even after repeated failures (COV-3)', () => {
-      // On iOS/WebKit-mobile every ONNX build (incl. the universal starter floor) is
+      // On iOS/WebKit-mobile every ONNX build (incl. the light-rung 350M) is
       // declined by the WebKit-mobile gate, so the SOLE assignable model is the
       // WebLLM/MLC pick — a WebGPU model, which the wasm-only exemption never covers.
       const IOS: DeviceProfile = {

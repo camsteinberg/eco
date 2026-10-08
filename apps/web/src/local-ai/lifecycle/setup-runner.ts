@@ -46,7 +46,12 @@ import {
 import { isBelowFloor } from '../device/below-floor';
 import { recommend } from '../index';
 import { nextInCascade } from '../selection/cascade';
-import { NoAssignableModelError, starterModelForSlot } from '../selection/recommend';
+import {
+  hasCandidateWithoutFailures,
+  listCandidates,
+  NoAssignableModelError,
+  starterModelForSlot,
+} from '../selection/recommend';
 import {
   deriveFirstRunChoices,
   type FirstRunChoiceEntry,
@@ -56,6 +61,7 @@ import { recordEvidence } from '../evidence/ledger';
 import { resolveSetupProfile } from '../device/profile';
 import {
   runSetupCascade,
+  SETUP_EXHAUSTED_REASON,
   type AttemptFailureReasonCode,
   type AttemptResult,
   type LoadInterruptedInfo,
@@ -112,6 +118,8 @@ export type SetupSeams = {
   waitForNetwork: () => Promise<boolean>;
   /** Catalog lookup — resolves the model a killed switch replaced. */
   getModel: (modelId: string) => ModelConfig | null;
+  /** False when every model the slot can run here has a recent failure on record. */
+  hasCandidateWithoutFailures: (slot: Slot, profile: DeviceProfile) => boolean;
 };
 
 /** Longest the ladder will hold for a dropped connection before giving up. */
@@ -164,6 +172,13 @@ export type SetupRunnerOptions = {
    * eco-smart instead of being written over the everyday slot.
    */
   requestChoice?: (offer: FirstRunChoiceOffer) => Promise<FirstRunChoiceEntry>;
+  /**
+   * The person asked for this run (Try again, Prepare), so it may load a model
+   * that already failed on this device. A run the page starts on its own leaves
+   * this unset: on a slot whose last run failed and whose every model has a
+   * recent failure on record, it shows the exhausted error and loads nothing.
+   */
+  retryFailed?: boolean;
   seams?: Partial<SetupSeams>;
 };
 
@@ -435,6 +450,7 @@ export const DEFAULT_SEAMS: SetupSeams = {
   waitForNetwork: () => waitForNetworkIfOffline(),
   isModelCached: (model) => isModelDownloaded(model),
   getModel,
+  hasCandidateWithoutFailures,
 };
 
 // ─── Load breaker ───────────────────────────────────────────────────────────
@@ -613,6 +629,23 @@ export async function executeSetup(
   }
   if (!stepDown && current.modelId && current.status === 'error') {
     actions.markPriorAttemptFailed();
+  }
+
+  // A landing on a slot whose last run failed, where every model the slot can
+  // run here has failed recently: loading one again is the person's call (Try
+  // again, Prepare), never the page's. Say so on the exhausted surface — the
+  // device CAN run these models, so this is not the below-floor screen.
+  if (
+    !stepDown
+    && current.status === 'error'
+    && !options.retryFailed
+    && !seams.hasCandidateWithoutFailures(slot, profile)
+  ) {
+    const offered = listCandidates(slot, profile).length;
+    if (offered > 0) {
+      actions.setError(SETUP_EXHAUSTED_REASON, { exhausted: true, triedModelCount: offered });
+      return;
+    }
   }
 
   // A slot left 'preparing' with a bound model is an in-flight pick whose bytes

@@ -58,13 +58,11 @@ export function nextInCascade(
   }
   seenFailedIds.add(failed.id);
 
-  const excluded = new Set<string>([failed.id, ...(options.excludeIds ?? [])]);
-  const ranked = listCandidates(slot, profile, intent);
-  for (const candidate of ranked) {
-    if (excluded.has(candidate.model.id)) continue;
-    return candidate.model;
-  }
-  return null;
+  // The exclusions go INTO listCandidates, so its failure-evidence rule judges
+  // "is anything left to try" rather than "is anything left at all" — a rung
+  // that failed earlier is still the next step when it is the only one left.
+  const excludeIds = [failed.id, ...(options.excludeIds ?? [])];
+  return listCandidates(slot, profile, intent, { excludeIds })[0]?.model ?? null;
 }
 
 /** Test-only: reset the seen-id telemetry. Production never calls this. */
