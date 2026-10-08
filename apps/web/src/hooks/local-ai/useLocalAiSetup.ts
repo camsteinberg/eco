@@ -51,6 +51,11 @@ export function useLocalAiSetup(options: UseLocalAiSetupOptions = {}): UseLocalA
   const slot: Slot = options.slot ?? 'eco-fast';
   const setup = useEcoSetup();
   const startedRef = useRef(false);
+  // A click's retry request (Try again) outlives the latch. The click resets
+  // and starts in one tick, while the latch is still set, so that start() is a
+  // no-op; the run the gate's mount effect starts after the reset re-render is
+  // the one that must carry it. The next run that actually starts consumes it.
+  const retryFailedRef = useRef(false);
   // Resolver for the in-flight first-run choice promise. Set when the runner
   // asks for a choice; called by `choose()` when the user commits.
   const choiceResolverRef = useRef<((choice: FirstRunChoiceEntry) => void) | null>(null);
@@ -98,8 +103,11 @@ export function useLocalAiSetup(options: UseLocalAiSetupOptions = {}): UseLocalA
   );
 
   const start = useCallback(async (startOptions: UseLocalAiSetupStartOptions = {}): Promise<void> => {
+    if (startOptions.retryFailed === true) retryFailedRef.current = true;
     if (startedRef.current) return;
     startedRef.current = true;
+    const retryFailed = retryFailedRef.current;
+    retryFailedRef.current = false;
     await executeSetup(
       {
         onProgressEvent: setup.actions.onProgressEvent,
@@ -114,7 +122,7 @@ export function useLocalAiSetup(options: UseLocalAiSetupOptions = {}): UseLocalA
         slot,
         skipBootstrap: options.skipBootstrap,
         requestChoice,
-        retryFailed: startOptions.retryFailed === true,
+        retryFailed,
       },
     );
   }, [slot, setup.actions, setReady, options.skipBootstrap, requestChoice]);
