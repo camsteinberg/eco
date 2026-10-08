@@ -59,6 +59,15 @@
           "unknown"
         ],
         "warnIfMobile": false,
+        "declineOn": [
+          {
+            "browserClass": "safari",
+            "isMobile": false,
+            "webgpuSupport": "webgpu",
+            "webgpuShaderF16": true,
+            "_rationale": "Declined on desktop Safari with WebGPU and shader-f16 (owner ruling 2026-10-08): that class runs the MLC builds of these weights instead, and this ONNX build has no safe margin in Safari. MEASURED on one Apple Silicon Mac (16 GB) in real Safari: ten-turn chat walks peaked at 5.3–7.7 GB against Safari's ~8 GB per-tab kill (2026-09-21); the tab was killed at 10.5 GB in the known-answer harness run (2026-09-22); and after a lost config file cascaded a session onto it, the tab was at ≥5.5 GB and still rising (2026-10-01, n=1). Before this rule, any failure of the MLC pick (load, smoke, download, storage, a cooldown, or a 30-day smoke-fail verdict) fell through to this build on that class. Not a judgement of the model, and every other class keeps it, including desktop Safari without WebGPU (CPU path) and Firefox. Falsifier (re-admit by deleting this rule): three ten-turn desktop-Safari walks on the production path that all peak below 7 GB (1 GB under the kill line, the margin the q0f16 entry holds itself to), and a known-answer harness run that completes without a kill."
+          }
+        ],
         "_rationale": "'unknown' is included: a user-agent we cannot classify gets the same unvalidated-browser tier as safari/firefox rather than a categorical rejection. The capability probes (WebGPU/WASM, memory floor, CPU-EP) plus the first-use smoke gate are the real gate — the UA class was the only thing wholesale-declining these users. Premium models stay engine-validated (chromium-only), so this only opens the conservative floor tier."
       },
       "display": {
@@ -318,6 +327,15 @@
         ],
         "warnIfMobile": false,
         "cpuEpIncompatible": true,
+        "declineOn": [
+          {
+            "browserClass": "safari",
+            "isMobile": false,
+            "webgpuSupport": "webgpu",
+            "webgpuShaderF16": true,
+            "_rationale": "Leaves desktop Safari with WebGPU and shader-f16 (owner ruling 2026-10-08) only because it is UNMEASURED there: no memory or chat-quality run of this build exists in desktop Safari. Not a judgement of the model: it stays the light rung on f16-less desktop Safari, and on every other class that has it today. Queued: a desktop-Safari memory measurement (load plus a ten-turn walk) and a known-answer run in real Safari. Falsifier (re-admit by deleting this rule): both measurements, with a ten-turn peak below 7 GB and a known-answer score that places it in the ladder against `candidate/qwen2.5-0.5b-mlc` (0.518 in real Safari)."
+          }
+        ],
         "_rationale": "LFM2.5-350M (onnx-q4). Runs on the WebGPU EP (incl. f16-less adapters — it's the light onnx-q4 rung there), but its block-quantized embeddings emit GatherBlockQuantized, which ort-web's CPU/WASM EP does NOT implement — so it hard-fails 'Kernel not found' on any wasm-only device. cpuEpIncompatible keeps it out of the WASM setup cascade (Finding E), leaving qwen3-0.6b as the sole WASM floor. requireWebgpu stays false so it remains offerable on the f16-less-but-WebGPU tier where it genuinely loads. 'unknown' included for the same policy as qwen3-0.6b: an unclassifiable UA gets the floor tier, not a wholesale decline."
       },
       "display": {
@@ -519,6 +537,7 @@
       "_provenance": {
         "tier.eco-fast": "MEASURED 2026-09-01: tier-walk vs scorer diff over 750 profiles, the only assignable model on these cells — iOS/WebKit-mobile (30 cells for eco-fast, 30 for eco-smart, both slots since this model is the sole survivor there regardless of slot). Every onnx build (including the `floor` rung's qwen3-0.6b) is declined by the WebKit-mobile gate before any capability check (`device/compatibility.ts` `isWebKitMobile`), so this rung never competes with another rung's occupant on the same device — it exists purely to give the WebKit-mobile niche a tier-walk answer instead of relying on it being the sole scorer survivor.",
         "tier.eco-smart": "Same as tier.eco-fast — see that entry.",
+        "compat.desktopSafari": "Desktop Safari's fallback after `candidate/qwen3-0.6b-mlc-q0f16` (owner ruling 2026-10-08). It reaches that class through its existing rules — `allowedBrowsers: ['safari']`, `requireWebgpu`, and the shader-f16 its `mlc-q4f16` weights need — once the iOS-only scope was lifted; it stays on the `webkit-mobile` rung, which is reached on desktop Safari because `floor` and `light` decline there (their `compat.declineOn`). MEASURED in Safari 26.4 on one Apple Silicon Mac (16 GB): load-only through the eval harness with the batch-1 library, tab footprint after load 574 MB, peak 726–758 MB in 3 of 3 runs (2026-09-29, see `quirks.webllmModelLibFile`); known-answer 0.518 in real Safari (38 questions × 5 samples, production sampling arm, maxTokens 256; 2026-10-01, eco-notes decisions/s66-record-2026-10-01.md §4). PREDICTED, not measured: a multi-turn chat walk in desktop Safari, other Macs. Falsifier: a desktop-Safari ten-turn walk that ends in a tab kill or peaks within 1 GB of the kill line.",
         "quirks.webllmModelLibFile": "MEASURED 2026-09-29: Eco's own build of the Qwen2 model library at max_batch_size 1, compiled from source at the toolchain commits upstream used for its v0_2_84 libraries (recipe, commits and sha256 in apps/web/public/webllm/v0_2_84/README.md). Upstream's library is compiled for 128 sequences and reserves six 128 × 151,936 × 4-byte sampler buffers at load, while web-llm 0.2.84 only ever runs one sequence; against a batch-128 rebuild from the same toolchain, 0 of 87 GPU kernels differ, the weights layout and VM function table are identical, and sampler storage falls from 466,747,392 to 3,646,464 bytes. In Safari 26.4 on one Apple Silicon Mac (16 GB), loading through the eval harness (load only, both arms with a separate loader-memory change applied), GPU memory requested fell from 804.6 to 363.0 MiB (−441.6 MiB, the predicted amount) and the tab's footprint after load from 1,018 to 574 MB in 3 of 3 runs (peak 1,113 to 726–758 MB); greedy output was identical to the batch-128 library on 5 prompts of up to 1,349 characters, and web-llm passes every token through the changed sampling functions even at temperature 0. PREDICTED, not measured: the same saving on a real iPhone. Falsifier: a greedy output that differs from the batch-128 library's, or a web-llm code path that needs more than one sequence."
       },
       "friendlyName": "Qwen2.5 0.5B",
@@ -556,13 +575,12 @@
           "safari"
         ],
         "warnIfMobile": false,
-        "requireWebKitMobile": true,
         "webkitMobileValidated": true,
-        "_rationale": "Qwen2.5-0.5B served through the WebLLM/MLC runtime — the rung-1 WebKit-mobile pick, and the FIRST model to clear the WebKit-mobile load gate: a real iPhone loads and generates coherent prose within iOS's per-tab memory envelope (whereas every ONNX build crash-loops the tab on load). The MLC engine is WebGPU-only, so requireWebgpu holds — iOS Safari without WebGPU declines to the handoff surface. requireWebKitMobile scopes it to iOS/WebKit mobile ALONE: desktop Safari also classifies 'safari' but is deliberately NOT served here (its envelope is unmeasured for this build) — desktop Safari is served by `candidate/qwen3-0.6b-mlc` instead, on the `safari-desktop` rung, measured in real Safari 26 on 2026-09-22. No memory floor: iOS does not expose a device-memory reading (the profile reports it as 0), and the resident working set is small. `webkitMobileValidated` is what actually lifts the pre-load WebKit-mobile decline for it, earned by that real-device pass."
+        "_rationale": "Qwen2.5-0.5B served through the WebLLM/MLC runtime — the WebKit-mobile pick, and the FIRST model to clear the WebKit-mobile load gate: a real iPhone loads and generates coherent prose within iOS's per-tab memory envelope (whereas every ONNX build crash-loops the tab on load). `webkitMobileValidated` is what lifts the pre-load WebKit-mobile decline for it, earned by that real-device pass. The MLC engine is WebGPU-only, so requireWebgpu holds — iOS Safari without WebGPU declines to the handoff surface — and its f16 weights need shader-f16 (`formatRequiresShaderF16('mlc-q4f16')`). `allowedBrowsers: ['safari']` keeps it off Chromium, Firefox, 'mobile' and 'unknown'. Together those rules admit Safari with WebGPU + shader-f16 on an iPhone, an iPad and a Mac; on a Mac it is the fallback after `candidate/qwen3-0.6b-mlc-q0f16` (see `_provenance` compat.desktopSafari). No memory floor: WebKit does not expose a device-memory reading (the profile reports it as 0), and the resident working set is small."
       },
       "display": {
         "friendlyName": "Eco Mobile (Qwen)",
-        "qualityPhrase": "Made for iPhone · quick private chat on the go",
+        "qualityPhrase": "Smallest Qwen · quick private chat",
         "provider": "Alibaba"
       },
       "quirks": {
@@ -687,7 +705,7 @@
         "friendlyName": "Eco Compact (Qwen)",
         "qualityPhrase": "Made for Safari on Mac · uncompressed, larger download",
         "provider": "Alibaba",
-        "_rationale": "The same Qwen3-0.6B as the ONNX 'Eco Compact (Qwen)', so the same name: in Safari both are assignable, and dedupeByDisplayName collapses them into one row on purpose — this one wins there because its rung ranks first."
+        "_rationale": "The same Qwen3-0.6B as the ONNX 'Eco Compact (Qwen)', so the same name. No device is offered both: the ONNX build declines desktop Safari with WebGPU + shader-f16 (its `compat.declineOn`, 2026-10-08), and this build runs nowhere else. Its fallback there, `candidate/qwen2.5-0.5b-mlc`, carries a different name, so the demotion notice and the Switch list tell the two apart."
       },
       "quirks": {
         "webllmModelLibFile": "Qwen3-0.6B-q0f16_cs1k_b1-webgpu.wasm",

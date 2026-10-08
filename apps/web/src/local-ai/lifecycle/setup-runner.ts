@@ -443,28 +443,25 @@ export const DEFAULT_SEAMS: SetupSeams = {
 const LIGHTER_RUNG_SEARCH_MAX = 16;
 
 /**
- * The first rung below `killed` by download size, and whether the ladder has
- * any other rung at all. The ladder is not monotonic in size (a demotion can
- * land on a bigger model), and after a kill a bigger model is never "lighter".
- * Download size stands in for memory: the catalog carries no peak-memory
- * figure, and across runtimes the two can disagree.
+ * The first rung below `killed` by download size, or null. The ladder is not
+ * monotonic in size (a demotion can land on a bigger model), and after a kill a
+ * bigger model is never "lighter". Download size stands in for memory: the
+ * catalog carries no peak-memory figure, and across runtimes the two can disagree.
  */
 function lighterRung(
   killed: ModelConfig,
   slot: Slot,
   profile: DeviceProfile,
   next: SetupSeams['nextInCascade'],
-): { lighter: ModelConfig | null; anyOther: boolean } {
+): ModelConfig | null {
   const excludeIds: string[] = [];
-  let anyOther = false;
   for (let i = 0; i < LIGHTER_RUNG_SEARCH_MAX; i++) {
     const candidate = next(killed, slot, profile, undefined, { excludeIds });
     if (!candidate || excludeIds.includes(candidate.id)) break;
-    anyOther = true;
-    if (candidate.sizeGB < killed.sizeGB) return { lighter: candidate, anyOther };
+    if (candidate.sizeGB < killed.sizeGB) return candidate;
     excludeIds.push(candidate.id);
   }
-  return { lighter: null, anyOther };
+  return null;
 }
 
 /** The name the person knows the model by, without the vendor suffix. */
@@ -521,7 +518,7 @@ async function planForLoadKills(profile: DeviceProfile, seams: SetupSeams): Prom
       continue;
     }
 
-    const { lighter, anyOther } = lighterRung(killed, killSlot, profile, seams.nextInCascade);
+    const lighter = lighterRung(killed, killSlot, profile, seams.nextInCascade);
     if (kill.decision === 'step-down' && lighter) {
       forgetLoadKill(kill.modelId);
       return { kind: 'step-down', slot: killSlot, killed, lighter };
@@ -542,7 +539,7 @@ async function planForLoadKills(profile: DeviceProfile, seams: SetupSeams): Prom
       }
       return {
         kind: 'ask',
-        info: { modelName: displayName(killed), repeated: anyOther ? 'lightest-model' : 'only-model' },
+        info: { modelName: displayName(killed), repeated: true },
       };
     }
 

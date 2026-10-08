@@ -99,14 +99,14 @@ describe('getDisplayInfo', () => {
     expect(info.provenance).toBe('Liquid AI · 1.6 GB');
   });
 
-  it('maps Qwen2.5 0.5B to Eco Mobile (Qwen) — the WebKit-mobile pick', () => {
+  it('maps Qwen2.5 0.5B to Eco Mobile (Qwen), with a device-neutral phrase (it is desktop Safari\'s fallback too)', () => {
     const info = getDisplayInfo('candidate/qwen2.5-0.5b-mlc', {
       friendlyName: 'Qwen2.5 0.5B',
       vendor: 'Alibaba',
       sizeGB: 0.27,
     });
     expect(info.friendlyName).toBe('Eco Mobile (Qwen)');
-    expect(info.qualityPhrase).toBe('Made for iPhone · quick private chat on the go');
+    expect(info.qualityPhrase).toBe('Smallest Qwen · quick private chat');
     expect(info.provenance).toBe('Alibaba · 0.3 GB');
   });
 

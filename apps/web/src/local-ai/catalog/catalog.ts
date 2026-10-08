@@ -18,7 +18,8 @@
  *                                    slots to the faster, as-accurate 1.2B)
  *   5. candidate/gemma-4-e2b-litert — Gemma 4    (LiteRT; f16-less-WebGPU default, predicted)
  *   6. candidate/qwen2.5-0.5b-mlc  — Qwen2.5 0.5B (WebLLM/MLC; the WebKit-mobile pick,
- *                                    real-iPhone validated; iOS-only via requireWebKitMobile)
+ *                                    real-iPhone validated; also desktop Safari's
+ *                                    fallback after #8)
  *   7. candidate/lfm2-2.6b-onnx    — LFM2 2.6B   (capable-laptop; the graduated DEEPER
  *                                    eco-smart pick, 2026-08-10 — 'predicted' pending a
  *                                    second-machine by-eye validation)
@@ -39,6 +40,7 @@
 
 import type {
   BrowserClass,
+  CompatDeclineRule,
   ModelCompat,
   ModelConfig,
   ModelDisplay,
@@ -49,6 +51,7 @@ import type {
   ModelTier,
   ModelTierAssignment,
   Slot,
+  WebGPUSupport,
 } from '../types';
 import catalogData from './catalog-data.json';
 
@@ -86,6 +89,13 @@ const BROWSER_CLASSES: readonly BrowserClass[] = [
 ];
 
 const SLOTS: readonly Slot[] = ['eco-fast', 'eco-smart'];
+
+const WEBGPU_SUPPORTS: readonly WebGPUSupport[] = ['webgpu', 'wasm-only', 'none'];
+
+/** The profile fields a `compat.declineOn` rule may match on. */
+const DECLINE_RULE_FIELDS: readonly (keyof Omit<CompatDeclineRule, '_rationale'>)[] = [
+  'browserClass', 'isMobile', 'webgpuSupport', 'webgpuShaderF16',
+];
 
 /**
  * The tier ladder, best rung first. `selection/recommend.ts` walks it in this
@@ -255,7 +265,7 @@ function assertCompat(value: unknown, id: string): void {
     }
   }
   for (const key of [
-    'requireWasmOnly', 'requireWebKitMobile', 'webkitMobileValidated',
+    'requireWasmOnly', 'webkitMobileValidated',
     'cpuEpIncompatible', 'requireNoShaderF16', 'declineOnMobile',
   ] as const) {
     if (value[key] !== undefined) assertBoolean(value[key], id, `compat.${key}`);
@@ -263,6 +273,38 @@ function assertCompat(value: unknown, id: string): void {
   if (value.minMaxBufferBytes !== undefined) {
     assertFiniteNumber(value.minMaxBufferBytes, id, 'compat.minMaxBufferBytes');
   }
+  if (value.declineOn !== undefined) assertDeclineRules(value.declineOn, id);
+}
+
+/**
+ * A decline rule removes a model from a device class, so it must name the class
+ * (an empty rule would match every device), use only fields the evaluator reads
+ * (a misspelt one would silently match nothing), and carry its evidence.
+ */
+function assertDeclineRules(value: unknown, id: string): void {
+  if (!Array.isArray(value)) bad(id, 'has a non-array `compat.declineOn`');
+  value.forEach((rule: unknown, i: number) => {
+    const path = `compat.declineOn[${i}]`;
+    if (!isRecord(rule)) bad(id, `has a non-object \`${path}\``);
+    for (const key of Object.keys(rule)) {
+      if (key !== '_rationale' && !(DECLINE_RULE_FIELDS as readonly string[]).includes(key)) {
+        bad(id, `has an unknown field "${key}" in \`${path}\``);
+      }
+    }
+    if (!DECLINE_RULE_FIELDS.some((key) => rule[key] !== undefined)) {
+      bad(id, `has a \`${path}\` that names no device field, so it would decline every device`);
+    }
+    assertNonEmptyString(rule._rationale, id, `${path}._rationale`);
+    if (rule.browserClass !== undefined && !BROWSER_CLASSES.includes(rule.browserClass as BrowserClass)) {
+      bad(id, `has an unknown browser class ${JSON.stringify(rule.browserClass)} in \`${path}\``);
+    }
+    if (rule.webgpuSupport !== undefined && !WEBGPU_SUPPORTS.includes(rule.webgpuSupport as WebGPUSupport)) {
+      bad(id, `has an unknown webgpuSupport ${JSON.stringify(rule.webgpuSupport)} in \`${path}\``);
+    }
+    for (const key of ['isMobile', 'webgpuShaderF16'] as const) {
+      if (rule[key] !== undefined) assertBoolean(rule[key], id, `${path}.${key}`);
+    }
+  });
 }
 
 function assertDisplay(value: unknown, id: string): void {

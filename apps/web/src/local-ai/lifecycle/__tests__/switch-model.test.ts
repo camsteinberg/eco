@@ -21,6 +21,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { prepareModelForSlot, type SwitchModelSeams } from '../switch-model';
 import { DownloadFailedError, InsufficientStorageError } from '../../download/download';
 import { getModel } from '../../catalog/catalog';
+import { nextInCascade } from '../../selection/cascade';
 import { AdapterError } from '../../runtime/types';
 import {
   _resetSlotsForTesting,
@@ -289,6 +290,29 @@ describe('load failure', () => {
     expect(seams.recordEvidence).toHaveBeenCalledWith(
       expect.objectContaining({ outcome: 'load-fail', modelId: target.id }),
     );
+  });
+
+  // R7 of the desktop-Safari audit: switching back to the Mac's MLC build and
+  // failing its load used to suggest the ONNX build of the same weights.
+  it('on desktop Safari, a failed switch to the Mac MLC build suggests Eco Mobile, not an ONNX build', async () => {
+    const desktopSafari = {
+      browserClass: 'safari', webgpuSupport: 'webgpu', deviceMemoryGB: 0, isMobile: false, override: 'auto', webgpuShaderF16: true,
+    } as const;
+    const { seams } = makeSeams({
+      getModel: (id: string) => getModel(id),
+      getDeviceProfile: vi.fn(() => desktopSafari),
+      nextInCascade,
+      load: vi.fn(async () => {
+        throw new Error('init failed');
+      }),
+    });
+    const result = await run(seams, {
+      modelId: 'candidate/qwen3-0.6b-mlc-q0f16',
+      previous: getModel('candidate/qwen2.5-0.5b-mlc'),
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.suggestedNext?.id).toBe('candidate/qwen2.5-0.5b-mlc');
   });
 });
 

@@ -310,13 +310,13 @@ describe('SetupErrorState — a tab that closed while loading (load breaker)', (
       <SetupErrorState
         reason="load interrupted"
         reasonCode="load-interrupted"
-        loadInterrupted={{ modelName: 'Eco Mobile', repeated: 'only-model' }}
+        loadInterrupted={{ modelName: 'Eco Mobile', repeated: true }}
         onTryAgain={() => {}}
         onTellUsMore={() => {}}
       />,
     );
     expect(screen.getByText(/Eco closed twice while loading your AI on this device\./)).toBeInTheDocument();
-    expect(screen.getByText(/Eco Mobile is the only model Eco has for this device/)).toBeInTheDocument();
+    expect(screen.getByText(/Eco Mobile is the last model Eco can try on this device right now/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /try setting up eco again/i })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /lighter model|go back/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/iOS/)).not.toBeInTheDocument();

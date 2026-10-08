@@ -31,7 +31,7 @@ import {
 import { hasRecentSuccess } from '../evidence/ledger';
 import { getCatalog, getModel } from '../catalog/catalog';
 import { getDeviceProfile } from '../device/profile';
-import { isWebKitMobile, requiresWebKitMobile, WEBKIT_MOBILE_VALIDATED_MODEL_IDS } from '../device/compatibility';
+import { isOutsideBrowserScope, isWebKitMobile, WEBKIT_MOBILE_VALIDATED_MODEL_IDS } from '../device/compatibility';
 import type { DeviceProfile, ModelConfig } from '../types';
 import {
   getActiveLocalDownloadLease,
@@ -48,8 +48,8 @@ export type SelfHealReport = {
    *  setup run re-enters recommend → below-floor instead of resuming a load
    *  that crash-loops the tab. */
   webkitMobileSlotsRegated: Slot[];
-  /** Slots cleared this boot because the bound model is scoped to a device
-   *  class this device is not (today: an iOS-only model bound on desktop).
+  /** Slots cleared this boot because the bound model's `allowedBrowsers`
+   *  excludes this browser (e.g. a Safari-only MLC build bound on Chromium).
    *  Selection would never pick it here, but nothing else re-checks a binding
    *  that already exists — and every state surface reads the binding as truth. */
   incompatibleSlotsRegated: Slot[];
@@ -173,24 +173,22 @@ export async function runSelfHeal(options?: SelfHealOptions): Promise<SelfHealRe
     report.errors.push(`webkit-mobile-regate: ${describe(err)}`);
   }
 
-  // 2. The desktop mirror of the re-gate above. An iOS-only binding can
-  //    survive in localStorage on a desktop profile (seen live 2026-08-05:
-  //    Settings announced "Eco Mobile (Qwen)" — "Made for iPhone" — on a
-  //    Chromium desktop). Selection never picks it here, but nothing
-  //    re-checked a binding that already existed, and every state surface
-  //    reads the binding as truth. Clear it. Form-factor facts only (no
-  //    capability probes), so a transient probe misread can never wipe a
-  //    healthy slot.
+  // 2. The browser-scope re-gate. A binding to a model whose
+  //    `compat.allowedBrowsers` excludes this browser can survive in
+  //    localStorage (seen live 2026-08-05: Settings announced the iPhone's
+  //    "Eco Mobile (Qwen)" on a Chromium desktop). Selection never picks it
+  //    here, but nothing re-checked a binding that already existed, and every
+  //    state surface reads the binding as truth. Clear it. User-agent class
+  //    only (no capability probes), so a transient probe misread can never
+  //    wipe a healthy slot.
   try {
     const profile = (options?.resolveDeviceProfile ?? getDeviceProfile)();
-    if (!isWebKitMobile(profile)) {
-      const slotState = getAllSlots();
-      for (const slot of SLOTS) {
-        const boundId = slotState[slot].modelId;
-        if (!boundId || !requiresWebKitMobile(boundId)) continue;
-        clearSlot(slot);
-        report.incompatibleSlotsRegated.push(slot);
-      }
+    const slotState = getAllSlots();
+    for (const slot of SLOTS) {
+      const boundId = slotState[slot].modelId;
+      if (!boundId || !isOutsideBrowserScope(boundId, profile)) continue;
+      clearSlot(slot);
+      report.incompatibleSlotsRegated.push(slot);
     }
   } catch (err) {
     report.errors.push(`device-scope-regate: ${describe(err)}`);

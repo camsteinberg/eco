@@ -44,6 +44,7 @@ import { hasRecentSuccess, recordEvidence } from '../evidence/ledger';
 import { loadSeedEvidenceForModel } from '../evidence/seed';
 import { loadModel } from '../runtime/lifecycle';
 import { AdapterError } from '../runtime/types';
+import { bridgeDownloadWebLLMModel } from '../runtime/webllm-cache-bridge';
 import { nextInCascade } from '../selection/cascade';
 import { runSmoke } from './smoke';
 import { setSlot, setSlotStatus, type SlotStatus } from './slots';
@@ -148,7 +149,13 @@ export function deriveFailedConfidence(
   return null;
 }
 
-/** Default download seam: real downloadModel behind a fresh ProgressTracker. */
+/**
+ * Default download seam: the real download behind a fresh ProgressTracker. A
+ * `webllm` model routes through the cache bridge (Eco download, then staged into
+ * WebLLM's own cache, so the engine's load is a cache hit), as setup and the
+ * upgrade download do; plain staging alone leaves the load asking for files
+ * nothing serves. Every other runtime uses the plain downloader.
+ */
 async function defaultDownload(
   model: ModelConfig,
   options: { signal?: AbortSignal; onProgressEvent?: (event: ProgressEvent) => void },
@@ -158,7 +165,11 @@ async function defaultDownload(
     ? tracker.subscribe(options.onProgressEvent)
     : null;
   try {
-    await downloadModel(model, { tracker, signal: options.signal });
+    if (model.runtime === 'webllm') {
+      await bridgeDownloadWebLLMModel(model, { tracker, signal: options.signal });
+    } else {
+      await downloadModel(model, { tracker, signal: options.signal });
+    }
   } finally {
     unsubscribe?.();
   }

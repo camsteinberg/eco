@@ -161,7 +161,7 @@ function subtitleFor(
   if (reasonCode === 'load-interrupted') {
     if (!loadInterrupted) return LOAD_INTERRUPTED_CHAT_MESSAGE;
     return loadInterrupted.repeated
-      ? loadInterruptedRepeatedBody(loadInterrupted.modelName, loadInterrupted.repeated)
+      ? loadInterruptedRepeatedBody(loadInterrupted.modelName)
       : loadInterruptedBody(loadInterrupted.modelName);
   }
   if (isStorageShortage(reason, reasonCode)) {

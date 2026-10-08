@@ -547,8 +547,9 @@ describe('device/compatibility — Qwen2.5-0.5B WebLLM (rung-1 WebKit-mobile pic
     expect(isCompatible(mlc(), { ...iosSafariWebgpu, webgpuSupport: 'none' })).toBe('unsupported');
   });
 
-  // requireWebKitMobile scope: no non-iOS-WebKit profile may ever select it.
-  it('is UNSUPPORTED on every non-iOS-WebKit profile (the no-regression guard)', () => {
+  // Browser scope (`allowedBrowsers: ['safari']`) plus WebGPU: no non-Safari
+  // profile, and no Safari profile without WebGPU, may ever select it.
+  it('is UNSUPPORTED on every non-Safari or no-WebGPU profile (the no-regression guard)', () => {
     const nonWebKitMobile: readonly DeviceProfile[] = [
       PROFILES.chromiumHighMem,
       PROFILES.chromiumCapableLaptop,
@@ -570,10 +571,7 @@ describe('device/compatibility — Qwen2.5-0.5B WebLLM (rung-1 WebKit-mobile pic
     }
   });
 
-  it('is UNSUPPORTED on desktop Safari even with WebGPU (rung-1 excludes desktop)', () => {
-    // Desktop Safari also classifies 'safari', but requireWebKitMobile gates on
-    // form factor, not browser — a webgpu-capable desktop Safari still declines.
-    // Desktop-Safari expansion is a later, envelope-gated decision.
+  it('is SUPPORTED on desktop Safari with WebGPU + shader-f16, as the fallback after the Mac build (2026-10-08)', () => {
     const safariDesktopWebgpu: DeviceProfile = {
       browserClass: 'safari',
       webgpuSupport: 'webgpu',
@@ -582,7 +580,9 @@ describe('device/compatibility — Qwen2.5-0.5B WebLLM (rung-1 WebKit-mobile pic
       override: 'auto',
       webgpuShaderF16: true,
     };
-    expect(isCompatible(mlc(), safariDesktopWebgpu)).toBe('unsupported');
+    expect(isCompatible(mlc(), safariDesktopWebgpu)).toBe('supported');
+    // Its f16 weights still decline an f16-less adapter.
+    expect(isCompatible(mlc(), { ...safariDesktopWebgpu, webgpuShaderF16: false })).toBe('unsupported');
   });
 
   it('is UNSUPPORTED on Android Chrome and the UA-stripped mobile class (mobile, not WebKit)', () => {

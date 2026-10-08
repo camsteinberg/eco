@@ -1001,7 +1001,9 @@ describe('catalog has no v1.0 experimental models', () => {
 
 // The rung-1 WebKit-mobile WebLLM entry (candidate/qwen2.5-0.5b-mlc) must be a
 // pure ADDITION for iOS/WebKit-mobile: it may never enter a candidate set,
-// recommendation, or catalog listing for any currently-served profile. This is
+// recommendation, or catalog listing for any currently-served profile outside
+// Safari. (Desktop Safari with WebGPU + shader-f16 has it as the fallback after
+// the Mac build since 2026-10-08 — see safari-desktop-ladder.test.ts.) This is
 // the recommendation-level no-regression proof that complements the
 // compatibility-level scope test — it exercises the real selection pipeline
 // (isAssignable → admit → slot → floor → score → promote), not just isCompatible.
@@ -1016,7 +1018,7 @@ describe('recommend — WebKit-mobile MLC entry is additive only', () => {
     firefoxWasm: PROFILE_FIREFOX,
     chromiumWasmOnly: { browserClass: 'chromium', webgpuSupport: 'wasm-only', deviceMemoryGB: 8, isMobile: false, override: 'auto' },
     chromiumNoShaderF16: { browserClass: 'chromium', webgpuSupport: 'webgpu', deviceMemoryGB: 16, isMobile: false, override: 'auto', webgpuShaderF16: false },
-    safariDesktopWebgpu: { browserClass: 'safari', webgpuSupport: 'webgpu', deviceMemoryGB: 16, isMobile: false, override: 'auto', webgpuShaderF16: true },
+    safariDesktopWasmOnly: { browserClass: 'safari', webgpuSupport: 'wasm-only', deviceMemoryGB: 16, isMobile: false, override: 'auto' },
     androidChrome: { browserClass: 'chromium', webgpuSupport: 'webgpu', deviceMemoryGB: 8, isMobile: true, override: 'auto' },
   };
 
@@ -1084,14 +1086,12 @@ describe('recommend — desktop Safari routes to the MLC Qwen3 build, every othe
     expect(offer.recommendedId).toBe(SAFARI_MLC_ID);
   });
 
-  it('the Switch list shows ONE "Eco Compact (Qwen)" row on desktop Safari, and it is the MLC build', () => {
-    // Both Qwen3 builds are assignable here and share a branded name on purpose;
-    // the MLC build ranks first (its rung is ahead of `floor`), so it survives.
+  it('the Switch list on desktop Safari is the MLC build then Eco Mobile, two named rows, no ONNX build', () => {
+    // The ONNX Qwen3 build declines this class (its `compat.declineOn`), so the
+    // shared "Eco Compact (Qwen)" name never folds two builds into one row here.
     const models = listCatalog(safariDesktop).available.map((entry) => entry.model);
-    expect(models.map((m) => m.id)).toContain('local/qwen3-0.6b');
-    const ids = dedupeByDisplayName(models).map((m) => m.id);
-    expect(ids).toContain(SAFARI_MLC_ID);
-    expect(ids).not.toContain('local/qwen3-0.6b');
+    expect(dedupeByDisplayName(models).map((m) => m.id))
+      .toEqual([SAFARI_MLC_ID, 'candidate/qwen2.5-0.5b-mlc']);
   });
 
   // Expected picks per class — the values recommend() returned before this route
