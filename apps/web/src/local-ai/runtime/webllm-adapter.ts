@@ -56,6 +56,7 @@ import {
   stripMlcOrgPrefix,
   webllmModelLibPathFor,
 } from './webllm-config';
+import { WebLLMKvGate } from './webllm-kv-reuse';
 import { PromptRepetitionPenalty } from './webllm-prompt-penalty';
 
 // ─── Engine interface ──────────────────────────────────────────────────────
@@ -131,18 +132,19 @@ export type WebLLMEngine = {
   interruptGenerate(): void;
   /**
    * Clears the engine's stored conversation and KV cache. The adapter calls it
-   * before every request so the whole `messages` array is prefilled — see the
-   * multi-round note in `generate()`. The real signature takes optional
-   * `(keepStats?, modelId?)` arguments; the adapter needs neither.
+   * before a request whose KV cache the reuse gate will not keep, so the whole
+   * `messages` array is prefilled — see the multi-round note in `generate()`.
+   * The real signature takes optional `(keepStats?, modelId?)` arguments; the
+   * adapter needs neither.
    */
   resetChat(): Promise<void>;
   unload(): Promise<void>;
   /**
    * The real engine's loaded pipelines, keyed by MLC model id. NOT public API:
-   * read only to install the prompt-wide repetition penalty and to count
-   * tokens with the model's own tokenizer (`mlcPipelineOf` below).
-   * `@mlc-ai/web-llm` is pinned exact, so a version bump must re-check the
-   * fields `MlcPipeline` names.
+   * read only to install the prompt-wide repetition penalty and the KV reuse
+   * gate (`webllm-kv-reuse.ts`), and to count tokens with the model's own
+   * tokenizer (`mlcPipelineOf` below). `@mlc-ai/web-llm` is pinned exact, so a
+   * version bump must re-check the fields `MlcPipeline` and the gate name.
    */
   loadedModelIdToPipeline?: Map<string, unknown>;
 };
@@ -219,6 +221,7 @@ export class WebLLMAdapter implements RuntimeAdapter {
   private engine: WebLLMEngine | null = null;
   private currentModel: ModelConfig | null = null;
   private inFlight: { abort: () => void } | null = null;
+  private kvGate: WebLLMKvGate | null = null;
 
   constructor(options: WebLLMAdapterOptions = {}) {
     this.options = options;
@@ -384,6 +387,7 @@ export class WebLLMAdapter implements RuntimeAdapter {
 
     this.engine = engine;
     this.currentModel = model;
+    this.kvGate = WebLLMKvGate.install(engine.loadedModelIdToPipeline?.get(mlcId));
     emit?.({ phase: 'load-finish', at: now(), note: 'backend=webgpu' });
   }
 
@@ -424,37 +428,45 @@ export class WebLLMAdapter implements RuntimeAdapter {
     // thinking mode; see the note on `extra_body` below.
     const hasThinkingMode = this.currentModel?.quirks?.hasThinkingMode === true;
 
+    const kvGate = this.kvGate;
     let chunks: AsyncIterable<WebLLMChunk>;
     try {
       // WebLLM holds its own copy of the conversation. When the incoming
-      // `messages` minus the last entry match that copy it takes a "multiround
-      // chatting" branch and prefills ONLY the last round, answering from the
-      // KV cache it already holds (`lib/index.js:13305-13331`). Eco assembles
-      // the whole prompt itself every turn — system prompt, history selection,
-      // budget — so that reuse silently discards the assembler's decisions:
-      // measured live, the model started repeating its previous reply from
-      // turn 2 while its prompt-token count collapsed from 202 to 35-72.
-      // Clearing the conversation first forces the full `messages` array to be
-      // prefilled, which is the arm that answered a four-turn walk correctly.
-      // A failure here shares the create() failure path below: it means the
+      // `messages` minus the last entry match that copy it keeps the KV cache
+      // and prefills only the last round (`lib/index.js:13368-13383`). On its
+      // own that round never feeds the separator closing the previous reply
+      // (`<|im_end|>\n` for Qwen: the stop id is not forwarded), and a small
+      // model reading that cache loops from turn 2. The KV gate
+      // (`webllm-kv-reuse.ts`) keeps the cache only when the ids it holds are an
+      // exact prefix of the conversation's full render, and the prefill then
+      // feeds the rest of that render, separator included — so the model reads
+      // exactly what a full prefill would feed. Whatever the gate cannot vouch
+      // for (an edited or regenerated history, a moved window, an interrupted
+      // reply whose ids no longer line up, no reachable pipeline) clears the
+      // conversation here and the whole `messages` array is prefilled. A
+      // failure here shares the create() failure path below: it means the
       // engine cannot serve this request either.
-      await engine.resetChat();
+      if (!kvGate?.prepare(messages)) await engine.resetChat();
 
       // WebLLM penalises only the tokens generated this round, so the profile's
-      // repetition penalty is applied here over the whole prompt as well, by a
-      // logit processor installed on the loaded pipeline for this request (see
-      // `webllm-prompt-penalty.ts`). Installed directly rather than through the
-      // engine's `logitProcessorRegistry` because a registered processor makes
-      // the engine copy every token's logits (the full vocabulary) GPU→CPU→GPU
-      // for EVERY request (`lib/index.js:11005`); set per request, a turn with
-      // no penalty clears it and costs exactly what it did before.
+      // repetition penalty is applied here over every id in the KV cache as
+      // well — the prompt and, on a reused turn, the ids generated in earlier
+      // replies — by a logit processor installed on the loaded pipeline for
+      // this request (see `webllm-prompt-penalty.ts`). Installed directly rather
+      // than through the engine's `logitProcessorRegistry` because a registered
+      // processor makes the engine copy every token's logits (the full
+      // vocabulary) GPU→CPU→GPU for EVERY request (`lib/index.js:11057`); set
+      // per request, a turn with no penalty clears it and costs exactly what it
+      // did before.
       const penalty = options?.repetitionPenalty;
       const pipeline = this.currentModel
         ? mlcPipelineOf(engine, this.mlcIdFor(this.currentModel))
         : null;
       const promptPenalty =
         pipeline && penalty != null && penalty !== 1
-          ? new PromptRepetitionPenalty(penalty, () => renderedPromptIds(pipeline))
+          ? new PromptRepetitionPenalty(penalty, () =>
+              kvGate ? kvGate.kvIds : renderedPromptIds(pipeline),
+            )
           : undefined;
       if (pipeline) pipeline.logitProcessor = promptPenalty;
 
@@ -554,11 +566,17 @@ export class WebLLMAdapter implements RuntimeAdapter {
       }
       emit?.({ phase: 'generation-complete', at: now() });
       const confidence = confidenceAcc.summarize(isGreedy);
+      const kvReuse = kvGate?.report;
       yield {
         kind: 'done',
         finishReason: lastFinishReason === 'length' ? 'length' : lastFinishReason === 'stop' ? 'eos' : undefined,
-        promptTokens: lastUsage?.prompt_tokens,
+        // The FULL prompt length, the meaning receipts rely on (the Transformers
+        // worker documents the same contract). On a reused turn WebLLM's own
+        // `prompt_tokens` counts only the ids this prefill fed.
+        promptTokens: kvReuse ? kvReuse.promptLen : lastUsage?.prompt_tokens,
         completionTokens: lastUsage?.completion_tokens,
+        // WebLLM keeps every turn's KV cache in place, so it is always committed.
+        ...(kvReuse ? { kvReuse: { ...kvReuse, cacheCommitted: true } } : {}),
         ...(confidence != null ? { confidence } : {}),
       };
     } catch (err) {
@@ -605,6 +623,7 @@ export class WebLLMAdapter implements RuntimeAdapter {
     const engine = this.engine;
     this.engine = null;
     this.currentModel = null;
+    this.kvGate = null;
     if (this.inFlight) {
       try {
         this.inFlight.abort();
@@ -657,8 +676,10 @@ function mlcPipelineOf(engine: WebLLMEngine, mlcId: string): MlcPipeline | null 
 }
 
 /**
- * The ids of the prompt the pipeline prefilled. This is the engine's own
- * `getInputData` (`lib/index.js:11205-11271`) — system prefix ids, then each
+ * The ids of the prompt the pipeline prefilled — the penalty's source when the
+ * KV reuse gate is not installed (with it, the gate's recorded KV ids are the
+ * source). This is the engine's own full-prefill branch of `getInputData`
+ * (`lib/index.js:11250-11320`) — system prefix ids, then each
  * piece of `conversation.getPromptArray()` encoded separately — run with the
  * same tokenizer instance (built from the model's own `tokenizer.json`), so
  * the id set matches the prefilled ids exactly, template special tokens and

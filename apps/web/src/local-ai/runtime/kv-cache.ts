@@ -83,8 +83,21 @@ export function decideKvReuse(
  */
 export type KvReuseReport = {
   decision: 'reuse' | 'miss';
-  /** Present only on a miss. */
-  reason?: 'no-cache' | 'not-strict-prefix' | 'equal-or-shorter';
+  /**
+   * Present only on a miss. The last two are reported by the WebLLM runtime
+   * only (`webllm-kv-reuse.ts`):
+   *   - `reset-before-prefill`: the held ids were a prefix of this render, but
+   *     the cache was cleared before prefill anyway (the engine's own
+   *     conversation check differed, or the gate could not vouch for it);
+   *   - `reset-during-prefill`: the defensive in-prefill reset, reachable only
+   *     with a template that rewrites earlier messages.
+   */
+  reason?:
+    | 'no-cache'
+    | 'not-strict-prefix'
+    | 'equal-or-shorter'
+    | 'reset-before-prefill'
+    | 'reset-during-prefill';
   /** Cached token count at decision time (0 when no cache was held). */
   cachedLen: number;
   /** Full token length of this turn's render. */
