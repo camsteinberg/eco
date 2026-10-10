@@ -60,10 +60,13 @@ export interface GenerationReceipt {
   status: 'complete' | 'aborted' | 'error';
   errorCode?: string;
   /**
-   * KV-cache reuse telemetry for this generation (transformers worker only).
-   * Answers "did this turn reprefill, and why?" — a multi-turn TTFT
-   * regression with `decision: 'miss'` here is template/render-shaped; with
-   * `cacheCommitted: false` it is the runtime not returning a cache.
+   * KV-cache reuse telemetry for this generation (Transformers worker and
+   * WebLLM adapter). Answers "did this turn reprefill, and why?" — a
+   * multi-turn TTFT regression with `decision: 'miss'` here is
+   * template/render-shaped; with `cacheCommitted: false` it is the runtime not
+   * returning a cache.
+   * WebLLM adds two miss reasons: `reset-before-prefill` (a usable prefix was
+   * cleared anyway) and `reset-during-prefill` (the defensive in-prefill reset).
    */
   kvReuse?: KvReuseTelemetry;
   /**
