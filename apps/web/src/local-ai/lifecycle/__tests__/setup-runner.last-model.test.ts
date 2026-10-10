@@ -29,6 +29,7 @@ import type { SlotState } from '../slots';
 
 const MOBILE_MLC = 'candidate/qwen2.5-0.5b-mlc';
 const MAC_MLC = 'candidate/qwen3-0.6b-mlc-q0f16';
+const LFM_350M = 'candidate/lfm2.5-350m-onnx';
 const EVERYDAY_12B = 'candidate/lfm2.5-1.2b-instruct-onnx';
 const MAC_SAFARI_UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15';
@@ -158,9 +159,26 @@ describe('one-model devices after their model failed once', () => {
 });
 
 describe('desktop Safari after both MLC rungs failed once', () => {
+  it('a landing goes on to the 350M, no click needed', async () => {
+    recordEvidence({ modelId: MAC_MLC, profile: DESKTOP_SAFARI, outcome: 'smoke-fail' });
+    recordEvidence({ modelId: MOBILE_MLC, profile: DESKTOP_SAFARI, outcome: 'smoke-fail' });
+    const a = fakeActions();
+    const s = realSeams(DESKTOP_SAFARI, { 'eco-fast': errored(real(MOBILE_MLC)) }, passes);
+
+    await executeSetup(a, landing(s));
+
+    expect(a.setBelowFloor).not.toHaveBeenCalled();
+    expect(a.setError).not.toHaveBeenCalled();
+    expect(attempted(s)).toEqual([LFM_350M]);
+    expect(a.setReady).toHaveBeenCalledWith(expect.objectContaining({ id: LFM_350M }));
+  });
+});
+
+describe('desktop Safari after all three rungs failed once', () => {
   it('Try again attempts the Mac build, then Eco Mobile', async () => {
     recordEvidence({ modelId: MAC_MLC, profile: DESKTOP_SAFARI, outcome: 'smoke-fail' });
     recordEvidence({ modelId: MOBILE_MLC, profile: DESKTOP_SAFARI, outcome: 'smoke-fail' });
+    recordEvidence({ modelId: LFM_350M, profile: DESKTOP_SAFARI, outcome: 'smoke-fail' });
     const a = fakeActions();
     const s = realSeams(
       DESKTOP_SAFARI,
@@ -175,9 +193,10 @@ describe('desktop Safari after both MLC rungs failed once', () => {
     expect(a.setReady).toHaveBeenCalledWith(expect.objectContaining({ id: MOBILE_MLC }));
   });
 
-  it('a landing shows the exhausted error over both rungs, and loads nothing', async () => {
+  it('a landing shows the exhausted error over all three rungs, and loads nothing', async () => {
     recordEvidence({ modelId: MAC_MLC, profile: DESKTOP_SAFARI, outcome: 'smoke-fail' });
     recordEvidence({ modelId: MOBILE_MLC, profile: DESKTOP_SAFARI, outcome: 'smoke-fail' });
+    recordEvidence({ modelId: LFM_350M, profile: DESKTOP_SAFARI, outcome: 'smoke-fail' });
     const a = fakeActions();
     const s = realSeams(DESKTOP_SAFARI, { 'eco-fast': errored(real(MOBILE_MLC)) }, passes);
 
@@ -187,7 +206,7 @@ describe('desktop Safari after both MLC rungs failed once', () => {
     expect(s.runAttempt).not.toHaveBeenCalled();
     expect(a.setError).toHaveBeenCalledWith(
       SETUP_EXHAUSTED_REASON,
-      expect.objectContaining({ exhausted: true, triedModelCount: 2 }),
+      expect.objectContaining({ exhausted: true, triedModelCount: 3 }),
     );
   });
 });
