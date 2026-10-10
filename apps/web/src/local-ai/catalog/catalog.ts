@@ -103,10 +103,13 @@ const DECLINE_RULE_FIELDS: readonly (keyof Omit<CompatDeclineRule, '_rationale'>
  * `light` and `webkit-mobile` were added in R5c when the fit scorer was
  * deleted, `safari-desktop` when desktop Safari moved to the MLC runtime (its
  * occupant is now the unquantised MLC build of Qwen3-0.6B; see
- * `ModelTier`'s doc comment for what each rung means).
+ * `ModelTier`'s doc comment for what each rung means). `webkit-mobile` sits
+ * before `light`: their occupants are both assignable only on desktop Safari
+ * with WebGPU + shader-f16, where Eco Mobile measured the same known-answer
+ * score as LFM2.5-350M at about half the memory, so it is tried first.
  */
 export const TIER_ORDER: readonly ModelTier[] =
-  ['capable', 'laptop', 'phone', 'safari-desktop', 'floor', 'light', 'webkit-mobile'];
+  ['capable', 'laptop', 'phone', 'safari-desktop', 'floor', 'webkit-mobile', 'light'];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);

@@ -10,9 +10,9 @@
  * evidence is set aside and the slot's ladder runs in its normal order — so a
  * device whose one model failed once is offered that model again rather than
  * declined as if it could run nothing. The rule reads no device class: a
- * one-model ladder (iPhone, iPad, f16-less Safari) and a two-model ladder
- * (desktop Safari) reach it the same way, and a multi-model ladder keeps hiding
- * a failed model while another rung serves.
+ * one-model ladder (iPhone, iPad, f16-less Safari) and desktop Safari's
+ * three-model eco-fast ladder reach it the same way, and a multi-model ladder
+ * keeps hiding a failed model while another rung serves.
  */
 
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -70,41 +70,52 @@ describe('a one-model ladder is never emptied by its own failure', () => {
   });
 });
 
-describe('desktop Safari: two rungs', () => {
-  it('after both MLC rungs smoke-failed, the ladder is offered again in its normal order', () => {
+describe('desktop Safari: three eco-fast rungs', () => {
+  it('after all three rungs smoke-failed, the ladder is offered again in its normal order', () => {
     fail(MAC_MLC, DESKTOP_SAFARI, 'smoke-fail');
     fail(MOBILE_MLC, DESKTOP_SAFARI, 'smoke-fail');
-    expect(ids('eco-fast', DESKTOP_SAFARI)).toEqual([MAC_MLC, MOBILE_MLC]);
+    fail(LFM_350M, DESKTOP_SAFARI, 'smoke-fail');
+    expect(ids('eco-fast', DESKTOP_SAFARI)).toEqual([MAC_MLC, MOBILE_MLC, LFM_350M]);
     expect(recommend('eco-fast', DESKTOP_SAFARI).id).toBe(MAC_MLC);
   });
 
   // The 7-day download demotion on the last rung (the Safari-ladder PR's R-a).
-  it('after both MLC rungs failed to download twice, the ladder is offered again', () => {
+  it('after all three rungs failed to download twice, the ladder is offered again', () => {
     fail(MAC_MLC, DESKTOP_SAFARI, 'download-fail', 2);
     fail(MOBILE_MLC, DESKTOP_SAFARI, 'download-fail', 2);
+    fail(LFM_350M, DESKTOP_SAFARI, 'download-fail', 2);
     expect(recommend('eco-fast', DESKTOP_SAFARI).id).toBe(MAC_MLC);
   });
 
-  it('while one rung is clean, the failed one stays hidden', () => {
+  it('while a rung is clean, the failed ones stay hidden', () => {
     fail(MOBILE_MLC, DESKTOP_SAFARI, 'download-fail', 2);
-    expect(ids('eco-fast', DESKTOP_SAFARI)).toEqual([MAC_MLC]);
+    expect(ids('eco-fast', DESKTOP_SAFARI)).toEqual([MAC_MLC, LFM_350M]);
     clearEvidence();
     fail(MAC_MLC, DESKTOP_SAFARI, 'smoke-fail');
-    expect(ids('eco-fast', DESKTOP_SAFARI)).toEqual([MOBILE_MLC]);
+    fail(MOBILE_MLC, DESKTOP_SAFARI, 'smoke-fail');
+    expect(ids('eco-fast', DESKTOP_SAFARI)).toEqual([LFM_350M]);
+  });
+
+  it('the step after the Mac build skips an Eco Mobile that failed earlier while the 350M is clean', () => {
+    fail(MOBILE_MLC, DESKTOP_SAFARI, 'smoke-fail');
+    expect(nextInCascade(getModel(MAC_MLC)!, 'eco-fast', DESKTOP_SAFARI)?.id).toBe(LFM_350M);
   });
 
   // The rule is judged after a cascade's own exclusions: with the Mac build
-  // being stepped away from, the rung that failed earlier is the one left.
-  it('the step after the Mac build is Eco Mobile even when Eco Mobile failed earlier', () => {
+  // being stepped away from and both later rungs failed, the ladder's order
+  // decides.
+  it('the step after the Mac build is Eco Mobile when Eco Mobile and the 350M both failed earlier', () => {
     fail(MOBILE_MLC, DESKTOP_SAFARI, 'smoke-fail');
+    fail(LFM_350M, DESKTOP_SAFARI, 'smoke-fail');
     expect(nextInCascade(getModel(MAC_MLC)!, 'eco-fast', DESKTOP_SAFARI)?.id).toBe(MOBILE_MLC);
   });
 
-  it('a cascade still ends: after Eco Mobile with the Mac build excluded, there is nothing', () => {
+  it('a cascade still ends: after the 350M with both MLC builds excluded, there is nothing', () => {
     fail(MAC_MLC, DESKTOP_SAFARI, 'smoke-fail');
     fail(MOBILE_MLC, DESKTOP_SAFARI, 'smoke-fail');
-    expect(nextInCascade(getModel(MOBILE_MLC)!, 'eco-fast', DESKTOP_SAFARI, undefined, {
-      excludeIds: [MAC_MLC],
+    fail(LFM_350M, DESKTOP_SAFARI, 'smoke-fail');
+    expect(nextInCascade(getModel(LFM_350M)!, 'eco-fast', DESKTOP_SAFARI, undefined, {
+      excludeIds: [MAC_MLC, MOBILE_MLC],
     })).toBeNull();
   });
 
