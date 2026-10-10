@@ -2,14 +2,17 @@
 // Copyright (C) 2026 Bos Computing LLC
 
 /**
- * Desktop Safari with WebGPU + shader-f16: the fallback ladder (owner ruling
- * 2026-10-08).
+ * Desktop Safari with WebGPU + shader-f16: the fallback ladder (owner rulings
+ * 2026-10-08 and 2026-10-10).
  *
  * The ladder there is the unquantised MLC Qwen3 build → the iPhone's MLC
- * Qwen2.5-0.5B ("Eco Mobile") → an honest stop. The ONNX Qwen3 build and the
- * LFM2.5-350M are not offered on that class: the ONNX build's recorded Safari
- * peaks sit at the tab-kill line, and the 350M is unmeasured there. Both are
- * declined by their own catalog entries (`compat.declineOn`), so every route
+ * Qwen2.5-0.5B ("Eco Mobile") → the ONNX LFM2.5-350M ("Eco Light") → an honest
+ * stop. The 350M is an eco-fast model only (its one intent is `snappy`), so the
+ * eco-smart ladder ends at Eco Mobile. Eco Mobile goes before the 350M because
+ * TIER_ORDER puts `webkit-mobile` before `light`: the same measured known-answer
+ * score in real Safari at about half the memory. The ONNX Qwen3 build is not
+ * offered on that class: its recorded Safari peaks sit at the tab-kill line,
+ * and its own catalog entry declines it (`compat.declineOn`), so every route
  * that walks the ladder — first pick, starter, cascade demotion, the Switch
  * list, a failed switch's suggestion — is covered by the one compatibility
  * verdict. These tests walk the real catalog through each of those routes.
@@ -55,11 +58,11 @@ describe('desktop Safari with WebGPU + shader-f16 — who is assignable', () => 
     ['f16 probed', DESKTOP_SAFARI],
     ['f16 unprobed', DESKTOP_SAFARI_UNPROBED],
   ] as const) {
-    it(`${label}: both MLC builds, neither ONNX build`, () => {
+    it(`${label}: both MLC builds and the 350M, never the ONNX Qwen3 build`, () => {
       expect(isAssignable(model(MAC_MLC), profile)).toBe(true);
       expect(isAssignable(model(MOBILE_MLC), profile)).toBe(true);
+      expect(isAssignable(model(LFM_350M), profile)).toBe(true);
       expect(isAssignable(model(ONNX_QWEN3), profile)).toBe(false);
-      expect(isAssignable(model(LFM_350M), profile)).toBe(false);
     });
   }
 
@@ -82,33 +85,47 @@ describe('desktop Safari with WebGPU + shader-f16 — the ladder', () => {
     ['f16 probed', DESKTOP_SAFARI],
     ['f16 unprobed', DESKTOP_SAFARI_UNPROBED],
   ] as const) {
-    it(`${label}: both slots walk the Mac build, then Eco Mobile, then stop`, () => {
-      expect(cascadePath('eco-fast', profile).map((m) => m.id)).toEqual([MAC_MLC, MOBILE_MLC]);
+    it(`${label}: eco-fast walks the Mac build, Eco Mobile, then the 350M, then stops`, () => {
+      expect(cascadePath('eco-fast', profile).map((m) => m.id)).toEqual([MAC_MLC, MOBILE_MLC, LFM_350M]);
+    });
+
+    it(`${label}: eco-smart walks the Mac build, then Eco Mobile, then stops`, () => {
       expect(cascadePath('eco-smart', profile).map((m) => m.id)).toEqual([MAC_MLC, MOBILE_MLC]);
     });
 
     // R8: the manual Settings list.
-    it(`${label}: the Switch list offers the two MLC builds and nothing else`, () => {
-      expect(listCatalog(profile).available.map((a) => a.model.id)).toEqual([MAC_MLC, MOBILE_MLC]);
+    it(`${label}: the Switch list offers the two MLC builds, then the 350M`, () => {
+      expect(listCatalog(profile).available.map((a) => a.model.id)).toEqual([MAC_MLC, MOBILE_MLC, LFM_350M]);
     });
   }
 
-  it('the step after the Mac build is Eco Mobile, and after Eco Mobile there is none', () => {
+  it('the step after the Mac build is Eco Mobile, after Eco Mobile the 350M, and after the 350M none', () => {
     expect(nextInCascade(model(MAC_MLC), 'eco-fast', DESKTOP_SAFARI)?.id).toBe(MOBILE_MLC);
     expect(nextInCascade(model(MOBILE_MLC), 'eco-fast', DESKTOP_SAFARI, undefined, {
       excludeIds: [MAC_MLC],
+    })?.id).toBe(LFM_350M);
+    expect(nextInCascade(model(LFM_350M), 'eco-fast', DESKTOP_SAFARI, undefined, {
+      excludeIds: [MAC_MLC, MOBILE_MLC],
     })).toBeNull();
   });
 
+  // Both MLC builds smoke-failed: the 350M is the one clean rung left.
+  it('starts on the 350M, not the ONNX Qwen3 build, after both MLC builds smoke-failed', () => {
+    recordEvidence({ modelId: MAC_MLC, profile: DESKTOP_SAFARI, outcome: 'smoke-fail' });
+    recordEvidence({ modelId: MOBILE_MLC, profile: DESKTOP_SAFARI, outcome: 'smoke-fail' });
+    expect(starterModelForSlot('eco-fast', DESKTOP_SAFARI)?.id).toBe(LFM_350M);
+    expect(recommend('eco-fast', DESKTOP_SAFARI).id).toBe(LFM_350M);
+  });
+
   // R4: a smoke-fail row hides the Mac build from auto-offer for 30 days.
-  it('starts on Eco Mobile, not the ONNX build, after the Mac build smoke-failed', () => {
+  it('starts on Eco Mobile, ahead of the 350M, after the Mac build smoke-failed', () => {
     recordEvidence({ modelId: MAC_MLC, profile: DESKTOP_SAFARI, outcome: 'smoke-fail' });
     expect(starterModelForSlot('eco-fast', DESKTOP_SAFARI)?.id).toBe(MOBILE_MLC);
     expect(recommend('eco-fast', DESKTOP_SAFARI).id).toBe(MOBILE_MLC);
   });
 
   // R5: two download failures in 7 days drop the Mac build from auto-offer.
-  it('starts on Eco Mobile, not the ONNX build, after two Mac-build download failures', () => {
+  it('starts on Eco Mobile, ahead of the 350M, after two Mac-build download failures', () => {
     recordEvidence({ modelId: MAC_MLC, profile: DESKTOP_SAFARI, outcome: 'download-fail' });
     recordEvidence({ modelId: MAC_MLC, profile: DESKTOP_SAFARI, outcome: 'download-fail' });
     expect(starterModelForSlot('eco-fast', DESKTOP_SAFARI)?.id).toBe(MOBILE_MLC);
@@ -117,19 +134,24 @@ describe('desktop Safari with WebGPU + shader-f16 — the ladder', () => {
 
 // R1, R2, R3 and R6 all leave the first pick through the setup cascade. R6 (a
 // cooldown after device-lost) fails smoke with `cooldown-active`, so it takes
-// the smoke-fail route.
+// the smoke-fail route. R2 retries each download once, so the cascade's step
+// cap (SETUP_LADDER_MAX_STEPS, 4) is spent on the two MLC builds before the
+// 350M is reached.
 describe('desktop Safari with WebGPU + shader-f16 — the setup cascade on the real catalog', () => {
-  const failures: ReadonlyArray<readonly [string, AttemptResult]> = [
-    ['R1: load or smoke fails', { ok: false, phase: 'load-or-smoke', reason: 'smoke failed' }],
-    ['R2: the download fails twice', { ok: false, phase: 'download', reason: 'HTTP 503' }],
+  const failures: ReadonlyArray<readonly [string, AttemptResult, readonly string[]]> = [
+    ['R1: load or smoke fails', { ok: false, phase: 'load-or-smoke', reason: 'smoke failed' },
+      [MAC_MLC, MOBILE_MLC, LFM_350M]],
+    ['R2: the download fails twice', { ok: false, phase: 'download', reason: 'HTTP 503' },
+      [MAC_MLC, MOBILE_MLC]],
     ['R3: storage runs short', {
       ok: false, phase: 'download', reason: 'no space', reasonCode: 'insufficient-storage',
-    }],
-    ['R6: a cooldown after device-lost', { ok: false, phase: 'load-or-smoke', reason: 'cooldown-active' }],
+    }, [MAC_MLC, MOBILE_MLC, LFM_350M]],
+    ['R6: a cooldown after device-lost', { ok: false, phase: 'load-or-smoke', reason: 'cooldown-active' },
+      [MAC_MLC, MOBILE_MLC, LFM_350M]],
   ];
 
-  for (const [label, failure] of failures) {
-    it(`${label}: tries the Mac build, then Eco Mobile, then stops`, async () => {
+  for (const [label, failure, expected] of failures) {
+    it(`${label}: tries ${expected.length} models in ladder order, never the ONNX Qwen3 build, then stops`, async () => {
       const tried: string[] = [];
       const result = await runSetupCascade({
         slot: 'eco-fast',
@@ -145,7 +167,7 @@ describe('desktop Safari with WebGPU + shader-f16 — the setup cascade on the r
       });
 
       expect(result.kind).toBe('exhausted');
-      expect([...new Set(tried)]).toEqual([MAC_MLC, MOBILE_MLC]);
+      expect([...new Set(tried)]).toEqual(expected);
     });
   }
 });

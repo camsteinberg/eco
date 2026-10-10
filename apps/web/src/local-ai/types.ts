@@ -328,8 +328,8 @@ export type ModelQuirks = {
 /**
  * The device class a model is the *default* pick for. `preferredModelIdForSlot`
  * (and every other consumer of `recommend()`) walks these best-first —
- * `capable` -> `laptop` -> `phone` -> `safari-desktop` -> `floor` -> `light` ->
- * `webkit-mobile` —
+ * `capable` -> `laptop` -> `phone` -> `safari-desktop` -> `floor` ->
+ * `webkit-mobile` -> `light` —
  * and takes the first rung this device can actually run, so a weaker device
  * steps down the ladder. This IS the recommendation engine (Phase R5c deleted
  * the six-axis fit scorer that used to sit alongside it — a rung is now the
@@ -355,25 +355,29 @@ export type ModelQuirks = {
  *   - `floor`         the universal small fallback, tried on every device
  *                      whose f16 status is either unprobed or matches its
  *                      q4f16 build's requirement.
- *   - `light`         last resort before `webkit-mobile`: a WebGPU-general
- *                      (not Chromium-only, not wasm-only) light pick for a
- *                      device niche where `floor`'s own occupant is
- *                      unassignable — e.g. an f16-LESS adapter, where a
- *                      q4f16 `floor` model is gated off by the shader-f16
- *                      check but this rung's plain-int4 build still loads.
- *                      Ordered AFTER `floor`, not before it: `floor`'s
- *                      occupant must win whenever it is genuinely assignable
- *                      (an unprobed-f16 profile keeps it assignable), so
- *                      `light` may only be reached when `floor` itself
- *                      is not.
  *   - `webkit-mobile` iOS/WebKit-mobile: EVERY onnx build (incl. `floor`) is
  *                      declined there before any capability check (see
  *                      `device/compatibility.ts` `isWebKitMobile`), so this
  *                      rung's occupant is the sole model that class can ever
  *                      run. Desktop Safari with WebGPU + shader-f16 reaches it
  *                      too, as the fallback after `safari-desktop`: `floor`'s
- *                      and `light`'s occupants decline that class through
- *                      their `compat.declineOn`.
+ *                      occupant declines that class through its
+ *                      `compat.declineOn`.
+ *   - `light`         the last rung: a WebGPU-general (not Chromium-only,
+ *                      not wasm-only) light pick for a device niche where
+ *                      `floor`'s own occupant is unassignable — e.g. an
+ *                      f16-LESS adapter, where a q4f16 `floor` model is gated
+ *                      off by the shader-f16 check but this rung's plain-int4
+ *                      build still loads, or desktop Safari with WebGPU +
+ *                      shader-f16, where `floor` declines. Ordered AFTER
+ *                      `floor`, not before it: `floor`'s occupant must win
+ *                      whenever it is genuinely assignable (an unprobed-f16
+ *                      profile keeps it assignable), so `light` may only be
+ *                      reached when `floor` itself is not. Ordered after
+ *                      `webkit-mobile` too: the two share a device only on
+ *                      desktop Safari with WebGPU + shader-f16, where Eco
+ *                      Mobile measured the same quality at about half the
+ *                      memory.
  *
  * Rungs beyond the original four exist because a device niche had NO
  * assignable model among the four rung occupants while exactly one other
@@ -384,7 +388,7 @@ export type ModelQuirks = {
  * carries an empty assignment.
  */
 export type ModelTier =
-  'capable' | 'laptop' | 'phone' | 'safari-desktop' | 'floor' | 'light' | 'webkit-mobile';
+  'capable' | 'laptop' | 'phone' | 'safari-desktop' | 'floor' | 'webkit-mobile' | 'light';
 
 /** Which slot(s) a model is the tier default for. Empty = never a default. */
 export type ModelTierAssignment = Readonly<Partial<Record<Slot, ModelTier>>>;

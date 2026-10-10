@@ -267,6 +267,7 @@ describe('executeSetup — load breaker on the real catalog', () => {
   const IPHONE_ID = 'candidate/qwen2.5-0.5b-mlc';
   const SAFARI_MLC_ID = 'candidate/qwen3-0.6b-mlc-q0f16';
   const SAFARI_ONNX_ID = 'local/qwen3-0.6b';
+  const LFM_350M_ID = 'candidate/lfm2.5-350m-onnx';
   const MAC_SAFARI_UA =
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15';
   const originalUserAgent = navigator.userAgent;
@@ -327,7 +328,7 @@ describe('executeSetup — load breaker on the real catalog', () => {
   }
 
   // Desktop Safari's lighter rung is the iPhone's MLC build ("Eco Mobile"): the
-  // ONNX builds are not offered on that class (their catalog `compat.declineOn`).
+  // ONNX Qwen3 build is not offered on that class (its catalog `compat.declineOn`).
   it('desktop Safari: one kill of the MLC build offers Eco Mobile as the lighter model', async () => {
     seedDeadMark(SAFARI_MLC_ID);
     const a = fakeActions();
@@ -342,10 +343,27 @@ describe('executeSetup — load breaker on the real catalog', () => {
     }));
   });
 
-  // Failure evidence never empties a slot: with the Mac build being stepped
-  // away from, Eco Mobile is the slot's last model even though it failed before.
-  it('desktop Safari: one kill of the MLC build still offers Eco Mobile when Eco Mobile failed earlier', async () => {
+  // A rung that failed before stays hidden while a clean one serves.
+  it('desktop Safari: one kill of the MLC build offers Eco Light when Eco Mobile failed earlier', async () => {
     recordEvidence({ modelId: IPHONE_ID, profile: desktopSafari, outcome: 'smoke-fail' });
+    seedDeadMark(SAFARI_MLC_ID);
+    const a = fakeActions();
+    const s = realSeams(desktopSafari, real(SAFARI_MLC_ID));
+
+    await executeSetup(a, { slot: 'eco-fast', seams: s });
+
+    expect(s.runAttempt).not.toHaveBeenCalled();
+    expect(a.setError).toHaveBeenCalledWith(...loadInterruptedError({
+      modelName: 'Eco Compact',
+      alternative: { kind: 'lighter', modelName: 'Eco Light' },
+    }));
+  });
+
+  // Failure evidence never empties a slot: with the Mac build being stepped
+  // away from and both later rungs failed, Eco Mobile leads again.
+  it('desktop Safari: one kill of the MLC build still offers Eco Mobile when Eco Mobile and Eco Light failed earlier', async () => {
+    recordEvidence({ modelId: IPHONE_ID, profile: desktopSafari, outcome: 'smoke-fail' });
+    recordEvidence({ modelId: LFM_350M_ID, profile: desktopSafari, outcome: 'smoke-fail' });
     seedDeadMark(SAFARI_MLC_ID);
     const a = fakeActions();
     const s = realSeams(desktopSafari, real(SAFARI_MLC_ID));
@@ -401,7 +419,9 @@ describe('executeSetup — load breaker on the real catalog', () => {
 
   it('desktop Safari: a second kill of Eco Mobile after the step-down is the honest stop', async () => {
     // The step-down left a smoke-fail row on the Mac build (the killer), which
-    // hides it from the ladder for this device.
+    // hides it from the ladder for this device. Eco Light follows Eco Mobile on
+    // the ladder but is not lighter (a 0.28 GB download against 0.27 GB), so
+    // a kill never steps down to it.
     recordEvidence({ modelId: SAFARI_MLC_ID, profile: desktopSafari, outcome: 'smoke-fail' });
     seedKillRecord(IPHONE_ID, 'retry');
     seedDeadMark(IPHONE_ID, 'second-load');

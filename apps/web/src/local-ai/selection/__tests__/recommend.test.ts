@@ -1096,12 +1096,12 @@ describe('recommend — desktop Safari routes to the MLC Qwen3 build, every othe
     expect(offer.recommendedId).toBe(SAFARI_MLC_ID);
   });
 
-  it('the Switch list on desktop Safari is the MLC build then Eco Mobile, two named rows, no ONNX build', () => {
+  it('the Switch list on desktop Safari is the MLC build, Eco Mobile, then Eco Light, three named rows, no ONNX Qwen3 build', () => {
     // The ONNX Qwen3 build declines this class (its `compat.declineOn`), so the
     // shared "Eco Compact (Qwen)" name never folds two builds into one row here.
     const models = listCatalog(safariDesktop).available.map((entry) => entry.model);
     expect(dedupeByDisplayName(models).map((m) => m.id))
-      .toEqual([SAFARI_MLC_ID, 'candidate/qwen2.5-0.5b-mlc']);
+      .toEqual([SAFARI_MLC_ID, 'candidate/qwen2.5-0.5b-mlc', 'candidate/lfm2.5-350m-onnx']);
   });
 
   // Expected picks per class — the values recommend() returned before this route
