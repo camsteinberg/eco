@@ -495,19 +495,17 @@ describe('WebLLMAdapter — usage (include_usage)', () => {
   });
 });
 
-// ─── Conversation reset (multi-round KV reuse) ─────────────────────────────
-// WebLLM keeps its own copy of the conversation: when the incoming `messages`
-// minus the last entry match it, the engine prefills ONLY the last round and
-// answers from the KV cache it already holds. Eco assembles the whole prompt
-// itself every turn — budget, history selection, system prompt — so that reuse
-// silently discards the assembler's decisions and a later turn is answered
-// from a stale cache (measured live: from turn 2 the model repeats its previous
-// reply, with prompt-token counts falling from 202 to 35–72). The adapter must
-// therefore clear the engine's conversation before every request so the full
-// `messages` array is prefilled.
+// ─── Conversation reset (no reachable pipeline) ────────────────────────────
+// WebLLM keeps its own copy of the conversation and, when the incoming history
+// matches it, prefills only the last round from the KV cache it holds. The KV
+// reuse gate (`webllm-kv-reuse.ts`, tested in `webllm-kv-reuse.test.ts`) makes
+// that exact; it needs the engine's loaded pipeline. When the pipeline is not
+// reachable — these fakes have none — the adapter cannot vouch for the cache,
+// so it clears the conversation before every request and the full `messages`
+// array is prefilled.
 
 describe('WebLLMAdapter — conversation reset', () => {
-  it('clears the engine conversation before each generation, in order', async () => {
+  it('clears the engine conversation before each generation when no pipeline is reachable', async () => {
     const calls: string[] = [];
     engine = {
       reload: async () => undefined,
