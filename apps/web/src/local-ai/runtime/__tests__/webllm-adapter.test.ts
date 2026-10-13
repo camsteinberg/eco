@@ -413,6 +413,263 @@ describe('WebLLMAdapter — stream drain (deadlock regression)', () => {
   });
 });
 
+// ─── Stop (an interrupted stream must still be finished) ───────────────────
+// A stopped reply leaves WebLLM's stream unfinished: the adapter stops reading
+// it, and so may every consumer above it (the chat's stream resolves `done` on
+// Stop and never reads again; the smoke runner breaks out). WebLLM still holds
+// its request lock, so the NEXT reply never starts. These fakes hold the lock
+// the way WebLLM 0.2.84 does, and each test asserts the next reply arrives.
+
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void;
+  const promise = new Promise<void>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+
+const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 1));
+
+/**
+ * `create()` takes a per-model lock (`lib/index.js:12953`) that the stream
+ * releases only after its last chunk (12919) — not in a `finally`, so a stream
+ * closed early with `return()` never releases it. The stream clears the
+ * interrupt flag on its first pull (12704) and checks it before each decode
+ * step (12786). `resetGate`, `createGate` and `finishGate` hold the first
+ * `resetChat()`, the first `create()` before its lock, and every stream's
+ * final chunk, so a test can land an abort at that point.
+ */
+function makeLockingEngine(opts: {
+  tokens?: number;
+  resetGate?: Promise<void>;
+  createGate?: Promise<void>;
+  finishGate?: Promise<void>;
+} = {}): { engine: WebLLMEngine; createStarted: Promise<void> } {
+  let held = false;
+  const waiting: Array<() => void> = [];
+  const acquire = (): Promise<void> => {
+    if (!held) {
+      held = true;
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => waiting.push(resolve));
+  };
+  const release = (): void => {
+    const next = waiting.shift();
+    if (next) next();
+    else held = false;
+  };
+  let interrupt = false;
+  let resetGate = opts.resetGate;
+  let createGate = opts.createGate;
+  const started = deferred();
+  const tokens = opts.tokens ?? 50;
+  const finishGate = opts.finishGate;
+
+  const engine: WebLLMEngine = {
+    reload: async () => undefined,
+    resetChat: async () => {
+      const gate = resetGate;
+      resetGate = undefined;
+      if (gate) await gate;
+    },
+    chat: {
+      completions: {
+        create: async () => {
+          started.resolve();
+          const gate = createGate;
+          createGate = undefined;
+          if (gate) await gate;
+          await acquire();
+          return (async function* () {
+            interrupt = false;
+            await tick(); // prefill
+            yield { choices: [{ delta: { content: 'p' } }] };
+            for (let i = 0; i < tokens; i++) {
+              if (interrupt) break;
+              await tick();
+              yield { choices: [{ delta: { content: ` t${i}` } }] };
+            }
+            if (finishGate) await finishGate;
+            yield { choices: [{ delta: {}, finish_reason: interrupt ? 'abort' : 'length' }] };
+            yield { choices: [], usage: { prompt_tokens: 1, completion_tokens: 1 } };
+            release();
+          })();
+        },
+      },
+    },
+    interruptGenerate: () => {
+      interrupt = true;
+    },
+    unload: async () => undefined,
+  };
+  return { engine, createStarted: started.promise };
+}
+
+/** `promise`, failing if it does not settle within `ms`. */
+async function within<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`not settled within ${ms}ms — engine still locked`)), ms);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Read a whole reply, failing if it does not finish within `ms`. */
+function replyWithin(
+  events: AsyncIterable<import('../types').TokenEvent>,
+  ms: number,
+): Promise<import('../types').TokenEvent[]> {
+  return within(
+    (async () => {
+      const out: import('../types').TokenEvent[] = [];
+      for await (const event of events) out.push(event);
+      return out;
+    })(),
+    ms,
+  );
+}
+
+function expectAnswered(events: import('../types').TokenEvent[]): void {
+  expect(events.find((e) => e.kind === 'token')).toBeDefined();
+  expect(events[events.length - 1]?.kind).toBe('done');
+}
+
+const ONE = [{ role: 'user' as const, content: 'one' }];
+const TWO = [{ role: 'user' as const, content: 'two' }];
+
+describe('WebLLMAdapter — stop', () => {
+  async function loadWith(fake: WebLLMEngine): Promise<void> {
+    engine = fake;
+    adapter = new WebLLMAdapter({ engineFactory: async () => engine });
+    await adapter.load(MODEL);
+  }
+
+  it('answers the next message after a stop mid-reply', async () => {
+    await loadWith(makeLockingEngine().engine);
+    const controller = new AbortController();
+    const events: import('../types').TokenEvent[] = [];
+    for await (const event of adapter.generate(ONE, { signal: controller.signal })) {
+      events.push(event);
+      if (events.length === 2) controller.abort();
+    }
+    expect(events[events.length - 1]).toMatchObject({ kind: 'error', code: 'aborted' });
+
+    expectAnswered(await replyWithin(adapter.generate(TWO), 1000));
+  });
+
+  it('answers the next message when the consumer closes the stopped reply', async () => {
+    await loadWith(makeLockingEngine().engine);
+    const controller = new AbortController();
+    const it = adapter.generate(ONE, { signal: controller.signal })[Symbol.asyncIterator]();
+    expect((await it.next()).value).toMatchObject({ kind: 'token' });
+    controller.abort();
+    await it.return?.(undefined);
+
+    expectAnswered(await replyWithin(adapter.generate(TWO), 1000));
+  });
+
+  it('answers the next message when the consumer stops reading after a stop', async () => {
+    await loadWith(makeLockingEngine().engine);
+    const controller = new AbortController();
+    const it = adapter.generate(ONE, { signal: controller.signal })[Symbol.asyncIterator]();
+    expect((await it.next()).value).toMatchObject({ kind: 'token' });
+    // The chat's stream on Stop: it resolves `done` and never reads again.
+    controller.abort();
+
+    expectAnswered(await replyWithin(adapter.generate(TWO), 1000));
+  });
+
+  it('answers the next message when the consumer leaves a reply without stopping it', async () => {
+    await loadWith(makeLockingEngine().engine);
+    for await (const event of adapter.generate(ONE)) {
+      expect(event.kind).toBe('token');
+      break;
+    }
+
+    expectAnswered(await replyWithin(adapter.generate(TWO), 1000));
+  });
+
+  it('answers the next message after a stop before the request started', async () => {
+    const resetGate = deferred();
+    await loadWith(makeLockingEngine({ resetGate: resetGate.promise }).engine);
+    const controller = new AbortController();
+    const it = adapter.generate(ONE, { signal: controller.signal })[Symbol.asyncIterator]();
+    const first = it.next();
+    await tick();
+    controller.abort();
+    resetGate.resolve();
+    expect((await first).value).toMatchObject({ kind: 'error', code: 'aborted' });
+
+    expectAnswered(await replyWithin(adapter.generate(TWO), 1000));
+  });
+
+  it('answers the next message after a stop the stream would forget (before its first read)', async () => {
+    // The stream clears the interrupt on its first read, so a stop that lands
+    // while create() is pending must be repeated, or the 100k-token reply runs
+    // to the end before the lock is free.
+    const createGate = deferred();
+    const fake = makeLockingEngine({ tokens: 100_000, createGate: createGate.promise });
+    await loadWith(fake.engine);
+    const controller = new AbortController();
+    const it = adapter.generate(ONE, { signal: controller.signal })[Symbol.asyncIterator]();
+    const first = it.next();
+    await fake.createStarted;
+    controller.abort();
+    createGate.resolve();
+    expect((await first).value).toMatchObject({ kind: 'error', code: 'aborted' });
+
+    // The next reply is just as long, so wait only for its first token.
+    const next = adapter.generate(TWO)[Symbol.asyncIterator]();
+    expect((await within(next.next(), 1000)).value).toMatchObject({ kind: 'token' });
+    await next.return?.(undefined);
+  });
+
+  it('reports the stop at once, without waiting for the stream to finish', async () => {
+    const finishGate = deferred();
+    await loadWith(makeLockingEngine({ finishGate: finishGate.promise }).engine);
+    const controller = new AbortController();
+    const it = adapter.generate(ONE, { signal: controller.signal })[Symbol.asyncIterator]();
+    expect((await it.next()).value).toMatchObject({ kind: 'token' });
+    controller.abort();
+    // The stream cannot finish until `finishGate` opens, yet the stop is
+    // reported on the next read.
+    expect(await within(it.next(), 200)).toEqual({
+      done: false,
+      value: { kind: 'error', reason: 'Generation aborted', code: 'aborted' },
+    });
+
+    // The next message waits for the stream to finish, then answers.
+    let answered = false;
+    const next = replyWithin(adapter.generate(TWO), 1000).then((events) => {
+      answered = true;
+      return events;
+    });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(answered).toBe(false);
+    finishGate.resolve();
+    expectAnswered(await next);
+  });
+
+  it('unloads without waiting for a stopped stream, and the next model answers', async () => {
+    const finishGate = deferred();
+    await loadWith(makeLockingEngine({ finishGate: finishGate.promise }).engine);
+    const controller = new AbortController();
+    const it = adapter.generate(ONE, { signal: controller.signal })[Symbol.asyncIterator]();
+    await it.next();
+    controller.abort();
+
+    await within(adapter.unload(), 200);
+    engine = makeLockingEngine().engine;
+    await adapter.load(MODEL);
+    expectAnswered(await replyWithin(adapter.generate(TWO), 1000));
+  });
+});
+
 // ─── Usage via include_usage (trailing empty-choices chunk) ──────────────────
 // WebLLM only reports real completion-token counts when `create()` is called
 // with `stream_options: { include_usage: true }`. The counts then arrive on a
