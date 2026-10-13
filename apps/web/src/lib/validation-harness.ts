@@ -623,6 +623,46 @@ export function getValidationHarnessBatteryOverride(): {
   }
 }
 
+/** What the failed-reply seam does: fail the reply after its first word. */
+export type ValidationGenerationFault = 'mid-reply';
+
+const GENERATION_FAULT_KEY = 'eco-force-generation-fault';
+
+/**
+ * The error message a fault from this seam carries, so a browser walk can tell
+ * the failure it asked for from a genuine one (the generation receipt records
+ * the first 80 characters as its `errorCode`).
+ */
+export const VALIDATION_GENERATION_FAULT_MESSAGE = 'Validation harness: injected mid-reply fault';
+
+/**
+ * Harness-only seam that makes the NEXT chat reply fail after its first word.
+ *
+ * A browser walk needs a turn that fails on demand to check what a person does
+ * next: read the error card, press Try again, and get an answer. Nothing else
+ * produces one deterministically — a real mid-reply fault depends on the
+ * device. Failing after the first word, rather than before it, also stops
+ * reading a live runtime stream part-way, the way a genuine fault does, so the
+ * retry proves the runtime is free to answer again.
+ *
+ * One-shot: `eco-force-generation-fault=mid-reply` is read from localStorage
+ * only and removed as it is read, so the retry that follows runs clean. A URL
+ * value is ignored on purpose — it would fail every reply on the page. NEVER
+ * active on production hosts — gated by `isValidationHarnessEnabled()`.
+ */
+export function consumeValidationGenerationFault(): ValidationGenerationFault | null {
+  if (!isValidationHarnessEnabled()) {
+    return null;
+  }
+
+  const value = readStorageParam(GENERATION_FAULT_KEY);
+  if (value === null) {
+    return null;
+  }
+  safeStorage.remove(GENERATION_FAULT_KEY);
+  return value === 'mid-reply' ? 'mid-reply' : null;
+}
+
 export function shouldForceValidationRuntimeCrash(): boolean {
   return getValidationHarnessState().runtimeMode === 'crash';
 }
