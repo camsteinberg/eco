@@ -8,11 +8,13 @@
  * The build is told one model host at compile time
  * (`NEXT_PUBLIC_ECO_MODEL_CDN_BASE`, inlined into the client bundle). By
  * default that is the production model CDN, so the lane downloads exactly as a
- * person's browser does. A model whose files are not on that host cannot be
- * walked from it: a hard 404 from the CDN is not retried through the proxy (see
- * `local-ai/download`), so the setup would fail — or, worse, the walk would
- * wait out a download timeout and report something vaguer than "the files are
- * not there". `ECO_ACCEPTANCE_MODEL_CDN_BASE` overrides the host:
+ * person's browser does. A file the host is missing (a 403/404) is not the end
+ * of it: the app retries that file once through its own same-origin proxy,
+ * which fetches it from Hugging Face (`fetchFileToBlobWithFallback` in
+ * `local-ai/download`). The lane mirrors that rule — a file only the proxy
+ * serves is a note in the report, and only a file neither serves stops the
+ * walk, before it waits out a download that cannot finish.
+ * `ECO_ACCEPTANCE_MODEL_CDN_BASE` overrides the host:
  *
  *  - unset — the production model CDN;
  *  - empty — no CDN at all, so files come through the app's own same-origin
@@ -28,11 +30,73 @@ export const MODEL_HOST_ENV_VAR = "ECO_ACCEPTANCE_MODEL_CDN_BASE";
 
 export const DEFAULT_MODEL_HOST = "https://models.econetwork.ai";
 
-/** What to do when a pick's files are not served — carried by every such failure. */
+/** What to do when neither the model host nor the app's proxy serves a file — carried by every such failure. */
 export const MODEL_HOST_REMEDY =
-  `Set ${MODEL_HOST_ENV_VAR}= (empty) to fetch them through the app's own model proxy, `
-  + "or set it to a host that serves them, then stop the lane's server on port 3120 so "
-  + "the next run rebuilds with the new host (the host is compiled into the build).";
+  "The app's own model proxy fetches from Hugging Face, so check this machine can reach it; "
+  + `or set ${MODEL_HOST_ENV_VAR} to a host that serves the files, then stop the lane's server `
+  + "on port 3120 so the next run rebuilds with the new host (the host is compiled into the build).";
+
+/** One file's answer from each source the app would try, as an HTTP status or why it never answered. */
+export type FileProbe = {
+  file: string;
+  /** The model host's answer; null when there is no separate host (the proxy is the only source). */
+  host: { url: string; status: string; ok: boolean } | null;
+  /** The app's own proxy's answer; null when it was not asked because the host served the file. */
+  proxy: { url: string; status: string; ok: boolean } | null;
+};
+
+export type ServedVerdict = {
+  /** Files that will download, and from where — in the app's own words where it falls back. */
+  notes: string[];
+  /** Files no source serves, with every status seen. Empty when the model can be set up. */
+  missing: string[];
+};
+
+/**
+ * Whether the app retries a file through its proxy after the host answered
+ * `status` — the rule in `shouldFallbackToProxy` (`local-ai/download`): any
+ * failure falls back (a network error, a 5xx, 408/429, the 403/404 of a host
+ * missing the file) except any other 4xx, which is final.
+ */
+export function appFallsBackOn(status: string): boolean {
+  const code = Number(status);
+  if (!Number.isInteger(code)) return true;
+  if (code >= 400 && code < 500) return [403, 404, 408, 429].includes(code);
+  return true;
+}
+
+/**
+ * Judge each file the way the app's download does: served by the host is fine;
+ * missing on the host (403/404) but served by the proxy is fine too, because
+ * the app falls back to the proxy for exactly those statuses — but it is worth
+ * saying, since the host is out of step with the catalog; served by neither is
+ * the one case that cannot be set up.
+ */
+export function judgeFileSources(probes: readonly FileProbe[]): ServedVerdict {
+  const notes: string[] = [];
+  const missing: string[] = [];
+  for (const probe of probes) {
+    if (probe.host?.ok) continue;
+    if (probe.proxy?.ok && (probe.host === null || appFallsBackOn(probe.host.status))) {
+      if (probe.host) {
+        const { status } = probe.host;
+        notes.push(
+          status === "403" || status === "404"
+            ? `the model host is missing ${probe.file} (${status}); the app fell back to its own proxy`
+            : `the model host answered ${status} for ${probe.file}; the app fell back to its own proxy`,
+        );
+      }
+      continue;
+    }
+    missing.push(
+      [probe.host, probe.proxy]
+        .filter((answer): answer is NonNullable<typeof answer> => answer !== null)
+        .map((answer) => `${answer.status} ${answer.url}`)
+        .join(" and "),
+    );
+  }
+  return { notes, missing };
+}
 
 /** The model host the lane's server is built with; empty means the same-origin proxy. */
 export function acceptanceModelHost(

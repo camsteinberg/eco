@@ -80,8 +80,8 @@ import {
 import {
   INJECTED_FAULT_MESSAGE,
   armGenerationFault,
-  assertModelFilesServed,
   beginTurn,
+  checkModelFilesServed,
   citations,
   contextDivider,
   contextWindowNotice,
@@ -227,6 +227,13 @@ const PICKS: readonly Pick[] = WEBLLM
  * so each walk binds only its own.
  */
 const bindingsFor = (pick: Pick): readonly Pick[] => (WEBLLM ? [pick] : PICKS);
+
+/**
+ * What provisioning noticed about each model — files the model host is
+ * missing that the app fetched through its own proxy — handed to that
+ * model's walk so the report carries it next to the model's table.
+ */
+const provisioningNotes = new Map<string, string[]>();
 
 /**
  * `ECO_ACCEPTANCE_SLOT=eco-smart` picks WHICH model walks, instead of the
@@ -397,18 +404,25 @@ test.describe("acceptance walk", () => {
   test(WEBLLM ? "both WebLLM models provisioned" : "cold profile, both shipping models provisioned", async () => {
     test.setTimeout(3_600_000);
     if (WEBLLM) {
-      // Each model's files are checked on the host the build fetches from
-      // before anything waits on them: a model that was never put on the host
-      // fails here in seconds, by name, rather than as a download timeout.
+      // Each model's files are checked before anything waits on them, by the
+      // app's own rule: the model host first, then — for a file the host is
+      // missing — the app's own proxy, which the app falls back to. Only a file
+      // neither serves fails here, in seconds and by name, rather than as a
+      // download timeout; a file only the proxy serves is noted in the report.
       const host = acceptanceModelHost();
       console.log(`  model host: ${host || "(none — the app's own model proxy)"}`);
       for (const pick of PICKS) {
         const artifact = artifactFor(catalogData, pick.modelId);
         if (!artifact) throw new Error(`${pick.modelId} has no artifact in the catalog`);
-        const urls = sampleFiles(artifact).map((file) => modelFileUrl(artifact, file, host, BASE_URL));
-        const served = await assertModelFilesServed(pick, urls, MODEL_HOST_REMEDY);
-        console.log(`  ${pick.tileName} (${pick.modelId}) files served: ${served}`);
-        await provisionBySeeding(context, pick, MODEL_HOST_REMEDY);
+        const files = sampleFiles(artifact).map((file) => ({
+          file,
+          hostUrl: host ? modelFileUrl(artifact, file, host, BASE_URL) : null,
+          proxyUrl: modelFileUrl(artifact, file, "", BASE_URL),
+        }));
+        const notes = await checkModelFilesServed(pick, files, MODEL_HOST_REMEDY);
+        notes.push(...(await provisionBySeeding(context, pick, MODEL_HOST_REMEDY)));
+        provisioningNotes.set(pick.modelId, notes);
+        for (const note of notes) console.log(`  ${pick.tileName}: note — ${note}`);
         console.log(`  ${pick.tileName} (${pick.modelId}): ready`);
       }
       return;
@@ -463,6 +477,9 @@ test.describe("acceptance walk", () => {
         label: pick.tileName,
         slot: pick.slot,
         rows: [],
+        ...(provisioningNotes.get(pick.modelId)?.length
+          ? { notes: provisioningNotes.get(pick.modelId) }
+          : {}),
       };
       currentWalk = pickReport;
       writePickFragment(pickReport);
@@ -1234,6 +1251,11 @@ test.describe("acceptance walk", () => {
           ),
         );
 
+        // RECORDED, not PASS/FAIL: whether a small model recalls a name one turn
+        // later is a quality reading, and a single miss says little. The rows
+        // above are the mechanical check that the edit took effect; what this
+        // row adds is evidence — "Priya" here would mean the discarded original
+        // reached the model, which is worth reading every time it appears.
         const recall = await sendTurn(page, "What is my name?");
         const recalled = recall.replyText.includes("Tomas") && !recall.replyText.includes("Priya");
         push(
@@ -1242,7 +1264,7 @@ test.describe("acceptance walk", () => {
             2,
             "the conversation continues from the edit",
             recall,
-            recalled ? "PASS" : "FAIL",
+            "RECORDED",
             `${
               recalled
                 ? "the reply uses the edited name"

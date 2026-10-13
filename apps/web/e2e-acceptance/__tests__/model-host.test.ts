@@ -8,9 +8,12 @@ import {
   DEFAULT_MODEL_HOST,
   MODEL_HOST_ENV_VAR,
   acceptanceModelHost,
+  appFallsBackOn,
   artifactFor,
+  judgeFileSources,
   modelFileUrl,
   sampleFiles,
+  type FileProbe,
 } from "../lib/model-host";
 
 const ARTIFACT = {
@@ -71,5 +74,63 @@ describe("sampleFiles", () => {
 
   it("checks a single-file model once", () => {
     expect(sampleFiles({ ...ARTIFACT, files: ["model.bin"] })).toEqual(["model.bin"]);
+  });
+});
+
+describe("appFallsBackOn — the app's own CDN-to-proxy rule", () => {
+  it("falls back when the host is missing the file, overloaded, or unreachable", () => {
+    for (const status of ["403", "404", "408", "429", "500", "503", "unreachable (fetch failed)"]) {
+      expect(appFallsBackOn(status), status).toBe(true);
+    }
+  });
+
+  it("does not fall back on any other 4xx", () => {
+    for (const status of ["400", "401", "410"]) {
+      expect(appFallsBackOn(status), status).toBe(false);
+    }
+  });
+});
+
+describe("judgeFileSources", () => {
+  const host = (status: string) => ({ url: `https://models.example/${status}`, status, ok: status === "200" });
+  const proxy = (status: string) => ({ url: `http://localhost:3120/api/local-models/${status}`, status, ok: status === "200" });
+
+  it("is silent when the host serves every file", () => {
+    const probes: FileProbe[] = [{ file: "a.bin", host: host("200"), proxy: null }];
+    expect(judgeFileSources(probes)).toEqual({ notes: [], missing: [] });
+  });
+
+  it("notes, without failing, a file only the app's proxy serves", () => {
+    // The model host never received this file; the app retries it through its
+    // own proxy and the download completes, so the walk can go on.
+    const probes: FileProbe[] = [{ file: "a.bin", host: host("404"), proxy: proxy("200") }];
+    const verdict = judgeFileSources(probes);
+    expect(verdict.missing).toEqual([]);
+    expect(verdict.notes).toEqual([
+      "the model host is missing a.bin (404); the app fell back to its own proxy",
+    ]);
+  });
+
+  it("fails a file neither source serves, naming both answers", () => {
+    const probes: FileProbe[] = [{ file: "a.bin", host: host("404"), proxy: proxy("502") }];
+    const verdict = judgeFileSources(probes);
+    expect(verdict.missing).toHaveLength(1);
+    expect(verdict.missing[0]).toContain("404 https://models.example/404");
+    expect(verdict.missing[0]).toContain("502 http://localhost:3120/api/local-models/502");
+  });
+
+  it("fails a file the host refuses for good, even if the proxy has it — the app would not fall back", () => {
+    const probes: FileProbe[] = [{ file: "a.bin", host: host("410"), proxy: proxy("200") }];
+    expect(judgeFileSources(probes).missing).toHaveLength(1);
+  });
+
+  it("with no separate host, judges the proxy alone and has nothing to note", () => {
+    expect(judgeFileSources([{ file: "a.bin", host: null, proxy: proxy("200") }])).toEqual({
+      notes: [],
+      missing: [],
+    });
+    expect(judgeFileSources([{ file: "a.bin", host: null, proxy: proxy("404") }]).missing).toEqual([
+      "404 http://localhost:3120/api/local-models/404",
+    ]);
   });
 });

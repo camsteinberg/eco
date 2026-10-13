@@ -52,6 +52,12 @@ export type PickReport = {
   rows: AcceptanceRow[];
   /** Set when the walk stopped early; names the task that stopped it. */
   abortedAt?: { task: number; reason: string };
+  /**
+   * What the run noticed about this model that is not a turn — today, files
+   * the model host is missing that the app fetched through its own proxy.
+   * Absent when there is nothing to say.
+   */
+  notes?: string[];
 };
 
 export type AcceptanceReport = {
@@ -172,6 +178,9 @@ export function renderMarkdown(report: AcceptanceReport): string {
         `**Stopped at task ${pick.abortedAt.task}:** ${pick.abortedAt.reason}`,
         "",
       );
+    }
+    for (const note of pick.notes ?? []) {
+      parts.push(`**Note:** ${note}`, "");
     }
     parts.push(renderTable(pick), "");
     const counts = pick.rows.reduce<Record<string, number>>((acc, row) => {

@@ -100,8 +100,11 @@ would see and what the reply's receipt recorded:
   message must then answer too.
 - **14** sends two messages, edits the first (a new name), and resends. Only
   the edited exchange may remain, the earlier version must be one tap away, and
-  asked "What is my name?" the model must give the edited name, not the
-  original.
+  storage must hold the edit — that row is PASS/FAIL. Then it asks "What is my
+  name?" and RECORDS the answer: whether a small model recalls a name is a
+  quality reading, so a miss is not a failure, but the original name in that
+  reply would mean the discarded text reached the model, and the row says so.
+  This holds on both runtimes.
 
 Not yet covered: pressing Stop before the first word appears, and pressing Try
 again on a reply the person stopped.
@@ -124,13 +127,19 @@ It walks tasks 1, 12, 13 and 14 on both models by default (an
 `.browser-profile-webllm/`, and provisions each model by asking for it the way
 a preparing slot does, then waiting until the app reports it ready.
 
-Before it waits on a download, it checks that each model's files are on the
-model host the build fetches from, and stops with the URLs and status codes if
-they are not. The build fetches from the production model CDN by default.
-`ECO_ACCEPTANCE_MODEL_CDN_BASE` overrides that host:
+Before it waits on a download, it checks each model's files by the app's own
+rule. The build fetches from the production model CDN by default, and when
+the CDN is missing a file (a 403 or 404) the app retries it through its own
+same-origin proxy, which gets it from Hugging Face. So a file only the proxy
+serves is not a failure: the report carries a note under that model's table
+("the model host is missing … ; the app fell back to its own proxy"), as it
+does for any file the host refused during setup. The run stops, with every URL
+and status code, only when neither the host nor the proxy serves a file.
 
-- empty (`ECO_ACCEPTANCE_MODEL_CDN_BASE=`) fetches through the app's own model
-  proxy, which gets the files from Hugging Face;
+`ECO_ACCEPTANCE_MODEL_CDN_BASE` overrides the model host:
+
+- empty (`ECO_ACCEPTANCE_MODEL_CDN_BASE=`) skips the CDN and fetches everything
+  through the app's own model proxy;
 - any other origin points it at a different copy of the model files in the same
   layout. The app's content-security policy has to allow that origin.
 

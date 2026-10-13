@@ -16,6 +16,7 @@
 import { expect, type BrowserContext, type Locator, type Page } from "@playwright/test";
 import type { GenerationReceipt } from "../../src/local-ai/lifecycle/generation-receipt";
 import { VALIDATION_GENERATION_FAULT_MESSAGE } from "../../src/lib/validation-harness";
+import { judgeFileSources, type FileProbe } from "./model-host";
 import {
   FORCED_DESKTOP_PROFILE,
   READY_TIMEOUT_MS,
@@ -456,36 +457,49 @@ export async function editUserMessage(page: Page, index: number, text: string): 
   await bubble.getByRole("button", { name: "Save & Submit" }).click();
 }
 
+/** One HEAD request, reduced to what a verdict needs. */
+async function headStatus(url: string): Promise<{ url: string; status: string; ok: boolean }> {
+  try {
+    const response = await fetch(url, { method: "HEAD" });
+    return { url, status: String(response.status), ok: response.ok };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return { url, status: `unreachable (${reason})`, ok: false };
+  }
+}
+
 /**
- * Check, from outside the browser, that each URL the app will fetch for a model
- * answers. Throws with every failing URL and its status, plus `remedy`, so a
- * model whose files were never put on the host fails in seconds and says why —
- * not after a download timeout, and never by quietly walking something else.
+ * Check, from outside the browser, that the app will be able to fetch a
+ * model's files — by the same rule its download uses. Each file is asked of the
+ * model host first; a file the host does not serve is then asked of the app's
+ * own proxy, because the app falls back to it (`judgeFileSources`).
+ *
+ * Returns notes for the report — every file only the proxy serves, so a host
+ * out of step with the catalog is visible — and throws, with every URL and
+ * status plus `remedy`, only when a file has no source at all. That fails in
+ * seconds and says why, not after a download timeout.
  */
-export async function assertModelFilesServed(
+export async function checkModelFilesServed(
   pick: Pick,
-  urls: readonly string[],
+  files: readonly { file: string; hostUrl: string | null; proxyUrl: string }[],
   remedy: string,
-): Promise<string> {
-  const results = await Promise.all(
-    urls.map(async (url) => {
-      try {
-        const response = await fetch(url, { method: "HEAD" });
-        return { url, status: String(response.status), ok: response.ok };
-      } catch (error) {
-        const reason = error instanceof Error ? error.message : String(error);
-        return { url, status: `unreachable (${reason})`, ok: false };
-      }
+): Promise<string[]> {
+  const probes: FileProbe[] = await Promise.all(
+    files.map(async ({ file, hostUrl, proxyUrl }) => {
+      const host = hostUrl === null ? null : await headStatus(hostUrl);
+      const proxy = host?.ok ? null : await headStatus(proxyUrl);
+      return { file, host, proxy };
     }),
   );
-  const missing = results.filter((result) => !result.ok);
-  if (missing.length > 0) {
+  const verdict = judgeFileSources(probes);
+  if (verdict.missing.length > 0) {
     throw new Error(
-      `${pick.friendlyName} (${pick.modelId}) cannot be walked: its model files are not served — `
-        + `${missing.map((result) => `${result.status} ${result.url}`).join("; ")}. ${remedy}`,
+      `${pick.friendlyName} (${pick.modelId}) cannot be set up: neither the model host nor the app's `
+        + `own proxy serves ${verdict.missing.length === 1 ? "this file" : "these files"} — `
+        + `${verdict.missing.join("; ")}. ${remedy}`,
     );
   }
-  return results.map((result) => `${result.status} ${result.url}`).join("; ");
+  return verdict.notes;
 }
 
 /**
@@ -497,22 +511,25 @@ export async function assertModelFilesServed(
  * card, and the switcher's tiles for them have not been walked, while a
  * preparing slot is the app's own path to a model it was told to get.
  *
- * Fails at once, naming the URL and status, when the app's own request for one
- * of the model's files is refused — a refused file is not retried, so waiting
- * on would only end in a vaguer timeout.
+ * A file the model host refuses is not a failure: the app retries it through
+ * its own proxy, and the returned notes say how many it had to. A file the
+ * proxy refuses is the end of the line — the app tries nothing after it — so
+ * that fails at once, naming the URL and status, rather than as a timeout.
  */
 export async function provisionBySeeding(
   context: BrowserContext,
   pick: Pick,
   remedy: string,
   timeoutMs: number = DOWNLOAD_TIMEOUT_MS,
-): Promise<void> {
+): Promise<string[]> {
   const page = await context.newPage();
+  const proxyPrefix = `${getWebBaseUrl()}/api/local-models/`;
   const refused: string[] = [];
+  const hostRefused: string[] = [];
   page.on("response", (response) => {
-    if (response.url().includes("/resolve/") && response.status() >= 400) {
-      refused.push(`${response.status()} ${response.url()}`);
-    }
+    const url = response.url();
+    if (!url.includes("/resolve/") || response.status() < 400) return;
+    (url.startsWith(proxyPrefix) ? refused : hostRefused).push(`${response.status()} ${url}`);
   });
   try {
     await page.addInitScript(
@@ -532,15 +549,22 @@ export async function provisionBySeeding(
     while (Date.now() < deadline) {
       if (refused.length > 0) {
         throw new Error(
-          `${pick.friendlyName} (${pick.modelId}) could not be set up: the app's requests for its files were `
-            + `refused — ${refused.slice(0, 3).join("; ")}. ${remedy}`,
+          `${pick.friendlyName} (${pick.modelId}) could not be set up: the app's own model proxy refused `
+            + `its files — ${refused.slice(0, 3).join("; ")}. ${remedy}`,
         );
       }
       status = await page.evaluate(
         (slot) => window.localStorage.getItem(`eco-local-ai-slot-status-${slot}`),
         pick.slot,
       );
-      if (status === "ready") return;
+      if (status === "ready") {
+        return hostRefused.length === 0
+          ? []
+          : [
+              `during setup the model host refused ${hostRefused.length} request(s) (first: `
+                + `${hostRefused[0]}); the app fetched those files through its own proxy`,
+            ];
+      }
       if (status === "error") {
         throw new Error(
           `${pick.friendlyName} (${pick.modelId}) could not be set up on this device: its slot ended in 'error'.`,
