@@ -1251,26 +1251,27 @@ test.describe("acceptance walk", () => {
           ),
         );
 
-        // RECORDED, not PASS/FAIL: whether a small model recalls a name one turn
-        // later is a quality reading, and a single miss says little. The rows
-        // above are the mechanical check that the edit took effect; what this
-        // row adds is evidence — "Priya" here would mean the discarded original
-        // reached the model, which is worth reading every time it appears.
+        // Three outcomes, judged in this order. The original name in the reply
+        // means the discarded text reached the model — the edit itself is
+        // broken, so that FAILs. The edited name PASSes. Neither name (a
+        // small model saying it doesn't know) is RECORDED: a reading on the
+        // model's recall, not evidence about the edit.
         const recall = await sendTurn(page, "What is my name?");
-        const recalled = recall.replyText.includes("Tomas") && !recall.replyText.includes("Priya");
+        const leakedOriginal = recall.replyText.includes("Priya");
+        const recalled = recall.replyText.includes("Tomas");
         push(
           rowFor(
             14,
             2,
             "the conversation continues from the edit",
             recall,
-            "RECORDED",
+            leakedOriginal ? "FAIL" : recalled ? "PASS" : "RECORDED",
             `${
-              recalled
-                ? "the reply uses the edited name"
-                : recall.replyText.includes("Priya")
-                  ? "the reply uses the name from BEFORE the edit"
-                  : "the edited name is missing"
+              leakedOriginal
+                ? "the reply uses the name from BEFORE the edit, so the discarded text reached the model"
+                : recalled
+                  ? "the reply uses the edited name"
+                  : "the model did not recall either name — a recall reading, not an edit failure"
             }; ${turnCounts(recall)}; reply: ${clip(recall.replyText)}`,
           ),
         );

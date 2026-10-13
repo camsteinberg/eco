@@ -101,10 +101,10 @@ would see and what the reply's receipt recorded:
 - **14** sends two messages, edits the first (a new name), and resends. Only
   the edited exchange may remain, the earlier version must be one tap away, and
   storage must hold the edit — that row is PASS/FAIL. Then it asks "What is my
-  name?" and RECORDS the answer: whether a small model recalls a name is a
-  quality reading, so a miss is not a failure, but the original name in that
-  reply would mean the discarded text reached the model, and the row says so.
-  This holds on both runtimes.
+  name?". The original name in the reply FAILs, because it means the discarded
+  text reached the model; the edited name PASSes; neither name (the model says
+  it doesn't know) is RECORDED, since that is a reading on a small model's
+  recall rather than on the edit. The same rule holds on both runtimes.
 
 Not yet covered: pressing Stop before the first word appears, and pressing Try
 again on a reply the person stopped.
