@@ -34,9 +34,9 @@
  *     in-flight fetches rather than merely abandoning them. That matters
  *     specifically here: careful memory behavior on WebKit is this
  *     runtime's whole reason for existing.
- *   - Generate: `engine.interruptGenerate()` is a real, purpose-built
- *     cancellation API — safe once streaming has actually started, which
- *     is the only time this adapter calls it.
+ *   - Generate: `engine.interruptGenerate()` ends the stream at its next
+ *     decode step, but the stream must still be read to its end or the
+ *     engine never takes another request — see `finishOpenStream()`.
  */
 
 import type { LogitProcessor } from '@mlc-ai/web-llm';
@@ -222,6 +222,10 @@ export class WebLLMAdapter implements RuntimeAdapter {
   private currentModel: ModelConfig | null = null;
   private inFlight: { abort: () => void } | null = null;
   private kvGate: WebLLMKvGate | null = null;
+  /** The last request's stream, until it has been read to its end. */
+  private openStream: AsyncIterator<WebLLMChunk> | null = null;
+  /** The background read that finishes an abandoned stream; see `finishOpenStream`. */
+  private draining: Promise<void> | null = null;
 
   constructor(options: WebLLMAdapterOptions = {}) {
     this.options = options;
@@ -400,25 +404,35 @@ export class WebLLMAdapter implements RuntimeAdapter {
     let firstTokenEmitted = false;
     let seq = 0;
 
+    const stopped: TokenEvent = { kind: 'error', reason: 'Generation aborted', code: 'aborted' };
     let aborted = false;
+    // This request's stream, once `create()` returns it. Before then there is
+    // nothing to interrupt: the checks after `resetChat()` and `create()` see
+    // `aborted` instead.
+    let stream: AsyncIterator<WebLLMChunk> | null = null;
     const onAbort = (): void => {
       aborted = true;
-      try {
-        engine.interruptGenerate();
-      } catch {
-        // interruptGenerate is documented unsafe before stream — but we
-        // only reach here after stream began, so this should succeed.
-      }
+      if (stream && this.openStream === stream) void this.finishOpenStream(engine);
     };
     if (options?.signal) {
       if (options.signal.aborted) {
-        yield { kind: 'error', reason: 'Generation aborted', code: 'aborted' };
+        yield stopped;
         return;
       }
       options.signal.addEventListener('abort', onAbort, { once: true });
     }
 
-    this.inFlight = { abort: onAbort };
+    const inFlight = { abort: onAbort };
+    this.inFlight = inFlight;
+
+    // A stopped or abandoned previous reply still holds the engine's request
+    // lock until its stream is read to the end, and its end also stores the
+    // reply in the conversation the KV gate reads below.
+    await this.finishOpenStream(engine);
+    if (aborted) {
+      yield stopped;
+      return;
+    }
 
     // Effective temperature: the adapter defaults to 0.7 when not specified.
     const effectiveTemp = options?.temperature ?? 0.7;
@@ -447,6 +461,10 @@ export class WebLLMAdapter implements RuntimeAdapter {
       // failure here shares the create() failure path below: it means the
       // engine cannot serve this request either.
       if (!kvGate?.prepare(messages)) await engine.resetChat();
+      if (aborted) {
+        yield stopped;
+        return;
+      }
 
       // WebLLM penalises only the tokens generated this round, so the profile's
       // repetition penalty is applied here over every id in the KV cache as
@@ -523,14 +541,29 @@ export class WebLLMAdapter implements RuntimeAdapter {
       return;
     }
 
+    // Read by hand, never with `for await`: leaving that loop early would close
+    // the stream with `return()`, which skips the engine's lock release.
+    stream = chunks[Symbol.asyncIterator]();
+    this.openStream = stream;
+    if (aborted) {
+      void this.finishOpenStream(engine);
+      yield stopped;
+      return;
+    }
+
     let lastUsage: { prompt_tokens?: number; completion_tokens?: number } | undefined;
     let lastFinishReason: string | undefined;
     try {
-      for await (const chunk of chunks) {
-        if (aborted) {
-          yield { kind: 'error', reason: 'Generation aborted', code: 'aborted' };
-          return;
+      while (!aborted) {
+        const step = await stream.next();
+        if (step.done) {
+          if (this.openStream === stream) this.openStream = null;
+          break;
         }
+        // Stopped while this chunk was decoding: the abort handler already
+        // handed the stream to `finishOpenStream`.
+        if (aborted) break;
+        const chunk = step.value;
         const choice = chunk.choices[0];
         const delta = choice?.delta?.content;
         if (delta) {
@@ -564,6 +597,10 @@ export class WebLLMAdapter implements RuntimeAdapter {
         // completion so WebLLM finalizes the request and releases its internal
         // lock; breaking here deadlocks the NEXT create() forever.
       }
+      if (aborted) {
+        yield stopped;
+        return;
+      }
       emit?.({ phase: 'generation-complete', at: now() });
       const confidence = confidenceAcc.summarize(isGreedy);
       const kvReuse = kvGate?.report;
@@ -595,11 +632,42 @@ export class WebLLMAdapter implements RuntimeAdapter {
         code: classifyWebLLMError(err),
       };
     } finally {
-      this.inFlight = null;
+      if (this.inFlight === inFlight) this.inFlight = null;
       if (options?.signal) {
         options.signal.removeEventListener('abort', onAbort);
       }
+      // The consumer stopped reading before the stream's end (a `break`, a
+      // `return()`), or the stream threw — reading a thrown stream ends at once.
+      if (this.openStream === stream) void this.finishOpenStream(engine);
     }
+  }
+
+  /**
+   * Read an abandoned stream to its end in the background. WebLLM 0.2.84 takes
+   * a per-model lock in `create()` (`lib/index.js:12953`) and releases it only
+   * after the stream's last chunk (12919) — not in a `finally`, so a stream
+   * that is stopped, closed with `return()` or simply no longer read keeps the
+   * lock and the next `create()` waits forever. Interrupted, the stream ends at
+   * its next decode step (12786); the interrupt is repeated before every read
+   * because a stream clears it on its first one (12704). The next `generate()`
+   * awaits the returned promise before it touches the engine.
+   */
+  private finishOpenStream(engine: WebLLMEngine): Promise<void> {
+    const stream = this.openStream;
+    if (stream) {
+      this.openStream = null;
+      this.draining = (async () => {
+        try {
+          for (;;) {
+            engine.interruptGenerate();
+            if ((await stream.next()).done) return;
+          }
+        } catch {
+          // A stream that throws has released the lock itself (12698-12822).
+        }
+      })();
+    }
+    return this.draining ?? Promise.resolve();
   }
 
   /**
@@ -632,6 +700,10 @@ export class WebLLMAdapter implements RuntimeAdapter {
       }
       this.inFlight = null;
     }
+    // Never awaited: unloading frees the engine's locks (`lib/index.js:12648`),
+    // and a stream still being finished fails against it harmlessly.
+    this.openStream = null;
+    this.draining = null;
     if (engine) {
       await engine.unload().catch(() => undefined);
     }
