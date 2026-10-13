@@ -69,8 +69,9 @@ export function appFallsBackOn(status: string): boolean {
  * Judge each file the way the app's download does: served by the host is fine;
  * missing on the host (403/404) but served by the proxy is fine too, because
  * the app falls back to the proxy for exactly those statuses — but it is worth
- * saying, since the host is out of step with the catalog; served by neither is
- * the one case that cannot be set up.
+ * saying, since the host is out of step with the catalog; a proxy that could
+ * not answer (429/5xx) is noted and left to setup's real download to settle;
+ * a definitive refusal from both is the one case that cannot be set up.
  */
 export function judgeFileSources(probes: readonly FileProbe[]): ServedVerdict {
   const notes: string[] = [];
@@ -88,6 +89,22 @@ export function judgeFileSources(probes: readonly FileProbe[]): ServedVerdict {
       }
       continue;
     }
+    // A proxy that is rate-limited upstream (429) or failing (5xx) has not said
+    // the file is missing — it could not say either way. That is noted, not
+    // fatal: setup's real download still fails the run on a real refusal.
+    if (
+      probe.proxy
+      && proxyCouldNotConfirm(probe.proxy.status)
+      && (probe.host === null || appFallsBackOn(probe.host.status))
+    ) {
+      const { status } = probe.proxy;
+      notes.push(
+        `could not confirm ${probe.file} is served: the app's proxy answered ${status}`
+          + `${status === "429" ? " (upstream rate limit)" : ""}; `
+          + "continuing — a real refusal during setup still fails the run",
+      );
+      continue;
+    }
     missing.push(
       [probe.host, probe.proxy]
         .filter((answer): answer is NonNullable<typeof answer> => answer !== null)
@@ -96,6 +113,12 @@ export function judgeFileSources(probes: readonly FileProbe[]): ServedVerdict {
     );
   }
   return { notes, missing };
+}
+
+/** A proxy answer that confirms nothing: rate-limited upstream, or the proxy itself failing. */
+function proxyCouldNotConfirm(status: string): boolean {
+  const code = Number(status);
+  return code === 429 || (code >= 500 && code < 600);
 }
 
 /** The model host the lane's server is built with; empty means the same-origin proxy. */

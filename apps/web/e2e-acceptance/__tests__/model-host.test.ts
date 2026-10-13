@@ -112,16 +112,44 @@ describe("judgeFileSources", () => {
   });
 
   it("fails a file neither source serves, naming both answers", () => {
-    const probes: FileProbe[] = [{ file: "a.bin", host: host("404"), proxy: proxy("502") }];
+    const probes: FileProbe[] = [{ file: "a.bin", host: host("404"), proxy: proxy("403") }];
     const verdict = judgeFileSources(probes);
     expect(verdict.missing).toHaveLength(1);
     expect(verdict.missing[0]).toContain("404 https://models.example/404");
-    expect(verdict.missing[0]).toContain("502 http://localhost:3120/api/local-models/502");
+    expect(verdict.missing[0]).toContain("403 http://localhost:3120/api/local-models/403");
   });
 
   it("fails a file the host refuses for good, even if the proxy has it — the app would not fall back", () => {
     const probes: FileProbe[] = [{ file: "a.bin", host: host("410"), proxy: proxy("200") }];
     expect(judgeFileSources(probes).missing).toHaveLength(1);
+  });
+
+  it("notes, without failing, a proxy that could not answer because Hugging Face rate-limited it", () => {
+    // A 429 from the proxy is the upstream throttling this machine, not a
+    // refusal: it says nothing about whether the file exists. Setup's own
+    // download still fails the run if the file is really refused.
+    const verdict = judgeFileSources([{ file: "a.bin", host: host("404"), proxy: proxy("429") }]);
+    expect(verdict.missing).toEqual([]);
+    expect(verdict.notes).toEqual([
+      "could not confirm a.bin is served: the app's proxy answered 429 (upstream rate limit); "
+        + "continuing — a real refusal during setup still fails the run",
+    ]);
+  });
+
+  it("notes, without failing, a proxy answering 5xx", () => {
+    const verdict = judgeFileSources([{ file: "a.bin", host: null, proxy: proxy("503") }]);
+    expect(verdict.missing).toEqual([]);
+    expect(verdict.notes).toEqual([
+      "could not confirm a.bin is served: the app's proxy answered 503; "
+        + "continuing — a real refusal during setup still fails the run",
+    ]);
+  });
+
+  it("still fails on a definitive proxy refusal", () => {
+    for (const status of ["403", "404", "410", "400"]) {
+      expect(judgeFileSources([{ file: "a.bin", host: host("404"), proxy: proxy(status) }]).missing, status)
+        .toHaveLength(1);
+    }
   });
 
   it("with no separate host, judges the proxy alone and has nothing to note", () => {

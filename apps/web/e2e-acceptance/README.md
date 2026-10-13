@@ -139,7 +139,10 @@ same-origin proxy, which gets it from Hugging Face. So a file only the proxy
 serves is not a failure: the report carries a note under that model's table
 ("the model host is missing … ; the app fell back to its own proxy"), as it
 does for any file the host refused during setup. The run stops, with every URL
-and status code, only when neither the host nor the proxy serves a file.
+and status code, only when neither the host nor the proxy serves a file. A proxy
+answer of 429 or 5xx (Hugging Face rate-limiting this machine, say) is not a
+refusal: the check notes that it could not confirm the file and goes on, and
+setup's real download still fails the run if the file is truly refused.
 
 `ECO_ACCEPTANCE_MODEL_CDN_BASE` overrides the model host:
 
