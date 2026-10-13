@@ -1212,10 +1212,16 @@ test.describe("acceptance walk", () => {
       // exchange leaves the transcript, and the model must answer from the
       // edited text alone. The name is the witness — only the edit says Tomas,
       // and only the discarded original said Priya.
+      //
+      // The witness has to be the reply to the edited message ITSELF. A later
+      // turn is built from the conversation as the app now shows it, which
+      // already says Tomas, so it cannot tell whether the edited turn was
+      // generated from the edit or from the original. Asking to be greeted by
+      // name puts the name in the edited turn's own reply.
       await task(14, "edit an earlier message and resend", async () => {
         const page = await open();
-        const original = "My name is Priya. Please remember it, and reply in one short sentence.";
-        const edit = "My name is Tomas. Please remember it, and reply in one short sentence.";
+        const original = "My name is Priya. Say hello to me by name, in one short sentence.";
+        const edit = "My name is Tomas. Say hello to me by name, in one short sentence.";
         await sendTurn(page, original);
         await sendTurn(page, "Suggest one name for a pet goldfish.");
 
@@ -1231,7 +1237,19 @@ test.describe("acceptance walk", () => {
           (await userMessages(page).first().getByRole("button", { name: "Previous version" }).count()) > 0;
         // Null means nothing could be read from storage; only a mismatch fails.
         const storedEdit = edited.storedUserText === null || edited.storedUserText.trim() === edit;
-        const editOk = check.ok && showsEdit && laterTurnGone && oneReply && versionsShown && storedEdit;
+        // The reply's own words: the original name means the edited turn was
+        // generated from the discarded text — the edit is broken whatever the
+        // screen shows. Neither name leaves the content unchecked, not failed.
+        const replyLeakedOriginal = edited.replyText.includes("Priya");
+        const replyUsedEdit = edited.replyText.includes("Tomas");
+        const editOk =
+          check.ok
+          && showsEdit
+          && laterTurnGone
+          && oneReply
+          && versionsShown
+          && storedEdit
+          && !replyLeakedOriginal;
         push(
           rowFor(
             14,
@@ -1246,6 +1264,11 @@ test.describe("acceptance walk", () => {
               oneReply ? "one reply" : "more than one reply is showing",
               versionsShown ? "the earlier version is one tap away" : "NO way back to the earlier version",
               storedEdit ? "storage holds the edit" : `storage holds ${JSON.stringify(clip(edited.storedUserText ?? "", 60))}`,
+              replyLeakedOriginal
+                ? "the reply uses the name from BEFORE the edit, so it was generated from the discarded text"
+                : replyUsedEdit
+                  ? "the reply uses the edited name"
+                  : "the reply did not use a name — the edit's content is unchecked on this run",
               `reply: ${clip(edited.replyText)}`,
             ].join("; "),
           ),

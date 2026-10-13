@@ -98,13 +98,18 @@ would see and what the reply's receipt recorded:
   it fails after its first word with the usual error card. Pressing Try again
   must answer, show the question once, and replace the failed reply; one more
   message must then answer too.
-- **14** sends two messages, edits the first (a new name), and resends. Only
-  the edited exchange may remain, the earlier version must be one tap away, and
-  storage must hold the edit — that row is PASS/FAIL. Then it asks "What is my
-  name?". The original name in the reply FAILs, because it means the discarded
-  text reached the model; the edited name PASSes; neither name (the model says
-  it doesn't know) is RECORDED, since that is a reading on a small model's
-  recall rather than on the edit. The same rule holds on both runtimes.
+- **14** sends two messages, the first asking to be greeted by name, then
+  edits that first message to a new name and resends. Only the edited exchange
+  may remain, the earlier version must be one tap away, storage must hold the
+  edit, and the reply to the edited message must not use the original name —
+  if it does, it was generated from the discarded text. A reply that uses no
+  name passes on the rest and says the edit's content went unchecked. The
+  witness has to be that reply: a later turn is built from the conversation as
+  the app now shows it, so it cannot see what the edited turn was built from.
+  Then it asks "What is my name?". The original name FAILs, the edited name
+  PASSes, and neither name (the model says it doesn't know) is RECORDED, since
+  that is a reading on a small model's recall rather than on the edit. The same
+  rules hold on both runtimes.
 
 Not yet covered: pressing Stop before the first word appears, and pressing Try
 again on a reply the person stopped.
