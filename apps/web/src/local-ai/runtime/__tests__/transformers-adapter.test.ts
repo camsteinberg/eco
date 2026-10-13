@@ -563,6 +563,97 @@ describe('TransformersAdapter — generate', () => {
   });
 });
 
+describe('TransformersAdapter — a reply its reader leaves early', () => {
+  beforeEach(async () => {
+    const loadPromise = adapter.load(MODEL);
+    await Promise.resolve();
+    worker.emit({ type: 'ready', backend: 'webgpu' });
+    await loadPromise;
+  });
+
+  const aborts = (): WorkerInbound[] => worker.inbox.filter((m) => m.type === 'abort');
+
+  it('tells the worker to stop when the reader leaves mid-reply', async () => {
+    // A caller that stops reading part-way (a fault above the adapter, a
+    // consumer that breaks) must not leave the worker generating: it would
+    // keep the worker's single-flight guard and reject the next message.
+    const collector = (async () => {
+      for await (const event of adapter.generate([{ role: 'user', content: 'hi' }])) {
+        if (event.kind === 'token') break;
+      }
+    })();
+    await Promise.resolve();
+    await Promise.resolve();
+    worker.emit({ type: 'token', generationId: 'test-gen-id', text: 'First', seq: 1 });
+    await collector;
+
+    expect(aborts()).toEqual([{ type: 'abort', generationId: 'test-gen-id' }]);
+  });
+
+  it('posts no abort for a reply that finished', async () => {
+    const collector = (async () => {
+      for await (const event of adapter.generate([{ role: 'user', content: 'hi' }])) {
+        void event;
+      }
+    })();
+    await Promise.resolve();
+    await Promise.resolve();
+    worker.emit({ type: 'token', generationId: 'test-gen-id', text: 'Done', seq: 1 });
+    worker.emit({ type: 'done', generationId: 'test-gen-id', promptTokens: 1, completionTokens: 1 });
+    await collector;
+
+    expect(aborts()).toEqual([]);
+  });
+
+  it('posts no abort when the reader leaves after the reply had already ended', async () => {
+    const collector = (async () => {
+      for await (const event of adapter.generate([{ role: 'user', content: 'hi' }])) {
+        if (event.kind === 'token') break;
+      }
+    })();
+    await Promise.resolve();
+    await Promise.resolve();
+    // The worker finished before the reader got round to leaving.
+    worker.emit({ type: 'token', generationId: 'test-gen-id', text: 'Done', seq: 1 });
+    worker.emit({ type: 'done', generationId: 'test-gen-id', promptTokens: 1, completionTokens: 1 });
+    await collector;
+
+    expect(aborts()).toEqual([]);
+  });
+
+  it('aborts a stopped reply once, not again when the reader then leaves', async () => {
+    const stop = new AbortController();
+    const collector = (async () => {
+      for await (const event of adapter.generate([{ role: 'user', content: 'hi' }], { signal: stop.signal })) {
+        void event;
+      }
+    })();
+    await Promise.resolve();
+    await Promise.resolve();
+    worker.emit({ type: 'token', generationId: 'test-gen-id', text: 'Part', seq: 1 });
+    stop.abort();
+    await collector;
+
+    expect(aborts()).toEqual([{ type: 'abort', generationId: 'test-gen-id' }]);
+  });
+
+  it('posts no abort for a finished reply when its signal fires later', async () => {
+    const stop = new AbortController();
+    const collector = (async () => {
+      for await (const event of adapter.generate([{ role: 'user', content: 'hi' }], { signal: stop.signal })) {
+        void event;
+      }
+    })();
+    await Promise.resolve();
+    await Promise.resolve();
+    worker.emit({ type: 'done', generationId: 'test-gen-id', promptTokens: 1, completionTokens: 1 });
+    await collector;
+    stop.abort();
+
+    expect(aborts()).toEqual([]);
+  });
+});
+
 describe('TransformersAdapter — generate postMessage safety', () => {
   beforeEach(async () => {
     const loadPromise = adapter.load(MODEL);
