@@ -1253,6 +1253,11 @@ export function useChat() {
       // the done event — not a client-side recomputation of it (R5a).
       recordContextWindowStart(lastUsage.windowStartIndex, messagesWithSystem, windowSourceIds);
       const possiblyTruncated = lastUsage.finishReason === 'length';
+      // A Stop also ends the loop cleanly (the cancelled stream reads `done`), so
+      // the abort signal is what tells a stopped turn from a finished one. The
+      // stopped message is saved exactly like a finished one; only the receipt,
+      // the failure streak, redaction and the chime treat it differently.
+      const stopped = generation.abortController.signal.aborted;
       updateMessage(assistantId, {
         status: "complete",
         inferenceMethod: "local",
@@ -1262,11 +1267,12 @@ export function useChat() {
         ...(lastUsage.completionTokens != null && { localCompletionTokens: lastUsage.completionTokens }),
         ...(lastUsage.maxTokens != null && { localMaxTokens: lastUsage.maxTokens }),
       });
-      // A clean completion breaks any prior generic-failure streak.
-      resetLocalGenerationFailureStreak();
+      // A clean completion breaks any prior generic-failure streak; a Stop is
+      // neither a success nor a failure.
+      if (!stopped) resetLocalGenerationFailureStreak();
       // Reconcile the persisted body with the deterministic display normalization
       // (clean completion only — a user-stopped turn keeps its raw partial text).
-      if (!generation.abortController.signal.aborted) {
+      if (!stopped) {
         // Conversation-integrity guarantee (#27): deterministically strip any private
         // span that survived the primary draft AND any regeneration above. This is the
         // hard backstop — redaction cannot fail to remove a span it was given — so a
@@ -1285,7 +1291,7 @@ export function useChat() {
       recordReceiptAsync((base, sph) => ({
         ...base,
         systemPromptHash: sph,
-        status: 'complete' as const,
+        status: stopped ? ('aborted' as const) : ('complete' as const),
         promptTokens: lastUsage.promptTokens ?? 0,
         completionTokens: lastUsage.completionTokens ?? 0,
         ...(lastUsage.kvReuse != null ? { kvReuse: lastUsage.kvReuse } : {}),
@@ -1301,7 +1307,7 @@ export function useChat() {
       }));
 
       // Only play the received sound when the turn wasn't user-stopped.
-      if (!generation.abortController.signal.aborted) {
+      if (!stopped) {
         playMessageReceived(useSettingsStore.getState().soundsEnabled);
       }
     } finally {
@@ -1431,8 +1437,10 @@ export function useChat() {
         confidence: null,
         offlineDivider: true,
       });
-      // A clean continuation breaks any prior generic-failure streak.
-      resetLocalGenerationFailureStreak();
+      // A clean continuation breaks any prior generic-failure streak; a Stop
+      // (which also ends the loop cleanly) is neither a success nor a failure.
+      const stopped = generation.abortController.signal.aborted;
+      if (!stopped) resetLocalGenerationFailureStreak();
       // Conversation-integrity guarantee (#27): the offline-continue path finalizes a
       // model-drafted reply too, so it must carry the SAME deterministic redaction as
       // the primary stream — otherwise a third-party draft interrupted and then
@@ -1446,7 +1454,7 @@ export function useChat() {
         updateMessage(assistantId, { content: redacted, lastSeq: 0 });
         generation.batcher.resetSeq();
       }
-      playMessageReceived(useSettingsStore.getState().soundsEnabled);
+      if (!stopped) playMessageReceived(useSettingsStore.getState().soundsEnabled);
     } finally {
       leaseAcquisition.release();
       clearActiveGeneration(generation);

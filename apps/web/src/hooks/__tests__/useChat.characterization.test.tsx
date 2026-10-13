@@ -281,6 +281,15 @@ vi.mock("../../local-ai/lifecycle/generation-receipt", () => ({
       : "primary-hash",
 }));
 
+// ─── Sounds seam ───────────────────────────────────────────────────────────
+// Records the "reply received" chime so a test can assert a stopped reply
+// never plays it.
+const playMessageReceived = vi.hoisted(() => vi.fn());
+vi.mock("../../lib/sounds", () => ({
+  playMessageSent: () => {},
+  playMessageReceived,
+}));
+
 // Imports AFTER the mocks so the hook picks up the mocked seams.
 import { useChat, buildSystemPrompt, createTokenBatcher } from "../useChat";
 import { useChatStore } from "../../stores/chatStore";
@@ -348,6 +357,42 @@ async function flushReceiptRecording(): Promise<void> {
   await act(async () => {
     for (let i = 0; i < 6; i++) await Promise.resolve();
   });
+}
+
+/** A generic runtime failure — the kind that counts toward the repeated-failure copy. */
+function genericFailure(): StreamScript {
+  return {
+    kind: "error",
+    tokens: [],
+    error: new LocalInferenceStreamError("LOCAL_INFERENCE_FAILED", "boom", true),
+  };
+}
+
+/**
+ * Start `run` (a send or retry), let its stream begin, press Stop, then wait
+ * for `run` to finish.
+ */
+async function runAndStop(
+  result: { current: ReturnType<typeof useChat> },
+  run: () => Promise<void>,
+): Promise<void> {
+  let pending!: Promise<void>;
+  await act(async () => {
+    pending = run();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  await act(async () => {
+    result.current.stopGeneration();
+    await pending;
+  });
+}
+
+function sendAndStop(
+  result: { current: ReturnType<typeof useChat> },
+  prompt: string,
+): Promise<void> {
+  return runAndStop(result, () => result.current.sendMessage(prompt));
 }
 
 beforeEach(() => {
@@ -763,6 +808,59 @@ describe("useChat — user stop / abort (stopGeneration)", () => {
     // stopGeneration → interruptActiveGeneration flushes pending tokens first,
     // so the partial content survives.
     expect(lastAssistant()!.content).toBe("The story begins");
+  });
+
+  it("records a stopped turn's receipt as 'aborted', never as a clean completion", async () => {
+    setScripts([{ kind: "hang", tokens: ["partial answer so far"] }]);
+    const { result } = renderHook(() => useChat());
+
+    await sendAndStop(result, "Tell me a long story");
+    await flushReceiptRecording();
+
+    expect(recordedReceipts.map((r) => r.status)).toEqual(["aborted"]);
+  });
+
+  it("does not count a Stop as a success: the next failure still escalates", async () => {
+    const { result } = renderHook(() => useChat());
+
+    setScripts([genericFailure()]);
+    await act(async () => {
+      await result.current.sendMessage("first try");
+    });
+    expect(lastAssistant()!.errorMessage).toBe(LOCAL_GENERATION_FALLBACK_MESSAGE);
+
+    setScripts([{ kind: "hang", tokens: ["partial"] }]);
+    await sendAndStop(result, "something else");
+
+    setScripts([genericFailure()]);
+    await act(async () => {
+      await result.current.sendMessage("second try");
+    });
+    expect(lastAssistant()!.errorMessage).toBe(LOCAL_GENERATION_REPEATED_MESSAGE);
+  });
+
+  it("saves and shows the stopped reply exactly as before", async () => {
+    playMessageReceived.mockClear();
+    setScripts([{ kind: "hang", tokens: ["partial answer so far"] }]);
+    const { result } = renderHook(() => useChat());
+
+    await sendAndStop(result, "Tell me a long story");
+
+    const assistant = lastAssistant()!;
+    expect(assistant).toMatchObject({
+      content: "partial answer so far",
+      status: "complete",
+      streamInterrupted: true,
+      interruptedReason: "user-stop",
+      inferenceMethod: "local",
+      resolvedModel: TEST_MODEL_ID,
+      confidence: null,
+      possiblyTruncated: false,
+      localMaxTokens: expect.any(Number),
+    });
+    expect(assistant.localCompletionTokens).toBeUndefined();
+    expect(assistant.errorMessage).toBeUndefined();
+    expect(playMessageReceived).not.toHaveBeenCalled();
   });
 });
 
@@ -1366,6 +1464,43 @@ describe("useChat — retryMessage (offline continue-interrupted)", () => {
     expect(failed!.offlineDivider).toBeFalsy();
 
     onLineSpy.mockRestore();
+  });
+
+  it("a stopped continuation plays no chime and does not count as a success", async () => {
+    const { result } = renderHook(() => useChat());
+    setScripts([genericFailure()]);
+    await act(async () => {
+      await result.current.sendMessage("first try");
+    });
+    expect(lastAssistant()!.errorMessage).toBe(LOCAL_GENERATION_FALLBACK_MESSAGE);
+
+    useChatStore.setState({
+      messages: [
+        { id: "u1", role: "user", content: "Write a haiku", createdAt: 1, parentId: null, status: "complete" },
+        {
+          id: "a1",
+          role: "assistant",
+          content: "An old silent pond",
+          createdAt: 2,
+          parentId: "u1",
+          status: "complete",
+          streamInterrupted: true,
+          inferenceMethod: "local",
+        },
+      ],
+    });
+    const onLineSpy = vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+    playMessageReceived.mockClear();
+    setScripts([{ kind: "hang", tokens: [" / a frog"] }]);
+    await runAndStop(result, () => result.current.retryMessage("a1"));
+    onLineSpy.mockRestore();
+    expect(playMessageReceived).not.toHaveBeenCalled();
+
+    setScripts([genericFailure()]);
+    await act(async () => {
+      await result.current.sendMessage("second try");
+    });
+    expect(lastAssistant()!.errorMessage).toBe(LOCAL_GENERATION_REPEATED_MESSAGE);
   });
 });
 

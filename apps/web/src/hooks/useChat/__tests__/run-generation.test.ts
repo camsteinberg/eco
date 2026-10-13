@@ -346,7 +346,7 @@ describe("runGeneration — aborted path", () => {
     }
   });
 
-  it("returns 'aborted' when the gen is aborted and the reader is cancelled mid-stream", async () => {
+  it("returns 'completed' when the gen is aborted and the reader is cancelled mid-stream (the caller reads the abort signal)", async () => {
     const generation = makeGeneration();
     const assistantId = seedAssistant(generation.id);
     const phase = makePhaseShim();
