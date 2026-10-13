@@ -4,6 +4,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   buildValidationRemoteFixtureMessage,
+  consumeValidationGenerationFault,
   getValidationConversationHistoryFixture,
   getValidationDownloadFailure,
   getValidationHeavyWorkDryRun,
@@ -544,5 +545,52 @@ describe('isContextWindowNoticeForced (context-shrink capture seam)', () => {
     vi.stubEnv('NODE_ENV', 'production');
     window.history.replaceState({}, '', '/chat?eco-force-context-notice=visible');
     expect(isContextWindowNoticeForced()).toBe(false);
+  });
+});
+
+describe('consumeValidationGenerationFault (failed-reply seam)', () => {
+  const originalPathAndQuery = `${window.location.pathname}${window.location.search}`;
+
+  beforeEach(() => {
+    window.history.replaceState({}, '', '/chat');
+  });
+
+  afterEach(() => {
+    window.history.replaceState({}, '', originalPathAndQuery);
+    window.localStorage.clear();
+    vi.unstubAllEnvs();
+  });
+
+  it('is null when nothing is armed', () => {
+    expect(consumeValidationGenerationFault()).toBeNull();
+  });
+
+  it('fires once from localStorage, then clears itself so the retry runs clean', () => {
+    window.localStorage.setItem('eco-force-generation-fault', 'mid-reply');
+
+    expect(consumeValidationGenerationFault()).toBe('mid-reply');
+    expect(window.localStorage.getItem('eco-force-generation-fault')).toBeNull();
+    expect(consumeValidationGenerationFault()).toBeNull();
+  });
+
+  it('ignores the URL, which would otherwise fail every reply on the page', () => {
+    window.history.replaceState({}, '', '/chat?eco-force-generation-fault=mid-reply');
+    expect(consumeValidationGenerationFault()).toBeNull();
+  });
+
+  it('clears an unknown value without firing', () => {
+    window.localStorage.setItem('eco-force-generation-fault', 'everything');
+
+    expect(consumeValidationGenerationFault()).toBeNull();
+    expect(window.localStorage.getItem('eco-force-generation-fault')).toBeNull();
+  });
+
+  it('never fires in production, and leaves the key alone (never leaks to prod)', () => {
+    vi.stubEnv('NEXT_PUBLIC_ECO_VALIDATION_HARNESS', 'false');
+    vi.stubEnv('NODE_ENV', 'production');
+    window.localStorage.setItem('eco-force-generation-fault', 'mid-reply');
+
+    expect(consumeValidationGenerationFault()).toBeNull();
+    expect(window.localStorage.getItem('eco-force-generation-fault')).toBe('mid-reply');
   });
 });

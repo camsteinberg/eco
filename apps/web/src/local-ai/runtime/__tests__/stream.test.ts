@@ -77,17 +77,22 @@ vi.mock('../lifecycle', () => ({
 }));
 
 vi.mock('../../../lib/validation-harness', () => ({
+  consumeValidationGenerationFault: vi.fn(() => null),
   getValidationLocalGenerationFixture: vi.fn(() => null),
   isValidationHarnessEnabled: vi.fn(() => false),
+  VALIDATION_GENERATION_FAULT_MESSAGE: 'Validation harness: injected mid-reply fault',
 }));
 
-const { getValidationLocalGenerationFixture, isValidationHarnessEnabled } = await import(
-  '../../../lib/validation-harness'
-);
+const {
+  consumeValidationGenerationFault,
+  getValidationLocalGenerationFixture,
+  isValidationHarnessEnabled,
+} = await import('../../../lib/validation-harness');
 
 const mockLoad = lifecycle.loadModel as unknown as Mock;
 const mockGenerate = lifecycle.generate as unknown as Mock;
 const mockBootstrap = bootstrap.bootstrapLocalAi as unknown as Mock;
+const mockConsumeValidationGenerationFault = vi.mocked(consumeValidationGenerationFault);
 const mockGetValidationLocalGenerationFixture = vi.mocked(getValidationLocalGenerationFixture);
 const mockIsValidationHarnessEnabled = vi.mocked(isValidationHarnessEnabled);
 
@@ -133,6 +138,8 @@ beforeEach(() => {
   mockLoad.mockResolvedValue({
     countTokens: async (text: string) => text.trim().split(/\s+/).length,
   } as unknown);
+  mockConsumeValidationGenerationFault.mockReset();
+  mockConsumeValidationGenerationFault.mockReturnValue(null);
   mockGetValidationLocalGenerationFixture.mockReturnValue(null);
   mockIsValidationHarnessEnabled.mockReturnValue(false);
 });
@@ -264,6 +271,68 @@ describe('stream()', () => {
     await expect(
       firstEvent(stream([{ role: 'user', content: 'x' }], FAKE_MODEL.id)),
     ).rejects.toMatchObject({ name: 'LocalInferenceStreamError', code: 'DEVICE_LOST' });
+  });
+
+  it('fails the reply after its first word when the harness arms a mid-reply fault', async () => {
+    mockConsumeValidationGenerationFault.mockReturnValueOnce('mid-reply');
+    // The runtime's own stream, watched for being closed: a reply that fails
+    // part-way must stop reading the runtime the way a real fault does.
+    let runtimeStreamClosed = false;
+    mockGenerate.mockReturnValueOnce({
+      async *[Symbol.asyncIterator]() {
+        try {
+          yield { kind: 'token', text: 'First' } as TokenEvent;
+          yield { kind: 'token', text: ' second' } as TokenEvent;
+          yield { kind: 'done', promptTokens: 4, completionTokens: 2 } as TokenEvent;
+        } finally {
+          runtimeStreamClosed = true;
+        }
+      },
+    });
+
+    const received: TokenEvent[] = [];
+    let failure: unknown = null;
+    try {
+      for await (const event of stream([{ role: 'user', content: 'x' }], FAKE_MODEL.id)) {
+        received.push(event);
+      }
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(textOf(received)).toBe('First');
+    expect(failure).toMatchObject({
+      name: 'LocalInferenceStreamError',
+      code: 'LOCAL_INFERENCE_FAILED',
+      message: 'Validation harness: injected mid-reply fault',
+    });
+    expect(runtimeStreamClosed).toBe(true);
+  });
+
+  it('fires an armed fault once: the next reply streams normally', async () => {
+    mockConsumeValidationGenerationFault.mockReturnValueOnce('mid-reply');
+    mockGenerate
+      .mockReturnValueOnce(
+        asyncIterable([
+          { kind: 'token', text: 'Cut' },
+          { kind: 'token', text: ' short' },
+        ]),
+      )
+      .mockReturnValueOnce(
+        asyncIterable([
+          { kind: 'token', text: 'Whole' },
+          { kind: 'token', text: ' reply' },
+          { kind: 'done', promptTokens: 4, completionTokens: 2 },
+        ]),
+      );
+
+    await expect(
+      readAll(stream([{ role: 'user', content: 'x' }], FAKE_MODEL.id)),
+    ).rejects.toMatchObject({ code: 'LOCAL_INFERENCE_FAILED' });
+    const retry = await readAll(stream([{ role: 'user', content: 'x' }], FAKE_MODEL.id));
+
+    expect(textOf(retry)).toBe('Whole reply');
+    expect(mockConsumeValidationGenerationFault).toHaveBeenCalledTimes(2);
   });
 
   it('translates AdapterError thrown synchronously by lifecycle.generate', async () => {

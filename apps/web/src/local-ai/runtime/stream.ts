@@ -61,8 +61,10 @@ import type { ModelConfig } from '../types';
 import { LocalInferenceStreamError } from './errors';
 import { LOAD_INTERRUPTED_CHAT_MESSAGE, TEMPLATE_MISSING_USER_MESSAGE } from '../adapters/error-messages';
 import {
+  consumeValidationGenerationFault,
   getValidationLocalGenerationFixture,
   isValidationHarnessEnabled,
+  VALIDATION_GENERATION_FAULT_MESSAGE,
 } from '../../lib/validation-harness';
 import { logger } from '../../lib/logger';
 import { CONTEXT_WINDOW_REFUSAL_MESSAGE } from '../../lib/context-window';
@@ -252,6 +254,11 @@ export function stream(
       }
       if (abortController.signal.aborted) return;
 
+      // Harness-only: a browser walk can ask for this reply to fail after its
+      // first word (see `consumeValidationGenerationFault`). Read here, once a
+      // generation is certain to run, so a refusal above never swallows it.
+      const fault = consumeValidationGenerationFault();
+
       const iter = lifecycleGenerate(selection.messages, {
         signal: abortController.signal,
         ...(options.maxTokens != null ? { maxTokens: options.maxTokens } : {}),
@@ -284,6 +291,11 @@ export function stream(
           continue;
         }
         yield event;
+        if (fault === 'mid-reply') {
+          // Leaving the loop by throwing closes the runtime's stream part-way,
+          // as a real mid-reply fault does.
+          throw new LocalInferenceStreamError('LOCAL_INFERENCE_FAILED', VALIDATION_GENERATION_FAULT_MESSAGE);
+        }
       }
     } catch (err) {
       // A cancelled stream ends cleanly. The consumer already unwound (see
