@@ -15,6 +15,7 @@
 
 import { expect, type BrowserContext, type Locator, type Page } from "@playwright/test";
 import type { GenerationReceipt } from "../../src/local-ai/lifecycle/generation-receipt";
+import { VALIDATION_GENERATION_FAULT_MESSAGE } from "../../src/lib/validation-harness";
 import {
   FORCED_DESKTOP_PROFILE,
   READY_TIMEOUT_MS,
@@ -83,6 +84,27 @@ export const modelSelectorTrigger = (page: Page) =>
   page.getByTestId("model-selector");
 export const stopButton = (page: Page) =>
   page.getByRole("button", { name: "Stop generating" });
+export const userMessages = (page: Page) =>
+  chatLog(page).locator('[data-message-role="user"]');
+/** The retry a person is offered on a reply that failed or was stopped. */
+export const tryAgainOn = (bubble: Locator) =>
+  bubble.getByRole("button", { name: "Try again" });
+
+/**
+ * The device query every chat page opens with. The ONNX walk forces a WebGPU
+ * desktop Chrome profile so model selection is deterministic. The WebLLM run
+ * clears it: forcing the browser class would override the desktop-Safari user
+ * agent that routes the app to its WebLLM models.
+ */
+let deviceQuery: string = FORCED_DESKTOP_PROFILE;
+
+export function setDeviceQuery(query: string): void {
+  deviceQuery = query;
+}
+
+function chatUrl(): string {
+  return `${getWebBaseUrl()}/chat${deviceQuery ? `?${deviceQuery}` : ""}`;
+}
 
 /**
  * Open /chat with a specific model already bound to its slot.
@@ -119,9 +141,7 @@ export async function openChatOnModel(
       bound: bindings.map((entry) => ({ slot: entry.slot, modelId: entry.modelId })),
     },
   );
-  await page.goto(`${getWebBaseUrl()}/chat?${FORCED_DESKTOP_PROFILE}`, {
-    waitUntil: "commit",
-  });
+  await page.goto(chatUrl(), { waitUntil: "commit" });
   await waitForUsableChat(page);
 
   // Two things must agree before the walk types anything: the app's own claim
@@ -228,18 +248,35 @@ export async function sendTurn(
   }).toBeEnabled({ timeout: timeoutMs });
 
   const bubblesBefore = await assistantMessages(page).count();
-  const generationIdBefore = await page.evaluate(
-    () => window.__ecoPerf?.receipts(1)[0]?.generationId ?? null,
-  );
+  const generationIdBefore = await newestGenerationId(page);
 
-  await composer(page).click();
-  await page.keyboard.insertText(prompt);
-  await page.getByRole("button", { name: "Send message" }).click();
+  await submitPrompt(page, prompt);
 
   await expect(assistantMessages(page)).toHaveCount(bubblesBefore + 1, {
     timeout: timeoutMs,
   });
   await page.waitForTimeout(300);
+  await settleTurn(page, timeoutMs);
+  return collectOutcome(page, prompt, generationIdBefore);
+}
+
+/** Type a prompt into the composer and press Send. */
+async function submitPrompt(page: Page, prompt: string): Promise<void> {
+  await composer(page).click();
+  await page.keyboard.insertText(prompt);
+  await page.getByRole("button", { name: "Send message" }).click();
+}
+
+/**
+ * The newest generation's id. Read it before an action that starts a
+ * generation, so the generation that action starts can be told from the last.
+ */
+export async function newestGenerationId(page: Page): Promise<string | null> {
+  return page.evaluate(() => window.__ecoPerf?.receipts(1)[0]?.generationId ?? null);
+}
+
+/** The turn is over: the composer is back, Stop is gone, and no receipt is still being recorded. */
+async function settleTurn(page: Page, timeoutMs: number): Promise<void> {
   await expect(composer(page), {
     message: "turn never finalized — the composer stayed disabled",
   }).toBeEnabled({ timeout: timeoutMs });
@@ -249,7 +286,14 @@ export async function sendTurn(
     undefined,
     { timeout: timeoutMs, polling: 50 },
   );
+}
 
+/** Read back everything about the generation that started after `generationIdBefore`. */
+async function collectOutcome(
+  page: Page,
+  prompt: string,
+  generationIdBefore: string | null,
+): Promise<TurnOutcome> {
   const receipts = await page.evaluate((previousId) => {
     const all = window.__ecoPerf?.receipts() ?? [];
     const newest = all[0];
@@ -273,6 +317,244 @@ export async function sendTurn(
     toolAnswered: receipts.length === 0,
     toolCardText,
   };
+}
+
+/**
+ * Send a prompt and return as soon as the reply has started — the moment a
+ * person can act on it, by pressing Stop or closing the tab. Started means the
+ * Stop button is showing.
+ */
+export async function beginTurn(
+  page: Page,
+  prompt: string,
+  notStartedMessage = "the reply never started",
+): Promise<void> {
+  await expect(composer(page), {
+    message: "composer never re-enabled — the previous turn never finalized",
+  }).toBeEnabled({ timeout: DEFAULT_TURN_TIMEOUT_MS });
+  await submitPrompt(page, prompt);
+  await expect(stopButton(page), notStartedMessage).toBeVisible({ timeout: TURN_TIMEOUT_MS });
+}
+
+/** How long the reply runs after its first words before Stop is pressed. */
+const STOP_AFTER_FIRST_WORDS_MS = 1_000;
+
+/**
+ * How long the app gets to hand the composer back after Stop. Stop is meant to
+ * take effect at once; ten seconds is there to fail legibly, not to be waited.
+ */
+export const STOP_SETTLE_MS = 10_000;
+
+export type StopResult =
+  | { stopped: true; settledMs: number }
+  | { stopped: false; reason: string };
+
+/**
+ * Press Stop the way a person does: once words are on screen, not before.
+ *
+ * Waits for the reply's first visible words — the bubble's thinking/loading
+ * prelude gone and text showing — lets it run a second more, then presses
+ * Stop and waits for the composer to come back. Returns how long that took,
+ * or why Stop could not be pressed: a reply that finished first leaves nothing
+ * to stop, and the task has to say so rather than pass.
+ */
+export async function stopMidReply(
+  page: Page,
+  timeoutMs: number = DEFAULT_TURN_TIMEOUT_MS,
+): Promise<StopResult> {
+  const reply = assistantMessages(page).last();
+  const prelude = reply.locator(
+    '[data-testid="thinking-prelude"], [data-testid="loading-prelude"]',
+  );
+  await expect
+    .poll(
+      async () => (await prelude.count()) === 0 && (await reply.innerText()).trim().length > 0,
+      {
+        timeout: timeoutMs,
+        message: "the reply never showed a word, so there was nothing to stop mid-reply",
+      },
+    )
+    .toBe(true);
+  await page.waitForTimeout(STOP_AFTER_FIRST_WORDS_MS);
+
+  const pressed = await stopButton(page)
+    .click({ timeout: 2_000 })
+    .then(
+      () => true,
+      () => false,
+    );
+  if (!pressed) {
+    return { stopped: false, reason: "the reply finished before Stop could be pressed" };
+  }
+  const pressedAt = Date.now();
+  await expect(stopButton(page), "Stop was pressed but the reply kept going").toHaveCount(0, {
+    timeout: STOP_SETTLE_MS,
+  });
+  await expect(composer(page), "the composer did not come back after Stop").toBeEnabled({
+    timeout: STOP_SETTLE_MS,
+  });
+  return { stopped: true, settledMs: Date.now() - pressedAt };
+}
+
+/**
+ * Wait for a generation started by something other than Send — Stop, Try
+ * again, or an edit's Save & Submit — to finish, and read it back.
+ *
+ * Keyed on a NEW receipt rather than a new bubble: a retry or an edit replaces
+ * the bubble it answers instead of adding one, and Try again starts its
+ * generation only after the card's half-second animation, so the composer can
+ * still look idle when this is called.
+ */
+export async function finishGeneration(
+  page: Page,
+  prompt: string,
+  generationIdBefore: string | null,
+  timeoutMs: number = DEFAULT_TURN_TIMEOUT_MS,
+): Promise<TurnOutcome> {
+  await page.waitForFunction(
+    (previousId) => {
+      const newest = window.__ecoPerf?.receipts(1)[0];
+      return newest !== undefined && newest.generationId !== previousId;
+    },
+    generationIdBefore,
+    { timeout: timeoutMs, polling: 100 },
+  );
+  await settleTurn(page, timeoutMs);
+  return collectOutcome(page, prompt, generationIdBefore);
+}
+
+/** The localStorage key of the harness's one-shot reply fault (`consumeValidationGenerationFault`). */
+const GENERATION_FAULT_KEY = "eco-force-generation-fault";
+
+/** The text a reply failed by the harness carries, so its receipt can be told from a genuine failure. */
+export const INJECTED_FAULT_MESSAGE = VALIDATION_GENERATION_FAULT_MESSAGE;
+
+/** Make the next reply fail after its first word. It fires once, then clears itself. */
+export async function armGenerationFault(page: Page): Promise<void> {
+  await page.evaluate((key) => window.localStorage.setItem(key, "mid-reply"), GENERATION_FAULT_KEY);
+}
+
+/** Whether the fault is still waiting to fire — it should not be, once a reply has run. */
+export async function generationFaultArmed(page: Page): Promise<boolean> {
+  return page.evaluate((key) => window.localStorage.getItem(key) !== null, GENERATION_FAULT_KEY);
+}
+
+/**
+ * Edit one of the person's own messages the way they would: hover it to
+ * reveal its actions (they are hidden until then on a desktop), press Edit,
+ * replace the text, and press Save & Submit.
+ */
+export async function editUserMessage(page: Page, index: number, text: string): Promise<void> {
+  const bubble = userMessages(page).nth(index);
+  await bubble.hover();
+  await bubble.getByRole("button", { name: "Edit message" }).click();
+  const box = bubble.getByRole("textbox", { name: "Edit message" });
+  await expect(box, "pressing Edit did not open the message for editing").toBeVisible({
+    timeout: 10_000,
+  });
+  await box.fill(text);
+  await bubble.getByRole("button", { name: "Save & Submit" }).click();
+}
+
+/**
+ * Check, from outside the browser, that each URL the app will fetch for a model
+ * answers. Throws with every failing URL and its status, plus `remedy`, so a
+ * model whose files were never put on the host fails in seconds and says why —
+ * not after a download timeout, and never by quietly walking something else.
+ */
+export async function assertModelFilesServed(
+  pick: Pick,
+  urls: readonly string[],
+  remedy: string,
+): Promise<string> {
+  const results = await Promise.all(
+    urls.map(async (url) => {
+      try {
+        const response = await fetch(url, { method: "HEAD" });
+        return { url, status: String(response.status), ok: response.ok };
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        return { url, status: `unreachable (${reason})`, ok: false };
+      }
+    }),
+  );
+  const missing = results.filter((result) => !result.ok);
+  if (missing.length > 0) {
+    throw new Error(
+      `${pick.friendlyName} (${pick.modelId}) cannot be walked: its model files are not served — `
+        + `${missing.map((result) => `${result.status} ${result.url}`).join("; ")}. ${remedy}`,
+    );
+  }
+  return results.map((result) => `${result.status} ${result.url}`).join("; ");
+}
+
+/**
+ * Put a model on the device by asking for it, the way a slot that is still
+ * preparing does: bind the slot to the model in a `preparing` state, open
+ * chat, and let the app download and check it until the slot reads `ready`.
+ *
+ * This is how the WebLLM run provisions. Its models are not on the welcome
+ * card, and the switcher's tiles for them have not been walked, while a
+ * preparing slot is the app's own path to a model it was told to get.
+ *
+ * Fails at once, naming the URL and status, when the app's own request for one
+ * of the model's files is refused — a refused file is not retried, so waiting
+ * on would only end in a vaguer timeout.
+ */
+export async function provisionBySeeding(
+  context: BrowserContext,
+  pick: Pick,
+  remedy: string,
+  timeoutMs: number = DOWNLOAD_TIMEOUT_MS,
+): Promise<void> {
+  const page = await context.newPage();
+  const refused: string[] = [];
+  page.on("response", (response) => {
+    if (response.url().includes("/resolve/") && response.status() >= 400) {
+      refused.push(`${response.status()} ${response.url()}`);
+    }
+  });
+  try {
+    await page.addInitScript(
+      ({ slot, modelId }) => {
+        window.sessionStorage.setItem("eco-skip-conversation-persistence-once", "true");
+        window.localStorage.setItem(`eco-local-ai-slot-${slot}`, modelId);
+        window.localStorage.setItem(`eco-local-ai-slot-status-${slot}`, "preparing");
+        window.localStorage.setItem("eco-selected-model", slot);
+        window.localStorage.setItem("eco-selected-model-explicit", "true");
+      },
+      { slot: pick.slot, modelId: pick.modelId },
+    );
+    await page.goto(chatUrl(), { waitUntil: "commit" });
+
+    const deadline = Date.now() + timeoutMs;
+    let status: string | null = null;
+    while (Date.now() < deadline) {
+      if (refused.length > 0) {
+        throw new Error(
+          `${pick.friendlyName} (${pick.modelId}) could not be set up: the app's requests for its files were `
+            + `refused — ${refused.slice(0, 3).join("; ")}. ${remedy}`,
+        );
+      }
+      status = await page.evaluate(
+        (slot) => window.localStorage.getItem(`eco-local-ai-slot-status-${slot}`),
+        pick.slot,
+      );
+      if (status === "ready") return;
+      if (status === "error") {
+        throw new Error(
+          `${pick.friendlyName} (${pick.modelId}) could not be set up on this device: its slot ended in 'error'.`,
+        );
+      }
+      await page.waitForTimeout(2_000);
+    }
+    throw new Error(
+      `${pick.friendlyName} (${pick.modelId}) was not ready after ${Math.round(timeoutMs / 60_000)} min `
+        + `(slot status '${status ?? "unset"}').`,
+    );
+  } finally {
+    await page.close().catch(() => undefined);
+  }
 }
 
 /**
@@ -552,9 +834,7 @@ async function setSettingSwitchInTab(
 
 /** Navigate this tab back to a ready chat on the walk's model. */
 export async function returnToChat(page: Page, pick: Pick): Promise<void> {
-  await page.goto(`${getWebBaseUrl()}/chat?${FORCED_DESKTOP_PROFILE}`, {
-    waitUntil: "commit",
-  });
+  await page.goto(chatUrl(), { waitUntil: "commit" });
   await waitForUsableChat(page);
   await expectTriggerNames(page, pick);
   await expect

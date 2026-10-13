@@ -4,9 +4,11 @@
 import { describe, expect, it } from "vitest";
 import {
   ACCEPTANCE_TASKS,
+  RUNTIME_ENV_VAR,
   SMOKE_ENV_VAR,
   SMOKE_TASKS,
   TASKS_ENV_VAR,
+  WEBLLM_TASKS,
   acceptancePlan,
   planPicks,
   planWalksTask,
@@ -24,8 +26,9 @@ describe("acceptancePlan", () => {
     expect(plan.tasks).toEqual(ACCEPTANCE_TASKS);
     // The count is asserted, not just the identity: a task added to the lane
     // without being added here would otherwise pass silently.
-    expect(plan.tasks).toHaveLength(11);
+    expect(plan.tasks).toHaveLength(14);
     expect(plan.wipesOrigin).toBe(true);
+    expect(plan.runtime).toBe("onnx");
   });
 
   it("is the full walk when the flag is off", () => {
@@ -51,13 +54,15 @@ describe("acceptancePlan", () => {
 });
 
 describe("acceptancePlan with an explicit task list", () => {
-  it("walks exactly the tasks named, in the order given", () => {
+  it("walks exactly the tasks named", () => {
     const plan = acceptancePlan({ [TASKS_ENV_VAR]: "2,4" });
     expect(plan.tasks).toEqual([2, 4]);
     expect(plan.smoke).toBe(true);
   });
 
-  it("keeps the caller's order rather than sorting", () => {
+  it("keeps the list as given; the walk itself decides the running order", () => {
+    // The spec runs tasks in its own fixed order (task 7 last, because it ends
+    // the page) and only asks the plan WHETHER to walk each one.
     expect(acceptancePlan({ [TASKS_ENV_VAR]: "8,1" }).tasks).toEqual([8, 1]);
   });
 
@@ -102,10 +107,10 @@ describe("planWalksTask", () => {
     }
   });
 
-  it("walks only tasks 1, 4 and 8 in a smoke run", () => {
+  it("walks only tasks 1, 4, 8 and 12 in a smoke run", () => {
     const plan = acceptancePlan({ [SMOKE_ENV_VAR]: "1" });
     const walked = ACCEPTANCE_TASKS.filter((task) => planWalksTask(plan, task));
-    expect(walked).toEqual([1, 4, 8]);
+    expect(walked).toEqual([1, 4, 8, 12]);
   });
 });
 
@@ -123,5 +128,42 @@ describe("planPicks", () => {
     const plan = acceptancePlan({ [SMOKE_ENV_VAR]: "1" });
     planPicks(plan, PICKS);
     expect(PICKS).toHaveLength(2);
+  });
+});
+
+describe("acceptancePlan for a WebLLM run", () => {
+  it("walks tasks 1, 12, 13 and 14 without wiping the origin", () => {
+    const plan = acceptancePlan({ [RUNTIME_ENV_VAR]: "webllm" });
+    expect(plan.runtime).toBe("webllm");
+    expect(plan.tasks).toEqual(WEBLLM_TASKS);
+    expect(WEBLLM_TASKS).toEqual([1, 12, 13, 14]);
+    expect(plan.wipesOrigin).toBe(false);
+    // Narrowed by construction, so the report never reads it as a verdict.
+    expect(plan.smoke).toBe(true);
+  });
+
+  it("is unchanged by the smoke flag", () => {
+    const plan = acceptancePlan({ [RUNTIME_ENV_VAR]: "webllm", [SMOKE_ENV_VAR]: "1" });
+    expect(plan.tasks).toEqual(WEBLLM_TASKS);
+  });
+
+  it("still takes an explicit task list", () => {
+    const plan = acceptancePlan({ [RUNTIME_ENV_VAR]: "WebLLM ", [TASKS_ENV_VAR]: "12" });
+    expect(plan.runtime).toBe("webllm");
+    expect(plan.tasks).toEqual([12]);
+  });
+
+  it("walks both WebLLM models, even on a task list", () => {
+    const plan = acceptancePlan({ [RUNTIME_ENV_VAR]: "webllm", [TASKS_ENV_VAR]: "12" });
+    expect(planPicks(plan, PICKS)).toEqual(PICKS);
+  });
+
+  it("treats an empty runtime as the default ONNX walk", () => {
+    expect(acceptancePlan({ [RUNTIME_ENV_VAR]: "" }).runtime).toBe("onnx");
+    expect(acceptancePlan({ [RUNTIME_ENV_VAR]: "onnx" }).runtime).toBe("onnx");
+  });
+
+  it("refuses a runtime it does not know, rather than starting the full walk", () => {
+    expect(() => acceptancePlan({ [RUNTIME_ENV_VAR]: "webgpu" })).toThrow(/webgpu/);
   });
 });

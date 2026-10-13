@@ -58,13 +58,19 @@ export type AcceptanceReport = {
   startedAt: string;
   finishedAt: string;
   /**
-   * Present, and true, only on a smoke run (`ECO_ACCEPTANCE_SMOKE=1`): one
-   * pick, three tasks, no origin wipe. Absent on a full walk, so a full run's
-   * artefacts are unchanged by this field existing.
+   * Present, and true, only on a narrowed run (`ECO_ACCEPTANCE_SMOKE=1`, a task
+   * list, or a WebLLM run): a subset of tasks, no origin wipe. Absent on a full
+   * walk, so a full run's artefacts are unchanged by this field existing.
    */
   smoke?: true;
   /** The tasks a smoke run walked, so the header names what actually ran. */
   tasks?: readonly number[];
+  /**
+   * Present only on a WebLLM run (`ECO_ACCEPTANCE_RUNTIME=webllm`), so the
+   * header says which runtime the tables describe. Absent on the default ONNX
+   * walk, which keeps its artefacts unchanged.
+   */
+  runtime?: "webllm";
   picks: PickReport[];
 };
 
@@ -102,13 +108,13 @@ function renderTable(pick: PickReport): string {
   return `${header}\n${body}`;
 }
 
-function describeTasks(tasks: readonly number[] | undefined): string {
-  if (!tasks || tasks.length === 0) return "one model, a subset of tasks,";
+function describeTasks(tasks: readonly number[] | undefined, models: string): string {
+  if (!tasks || tasks.length === 0) return `${models}, a subset of tasks,`;
   const list =
     tasks.length === 1
       ? `task ${tasks[0]}`
       : `tasks ${tasks.slice(0, -1).join(", ")} and ${tasks[tasks.length - 1]}`;
-  return `one model, ${list} only,`;
+  return `${models}, ${list} only,`;
 }
 
 export function renderMarkdown(report: AcceptanceReport): string {
@@ -119,10 +125,21 @@ export function renderMarkdown(report: AcceptanceReport): string {
     "",
     ...(report.smoke
       ? [
-          `**Subset run (\`ECO_ACCEPTANCE_SMOKE=1\` or \`ECO_ACCEPTANCE_TASKS\`): ${describeTasks(report.tasks)}`,
+          `**Subset run (\`ECO_ACCEPTANCE_SMOKE=1\`, \`ECO_ACCEPTANCE_TASKS\` or a WebLLM run): ${describeTasks(
+            report.tasks,
+            report.runtime === "webllm" ? "both WebLLM models" : "one model",
+          )}`,
           "on whatever the profile already had.** This run is a self-test of the",
           "lane or a narrowed instrument, not an acceptance verdict — read it as",
           "\"the walk still works\", never as \"the product passed\".",
+          "",
+        ]
+      : []),
+    ...(report.runtime === "webllm"
+      ? [
+          "**WebLLM run (`ECO_ACCEPTANCE_RUNTIME=webllm`).** Chrome presents desktop",
+          "Safari's user agent, so the app routes to the models it serves Safari on",
+          "the WebLLM runtime; every row's model id is the one the runtime held.",
           "",
         ]
       : []),
@@ -238,7 +255,7 @@ export function resetReportArtefacts(): void {
  * Idempotent, so every worker can call it as it finishes.
  */
 export function assembleReport(
-  options: { smoke?: boolean; tasks?: readonly number[] } = {},
+  options: { smoke?: boolean; tasks?: readonly number[]; runtime?: "onnx" | "webllm" } = {},
 ): {
   report: AcceptanceReport;
   jsonPath: string;
@@ -252,6 +269,7 @@ export function assembleReport(
       ?? new Date().toISOString(),
     // Omitted rather than set false, so a full run's JSON is byte-identical.
     ...(options.smoke ? { smoke: true as const, tasks: [...options.tasks ?? []] } : {}),
+    ...(options.runtime === "webllm" ? { runtime: "webllm" as const } : {}),
     picks,
   };
   const markdownPath = REPORT_JSON_PATH.replace(/\.json$/, ".md");

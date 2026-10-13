@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Bos Computing LLC
 
 /**
- * The eleven-task acceptance walk, on both shipping models, in a real browser.
+ * The fourteen-task acceptance walk, on both shipping models, in a real browser.
  *
  * Run at session open whenever a serving-path or tool change merged last
  * session, and at every phase end.
@@ -12,9 +12,15 @@
  * remember a number, a pasted document, the exact-answer tools, an edit
  * request, a conversation long enough to move the context window, an offline
  * reload, a model switch, a factual question with and without web lookups, a
- * question about right now with and without Web search, and a tab killed
- * mid-reply. It runs against a PRODUCTION build with real inference on the
+ * question about right now with and without Web search, a tab killed
+ * mid-reply, and the three things a person does mid-conversation: press Stop
+ * and carry on, press Try again after a reply fails, and edit an earlier
+ * message. It runs against a PRODUCTION build with real inference on the
  * machine's own GPU.
+ *
+ * `ECO_ACCEPTANCE_RUNTIME=webllm` walks the app's WebLLM models instead — the
+ * ones it serves desktop Safari — on tasks 1, 12, 13 and 14 by default. Real
+ * Chrome presents desktop Safari's user agent to get there.
  *
  * The run's exit status follows the report: any FAIL row ends the run red.
  * Only an EXPECTED-FAIL is allowed to pass, because it names a gap that is
@@ -45,11 +51,19 @@ import {
 } from "@playwright/test";
 import { join } from "node:path";
 import {
-  TURN_TIMEOUT_MS,
+  assistantMessages,
   composer,
   setWebBaseUrl,
   stubAuth,
 } from "../e2e-perf/lib/session";
+import catalogData from "../src/local-ai/catalog/catalog-data.json";
+import {
+  MODEL_HOST_REMEDY,
+  acceptanceModelHost,
+  artifactFor,
+  modelFileUrl,
+  sampleFiles,
+} from "./lib/model-host";
 import {
   assembleReport,
   clip,
@@ -64,21 +78,33 @@ import {
   planWalksTask,
 } from "./lib/subset";
 import {
+  INJECTED_FAULT_MESSAGE,
+  armGenerationFault,
+  assertModelFilesServed,
+  beginTurn,
   citations,
   contextDivider,
   contextWindowNotice,
+  editUserMessage,
+  finishGeneration,
+  generationFaultArmed,
   kvReasonOf,
+  newestGenerationId,
   openChatOnModel,
   outcomeReceipt,
+  provisionBySeeding,
   provisionPick,
   sendTurn,
+  setDeviceQuery,
   setWebLookupsInTab,
   setWebSearchInTab,
   startNewConversation,
-  stopButton,
+  stopMidReply,
   stubSearchRelay,
   switchTo,
+  tryAgainOn,
   uncertaintyNotes,
+  userMessages,
   waitForUsableChat,
   watchLookupRequests,
   webSearchCitations,
@@ -91,6 +117,18 @@ import {
 } from "./lib/walk";
 
 const BASE_URL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3120";
+
+/**
+ * Full walk, the ten-minute self-test (`ECO_ACCEPTANCE_SMOKE=1`), an explicit
+ * task list (`ECO_ACCEPTANCE_TASKS=2,4`), or a WebLLM run
+ * (`ECO_ACCEPTANCE_RUNTIME=webllm`).
+ *
+ * Both models are still PROVISIONED either way — task 8 needs somewhere to
+ * switch to — but a narrowed run walks only `WALK_PICKS` and only the tasks
+ * the plan names. See `lib/subset`.
+ */
+const PLAN = acceptancePlan();
+const WEBLLM = PLAN.runtime === "webllm";
 /**
  * `ECO_ACCEPTANCE_BROWSER=chrome|firefox|webkit` picks the engine. Chrome is
  * the shipping path; Firefox and WebKit are Playwright's own builds, read to
@@ -102,12 +140,43 @@ const BROWSER = (process.env.ECO_ACCEPTANCE_BROWSER?.trim() || "chrome") as
   | "chrome"
   | "firefox"
   | "webkit";
+if (WEBLLM && BROWSER !== "chrome") {
+  throw new Error("ECO_ACCEPTANCE_RUNTIME=webllm runs in real Chrome only; unset ECO_ACCEPTANCE_BROWSER.");
+}
+/** The WebLLM run keeps its own profile, so its models never mix with the ONNX walk's cache. */
 const PROFILE_DIR =
   process.env.ECO_ACCEPTANCE_PROFILE_DIR
-  ?? join(__dirname, BROWSER === "chrome" ? ".browser-profile" : `.browser-profile-${BROWSER}`);
+  ?? join(
+    __dirname,
+    WEBLLM
+      ? ".browser-profile-webllm"
+      : BROWSER === "chrome"
+        ? ".browser-profile"
+        : `.browser-profile-${BROWSER}`,
+  );
+
+/**
+ * What Chrome presents in a WebLLM run: desktop Safari's user agent. The app
+ * classifies the browser from it and routes to the models it serves Safari,
+ * which run on WebLLM, while the GPU underneath is Chrome's real WebGPU.
+ */
+const DESKTOP_SAFARI_USER_AGENT =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
+  + "(KHTML, like Gecko) Version/26.4 Safari/605.1.15";
 
 /** A long generation, so there is time to kill the tab mid-reply (task 10). */
 const LONG_TURN_TIMEOUT_MS = 480_000;
+
+/**
+ * The slowest first token a reply after a Stop or a retry may take and still
+ * count as answered. Measured after the fix, those first tokens arrive in well
+ * under two seconds; the defect this guards against never produced one, and
+ * the chat gave up after 90 s. Thirty seconds separates the two with room.
+ */
+const FIRST_TOKEN_CEILING_MS = 30_000;
+
+/** How long a stopped turn gets to record its receipt. */
+const STOPPED_RECEIPT_TIMEOUT_MS = 30_000;
 
 /**
  * The two shipping picks, one per slot. Ids and slots come from the catalog
@@ -129,27 +198,47 @@ const ECO_DEEPER: Pick = {
   tileName: "Eco Deeper",
   friendlyName: "Eco Deeper (Liquid)",
 };
-const PICKS: readonly Pick[] = [ECO_FAST, ECO_DEEPER];
 
 /**
- * Full walk, the ten-minute self-test (`ECO_ACCEPTANCE_SMOKE=1`), or an
- * explicit task list (`ECO_ACCEPTANCE_TASKS=2,4`).
- *
- * Both models are still PROVISIONED either way — task 8 needs somewhere to
- * switch to — but a narrowed run walks only `WALK_PICKS` and only the tasks
- * the plan names. See `lib/subset`.
- *
+ * The two models the app serves desktop Safari, both on WebLLM: Eco Compact
+ * first, Eco Mobile as its fallback. Each is walked alone in the everyday slot,
+ * the slot a desktop-Safari device fills first.
+ */
+const ECO_COMPACT_WEBLLM: Pick = {
+  modelId: "candidate/qwen3-0.6b-mlc-q0f16",
+  slot: "eco-fast",
+  tileName: "Eco Compact",
+  friendlyName: "Eco Compact (Qwen)",
+};
+const ECO_MOBILE_WEBLLM: Pick = {
+  modelId: "candidate/qwen2.5-0.5b-mlc",
+  slot: "eco-fast",
+  tileName: "Eco Mobile",
+  friendlyName: "Eco Mobile (Qwen)",
+};
+
+const PICKS: readonly Pick[] = WEBLLM
+  ? [ECO_COMPACT_WEBLLM, ECO_MOBILE_WEBLLM]
+  : [ECO_FAST, ECO_DEEPER];
+
+/**
+ * The slots a walk binds. The ONNX picks sit in different slots, so both are
+ * bound and task 8 can switch between them; the WebLLM picks share one slot,
+ * so each walk binds only its own.
+ */
+const bindingsFor = (pick: Pick): readonly Pick[] => (WEBLLM ? [pick] : PICKS);
+
+/**
  * `ECO_ACCEPTANCE_SLOT=eco-smart` picks WHICH model walks, instead of the
  * plan's default of the everyday pick; an unknown slot walks nothing, which is
  * the visible failure we want rather than a silent fallback to both.
  */
-const PLAN = acceptancePlan();
 const SLOT_FILTER = process.env.ECO_ACCEPTANCE_SLOT?.trim();
-const WALK_LABEL = process.env.ECO_ACCEPTANCE_TASKS?.trim()
+const WALK_LABEL = (process.env.ECO_ACCEPTANCE_TASKS?.trim() || WEBLLM)
   ? `tasks ${PLAN.tasks.join(",")}`
   : PLAN.smoke
     ? "smoke subset"
-    : "eleven-task";
+    : "fourteen-task";
 const WALK_PICKS: readonly Pick[] = SLOT_FILTER
   ? PICKS.filter((pick) => pick.slot === SLOT_FILTER)
   : planPicks(PLAN, PICKS);
@@ -229,7 +318,7 @@ const contains = (text: string, ...needles: string[]): boolean =>
  * same defect as a green run with failures in its table.
  */
 
-test.describe("eleven-task acceptance walk", () => {
+test.describe("acceptance walk", () => {
   let context: BrowserContext;
   /** The walk currently running, so a death outside a task can still be recorded. */
   let currentWalk: PickReport | null = null;
@@ -244,7 +333,11 @@ test.describe("eleven-task acceptance walk", () => {
       // fixed 1280x720 viewport inside a taller window, so the `h-dvh` shell
       // renders short and the run looks broken to anyone watching it.
       viewport: null,
+      ...(WEBLLM ? { userAgent: DESKTOP_SAFARI_USER_AGENT } : {}),
     });
+    // The forced profile names the browser class, which would override the
+    // Safari user agent; a WebLLM run lets the browser describe itself.
+    if (WEBLLM) setDeviceQuery("");
     await stubAuth(context);
   });
 
@@ -288,7 +381,7 @@ test.describe("eleven-task acceptance walk", () => {
   test.afterAll(async () => {
     // Assembled from the fragments on disk, so this is the WHOLE run even when
     // an earlier walk ran in a worker that has since been replaced.
-    const paths = assembleReport({ smoke: PLAN.smoke, tasks: PLAN.tasks });
+    const paths = assembleReport({ smoke: PLAN.smoke, tasks: PLAN.tasks, runtime: PLAN.runtime });
     console.log(`\nacceptance report: ${paths.jsonPath}\n                   ${paths.markdownPath}`);
     await context?.close();
   });
@@ -301,8 +394,25 @@ test.describe("eleven-task acceptance walk", () => {
    * the path a person takes — and which has to work before the per-model walks
    * can bind a slot and expect the bytes to be there.
    */
-  test("cold profile, both shipping models provisioned", async () => {
+  test(WEBLLM ? "both WebLLM models provisioned" : "cold profile, both shipping models provisioned", async () => {
     test.setTimeout(3_600_000);
+    if (WEBLLM) {
+      // Each model's files are checked on the host the build fetches from
+      // before anything waits on them: a model that was never put on the host
+      // fails here in seconds, by name, rather than as a download timeout.
+      const host = acceptanceModelHost();
+      console.log(`  model host: ${host || "(none — the app's own model proxy)"}`);
+      for (const pick of PICKS) {
+        const artifact = artifactFor(catalogData, pick.modelId);
+        if (!artifact) throw new Error(`${pick.modelId} has no artifact in the catalog`);
+        const urls = sampleFiles(artifact).map((file) => modelFileUrl(artifact, file, host, BASE_URL));
+        const served = await assertModelFilesServed(pick, urls, MODEL_HOST_REMEDY);
+        console.log(`  ${pick.tileName} (${pick.modelId}) files served: ${served}`);
+        await provisionBySeeding(context, pick, MODEL_HOST_REMEDY);
+        console.log(`  ${pick.tileName} (${pick.modelId}): ready`);
+      }
+      return;
+    }
     if (PLAN.wipesOrigin) {
       const bootstrap = await context.newPage();
       await bootstrap.goto(`${BASE_URL}/`, { waitUntil: "commit" });
@@ -447,11 +557,60 @@ test.describe("eleven-task acceptance walk", () => {
 
       const open = async (): Promise<Page> => {
         if (walkPage === null || walkPage.isClosed()) {
-          walkPage = await openChatOnModel(context, pick, PICKS);
+          walkPage = await openChatOnModel(context, pick, bindingsFor(pick));
           return walkPage;
         }
         await startNewConversation(walkPage);
         return walkPage;
+      };
+
+      /**
+       * Close the walk's tab after a failure that may have left the runtime
+       * stuck, so the next task starts on a fresh one instead of inheriting a
+       * jam it did not cause — the same reason the task wrapper sweeps leaked
+       * pages.
+       */
+      const retireWalkPage = async (): Promise<void> => {
+        if (walkPage !== null && !walkPage.isClosed()) {
+          await walkPage.close().catch(() => undefined);
+        }
+        walkPage = null;
+      };
+
+      /**
+       * Did this turn answer, the way a person would judge it: a reply that
+       * finished, whose first words came promptly, with no error card. Each
+       * reason it did not is named, so a FAIL row says what went wrong.
+       */
+      const answered = async (
+        page: Page,
+        outcome: TurnOutcome,
+      ): Promise<{ ok: boolean; why: string }> => {
+        const receipt = outcomeReceipt(outcome);
+        const problems: string[] = [];
+        if (!receipt) {
+          problems.push("no generation ran");
+        } else {
+          if (receipt.status !== "complete") {
+            problems.push(
+              `the reply ended '${receipt.status}'${
+                receipt.errorCode ? ` (${clip(receipt.errorCode, 90)})` : ""
+              }`,
+            );
+          }
+          if (receipt.firstTokenMs == null) {
+            problems.push("no first word ever arrived");
+          } else if (receipt.firstTokenMs > FIRST_TOKEN_CEILING_MS) {
+            problems.push(
+              `the first word took ${Math.round(receipt.firstTokenMs)} ms (ceiling ${FIRST_TOKEN_CEILING_MS} ms)`,
+            );
+          }
+        }
+        if ((await assistantMessages(page).last().getByRole("alert").count()) > 0) {
+          problems.push("an error card is showing");
+        }
+        if (outcome.replyText.trim().length === 0) problems.push("the reply is empty");
+        return { ok: problems.length === 0, why: problems.join("; ") };
       };
 
       // ── 1. Cold first run to first reply, no dead ends ────────────────────
@@ -742,15 +901,11 @@ test.describe("eleven-task acceptance walk", () => {
         // The walk's own tab is the one that dies — that is the scenario.
         // Closing it makes `open()` build a new one, which is the reopening.
         const victim = await open();
-        await composer(victim).click();
-        await victim.keyboard.insertText(
+        await beginTurn(
+          victim,
           "Write a detailed paragraph about the history of the bicycle.",
-        );
-        await victim.getByRole("button", { name: "Send message" }).click();
-        await expect(
-          stopButton(victim),
           "generation never started, so nothing was killed mid-reply",
-        ).toBeVisible({ timeout: TURN_TIMEOUT_MS });
+        );
         await victim.close();
 
         const revived = await open();
@@ -882,6 +1037,223 @@ test.describe("eleven-task acceptance walk", () => {
         }
       });
 
+      // ── 12. Stop mid-reply, then send the next message ─────────────────────
+      // Stop used to leave the WebLLM engine locked: the stopped reply looked
+      // fine, and the NEXT message hung until the chat gave up on it. So the
+      // row that matters is the second one — the stop itself only proves the
+      // walk got far enough to ask.
+      await task(12, "Stop mid-reply, then the next message answers", async () => {
+        const page = await open();
+        const prompt =
+          "Write a long, detailed essay on the history of the Roman Empire, at least 1500 words.";
+        const before = await newestGenerationId(page);
+        await beginTurn(page, prompt);
+        const stop = await stopMidReply(page);
+        if (!stop.stopped) {
+          push({
+            task: 12,
+            turn: 1,
+            label: "Stop pressed mid-reply",
+            modelId: pick.modelId,
+            firstTokenMs: null,
+            kvReason: null,
+            result: "FAIL",
+            evidence: `${stop.reason}; nothing was stopped, so this task says nothing about Stop`,
+          });
+          return;
+        }
+
+        const stopped = await finishGeneration(page, prompt, before, STOPPED_RECEIPT_TIMEOUT_MS);
+        const stoppedReceipt = outcomeReceipt(stopped);
+        const bubble = assistantMessages(page).last();
+        const notice = bubble.getByRole("status").filter({ hasText: /stopped/i });
+        const noticeText = (await notice.count()) > 0 ? await notice.first().innerText() : "";
+        const kept = (await bubble.innerText()).replace(noticeText, "").trim();
+        const recordedAsStopped = stoppedReceipt?.status === "aborted";
+        const stopOk =
+          recordedAsStopped && noticeText !== "" && (await tryAgainOn(bubble).count()) > 0 && kept !== "";
+        push(
+          rowFor(
+            12,
+            1,
+            "Stop pressed mid-reply",
+            stopped,
+            stopOk ? "PASS" : "FAIL",
+            `composer back ${stop.settledMs} ms after Stop; recorded as '${
+              stoppedReceipt?.status ?? "(no receipt)"
+            }'${recordedAsStopped ? "" : " (a stopped reply should be 'aborted')"}; notice: ${
+              noticeText ? JSON.stringify(clip(noticeText, 60)) : "MISSING"
+            }; ${kept ? `${kept.length} chars kept on screen` : "the partial reply is GONE"}`,
+          ),
+        );
+
+        const next = await sendTurn(page, "Give me some tips for better sleep.", LONG_TURN_TIMEOUT_MS);
+        const check = await answered(page, next);
+        push(
+          rowFor(
+            12,
+            2,
+            "the next message after a Stop answers",
+            next,
+            check.ok ? "PASS" : "FAIL",
+            `${check.ok ? "answered" : `did NOT answer: ${check.why}`}; ${turnCounts(next)}; reply: ${clip(
+              next.replyText,
+            )}`,
+          ),
+        );
+        if (!check.ok) await retireWalkPage();
+      });
+
+      // ── 13. A reply fails part-way; Try again answers ────────────────────
+      // The failure is the harness's one-shot fault: the reply stops after its
+      // first word with a generic on-device error, so the person sees the
+      // usual card and its Try again. The retry then has to find the runtime
+      // free, even though the failed reply stopped reading it part-way.
+      await task(13, "a failed reply, then Try again answers", async () => {
+        const page = await open();
+        const prompt = "Give me three ideas for a quiet weekend at home.";
+        await armGenerationFault(page);
+        const failed = await sendTurn(page, prompt, LONG_TURN_TIMEOUT_MS);
+        const failedReceipt = outcomeReceipt(failed);
+        const ourFault =
+          failedReceipt?.status === "error"
+          && (failedReceipt.errorCode ?? "").startsWith(INJECTED_FAULT_MESSAGE.slice(0, 80));
+        const stillArmed = await generationFaultArmed(page);
+        const bubble = assistantMessages(page).last();
+        const offered = (await tryAgainOn(bubble).count()) > 0;
+        const card = offered ? clip(await bubble.innerText(), 120) : "";
+        push(
+          rowFor(
+            13,
+            1,
+            "a reply fails part-way, and Try again is offered",
+            failed,
+            ourFault && offered && !stillArmed ? "PASS" : "FAIL",
+            [
+              ourFault
+                ? "failed with the injected fault"
+                : `expected the injected fault, got '${failedReceipt?.status ?? "no receipt"}'${
+                    failedReceipt?.errorCode ? ` (${clip(failedReceipt.errorCode, 80)})` : ""
+                  }`,
+              stillArmed ? "the fault is STILL armed (it should fire once)" : "fault fired once",
+              offered ? `the person sees: ${JSON.stringify(card)}` : "NO Try again is offered",
+            ].join("; "),
+          ),
+        );
+        if (!ourFault || !offered) {
+          await retireWalkPage();
+          return;
+        }
+
+        const assistantBubbles = await assistantMessages(page).count();
+        const before = await newestGenerationId(page);
+        await tryAgainOn(bubble).first().click();
+        const retried = await finishGeneration(page, prompt, before, LONG_TURN_TIMEOUT_MS);
+        const check = await answered(page, retried);
+        const askedOnce = (await userMessages(page).filter({ hasText: prompt }).count()) === 1;
+        const replacedInPlace = (await assistantMessages(page).count()) === assistantBubbles;
+        const retryOk = check.ok && askedOnce && replacedInPlace;
+        push(
+          rowFor(
+            13,
+            2,
+            "Try again answers",
+            retried,
+            retryOk ? "PASS" : "FAIL",
+            [
+              check.ok ? "answered" : `did NOT answer: ${check.why}`,
+              askedOnce ? "the question shows once" : "the question is DUPLICATED in the transcript",
+              replacedInPlace ? "the answer replaced the failed reply" : "the failed reply was NOT replaced",
+              turnCounts(retried),
+              `reply: ${clip(retried.replyText)}`,
+            ].join("; "),
+          ),
+        );
+        if (!check.ok) {
+          await retireWalkPage();
+          return;
+        }
+
+        const after = await sendTurn(page, "Thanks. One more idea, please.", LONG_TURN_TIMEOUT_MS);
+        const afterCheck = await answered(page, after);
+        push(
+          rowFor(
+            13,
+            3,
+            "the conversation carries on after the retry",
+            after,
+            afterCheck.ok ? "PASS" : "FAIL",
+            `${afterCheck.ok ? "answered" : `did NOT answer: ${afterCheck.why}`}; ${turnCounts(after)}; reply: ${clip(
+              after.replyText,
+            )}`,
+          ),
+        );
+      });
+
+      // ── 14. Edit an earlier message and resend ───────────────────────────
+      // Editing the FIRST message branches the conversation there: the later
+      // exchange leaves the transcript, and the model must answer from the
+      // edited text alone. The name is the witness — only the edit says Tomas,
+      // and only the discarded original said Priya.
+      await task(14, "edit an earlier message and resend", async () => {
+        const page = await open();
+        const original = "My name is Priya. Please remember it, and reply in one short sentence.";
+        const edit = "My name is Tomas. Please remember it, and reply in one short sentence.";
+        await sendTurn(page, original);
+        await sendTurn(page, "Suggest one name for a pet goldfish.");
+
+        const before = await newestGenerationId(page);
+        await editUserMessage(page, 0, edit);
+        const edited = await finishGeneration(page, edit, before, LONG_TURN_TIMEOUT_MS);
+        const check = await answered(page, edited);
+        const userTexts = await userMessages(page).allInnerTexts();
+        const showsEdit = userTexts.length === 1 && (userTexts[0] ?? "").includes("Tomas");
+        const laterTurnGone = !userTexts.some((text) => text.includes("goldfish"));
+        const oneReply = (await assistantMessages(page).count()) === 1;
+        const versionsShown =
+          (await userMessages(page).first().getByRole("button", { name: "Previous version" }).count()) > 0;
+        // Null means nothing could be read from storage; only a mismatch fails.
+        const storedEdit = edited.storedUserText === null || edited.storedUserText.trim() === edit;
+        const editOk = check.ok && showsEdit && laterTurnGone && oneReply && versionsShown && storedEdit;
+        push(
+          rowFor(
+            14,
+            1,
+            "the edited message is resent and answered",
+            edited,
+            editOk ? "PASS" : "FAIL",
+            [
+              check.ok ? "answered" : `did NOT answer: ${check.why}`,
+              showsEdit ? "the transcript shows the edited message" : `the transcript shows ${JSON.stringify(userTexts.map((text) => clip(text, 40)))}`,
+              laterTurnGone ? "the later exchange left the transcript" : "the later exchange is STILL showing",
+              oneReply ? "one reply" : "more than one reply is showing",
+              versionsShown ? "the earlier version is one tap away" : "NO way back to the earlier version",
+              storedEdit ? "storage holds the edit" : `storage holds ${JSON.stringify(clip(edited.storedUserText ?? "", 60))}`,
+              `reply: ${clip(edited.replyText)}`,
+            ].join("; "),
+          ),
+        );
+
+        const recall = await sendTurn(page, "What is my name?");
+        const recalled = recall.replyText.includes("Tomas") && !recall.replyText.includes("Priya");
+        push(
+          rowFor(
+            14,
+            2,
+            "the conversation continues from the edit",
+            recall,
+            recalled ? "PASS" : "FAIL",
+            `${
+              recalled
+                ? "the reply uses the edited name"
+                : recall.replyText.includes("Priya")
+                  ? "the reply uses the name from BEFORE the edit"
+                  : "the edited name is missing"
+            }; ${turnCounts(recall)}; reply: ${clip(recall.replyText)}`,
+          ),
+        );
+      });
+
       // ── 7. Offline reload — LAST, because it ends the page ────────────────
       // A real check now that the worker captures the chat shell. The walk's
       // tab was opened before the worker existed, so no navigation has passed
@@ -971,7 +1343,11 @@ test.describe("eleven-task acceptance walk", () => {
   test("every walked model produced a table, and nothing failed that was not expected to", () => {
     // Read from disk, not from memory: a walk that ran in a worker Playwright
     // has since replaced left its rows in a fragment, and nowhere else.
-    const { report } = assembleReport({ smoke: PLAN.smoke, tasks: PLAN.tasks });
+    const { report } = assembleReport({
+      smoke: PLAN.smoke,
+      tasks: PLAN.tasks,
+      runtime: PLAN.runtime,
+    });
     expect(
       report.picks.length,
       `the report carries ${report.picks.length} model table(s), not ${WALK_PICKS.length}`,

@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Bos Computing LLC
 
 import { defineConfig } from "@playwright/test";
+import { acceptanceModelHost } from "./e2e-acceptance/lib/model-host";
 
 /**
  * Acceptance lane — opt-in, never in `pnpm qa` and never in CI.
@@ -25,8 +26,10 @@ import { defineConfig } from "@playwright/test";
  * Run:
  *   pnpm --filter @eco/web test:acceptance         # the full walk
  *   pnpm --filter @eco/web test:acceptance:smoke   # ~10 min self-test
+ *   ECO_ACCEPTANCE_RUNTIME=webllm pnpm --filter @eco/web test:acceptance
+ *                                                   # the WebLLM models, tasks 1, 12-14
  *
- * The smoke subset (`ECO_ACCEPTANCE_SMOKE=1`) walks one model and three tasks
+ * The smoke subset (`ECO_ACCEPTANCE_SMOKE=1`) walks one model and four tasks
  * on the existing profile — enough to prove the lane still works after someone
  * edits it, and never a product verdict. See `e2e-acceptance/lib/subset`.
  *
@@ -39,8 +42,10 @@ const WEB_BASE_URL = "http://localhost:3120";
 const PROD_ENV = [
   "NEXT_PUBLIC_ECO_VALIDATION_HARNESS=true",
   "NEXT_PUBLIC_API_URL=http://127.0.0.1:3001",
-  // Model bytes CDN-first, matching production transport.
-  "NEXT_PUBLIC_ECO_MODEL_CDN_BASE=https://models.econetwork.ai",
+  // Model bytes CDN-first, matching production transport. Compiled into the
+  // build, so changing it needs a fresh server: `ECO_ACCEPTANCE_MODEL_CDN_BASE`
+  // overrides it (empty = the app's own model proxy), see e2e-acceptance/lib/model-host.
+  `NEXT_PUBLIC_ECO_MODEL_CDN_BASE=${acceptanceModelHost()}`,
   // Task 7 walks an offline reload, which needs the service worker. Both flags:
   // registration is opt-in, and it opts out again on a loopback host (3120 is
   // localhost) unless the local flag is set too — see src/lib/sw-register.ts.
