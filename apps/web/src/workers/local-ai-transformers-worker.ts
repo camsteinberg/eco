@@ -74,7 +74,7 @@ import {
   type CjkTokenScan,
 } from '../local-ai/runtime/cjk-suppression';
 import { classifyGenerationError } from './classify-generation-error';
-import { singleFlightRejection } from './single-flight';
+import { ABORTED_GENERATION_SETTLE_MS, GenerationSlot } from './single-flight';
 import { ortWasmPaths, clampThreads, type OrtArtifact } from '../local-ai/runtime/ort-artifact';
 
 // ─── Local self typing ─────────────────────────────────────────────────────
@@ -146,7 +146,8 @@ type LoadedModel = {
 };
 
 let loaded: LoadedModel | null = null;
-let abortFlag: { aborted: boolean; generationId: string } | null = null;
+// RT-2 single-flight: one generation at a time (see single-flight.ts).
+const generationSlot = new GenerationSlot();
 
 // ─── CJK-token suppression state (worker-internal) ───────────────────────────
 //
@@ -269,9 +270,7 @@ self.addEventListener('message', async (event: MessageEvent<WorkerInbound>) => {
         await handleGenerate(msg);
         break;
       case 'abort':
-        if (abortFlag && abortFlag.generationId === msg.generationId) {
-          abortFlag.aborted = true;
-        }
+        generationSlot.abort(msg.generationId);
         break;
       case 'unload':
         await handleUnload();
@@ -669,7 +668,25 @@ function classifyInitError(message: string): 'webgpu-unavailable' | 'oom' | 'ini
 // ─── generate ──────────────────────────────────────────────────────────────
 
 async function handleGenerate(msg: Extract<WorkerInbound, { type: 'generate' }>): Promise<void> {
+  // RT-2 single-flight guard. The slot is held for exactly the lifetime of an
+  // in-flight generation (taken just below, released in the finally). The
+  // async message dispatcher can pick up a 2nd 'generate' while the first is
+  // parked on `await model.generate(...)`; letting it run would clobber the
+  // abort flag (so the first generation could no longer be aborted) and race
+  // the shared KV-cache globals — silent context corruption. The adapter is a
+  // singleton and never intends two at once, so a newcomer is rejected — unless
+  // the one in flight was told to stop and is still unwinding, which the
+  // newcomer waits out (see GenerationSlot).
+  const acquired = await generationSlot.acquire(msg.generationId, ABORTED_GENERATION_SETTLE_MS);
+  if (!acquired.ok) {
+    if (acquired.rejection) post(acquired.rejection);
+    return;
+  }
+  const abortFlag = acquired.flag;
+  // Checked after the slot, not before: a generation that waited out a stopped
+  // one may find the model unloaded in the meantime.
   if (!loaded) {
+    generationSlot.release();
     post({
       type: 'error',
       generationId: msg.generationId,
@@ -678,21 +695,6 @@ async function handleGenerate(msg: Extract<WorkerInbound, { type: 'generate' }>)
     });
     return;
   }
-
-  // RT-2 single-flight guard. `abortFlag` is non-null for exactly the lifetime
-  // of an in-flight generation (set just below, cleared in the finally). The
-  // async message dispatcher can pick up a 2nd 'generate' while the first is
-  // parked on `await model.generate(...)`; letting it run would clobber
-  // `abortFlag` (so the first generation could no longer be aborted) and race
-  // the shared KV-cache globals — silent context corruption. The adapter is a
-  // singleton and never intends two at once, so reject the newcomer.
-  const rejection = singleFlightRejection(abortFlag, msg.generationId);
-  if (rejection) {
-    post(rejection);
-    return;
-  }
-
-  abortFlag = { aborted: false, generationId: msg.generationId };
   // A resumed reply: the trailing assistant message is a partial to FINISH.
   // It is rendered as prompt text after the history (never as a closed turn),
   // and it is post-filter visible text, so the filter must not be seeded to
@@ -900,7 +902,7 @@ async function handleGenerate(msg: Extract<WorkerInbound, { type: 'generate' }>)
         // boundary space without a dictionary, and guessing would corrupt valid
         // output (URLs, code, compounds). Tracked as a model-side follow-up.
         callback_function: (text: string) => {
-          if (abortFlag?.aborted) {
+          if (abortFlag.aborted) {
             throw new Error('__eco_abort__');
           }
           completionTokens++;
@@ -1049,7 +1051,7 @@ async function handleGenerate(msg: Extract<WorkerInbound, { type: 'generate' }>)
     // completed-cache to keep here.)
     await invalidateKvCache();
     const message = err instanceof Error ? err.message : String(err);
-    if (message === '__eco_abort__' || abortFlag?.aborted) {
+    if (message === '__eco_abort__' || abortFlag.aborted) {
       // Caller already knows about the abort; nothing more to do.
       return;
     }
@@ -1060,7 +1062,7 @@ async function handleGenerate(msg: Extract<WorkerInbound, { type: 'generate' }>)
     const code = classifyGenerationError(message);
     post({ type: 'error', generationId: msg.generationId, code, message });
   } finally {
-    abortFlag = null;
+    generationSlot.release();
   }
 }
 

@@ -618,6 +618,17 @@ export class TransformersAdapter implements RuntimeAdapter {
       }
     } finally {
       clearWatchdog();
+      options?.signal?.removeEventListener('abort', onAbort);
+      // The reader left before the generation ended (no done, error, abort,
+      // stall or crash closed it): a fault above the adapter, or a consumer
+      // that simply stopped reading. Tell the worker to stop, as the stall
+      // path does — left running, it keeps the single-flight guard and the
+      // next message is rejected. A generation that already ended is not
+      // aborted again.
+      if (!controller.isClosed) {
+        this.worker?.postMessage({ type: 'abort', generationId });
+        controller.close();
+      }
       this.worker?.removeEventListener('message', onMessage);
       this.worker?.removeEventListener('error', onWorkerError);
       this.worker?.removeEventListener('messageerror', onWorkerMessageError);
