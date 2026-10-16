@@ -89,6 +89,9 @@ const FAULT_UNLOAD_CODES: ReadonlySet<AdapterErrorCode> = new Set([
   // but a wedged worker may never process it. Unloading guarantees the next
   // send gets a fresh worker instead of a single-flight rejection.
   'timeout',
+  // The device was gone before the request: unload so the next load re-inits,
+  // but it is absent from COOLDOWN_TRIGGER_CODES — no strike, no cooldown.
+  'device-reclaimed',
 ]);
 
 export type CooldownRecord = {
@@ -161,6 +164,11 @@ const state: LifecycleState = {
   firstTokenMark: null,
 };
 
+// A WebGPU device lost in this page. Page-scoped on purpose: a page that lost
+// one may be unable to get another (no adapter) until it is reloaded.
+let gpuLostThisPage = false;
+const deviceLostListeners = new Set<() => void>();
+
 function defaultStorage(): KeyValueStorage | null {
   if (typeof globalThis === 'undefined') return null;
   const g = globalThis as { localStorage?: KeyValueStorage };
@@ -187,6 +195,27 @@ export function getActiveModel(): ModelConfig | null {
 
 export function getActiveAdapter(): RuntimeAdapter | null {
   return state.activeAdapter;
+}
+
+/** Whether a model's WebGPU device has been lost since this page loaded. */
+export function wasGpuLostThisPage(): boolean {
+  return gpuLostThisPage;
+}
+
+/**
+ * Called when the active model's WebGPU device is lost (adapters that can
+ * observe their device only). Returns an unsubscribe function.
+ */
+export function subscribeDeviceLost(listener: () => void): () => void {
+  deviceLostListeners.add(listener);
+  return () => {
+    deviceLostListeners.delete(listener);
+  };
+}
+
+function noteDeviceLost(): void {
+  gpuLostThisPage = true;
+  for (const listener of deviceLostListeners) listener();
 }
 
 /**
@@ -218,7 +247,10 @@ export async function loadModel(
     }
 
     if (state.activeAdapter && state.activeModel?.id === model.id) {
-      return state.activeAdapter;
+      // A lost device leaves the adapter unable to serve anything: fall through
+      // and replace it, as a switch would. Not a crash — no strike, no cooldown.
+      if (!state.activeAdapter.deviceLost) return state.activeAdapter;
+      gpuLostThisPage = true;
     }
 
     // Load breaker: a dead tab's mark becomes a kill first, then a model whose
@@ -270,7 +302,13 @@ export async function loadModel(
       options?.rollbackModelId ? { rollbackModelId: options.rollbackModelId } : {},
     );
     const adapter = adapterFactory(model);
-    const loadPromise = adapter.load(model, options);
+    const loadPromise = adapter.load(model, {
+      ...options,
+      onDeviceLost: () => {
+        options?.onDeviceLost?.();
+        if (state.activeAdapter === adapter) noteDeviceLost();
+      },
+    });
     // The mark follows the LOAD, not this call: a forced timeout below stops
     // waiting, but the load keeps running and can still kill the tab. A rejected
     // load clears it; a load that wins the race hands it to the first generation.
@@ -370,14 +408,18 @@ export async function* generate(
       if (event.kind === 'error' && event.code && FAULT_UNLOAD_CODES.has(event.code)) {
         faultCode = event.code;
       }
+      if (event.kind === 'error' && (event.code === 'device-reclaimed' || event.code === 'device-lost')) {
+        gpuLostThisPage = true;
+      }
       yield event;
     }
   } catch (err) {
-    crashedCode = errorCode(err);
     const code = errorCode(err);
+    if (code !== 'device-reclaimed') crashedCode = code;
     if (FAULT_UNLOAD_CODES.has(code)) {
       faultCode = code;
     }
+    if (code === 'device-reclaimed' || code === 'device-lost') gpuLostThisPage = true;
     throw err;
   } finally {
     firstTokenMark?.clear();
@@ -559,6 +601,8 @@ export function _resetLifecycleForTesting(): void {
   state.activeModel = null;
   state.lockQueue = Promise.resolve();
   clearFirstTokenMark();
+  gpuLostThisPage = false;
+  deviceLostListeners.clear();
   state.options = {
     cooldownMs: COOLDOWN_DEFAULT_MS,
     now: () => Date.now(),

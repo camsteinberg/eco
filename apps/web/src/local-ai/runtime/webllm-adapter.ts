@@ -226,6 +226,8 @@ export class WebLLMAdapter implements RuntimeAdapter {
   private openStream: AsyncIterator<WebLLMChunk> | null = null;
   /** The background read that finishes an abandoned stream; see `finishOpenStream`. */
   private draining: Promise<void> | null = null;
+  /** The loaded engine's device was lost; see `watchDeviceLoss`. */
+  private lost = false;
 
   constructor(options: WebLLMAdapterOptions = {}) {
     this.options = options;
@@ -243,6 +245,10 @@ export class WebLLMAdapter implements RuntimeAdapter {
 
   get activeModel(): ModelConfig | null {
     return this.currentModel;
+  }
+
+  get deviceLost(): boolean {
+    return this.lost;
   }
 
   /**
@@ -391,13 +397,21 @@ export class WebLLMAdapter implements RuntimeAdapter {
 
     this.engine = engine;
     this.currentModel = model;
+    this.lost = false;
     this.kvGate = WebLLMKvGate.install(engine.loadedModelIdToPipeline?.get(mlcId));
+    this.watchDeviceLoss(engine, mlcId, options?.onDeviceLost);
     emit?.({ phase: 'load-finish', at: now(), note: 'backend=webgpu' });
   }
 
   async *generate(messages: ChatMessage[], options?: GenerateOptions): AsyncIterable<TokenEvent> {
     if (!this.engine) {
       throw new AdapterError('Not loaded', 'init-failed', false);
+    }
+    // The engine disposed its own pipeline when the device went; touching it
+    // would only throw on a disposed object.
+    if (this.lost) {
+      yield { kind: 'error', reason: 'The WebGPU device was lost.', code: 'device-reclaimed' };
+      return;
     }
     const engine = this.engine;
     const emit = options?.onLifecycleEvent;
@@ -687,11 +701,34 @@ export class WebLLMAdapter implements RuntimeAdapter {
     }
   }
 
+  /**
+   * WebLLM watches its device itself: on a loss its `device.lost` handler
+   * unloads the engine and disposes the pipeline (`lib/index.js:12591`), and
+   * nothing tells the caller — the next request throws on a disposed object.
+   * Watching the same promise lets the lifecycle replace the engine before
+   * that request instead. Our own `unload()` clears `this.engine` before its
+   * teardown destroys the device, so that loss is never counted.
+   */
+  private watchDeviceLoss(engine: WebLLMEngine, mlcId: string, onDeviceLost?: () => void): void {
+    const lost = mlcDeviceLostOf(engine, mlcId);
+    if (!lost) return;
+    lost.then(
+      () => {
+        if (this.engine !== engine || this.lost) return;
+        this.lost = true;
+        onDeviceLost?.();
+      },
+      () => undefined,
+    );
+  }
+
   async unload(): Promise<void> {
     const engine = this.engine;
+    const lost = this.lost;
     this.engine = null;
     this.currentModel = null;
     this.kvGate = null;
+    this.lost = false;
     if (this.inFlight) {
       try {
         this.inFlight.abort();
@@ -705,7 +742,10 @@ export class WebLLMAdapter implements RuntimeAdapter {
     this.openStream = null;
     this.draining = null;
     if (engine) {
-      await engine.unload().catch(() => undefined);
+      const done = engine.unload().catch(() => undefined);
+      // A lost engine's teardown waits on a device that is gone; its memory
+      // went with the device, so nothing is gained by holding the caller.
+      if (!lost) await done;
     }
   }
 }
@@ -768,6 +808,22 @@ function* renderedPromptIds(pipeline: MlcPipeline): Iterable<number> {
   }
 }
 
+/**
+ * The loaded pipeline's `GPUDevice.lost` — `pipeline.tvm.lib.webGPUContext
+ * .device` in WebLLM 0.2.84 (`lib/index.js:9880`, `7569`, `4405`). NOT public
+ * API; null when unreachable, which leaves only the classifier below to name
+ * the failure the next request meets.
+ */
+function mlcDeviceLostOf(engine: WebLLMEngine, mlcId: string): PromiseLike<unknown> | null {
+  const pipeline = engine.loadedModelIdToPipeline?.get(mlcId) as
+    | { tvm?: { lib?: { webGPUContext?: { device?: { lost?: unknown } } } } }
+    | undefined;
+  const lost = pipeline?.tvm?.lib?.webGPUContext?.device?.lost;
+  return typeof lost === 'object' && lost !== null && typeof (lost as PromiseLike<unknown>).then === 'function'
+    ? (lost as PromiseLike<unknown>)
+    : null;
+}
+
 // ─── Error classification ──────────────────────────────────────────────────
 
 function classifyWebLLMError(err: unknown): import('./types').AdapterErrorCode {
@@ -786,6 +842,17 @@ function classifyWebLLMError(err: unknown): import('./types').AdapterErrorCode {
   }
   if (msg.includes('webgpu') && (msg.includes('unavailable') || msg.includes('not supported'))) {
     return 'webgpu-unavailable';
+  }
+  // `detectGPUDevice` when `requestAdapter()` resolves null (`lib/index.js:4041`):
+  // this page cannot get a WebGPU device at all right now.
+  if (msg.includes('unable to find a compatible gpu')) {
+    return 'webgpu-unavailable';
+  }
+  // TVM's error for a disposed object (`lib/index.js:6320-6327`), which a request
+  // meets after WebLLM's own device-lost handler disposed the pipeline: the
+  // device was gone before the request, so it is not this prompt's fault.
+  if (msg.includes('already been disposed')) {
+    return 'device-reclaimed';
   }
   return 'generation-failed';
 }

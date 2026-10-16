@@ -38,6 +38,8 @@ vi.mock("../../local-ai/lifecycle/setup-runner", () => ({
 
 vi.mock("../../local-ai/runtime/lifecycle", () => ({
   getActiveModel: () => mockGetActiveModel(),
+  getActiveAdapter: () => null,
+  subscribeDeviceLost: () => () => {},
 }));
 
 vi.mock("../../local-ai/lifecycle/slots", () => ({

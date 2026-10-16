@@ -3,7 +3,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ModelConfig } from '../../types';
-import { AdapterError } from '../types';
+import { AdapterError, type TokenEvent } from '../types';
 import type { ConfidenceSummary } from '../confidence';
 import { WebLLMAdapter, type WebLLMChunk, type WebLLMEngine } from '../webllm-adapter';
 
@@ -1517,8 +1517,8 @@ describe('WebLLMAdapter — GPU device lost while loaded', () => {
     };
   }
 
-  async function collect(): Promise<import('../types').TokenEvent[]> {
-    const events: import('../types').TokenEvent[] = [];
+  async function collect(): Promise<TokenEvent[]> {
+    const events: TokenEvent[] = [];
     for await (const event of adapter.generate([{ role: 'user', content: 'hi' }])) events.push(event);
     return events;
   }

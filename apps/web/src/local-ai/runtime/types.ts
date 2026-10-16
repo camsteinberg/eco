@@ -67,6 +67,12 @@ export type LoadOptions = {
    * that, if this load kills the tab, the next landing can offer it back.
    */
   rollbackModelId?: string;
+  /**
+   * Called once if the loaded model's WebGPU device is lost afterwards (the
+   * browser reclaimed it, e.g. while the page sat in the background). Adapters
+   * that cannot observe their device never call it.
+   */
+  onDeviceLost?: () => void;
 };
 
 export type GenerateOptions = {
@@ -132,6 +138,10 @@ export type AdapterErrorCode =
   | 'webgpu-unavailable'
   | 'oom'
   | 'device-lost'
+  /** The WebGPU device was already gone when the request reached the runtime —
+   *  the browser reclaimed it, not this prompt. Unloads the adapter but never
+   *  records a fault strike or cooldown. */
+  | 'device-reclaimed'
   | 'init-failed'
   /** The weight files are no longer on this device and could not be fetched
    *  (evicted by the browser, then loaded offline or with the host unreachable).
@@ -169,6 +179,12 @@ export type RuntimeAdapter = {
   readonly backend: RuntimeBackend | null;
   /** The model currently loaded, or null when unloaded. */
   readonly activeModel: ModelConfig | null;
+  /**
+   * True once the loaded model's WebGPU device has been lost. A lost adapter
+   * cannot serve another request; the lifecycle replaces it on the next load.
+   * Absent on adapters that cannot observe their device.
+   */
+  readonly deviceLost?: boolean;
 
   load(model: ModelConfig, options?: LoadOptions): Promise<void>;
   generate(messages: ChatMessage[], options?: GenerateOptions): AsyncIterable<TokenEvent>;
