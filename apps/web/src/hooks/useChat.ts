@@ -1919,19 +1919,24 @@ export function useChat() {
   // ── Answer the turn an automatic GPU reload left behind ────────────────
   async function refreshPageForGpu(assistantId: string): Promise<void> {
     const convId = useConversationStore.getState().activeConversationId;
-    if (convId) {
-      const convStore = useConversationStore.getState();
-      await Promise.all(
-        useChatStore.getState().messages.map((m) => convStore.saveMessage(toDbMessage(m, convId))),
+    let reloaded = false;
+    try {
+      if (convId) {
+        const convStore = useConversationStore.getState();
+        await Promise.all(
+          useChatStore.getState().messages.map((m) => convStore.saveMessage(toDbMessage(m, convId))),
+        );
+        await whenConversationWritesSettle();
+      }
+      reloaded = reloadPageForGpu(
+        convId ? { retry: { conversationId: convId, assistantId } } : {},
       );
-      await whenConversationWritesSettle();
+    } catch {
+      // The turn could not be saved: a reload now could lose it.
     }
-    const reloaded = reloadPageForGpu(
-      convId ? { retry: { conversationId: convId, assistantId } } : {},
-    );
     if (!reloaded) {
-      // An automatic reload already ran in this tab and the device is gone
-      // again: fall back to the crash card rather than reload in a loop.
+      // Not saved, or an automatic reload already ran in this tab and the
+      // device is gone again: fall back to the crash card rather than reload.
       const recovery = getLocalRuntimeCrashRecovery(false);
       setError(recovery.globalError);
       updateMessage(assistantId, recovery.assistantUpdate);

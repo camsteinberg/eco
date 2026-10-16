@@ -85,7 +85,10 @@ import { useChat } from "../useChat";
 import { useChatStore, type ChatMessage } from "../../stores/chatStore";
 import { useConversationStore } from "../../stores/conversationStore";
 import { LocalInferenceStreamError } from "../../local-ai/runtime/errors";
-import { GPU_RECONNECT_MESSAGE } from "../../local-ai/adapters/error-messages";
+import {
+  GPU_RECONNECT_MESSAGE,
+  LOCAL_RUNTIME_HICCUP_MESSAGE,
+} from "../../local-ai/adapters/error-messages";
 
 const CONVERSATION_ID = "conv-gpu-reconnect";
 
@@ -152,6 +155,36 @@ describe("useChat — a send this page cannot run until it reloads (GPU_RECONNEC
     expect(savedAssistant?.status).toBe("error");
     expect(savedAssistant?.errorMessage).toBe(GPU_RECONNECT_MESSAGE);
     expect(saved.some((m) => m.role === "user" && m.content === "how far is the moon?")).toBe(true);
+  });
+
+  it("does not reload when the turn could not be saved, and shows the crash card instead", async () => {
+    const realSave = useConversationStore.getState().saveMessage;
+    // The send's own early save succeeds; the save of the refresh card fails.
+    useConversationStore.setState({
+      saveMessage: async (message) => {
+        if (message.status === "error") throw new Error("QuotaExceededError");
+        await realSave(message);
+      },
+    });
+    shared.scripts = [
+      {
+        error: new LocalInferenceStreamError("GPU_RECONNECT", GPU_RECONNECT_MESSAGE, true),
+      },
+    ];
+    try {
+      const { result } = renderHook(() => useChat());
+      await act(async () => {
+        await result.current.sendMessage("how far is the moon?");
+      });
+      await flush();
+
+      expect(shared.reloads).toEqual([]);
+      const assistant = useChatStore.getState().messages.at(-1);
+      expect(assistant?.status).toBe("error");
+      expect(assistant?.errorMessage).toBe(LOCAL_RUNTIME_HICCUP_MESSAGE);
+    } finally {
+      useConversationStore.setState({ saveMessage: realSave });
+    }
   });
 
   it("answers the saved turn by itself after the reload, once its conversation has loaded", async () => {
