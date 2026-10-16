@@ -17,6 +17,7 @@ import {
   recordCooldown,
   setAdapterFactory,
   unloadActive,
+  wasGpuLostThisPage,
   type KeyValueStorage,
 } from '../lifecycle';
 import { AdapterError, type RuntimeAdapter } from '../types';
@@ -51,6 +52,7 @@ class FakeAdapter implements RuntimeAdapter {
   failOnLoad: AdapterError | null = null;
   failOnGenerateEvent: { code: import('../types').AdapterErrorCode; reason: string } | null = null;
   throwOnGenerate: AdapterError | null = null;
+  deviceLost = false;
 
   async load(model: ModelConfig): Promise<void> {
     this.loadCalls++;
@@ -656,5 +658,55 @@ describe('lock serialization', () => {
     // First call entered first; the other two saw the model already loaded
     // (no-op return) so wrapped.load only ran once.
     expect(calls.length).toBe(1);
+  });
+});
+
+// ─── GPU device lost while loaded ─────────────────────────────────────────
+
+describe('GPU device lost while loaded', () => {
+  it('loading the active model again replaces a lost adapter instead of returning it, with no strike or cooldown', async () => {
+    const adapters: FakeAdapter[] = [];
+    setAdapterFactory(() => {
+      const adapter = new FakeAdapter();
+      adapters.push(adapter);
+      return adapter;
+    });
+    await loadModel(MODEL_A);
+    adapters[0]!.deviceLost = true;
+
+    const active = await loadModel(MODEL_A);
+
+    expect(adapters).toHaveLength(2);
+    expect(active).toBe(adapters[1]);
+    expect(adapters[0]!.unloadCalls).toBe(1);
+    expect(hasFaultStrike(MODEL_A.id)).toBe(false);
+    expect(getCooldown(MODEL_A.id)).toBeNull();
+    expect(wasGpuLostThisPage()).toBe(true);
+  });
+
+  it('a request that meets a reclaimed device unloads it and records no strike or cooldown', async () => {
+    const adapter = new FakeAdapter();
+    adapter.failOnGenerateEvent = { code: 'device-reclaimed', reason: 'The current Object has already been disposed' };
+    setAdapterFactory(() => adapter);
+    await loadModel(MODEL_A);
+
+    for (let episode = 0; episode < 2; episode++) {
+      for await (const event of generate([])) {
+        void event;
+      }
+      await flushUnload();
+      await loadModel(MODEL_A);
+    }
+
+    expect(adapter.unloadCalls).toBe(2);
+    expect(hasFaultStrike(MODEL_A.id)).toBe(false);
+    expect(getCooldown(MODEL_A.id)).toBeNull();
+    expect(wasGpuLostThisPage()).toBe(true);
+  });
+
+  it('a healthy page has not lost its GPU', async () => {
+    setAdapterFactory(() => new FakeAdapter());
+    await loadModel(MODEL_A);
+    expect(wasGpuLostThisPage()).toBe(false);
   });
 });
