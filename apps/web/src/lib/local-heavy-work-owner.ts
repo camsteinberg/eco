@@ -32,10 +32,58 @@ const LOCAL_DOWNLOAD_OWNER_KEY = "eco-local-download-owner-v1";
 const DEFAULT_LEASE_TTL_MS = 90_000;
 const DEFAULT_HEARTBEAT_MS = 5_000;
 const VALIDATION_DRY_RUN_LEASE_TTL_MS = 60 * 60 * 1000;
+// The row is written synchronously but its lock is granted a moment later, so a
+// row younger than this is never judged by its lock.
+const LEASE_LOCK_GRACE_MS = 5_000;
 const ownedLeaseIds = new Set<string>();
 
 function nowMs(): number {
   return Date.now();
+}
+
+/** The slice of the Web Locks API the download lease uses. */
+type LockManagerLike = {
+  request(name: string, callback: () => Promise<void>): Promise<unknown>;
+  query(): Promise<{ held?: readonly { name?: string }[] }>;
+};
+
+function webLocks(): LockManagerLike | null {
+  if (typeof navigator === "undefined") return null;
+  // Typed as always present, but absent in older engines and in jsdom.
+  const locks = (navigator as unknown as { locks?: LockManagerLike }).locks;
+  return locks ?? null;
+}
+
+export function leaseLockName(ownerId: string): string {
+  return `eco-heavy-work-lease:${ownerId}`;
+}
+
+/**
+ * Hold a Web Lock named after the lease for as long as the lease lives. The
+ * browser releases a document's locks when it goes away — crash included, and
+ * the iOS swipe-away that left a row behind — so another page can tell
+ * a dead owner's row from a live one (`clearDeadLocalDownloadLease`).
+ */
+function holdLeaseLock(ownerId: string): () => void {
+  const locks = webLocks();
+  if (!locks) return () => {};
+  let released = false;
+  let releaseLock: () => void = () => {};
+  locks
+    .request(leaseLockName(ownerId), () => {
+      if (released) return Promise.resolve();
+      return new Promise<void>((resolve) => {
+        releaseLock = resolve;
+      });
+    })
+    .catch(() => {
+      // No lock: the row then reads as dead to other pages once past the grace
+      // window. Fail open — the worst case is a second concurrent download.
+    });
+  return () => {
+    released = true;
+    releaseLock();
+  };
 }
 
 function createOwnerId(kind: LocalHeavyWorkKind): string {
@@ -186,6 +234,40 @@ export function getActiveLocalDownloadLease(
   return getActiveLeaseInDomain("download", at);
 }
 
+/**
+ * Clear another page's download lease if that page is gone. A page killed
+ * without `pagehide` leaves a row that looks live for the rest of its TTL; its
+ * lease lock, though, was released with the document. Returns true only when
+ * the lock is known not to be held. Anything uncertain — this page's own lease,
+ * a row inside the grace window, no Web Locks, a failed query — returns false,
+ * and the caller keeps waiting as before.
+ */
+export async function clearDeadLocalDownloadLease(
+  active: LocalHeavyWorkLease,
+  at = nowMs(),
+): Promise<boolean> {
+  if (ownedLeaseIds.has(active.ownerId)) return false;
+  if (at - active.startedAt < LEASE_LOCK_GRACE_MS) return false;
+  const locks = webLocks();
+  if (!locks) return false;
+
+  let held: boolean;
+  try {
+    const snapshot = await locks.query();
+    const name = leaseLockName(active.ownerId);
+    held = (snapshot.held ?? []).some((lock) => lock.name === name);
+  } catch {
+    return false;
+  }
+  if (held) return false;
+
+  // Removes the row only if the dead owner still holds it. Report what storage
+  // shows, not the attempt: a remove that silently failed must not let the
+  // caller retry without waiting.
+  clearLeaseFromDomain("download", active.ownerId);
+  return readLease("download")?.ownerId !== active.ownerId;
+}
+
 export function acquireLocalHeavyWork(
   kind: LocalHeavyWorkKind,
   ttlMs = DEFAULT_LEASE_TTL_MS,
@@ -218,14 +300,20 @@ export function acquireLocalHeavyWork(
     };
   }
   ownedLeaseIds.add(lease.ownerId);
+  // Only downloads take a lock: first-run waits on another page's download
+  // lease, and nothing waits on a runtime lease across pages.
+  const releaseLock =
+    domainForKind(kind) === "download" ? holdLeaseLock(lease.ownerId) : () => {};
 
   // A reload or navigation kills the heartbeat but leaves the row in
   // localStorage with up to `ttlMs` of life left. The next page load does not
   // own that row, so its first generation would bounce off "already active"
   // for a reply nothing is producing (the offline continue-a-reply retry hit
   // exactly this). Release synchronously on pagehide, which fires on reload,
-  // navigation, and tab close; a hard crash still relies on the TTL.
+  // navigation, and tab close; a hard crash still relies on the TTL, except
+  // for a download lease, whose lock tells a waiting page the owner is gone.
   const onPageHide = (): void => {
+    releaseLock();
     if (readLease(domainForKind(kind))?.ownerId === lease.ownerId) {
       clearLease(lease.ownerId, domainForKind(kind));
     }
@@ -255,6 +343,7 @@ export function acquireLocalHeavyWork(
         window.removeEventListener("pagehide", onPageHide);
       }
       ownedLeaseIds.delete(lease.ownerId);
+      releaseLock();
       clearLease(lease.ownerId, domainForKind(kind));
     },
   };

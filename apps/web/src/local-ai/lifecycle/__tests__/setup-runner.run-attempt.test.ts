@@ -82,6 +82,8 @@ import {
   InsufficientStorageError,
 } from '../../download/download';
 import { runSmoke } from '../smoke';
+import { acquireLocalHeavyWork, leaseLockName } from '../../../lib/local-heavy-work-owner';
+import { safeStorage } from '../../../lib/local-storage';
 import type { LocalHeavyWorkAcquireResult, LocalHeavyWorkKind } from '../../../lib/local-heavy-work-owner';
 
 const SLOT: Slot = 'eco-fast';
@@ -519,6 +521,126 @@ describe('acquireDownloadLeaseFailOpen — fail-open download coordination', () 
     const held = await promise;
 
     expect(() => held.release()).not.toThrow();
+  });
+});
+
+const DOWNLOAD_KEY = 'eco-local-download-owner-v1';
+
+/** Web Locks stand-in: grants at once, reports what is held. */
+class FakeLocks {
+  held = new Set<string>();
+  queryThrows = false;
+
+  request(name: string, callback: () => Promise<void>): Promise<void> {
+    this.held.add(name);
+    return callback().then(() => {
+      this.held.delete(name);
+    });
+  }
+
+  query(): Promise<{ held: { name: string }[] }> {
+    if (this.queryThrows) return Promise.reject(new Error('query failed'));
+    return Promise.resolve({ held: [...this.held].map((name) => ({ name })) });
+  }
+}
+
+function seedDownloadRow(ownerId: string, ageMs: number): void {
+  const now = Date.now();
+  localStorage.setItem(
+    DOWNLOAD_KEY,
+    JSON.stringify({ ownerId, kind: 'download', startedAt: now - ageMs, expiresAt: now + 60_000 }),
+  );
+}
+
+function rowOwner(): string | null {
+  const raw = localStorage.getItem(DOWNLOAD_KEY);
+  return raw ? (JSON.parse(raw) as { ownerId: string }).ownerId : null;
+}
+
+describe('acquireDownloadLeaseFailOpen — a holder whose page is gone', () => {
+  let locks: FakeLocks;
+
+  beforeEach(() => {
+    locks = new FakeLocks();
+    vi.stubGlobal('navigator', { ...globalThis.navigator, locks });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    localStorage.removeItem(DOWNLOAD_KEY);
+  });
+
+  it('takes the lease on the first poll when the holder died without pagehide (row live, lock gone)', async () => {
+    // A page killed without pagehide: the row has a minute of TTL left, but the
+    // browser released the dead page's lock with its document.
+    seedDownloadRow('download:dead-page', 30_000);
+    const acquire = vi.fn(acquireLocalHeavyWork);
+
+    const held = await acquireDownloadLeaseFailOpen(acquire, { waitMs: 1_000, pollMs: 50 });
+
+    expect(rowOwner()).not.toBe('download:dead-page');
+    expect(acquire).toHaveBeenCalledTimes(2);
+    expect(locks.held.has(leaseLockName(rowOwner() ?? ''))).toBe(true);
+    held.release();
+    await Promise.resolve();
+    expect(localStorage.getItem(DOWNLOAD_KEY)).toBeNull();
+    expect(locks.held.size).toBe(0);
+  });
+
+  it('still waits for a live holder (its lock is held) and fails open at the budget', async () => {
+    seedDownloadRow('download:live-page', 30_000);
+    locks.held.add(leaseLockName('download:live-page'));
+    const acquire = vi.fn(acquireLocalHeavyWork);
+
+    const held = await acquireDownloadLeaseFailOpen(acquire, { waitMs: 200, pollMs: 20 });
+
+    expect(acquire.mock.calls.length).toBeGreaterThan(2);
+    expect(rowOwner()).toBe('download:live-page');
+    held.release();
+    expect(rowOwner()).toBe('download:live-page');
+  });
+
+  it('waits for a row younger than the grace window (its lock may not be granted yet)', async () => {
+    seedDownloadRow('download:just-started', 1_000);
+    const acquire = vi.fn(acquireLocalHeavyWork);
+
+    await acquireDownloadLeaseFailOpen(acquire, { waitMs: 200, pollMs: 20 });
+
+    expect(acquire.mock.calls.length).toBeGreaterThan(2);
+    expect(rowOwner()).toBe('download:just-started');
+  });
+
+  it('keeps waiting when the lock query fails', async () => {
+    seedDownloadRow('download:dead-page', 30_000);
+    locks.queryThrows = true;
+
+    await acquireDownloadLeaseFailOpen(acquireLocalHeavyWork, { waitMs: 200, pollMs: 20 });
+
+    expect(rowOwner()).toBe('download:dead-page');
+  });
+
+  it('keeps today\'s wait when the browser has no Web Locks', async () => {
+    vi.stubGlobal('navigator', { ...globalThis.navigator, locks: undefined });
+    seedDownloadRow('download:dead-page', 30_000);
+    const acquire = vi.fn(acquireLocalHeavyWork);
+
+    await acquireDownloadLeaseFailOpen(acquire, { waitMs: 200, pollMs: 20 });
+
+    expect(acquire.mock.calls.length).toBeGreaterThan(2);
+    expect(rowOwner()).toBe('download:dead-page');
+  });
+
+  it('still ends at the budget when the dead row cannot be removed (no spin)', async () => {
+    seedDownloadRow('download:dead-page', 30_000);
+    const remove = vi.spyOn(safeStorage, 'remove').mockImplementation(() => undefined);
+
+    try {
+      await acquireDownloadLeaseFailOpen(acquireLocalHeavyWork, { waitMs: 200, pollMs: 20 });
+    } finally {
+      remove.mockRestore();
+    }
+
+    expect(rowOwner()).toBe('download:dead-page');
   });
 });
 

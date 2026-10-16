@@ -25,6 +25,7 @@ import {
 import { bridgeDownloadWebLLMModel } from '../runtime/webllm-cache-bridge';
 import {
   acquireLocalHeavyWork,
+  clearDeadLocalDownloadLease,
   type LocalHeavyWorkAcquireResult,
   type LocalHeavyWorkKind,
 } from '../../lib/local-heavy-work-owner';
@@ -292,6 +293,12 @@ function abortableSleep(ms: number, signal?: AbortSignal): Promise<'slept' | 'ab
  * out — or the signal aborts — we PROCEED WITHOUT the lease. Worst case is
  * today's behavior (a rare double download); best case is a clean hand-off. The
  * returned `release` is a no-op when we proceeded unleased.
+ *
+ * A holder whose page died without clearing its row (a crash, an iOS
+ * swipe-away) leaves a row that looks live for its whole TTL, and waiting on it
+ * froze a reopened first-run for the full budget. So each busy poll asks whether
+ * the holder's lease lock is gone and, if it is, clears the row and takes the
+ * lease at once.
  */
 export async function acquireDownloadLeaseFailOpen(
   acquireLease: (kind: LocalHeavyWorkKind) => LocalHeavyWorkAcquireResult,
@@ -306,6 +313,7 @@ export async function acquireDownloadLeaseFailOpen(
     if (options.signal?.aborted) return proceedUnleased;
     const attempt = acquireLease('download');
     if (attempt.ok) return { release: attempt.release };
+    if (attempt.active && (await clearDeadLocalDownloadLease(attempt.active))) continue;
     // Busy: another tab is downloading. Wait for it to clear so we cache-hit —
     // but fail open past the budget so first-run never blocks on the lease.
     if (Date.now() - startedAt >= waitMs) return proceedUnleased;
