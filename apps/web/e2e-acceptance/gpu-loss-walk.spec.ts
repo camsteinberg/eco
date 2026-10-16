@@ -16,9 +16,13 @@
  * The loss comes from the harness seam `eco-force-gpu-loss` (localStorage,
  * read at bootstrap; see `installValidationGpuLoss`): when the tab is next
  * hidden it destroys every WebGPU device the page made, and optionally makes
- * `navigator.gpu.requestAdapter()` resolve null. Hiding is done the way a
- * person does it on a desktop — another tab in front — and each walk checks
- * that the tab really reported `hidden` before it trusts anything after.
+ * `navigator.gpu.requestAdapter()` resolve null. The tab is put in the
+ * background with the harness's `window.__ecoHarnessVisibility` control: under
+ * Playwright, real tab hiding never reaches the page (measured — a tab behind
+ * another, a minimized window and focus emulation all stayed `visible`), so
+ * the control reports `hidden` and fires `visibilitychange` the way a phone
+ * lock does. Each walk checks the page really reports `hidden` before it
+ * trusts anything after. The real event order is the iPhone's to show.
  *
  *   W1 `hide`                     the page can still get an adapter: the model
  *                                 comes back with no error and no page reload;
@@ -26,8 +30,8 @@
  *   W2 `hide-no-adapter`          it cannot: the page reloads by itself, once,
  *                                 with the conversation intact, and answers.
  *   W3 `hide-no-adapter`, the     the turn is saved, the page reloads once, and
- *      message sent before the    the reloaded page answers it without the
- *      page is shown again        person sending it again.
+ *      message sent while the     the reloaded page answers it without the
+ *      page reports hidden        person sending it again.
  *   W4 `hide-no-adapter-sticky`   the GPU never comes back: exactly one
  *                                 automatic reload, then an honest error card —
  *                                 no reload loop.
@@ -142,40 +146,34 @@ const pageLoads = (page: Page): Promise<number> =>
 const visibility = (page: Page): Promise<string> =>
   page.evaluate(() => document.visibilityState);
 
-/** Put another tab in front, and check the chat tab really went to the background. */
-async function hide(page: Page): Promise<Page> {
-  const cover = await context.newPage();
-  await cover.bringToFront();
-  await expect
-    .poll(() => visibility(page), {
-      timeout: 10_000,
-      message: "the instrument could not hide the chat tab — nothing after this would mean anything",
-    })
-    .toBe("hidden");
+/** Report the chat page as hidden or visible through the harness control. */
+async function setVisibility(page: Page, state: "hidden" | "visible"): Promise<void> {
+  const installed = await page.evaluate((next) => {
+    if (!window.__ecoHarnessVisibility) return false;
+    window.__ecoHarnessVisibility(next);
+    return true;
+  }, state);
+  expect(installed, "window.__ecoHarnessVisibility missing — not a harness build?").toBe(true);
+  expect(
+    await visibility(page),
+    "the visibility override did not take — nothing after this would mean anything",
+  ).toBe(state);
+}
+
+async function hide(page: Page): Promise<void> {
+  await setVisibility(page, "hidden");
   await page.waitForTimeout(HIDDEN_MS);
-  return cover;
 }
 
-async function show(page: Page, cover: Page): Promise<void> {
-  await page.bringToFront();
-  await cover.close();
-  await expect.poll(() => visibility(page), { timeout: 10_000 }).toBe("visible");
+async function show(page: Page): Promise<void> {
+  await setVisibility(page, "visible");
 }
 
-/**
- * Type and send without waiting for the reply. In the background (W3) a normal
- * click would wait for animation frames a hidden tab never runs, so focus and
- * click skip Playwright's actionability wait there.
- */
-async function submitWithoutWaiting(
-  page: Page,
-  prompt: string,
-  options: { background?: boolean } = {},
-): Promise<void> {
-  if (options.background) await composer(page).focus();
-  else await composer(page).click();
+/** Type and send without waiting for the reply. */
+async function submitWithoutWaiting(page: Page, prompt: string): Promise<void> {
+  await composer(page).click();
   await page.keyboard.insertText(prompt);
-  await page.getByRole("button", { name: "Send message" }).click({ force: options.background === true });
+  await page.getByRole("button", { name: "Send message" }).click();
 }
 
 test("W1 — the device is lost in the background and an adapter is still there: the model comes back quietly", async () => {
@@ -183,8 +181,8 @@ test("W1 — the device is lost in the background and an adapter is still there:
   const first = await sendTurn(page, PROMPT_1);
   expect(outcomeReceipt(first)?.status, "turn 1 did not answer").toBe("complete");
 
-  const cover = await hide(page);
-  await show(page, cover);
+  await hide(page);
+  await show(page);
   await page.waitForTimeout(RECOVERY_SETTLE_MS);
 
   const second = await sendTurn(page, PROMPT_2);
@@ -212,8 +210,8 @@ test("W2 — the device is lost and this page cannot get another: one reload, co
   const first = await sendTurn(page, PROMPT_1);
   expect(outcomeReceipt(first)?.status, "turn 1 did not answer").toBe("complete");
 
-  const cover = await hide(page);
-  await show(page, cover);
+  await hide(page);
+  await show(page);
   await expect.poll(() => pageLoads(page), { timeout: RELOAD_TIMEOUT_MS, message: "the page never reloaded" }).toBe(2);
   expect(
     await page.evaluate(
@@ -236,13 +234,14 @@ test("W3 — a message sent before the page is shown again is saved, the page re
   const first = await sendTurn(page, PROMPT_1);
   expect(outcomeReceipt(first)?.status, "turn 1 did not answer").toBe("complete");
 
-  const cover = await hide(page);
-  // Sent while the tab is still in the background, so the send meets the lost
-  // device before the tab's own recovery can (on a phone: the device-lost
-  // event arriving after the person already pressed Send).
-  await submitWithoutWaiting(page, PROMPT_2, { background: true });
+  await hide(page);
+  // Sent while the page reports hidden, so the send meets the lost device
+  // before the page's own recovery can (on a phone: the device-lost event
+  // arriving after the person already pressed Send). The reload brings the page
+  // back visible: the override does not survive it.
+  await submitWithoutWaiting(page, PROMPT_2);
   await expect.poll(() => pageLoads(page), { timeout: RELOAD_TIMEOUT_MS, message: "the page never reloaded" }).toBe(2);
-  await show(page, cover);
+  expect(await visibility(page)).toBe("visible");
 
   await waitForUsableChat(page);
   const answered = await finishGeneration(page, PROMPT_2, null);
@@ -259,8 +258,8 @@ test("W4 — the GPU never comes back: exactly one automatic reload, then an hon
     const first = await sendTurn(page, PROMPT_1);
     expect(outcomeReceipt(first)?.status, "turn 1 did not answer").toBe("complete");
 
-    const cover = await hide(page);
-    await show(page, cover);
+    await hide(page);
+    await show(page);
     await expect.poll(() => pageLoads(page), { timeout: RELOAD_TIMEOUT_MS, message: "the page never reloaded" }).toBe(2);
     await waitForUsableChat(page);
 

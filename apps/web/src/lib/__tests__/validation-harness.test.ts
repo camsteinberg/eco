@@ -17,6 +17,7 @@ import {
   getValidationSlotModelOverride,
   getValidationSlotStatusOverride,
   getValidationSwapMode,
+  installValidationGpuLoss,
   isCacheVerificationForced,
   isContextWindowNoticeForced,
   isValidationHarnessEnabledForEnvironment,
@@ -592,5 +593,82 @@ describe('consumeValidationGenerationFault (failed-reply seam)', () => {
 
     expect(consumeValidationGenerationFault()).toBeNull();
     expect(window.localStorage.getItem('eco-force-generation-fault')).toBe('mid-reply');
+  });
+});
+
+describe('installValidationGpuLoss', () => {
+  /** A WebGPU stand-in: one adapter whose devices record `destroy()`. */
+  function installFakeGpu(): { destroyed: () => number } {
+    let destroyed = 0;
+    const gpu = {
+      requestAdapter: async () => ({
+        requestDevice: async () => ({
+          destroy: () => {
+            destroyed++;
+          },
+        }),
+      }),
+    };
+    Object.defineProperty(navigator, 'gpu', { configurable: true, value: gpu });
+    return { destroyed: () => destroyed };
+  }
+
+  type FakeGpu = { requestAdapter(): Promise<{ requestDevice(): Promise<unknown> } | null> };
+  const gpu = (): FakeGpu => (navigator as unknown as { gpu: FakeGpu }).gpu;
+
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  afterEach(() => {
+    window.__ecoHarnessVisibility?.('visible');
+    window.__ecoHarnessVisibility = undefined;
+    Reflect.deleteProperty(navigator, 'gpu');
+    window.localStorage.clear();
+  });
+
+  it('installs a visibility control that reports hidden and fires visibilitychange, and restores visible', () => {
+    installFakeGpu();
+    installValidationGpuLoss();
+    const seen: string[] = [];
+    const onChange = (): void => {
+      seen.push(`${document.visibilityState}/${String(document.hidden)}`);
+    };
+    document.addEventListener('visibilitychange', onChange);
+
+    window.__ecoHarnessVisibility?.('hidden');
+    window.__ecoHarnessVisibility?.('visible');
+    document.removeEventListener('visibilitychange', onChange);
+
+    expect(seen).toEqual(['hidden/true', 'visible/false']);
+    expect(document.visibilityState).toBe('visible');
+  });
+
+  it("'hide' destroys the page's devices when the control hides the page, once, and is one-shot", async () => {
+    const fake = installFakeGpu();
+    window.localStorage.setItem('eco-force-gpu-loss', 'hide');
+    installValidationGpuLoss();
+    expect(window.localStorage.getItem('eco-force-gpu-loss')).toBeNull();
+    const adapter = await gpu().requestAdapter();
+    await adapter?.requestDevice();
+
+    window.__ecoHarnessVisibility?.('hidden');
+    window.__ecoHarnessVisibility?.('visible');
+    window.__ecoHarnessVisibility?.('hidden');
+
+    expect(fake.destroyed()).toBe(1);
+    await expect(gpu().requestAdapter()).resolves.not.toBeNull();
+  });
+
+  it("'hide-no-adapter-sticky' also denies an adapter after the hide, and leaves 'no-adapter' for the next page", async () => {
+    installFakeGpu();
+    window.localStorage.setItem('eco-force-gpu-loss', 'hide-no-adapter-sticky');
+    installValidationGpuLoss();
+    await expect(gpu().requestAdapter()).resolves.not.toBeNull();
+
+    window.__ecoHarnessVisibility?.('hidden');
+
+    await expect(gpu().requestAdapter()).resolves.toBeNull();
+    expect(window.localStorage.getItem('eco-force-gpu-loss')).toBe('no-adapter');
   });
 });

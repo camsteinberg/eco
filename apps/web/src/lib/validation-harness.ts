@@ -685,11 +685,15 @@ const GPU_LOSS_KEY = 'eco-force-gpu-loss';
  * WebLLM asks for its device on the page's main thread, so wrapping
  * `navigator.gpu` here reaches it; a worker's WebGPU is untouched. NEVER active
  * on production hosts — gated by `isValidationHarnessEnabled()`.
+ *
+ * Also installs `window.__ecoHarnessVisibility` (see `installVisibilityControl`),
+ * which a walk uses to put the page in the background.
  */
 export function installValidationGpuLoss(): void {
   if (!isValidationHarnessEnabled() || typeof window === 'undefined' || typeof document === 'undefined') {
     return;
   }
+  installVisibilityControl();
   const value = readStorageParam(GPU_LOSS_KEY);
   if (
     value !== 'hide'
@@ -729,6 +733,35 @@ export function installValidationGpuLoss(): void {
     for (const device of devices) device.destroy();
   };
   document.addEventListener('visibilitychange', onHidden);
+}
+
+declare global {
+  var __ecoHarnessVisibility: ((state: 'hidden' | 'visible') => void) | undefined;
+}
+
+/**
+ * Harness-only: report the page as hidden or visible, the way a phone lock
+ * does — `document.visibilityState`/`document.hidden` change and
+ * `visibilitychange` fires; `pagehide`/`pageshow` do not, since a lock that
+ * keeps the page alive fires neither. A browser walk needs this because real
+ * tab hiding is suppressed under Playwright: in headed Chrome a tab behind
+ * another, a minimized window, and focus emulation all left the page
+ * `visible` with no event (measured). The iPhone remains the only proof of the
+ * real event order. 'visible' drops the override, so the browser's own value
+ * shows again.
+ */
+function installVisibilityControl(): void {
+  if (window.__ecoHarnessVisibility) return;
+  window.__ecoHarnessVisibility = (state) => {
+    if (state === 'hidden') {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+    } else {
+      Reflect.deleteProperty(document, 'visibilityState');
+      Reflect.deleteProperty(document, 'hidden');
+    }
+    document.dispatchEvent(new Event('visibilitychange'));
+  };
 }
 
 export function shouldForceValidationRuntimeCrash(): boolean {
