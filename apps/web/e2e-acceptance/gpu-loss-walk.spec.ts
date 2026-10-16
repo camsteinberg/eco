@@ -165,8 +165,20 @@ async function hide(page: Page): Promise<void> {
   await page.waitForTimeout(HIDDEN_MS);
 }
 
+/**
+ * Report the page visible again. Unlike hiding, this may legitimately reload
+ * the page at once (the no-adapter branch), destroying the context the
+ * read-back runs in. That race is not a failure: each walk's own reload and
+ * answer assertions decide what happened.
+ */
 async function show(page: Page): Promise<void> {
-  await setVisibility(page, "visible");
+  try {
+    await setVisibility(page, "visible");
+  } catch (err) {
+    const navigated =
+      err instanceof Error && /Execution context was destroyed|because of a navigation/.test(err.message);
+    if (!navigated) throw err;
+  }
 }
 
 /** Type and send without waiting for the reply. */
@@ -196,7 +208,11 @@ test("W1 — the device is lost in the background and an adapter is still there:
 
   // What a person does next: stop a reply, then send another message.
   const before = await assistantMessages(page).count();
-  await submitWithoutWaiting(page, "Explain in detail how the Moon formed.");
+  // The Stop instruments' prompt: it reliably runs long enough to stop.
+  await submitWithoutWaiting(
+    page,
+    "write a long, detailed essay on the history of the roman empire, at least 1500 words",
+  );
   await expect(assistantMessages(page)).toHaveCount(before + 1);
   const stop = await stopMidReply(page);
   expect(stop.stopped, stop.stopped ? "" : stop.reason).toBe(true);

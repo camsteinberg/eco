@@ -848,10 +848,12 @@ function classifyWebLLMError(err: unknown): import('./types').AdapterErrorCode {
   if (msg.includes('unable to find a compatible gpu')) {
     return 'webgpu-unavailable';
   }
-  // TVM's error for a disposed object (`lib/index.js:6320-6327`), which a request
-  // meets after WebLLM's own device-lost handler disposed the pipeline: the
-  // device was gone before the request, so it is not this prompt's fault.
-  if (msg.includes('already been disposed')) {
+  // A request that meets the pipeline WebLLM's own device-lost handler
+  // disposed: TVM's error for a disposed object (`lib/index.js:6320-6327`), or
+  // embind's for the disposed tokenizer ("Cannot pass deleted object as a
+  // pointer of type Tokenizer*", seen first on a destroyed device in Chrome).
+  // The device was gone before the request, so it is not this prompt's fault.
+  if (msg.includes('already been disposed') || msg.includes('cannot pass deleted object')) {
     return 'device-reclaimed';
   }
   return 'generation-failed';

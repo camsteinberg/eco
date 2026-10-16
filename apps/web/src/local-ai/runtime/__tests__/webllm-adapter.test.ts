@@ -1572,6 +1572,18 @@ describe('WebLLMAdapter — GPU device lost while loaded', () => {
     expect(events).toEqual([expect.objectContaining({ kind: 'error', code: 'device-reclaimed' })]);
   });
 
+  it("classifies embind's disposed-tokenizer error as a reclaimed device too", async () => {
+    engine = makeEngine({
+      createFails: new Error('Cannot pass deleted object as a pointer of type Tokenizer*'),
+    });
+    adapter = new WebLLMAdapter({ engineFactory: async () => engine });
+    await adapter.load(MODEL);
+
+    const events = await collect();
+
+    expect(events).toEqual([expect.objectContaining({ kind: 'error', code: 'device-reclaimed' })]);
+  });
+
   it('classifies a load with no WebGPU adapter as webgpu-unavailable', async () => {
     engine = makeEngine({ reloadFails: new Error(NO_ADAPTER) });
     adapter = new WebLLMAdapter({ engineFactory: async () => engine });

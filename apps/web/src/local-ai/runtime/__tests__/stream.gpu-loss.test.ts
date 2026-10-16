@@ -35,6 +35,9 @@ const MLC_ID = stripMlcOrgPrefix(MODEL.artifact!.hfId);
 // Verbatim from @mlc-ai/web-llm 0.2.84: TVMObject.typeIndex() on a disposed
 // object, and detectGPUDevice() when requestAdapter() resolves null.
 const DISPOSED = 'The current Object has already been disposed';
+// Embind's error when the disposed tokenizer is the first object touched —
+// what a destroyed device produced in Chrome.
+const DELETED_TOKENIZER = 'Cannot pass deleted object as a pointer of type Tokenizer*';
 const NO_ADAPTER =
   "Unable to find a compatible GPU. This issue might be because your computer doesn't have a GPU, or your system settings are not configured properly. " +
   'Please check if your device has a GPU properly set up and if your your browser supports WebGPU. ' +
@@ -58,7 +61,7 @@ type LosableEngine = {
  * later request throws DISPOSED. `reachableDevice: false` hides the device
  * from the adapter, as a library whose internals moved would.
  */
-function makeLosableEngine(options: { reachableDevice: boolean }): LosableEngine {
+function makeLosableEngine(options: { reachableDevice: boolean; disposedError?: string }): LosableEngine {
   let resolveLost!: (info: { reason: string; message: string }) => void;
   const lost = new Promise<{ reason: string; message: string }>((resolve) => {
     resolveLost = resolve;
@@ -71,7 +74,7 @@ function makeLosableEngine(options: { reachableDevice: boolean }): LosableEngine
   const touch = (): void => {
     if (!disposed) return;
     afterLoss++;
-    throw new Error(DISPOSED);
+    throw new Error(options.disposedError ?? DISPOSED);
   };
   const pipeline = options.reachableDevice
     ? { tvm: { lib: { webGPUContext: { device: { lost } } } } }
@@ -183,6 +186,26 @@ describe('stream — a GPU device lost while the page was in the background', ()
       'GPU_RECONNECT | One moment — Eco is refreshing to pick up where you left off.',
     ]);
     expect(first.callsAfterLoss()).toBe(0);
+    expect(window.localStorage.getItem(STRIKES_KEY)).toBeNull();
+    expect(window.localStorage.getItem(COOLDOWNS_KEY)).toBeNull();
+  });
+
+  it("still routes to a page refresh when nothing saw the loss and the engine throws embind's deleted-object error", async () => {
+    const first = makeLosableEngine({ reachableDevice: false, disposedError: DELETED_TOKENIZER });
+    serveEngines([first.engine, engineWithNoAdapter()]);
+
+    expect(await send()).toBe('reply: hi');
+    await first.loseDevice();
+
+    const afterLock = await send();
+    await settle();
+    const tryAgain = await send();
+    await settle();
+
+    expect([afterLock, tryAgain]).toEqual([
+      `DEVICE_LOST | ${DELETED_TOKENIZER}`,
+      'GPU_RECONNECT | One moment — Eco is refreshing to pick up where you left off.',
+    ]);
     expect(window.localStorage.getItem(STRIKES_KEY)).toBeNull();
     expect(window.localStorage.getItem(COOLDOWNS_KEY)).toBeNull();
   });
