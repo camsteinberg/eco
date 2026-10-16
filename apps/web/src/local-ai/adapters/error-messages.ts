@@ -31,6 +31,14 @@ export const LOCAL_GENERATION_REPEATED_MESSAGE =
   "On-device AI hit the same snag again. Eco reset the model for a fresh start — if it keeps happening, a lighter model may run better on this device.";
 
 /**
+ * Shown on the turn a send could not run because this page lost its GPU device
+ * and cannot get another one: the chat is saved, the page refreshes itself, and
+ * the turn is answered once the model is back.
+ */
+export const GPU_RECONNECT_MESSAGE =
+  "One moment — Eco is refreshing to pick up where you left off.";
+
+/**
  * Warm copy for a recoverable on-device runtime hiccup where the turn can be
  * retried in place (no partial content). Kept byte-identical to the literal
  * chat-recovery.ts persists onto the assistant message, so ErrorMessage's

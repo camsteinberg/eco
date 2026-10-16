@@ -47,7 +47,11 @@
 import { bootstrapLocalAi } from '../bootstrap';
 import { getModel } from '../catalog/catalog';
 import { getEvalCandidateModel } from '../eval/eval-candidates';
-import { generate as lifecycleGenerate, loadModel as lifecycleLoadModel } from './lifecycle';
+import {
+  generate as lifecycleGenerate,
+  loadModel as lifecycleLoadModel,
+  wasGpuLostThisPage,
+} from './lifecycle';
 import {
   AdapterError,
   type AdapterErrorCode,
@@ -59,7 +63,11 @@ import {
 } from './types';
 import type { ModelConfig } from '../types';
 import { LocalInferenceStreamError } from './errors';
-import { LOAD_INTERRUPTED_CHAT_MESSAGE, TEMPLATE_MISSING_USER_MESSAGE } from '../adapters/error-messages';
+import {
+  GPU_RECONNECT_MESSAGE,
+  LOAD_INTERRUPTED_CHAT_MESSAGE,
+  TEMPLATE_MISSING_USER_MESSAGE,
+} from '../adapters/error-messages';
 import {
   consumeValidationGenerationFault,
   getValidationLocalGenerationFixture,
@@ -213,6 +221,11 @@ export function stream(
         // which is usually the prompt's size.
         if (err instanceof AdapterError && err.code === 'oom') {
           throw new LocalInferenceStreamError('LOAD_OOM', err.message, true);
+        }
+        // This page lost a GPU device and now cannot get another (no WebGPU
+        // adapter). Retrying here cannot work; a page reload gets a fresh one.
+        if (err instanceof AdapterError && err.code === 'webgpu-unavailable' && wasGpuLostThisPage()) {
+          throw new LocalInferenceStreamError('GPU_RECONNECT', GPU_RECONNECT_MESSAGE, true);
         }
         // A WebLLM engine cannot fetch a missing file back (its fetch errors
         // classify as 'generation-failed'), so when presence proves a file is
@@ -391,6 +404,7 @@ function translateAdapterError(
     case 'oom':
       return new LocalInferenceStreamError('OOM', message, true);
     case 'device-lost':
+    case 'device-reclaimed':
       return new LocalInferenceStreamError('DEVICE_LOST', message, true);
     case 'template-missing':
       return new LocalInferenceStreamError('TEMPLATE_MISSING', TEMPLATE_MISSING_USER_MESSAGE, false);

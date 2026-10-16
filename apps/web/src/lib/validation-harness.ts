@@ -663,6 +663,107 @@ export function consumeValidationGenerationFault(): ValidationGenerationFault | 
   return value === 'mid-reply' ? 'mid-reply' : null;
 }
 
+const GPU_LOSS_KEY = 'eco-force-gpu-loss';
+
+/**
+ * Harness-only seam that loses the page's WebGPU device the next time the page
+ * is hidden — what a phone does to a page kept alive through a long lock. A
+ * browser walk can then return to the page and check that Eco recovers on its
+ * own. Read once, at bootstrap, from localStorage `eco-force-gpu-loss`:
+ *
+ *   - `hide`: destroy every device this page created when it is next hidden.
+ *     The runtime's own device-lost handling then runs exactly as on a real
+ *     loss (WebLLM disposes its pipeline). One-shot: removed when read.
+ *   - `hide-no-adapter`: as `hide`, and `navigator.gpu.requestAdapter()`
+ *     resolves null for the rest of this page — a page that can no longer get
+ *     a device. One-shot, so the reloaded page is healthy.
+ *   - `hide-no-adapter-sticky`: as `hide-no-adapter`, then rewrites itself to
+ *     `no-adapter` so every later page in this profile has no adapter either.
+ *   - `no-adapter`: `requestAdapter()` resolves null from the start. Kept until
+ *     the walk removes it.
+ *
+ * WebLLM asks for its device on the page's main thread, so wrapping
+ * `navigator.gpu` here reaches it; a worker's WebGPU is untouched. NEVER active
+ * on production hosts — gated by `isValidationHarnessEnabled()`.
+ *
+ * Also installs `window.__ecoHarnessVisibility` (see `installVisibilityControl`),
+ * which a walk uses to put the page in the background.
+ */
+export function installValidationGpuLoss(): void {
+  if (!isValidationHarnessEnabled() || typeof window === 'undefined' || typeof document === 'undefined') {
+    return;
+  }
+  installVisibilityControl();
+  const value = readStorageParam(GPU_LOSS_KEY);
+  if (
+    value !== 'hide'
+    && value !== 'hide-no-adapter'
+    && value !== 'hide-no-adapter-sticky'
+    && value !== 'no-adapter'
+  ) {
+    return;
+  }
+  const gpu = (navigator as Navigator & { gpu?: GPU }).gpu;
+  if (!gpu) return;
+  if (value === 'hide' || value === 'hide-no-adapter') safeStorage.remove(GPU_LOSS_KEY);
+
+  let denyAdapter = value === 'no-adapter';
+  const devices: GPUDevice[] = [];
+  const requestAdapter = gpu.requestAdapter.bind(gpu);
+  gpu.requestAdapter = async (options?: GPURequestAdapterOptions): Promise<GPUAdapter | null> => {
+    if (denyAdapter) return null;
+    const adapter = await requestAdapter(options);
+    if (adapter) {
+      const requestDevice = adapter.requestDevice.bind(adapter);
+      adapter.requestDevice = async (descriptor?: GPUDeviceDescriptor): Promise<GPUDevice> => {
+        const device = await requestDevice(descriptor);
+        devices.push(device);
+        return device;
+      };
+    }
+    return adapter;
+  };
+  if (value === 'no-adapter') return;
+
+  const onHidden = (): void => {
+    if (document.visibilityState !== 'hidden') return;
+    document.removeEventListener('visibilitychange', onHidden);
+    if (value !== 'hide') denyAdapter = true;
+    if (value === 'hide-no-adapter-sticky') safeStorage.set(GPU_LOSS_KEY, 'no-adapter');
+    for (const device of devices) device.destroy();
+  };
+  document.addEventListener('visibilitychange', onHidden);
+}
+
+declare global {
+  var __ecoHarnessVisibility: ((state: 'hidden' | 'visible') => void) | undefined;
+}
+
+/**
+ * Harness-only: report the page as hidden or visible, the way a phone lock
+ * does — `document.visibilityState`/`document.hidden` change and
+ * `visibilitychange` fires; `pagehide`/`pageshow` do not, since a lock that
+ * keeps the page alive fires neither. A browser walk needs this because real
+ * tab hiding is suppressed under Playwright: in headed Chrome a tab behind
+ * another, a minimized window, and focus emulation all left the page
+ * `visible` with no event (measured). The iPhone remains the only proof of the
+ * real event order. 'visible' drops the override, so the browser's own value
+ * shows again.
+ */
+function installVisibilityControl(): void {
+  if (window.__ecoHarnessVisibility) return;
+  window.__ecoHarnessVisibility = (state) => {
+    if (state === 'hidden') {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+    } else {
+      Reflect.deleteProperty(document, 'visibilityState');
+      Reflect.deleteProperty(document, 'hidden');
+    }
+    document.dispatchEvent(new Event('visibilitychange'));
+  };
+}
+
 export function shouldForceValidationRuntimeCrash(): boolean {
   return getValidationHarnessState().runtimeMode === 'crash';
 }

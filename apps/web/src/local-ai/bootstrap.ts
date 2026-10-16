@@ -62,6 +62,7 @@ import { setSmokeGenerationFn, hasSmokeGenerationFn } from './lifecycle/smoke';
 import { reconcilePreparingSlots, reconcileReadySlots, runSelfHeal } from './lifecycle/self-heal';
 import { pickStorage } from './download/storage';
 import { logger } from '../lib/logger';
+import { installValidationGpuLoss } from '../lib/validation-harness';
 
 const CACHE_REPAIRED_HINT_KEY = 'eco-local-ai-cache-repaired-v1';
 
@@ -96,6 +97,10 @@ export async function bootstrapLocalAi(options?: BootstrapOptions): Promise<void
   if (initialized) return;
   if (typeof window === 'undefined') return;
   initialized = true;
+
+  // Harness-only: lose the WebGPU device on demand (no-op on production hosts).
+  // Installed before any engine can ask for a device.
+  installValidationGpuLoss();
 
   // ── Download plan resolver ──────────────────────────────────────────────
   if (!hasDownloadPlanResolver()) {

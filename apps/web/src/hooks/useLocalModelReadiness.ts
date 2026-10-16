@@ -16,6 +16,7 @@ import {
 } from "../local-ai/lifecycle/slots";
 import { runSmoke } from "../local-ai/lifecycle/smoke";
 import { getActiveModel } from "../local-ai/runtime/lifecycle";
+import { clearGpuReloadGuard, installGpuRecovery } from "../local-ai/lifecycle/gpu-recovery";
 import { computeRestriction, useBatteryAwareness } from "./useBatteryAwareness";
 import { ACTIVE_CONVERSATION_STORAGE_KEY } from "../lib/chat-workspace-storage";
 import {
@@ -81,6 +82,44 @@ function resolveSelectedSlot(selectedModel: string): Slot {
     if (candidate.status === "ready" && candidate.model) return slotId;
   }
   return "eco-fast";
+}
+
+/**
+ * Load the selected slot's downloaded + smoke-proven model in the background,
+ * under the same 'readiness' lease a user-driven prepare takes. Invisible: it
+ * never starts a download, never surfaces success or failure, and resolves
+ * whether the model answered. Used on chat mount and after a lost GPU device.
+ */
+async function warmSelectedModel(): Promise<boolean> {
+  const slot = resolveSelectedSlot(useChatStore.getState().selectedModel);
+  const slotState = getSlot(slot);
+  const warmModel = slotState.model;
+  // Only warm a downloaded + smoke-proven model. If it isn't ready, do
+  // nothing — the setup flow owns downloading, and warmup must never start
+  // a download.
+  if (slotState.status !== "ready" || !warmModel) return false;
+
+  const lease = acquireLocalHeavyWork("readiness");
+  if (!lease.ok) {
+    // Another local task already holds the runtime (e.g. a user-triggered
+    // prepare). Let it warm the model; don't contend.
+    return false;
+  }
+
+  try {
+    // probeCache early-exit in runSmoke is the backstop if the cache was
+    // cleared between the 'ready' gate and here — it returns
+    // { passed: false } without starting a download.
+    const result = await runSmoke(slot, warmModel, { timeoutMs: 90_000 });
+    // A model answered in this page: a later lost device may reload it again.
+    if (result.passed) clearGpuReloadGuard();
+    return result.passed;
+  } catch {
+    // Swallow everything — a background warm is invisible on failure.
+    return false;
+  } finally {
+    lease.release();
+  }
 }
 
 /**
@@ -226,17 +265,12 @@ export function useLocalModelReadiness(): LocalModelReadiness {
   useEffect(() => {
     if (warmedRef.current) return;
 
-    const slot = resolveSelectedSlot(useChatStore.getState().selectedModel);
-    const slotState = getSlot(slot);
-    const warmModel = slotState.model;
-    // Only warm a downloaded + smoke-proven model. If it isn't ready, do
-    // nothing — the setup flow owns downloading, and warmup must never start
-    // a download.
-    if (slotState.status !== "ready" || !warmModel) return;
+    const slotState = getSlot(resolveSelectedSlot(useChatStore.getState().selectedModel));
+    if (slotState.status !== "ready" || !slotState.model) return;
 
     // Already resident in the runtime (e.g. a remount) — loadModel would
     // no-op, so skip the redundant smoke entirely.
-    if (getActiveModel()?.id === warmModel.id) {
+    if (getActiveModel()?.id === slotState.model.id) {
       warmedRef.current = true;
       return;
     }
@@ -245,30 +279,23 @@ export function useLocalModelReadiness(): LocalModelReadiness {
     // double-fire.
     warmedRef.current = true;
 
-    const lease = acquireLocalHeavyWork("readiness");
-    if (!lease.ok) {
-      // Another local task already holds the runtime (e.g. a user-triggered
-      // prepare). Let it warm the model; don't contend.
-      return;
-    }
-
     // Mount-only: selectedModel is read imperatively (getState) so a model
     // switch mid-session doesn't re-warm — dispatch handles the switch lazily,
     // and re-warming would fight it. The empty dep array is intentional.
-    void (async () => {
-      try {
-        // probeCache early-exit in runSmoke is the backstop if the cache was
-        // cleared between the 'ready' gate and here — it returns
-        // { passed: false } without starting a download. We ignore the result
-        // entirely: a background warm never surfaces success or failure.
-        await runSmoke(slot, warmModel, { timeoutMs: 90_000 });
-      } catch {
-        // Swallow everything — a background warm is invisible on failure.
-      } finally {
-        lease.release();
-      }
-    })();
+    void warmSelectedModel();
   }, []);
+
+  // A GPU device lost while the page was in the background: reload the model
+  // the same invisible way once the page is visible again, or reload the page
+  // when it can no longer get a device (see gpu-recovery.ts).
+  useEffect(
+    () =>
+      installGpuRecovery({
+        warm: warmSelectedModel,
+        isBusy: () => useChatStore.getState().isStreaming,
+      }),
+    [],
+  );
 
   // Battery awareness — self-contained, no legacy store writes
   const { level: batteryLevel, charging: batteryCharging } = useBatteryAwareness();

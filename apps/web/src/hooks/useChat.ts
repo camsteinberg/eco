@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useChatStore } from "../stores/chatStore";
 import type { ChatMessage, ChatRouteRecommendationSnapshot, FileAttachment } from "../stores/chatStore";
-import { useConversationStore } from "../stores/conversationStore";
+import { useConversationStore, whenConversationWritesSettle } from "../stores/conversationStore";
 import {
   canUseExternalLookups,
   canUseWebSearch,
@@ -21,6 +21,11 @@ import {
 import { playMessageSent, playMessageReceived } from "../lib/sounds";
 import { isLocalAiModel, isLocalAiSlot, inferTaskIntent, resolveSelectedModelId } from "../local-ai/util";
 import { resolveReadyLocalRecoveryModelId } from "../local-ai/lifecycle/recovery";
+import {
+  clearGpuRetryMarker,
+  readGpuRetryMarker,
+  reloadPageForGpu,
+} from "../local-ai/lifecycle/gpu-recovery";
 import { diagnoseUnsupportedProfile } from "../local-ai/device/diagnosis";
 import { getDeviceProfile } from "../local-ai/device/profile";
 import { isBelowFloor } from "../local-ai/device/below-floor";
@@ -65,6 +70,7 @@ import {
   LOAD_INTERRUPTED_CHAT_MESSAGE,
   LOCAL_MODEL_FILES_MISSING_MESSAGE,
   LOCAL_MODEL_FILES_MISSING_OFFLINE_MESSAGE,
+  GPU_RECONNECT_MESSAGE,
   describeLocalCooldownMessage,
 } from "../local-ai/adapters/error-messages";
 import {
@@ -251,6 +257,7 @@ const DEDICATED_LOCAL_ERROR_CODES: ReadonlySet<string> = new Set([
   "LOAD_INTERRUPTED",
   "MODEL_FILES_MISSING",
   "CONTEXT_WINDOW_EXCEEDED",
+  "GPU_RECONNECT",
 ]);
 
 function errorHasDedicatedLocalMessage(err: unknown): boolean {
@@ -416,6 +423,19 @@ export function useChat() {
         const recovery = getLocalRuntimeCrashRecovery(hasPartialContent);
         setError(recovery.globalError);
         updateMessage(assistantId, recovery.assistantUpdate);
+        return;
+      }
+
+      if (err.code === "GPU_RECONNECT") {
+        // This page lost its GPU device and cannot get another; only a reload
+        // gets a fresh one. Not a fault to act on: save the turn, refresh, and
+        // answer it once the reloaded page is ready (the mount effect below).
+        updateMessage(assistantId, {
+          status: "error",
+          errorMessage: GPU_RECONNECT_MESSAGE,
+          inferenceMethod: "local",
+        });
+        void refreshPageForGpu(assistantId);
         return;
       }
 
@@ -1894,6 +1914,64 @@ export function useChat() {
     }
     return unsubscribe;
     // Mount-only: the subscription callback reads live store state itself.
+  }, []);
+
+  // ── Answer the turn an automatic GPU reload left behind ────────────────
+  async function refreshPageForGpu(assistantId: string): Promise<void> {
+    const convId = useConversationStore.getState().activeConversationId;
+    let reloaded = false;
+    try {
+      if (convId) {
+        const convStore = useConversationStore.getState();
+        await Promise.all(
+          useChatStore.getState().messages.map((m) => convStore.saveMessage(toDbMessage(m, convId))),
+        );
+        await whenConversationWritesSettle();
+      }
+      reloaded = reloadPageForGpu(
+        convId ? { retry: { conversationId: convId, assistantId } } : {},
+      );
+    } catch {
+      // The turn could not be saved: a reload now could lose it.
+    }
+    if (!reloaded) {
+      // Not saved, or an automatic reload already ran in this tab and the
+      // device is gone again: fall back to the crash card rather than reload.
+      const recovery = getLocalRuntimeCrashRecovery(false);
+      setError(recovery.globalError);
+      updateMessage(assistantId, recovery.assistantUpdate);
+    }
+  }
+
+  useEffect(() => {
+    const marker = readGpuRetryMarker();
+    if (!marker) return;
+    // The conversation loads from IndexedDB after mount; retry once its last
+    // message is the saved card. Give up quietly if it never shows.
+    const tryRetry = (): boolean => {
+      if (useConversationStore.getState().activeConversationId !== marker.conversationId) return false;
+      const last = useChatStore.getState().messages.at(-1);
+      if (last?.id !== marker.assistantId || last.status !== "error") return false;
+      clearGpuRetryMarker();
+      if (!autoRetriedMessageIdsRef.current.has(last.id)) {
+        autoRetriedMessageIdsRef.current.add(last.id);
+        void retryMessage(last.id);
+      }
+      return true;
+    };
+    if (tryRetry()) return;
+    const unsubscribe = useChatStore.subscribe(() => {
+      if (tryRetry()) unsubscribe();
+    });
+    const timer = setTimeout(() => {
+      unsubscribe();
+      clearGpuRetryMarker();
+    }, 30_000);
+    return () => {
+      clearTimeout(timer);
+      unsubscribe();
+    };
+    // Mount-only: the callbacks read live store state themselves.
   }, []);
 
   async function continueLatestTurnLocally(localModelId?: string) {

@@ -203,15 +203,28 @@ function logConversationPersistenceError(failure: PersistenceFailure, error: unk
   useConversationStore.setState({ persistenceError: message })
 }
 
+// Every write queued so far, settled or not — see whenConversationWritesSettle.
+let pendingConversationWrites: Promise<unknown> = Promise.resolve()
+
 function runConversationPersistenceTask(
   phrase: string,
   task: (db: IDBPDatabase<EcoDB>) => Promise<void>
 ): void {
-  void getDb()
+  const write = getDb()
     .then((db) => task(db))
     .catch((error) => {
       logConversationPersistenceError({ kind: 'write', phrase }, error)
     })
+  pendingConversationWrites = Promise.all([pendingConversationWrites, write])
+}
+
+/**
+ * Resolves once every conversation write queued so far has landed (or
+ * failed). For a caller about to reload the page: a write still in flight at
+ * `pagehide` does not land.
+ */
+export function whenConversationWritesSettle(): Promise<void> {
+  return pendingConversationWrites.then(() => undefined)
 }
 
 function loadPersistedActiveConversationId(): string | null {

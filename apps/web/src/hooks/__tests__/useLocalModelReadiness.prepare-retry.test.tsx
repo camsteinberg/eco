@@ -47,7 +47,11 @@ vi.mock("../../lib/local-heavy-work-owner", () => ({
   describeLocalHeavyWorkBusy: () => "busy",
   getActiveLocalHeavyWorkLease: () => null,
 }));
-vi.mock("../../local-ai/runtime/lifecycle", () => ({ getActiveModel: () => null }));
+vi.mock("../../local-ai/runtime/lifecycle", () => ({
+  getActiveModel: () => null,
+  getActiveAdapter: () => null,
+  subscribeDeviceLost: () => () => {},
+}));
 vi.mock("../../stores/chatStore", () => ({
   useChatStore: Object.assign(
     (selector: (s: { selectedModel: string }) => unknown) => selector({ selectedModel: "eco-fast" }),

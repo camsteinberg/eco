@@ -44,6 +44,8 @@ vi.mock("../../lib/local-heavy-work-owner", () => ({
 
 vi.mock("../../local-ai/runtime/lifecycle", () => ({
   getActiveModel: () => null,
+  getActiveAdapter: () => null,
+  subscribeDeviceLost: () => () => {},
 }));
 
 vi.mock("../../local-ai/lifecycle/slots", () => ({

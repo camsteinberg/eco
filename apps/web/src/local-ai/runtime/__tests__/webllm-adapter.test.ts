@@ -3,7 +3,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ModelConfig } from '../../types';
-import { AdapterError } from '../types';
+import { AdapterError, type TokenEvent } from '../types';
 import type { ConfidenceSummary } from '../confidence';
 import { WebLLMAdapter, type WebLLMChunk, type WebLLMEngine } from '../webllm-adapter';
 
@@ -1471,5 +1471,126 @@ describe('WebLLMAdapter — countTokens', () => {
     await loadWith(new Map([[MLC_ID, makePipeline()]]));
     await adapter.unload();
     await expect(adapter.countTokens('hello')).resolves.toBeNull();
+  });
+});
+
+describe('WebLLMAdapter — GPU device lost while loaded', () => {
+  const MLC_ID = 'SmolLM2-1.7B-Instruct-q4f16_1-MLC';
+  // Verbatim from @mlc-ai/web-llm 0.2.84 (TVMObject.typeIndex, detectGPUDevice).
+  const DISPOSED = 'The current Object has already been disposed';
+  const NO_ADAPTER =
+    "Unable to find a compatible GPU. This issue might be because your computer doesn't have a GPU, or your system settings are not configured properly. " +
+    'Please check if your device has a GPU properly set up and if your your browser supports WebGPU. ' +
+    "You can also consult your browser's compatibility chart to see if it supports WebGPU. " +
+    'For more information about WebGPU support in your browser, visit https://webgpureport.org/';
+
+  /** A loaded engine whose device the test can lose; counts engine calls. */
+  function makeLosable(): { engine: WebLLMEngine; lose: () => Promise<void>; calls: () => number } {
+    let resolveLost!: (info: { reason: string; message: string }) => void;
+    const lost = new Promise<{ reason: string; message: string }>((resolve) => {
+      resolveLost = resolve;
+    });
+    let calls = 0;
+    const base = makeEngine();
+    const fake: WebLLMEngine = {
+      ...base,
+      loadedModelIdToPipeline: new Map([[MLC_ID, { tvm: { lib: { webGPUContext: { device: { lost } } } } }]]),
+      resetChat: async () => {
+        calls++;
+      },
+      chat: {
+        completions: {
+          create: async (args) => {
+            calls++;
+            return base.chat.completions.create(args);
+          },
+        },
+      },
+    };
+    return {
+      engine: fake,
+      lose: async () => {
+        resolveLost({ reason: 'unknown', message: 'GPU process was lost' });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      },
+      calls: () => calls,
+    };
+  }
+
+  async function collect(): Promise<TokenEvent[]> {
+    const events: TokenEvent[] = [];
+    for await (const event of adapter.generate([{ role: 'user', content: 'hi' }])) events.push(event);
+    return events;
+  }
+
+  it('reports the loss and tells its loader once', async () => {
+    const losable = makeLosable();
+    const onDeviceLost = vi.fn();
+    adapter = new WebLLMAdapter({ engineFactory: async () => losable.engine });
+    await adapter.load(MODEL, { onDeviceLost });
+    expect(adapter.deviceLost).toBe(false);
+
+    await losable.lose();
+
+    expect(adapter.deviceLost).toBe(true);
+    expect(onDeviceLost).toHaveBeenCalledTimes(1);
+  });
+
+  it('answers a request on a lost device without touching the engine', async () => {
+    const losable = makeLosable();
+    adapter = new WebLLMAdapter({ engineFactory: async () => losable.engine });
+    await adapter.load(MODEL);
+    await losable.lose();
+
+    const events = await collect();
+
+    expect(events).toEqual([expect.objectContaining({ kind: 'error', code: 'device-reclaimed' })]);
+    expect(losable.calls()).toBe(0);
+  });
+
+  it("does not read its own unload's device teardown as a loss", async () => {
+    const losable = makeLosable();
+    const onDeviceLost = vi.fn();
+    adapter = new WebLLMAdapter({ engineFactory: async () => losable.engine });
+    await adapter.load(MODEL, { onDeviceLost });
+
+    await adapter.unload();
+    // Unloading destroys the device, which resolves `lost` with 'destroyed'.
+    await losable.lose();
+
+    expect(adapter.deviceLost).toBe(false);
+    expect(onDeviceLost).not.toHaveBeenCalled();
+  });
+
+  it('classifies a disposed engine as a reclaimed device, which never cools the model down', async () => {
+    engine = makeEngine({ createFails: new Error(DISPOSED) });
+    adapter = new WebLLMAdapter({ engineFactory: async () => engine });
+    await adapter.load(MODEL);
+
+    const events = await collect();
+
+    expect(events).toEqual([expect.objectContaining({ kind: 'error', code: 'device-reclaimed' })]);
+  });
+
+  it("classifies embind's disposed-tokenizer error as a reclaimed device too", async () => {
+    engine = makeEngine({
+      createFails: new Error('Cannot pass deleted object as a pointer of type Tokenizer*'),
+    });
+    adapter = new WebLLMAdapter({ engineFactory: async () => engine });
+    await adapter.load(MODEL);
+
+    const events = await collect();
+
+    expect(events).toEqual([expect.objectContaining({ kind: 'error', code: 'device-reclaimed' })]);
+  });
+
+  it('classifies a load with no WebGPU adapter as webgpu-unavailable', async () => {
+    engine = makeEngine({ reloadFails: new Error(NO_ADAPTER) });
+    adapter = new WebLLMAdapter({ engineFactory: async () => engine });
+
+    const err = await adapter.load(MODEL).then(() => null, (e: unknown) => e);
+
+    expect(err).toBeInstanceOf(AdapterError);
+    expect((err as AdapterError).code).toBe('webgpu-unavailable');
   });
 });
