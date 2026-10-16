@@ -16,12 +16,13 @@
  * A download must coexist with any runtime kind, in both acquisition orders.
  */
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   acquireLocalHeavyWork,
   clearActiveLocalHeavyWorkLease,
   getActiveLocalHeavyWorkLease,
   describeLocalHeavyWorkBusy,
+  leaseLockName,
 } from '../local-heavy-work-owner';
 
 const RUNTIME_KEY = 'eco-local-heavy-work-owner-v1';
@@ -221,5 +222,91 @@ describe('a lease does not outlive its page', () => {
     window.dispatchEvent(new Event('pagehide'));
 
     expect(getActiveLocalHeavyWorkLease()?.ownerId).toBe('generation:other-tab');
+  });
+});
+
+describe('a download lease holds a Web Lock for as long as it lives', () => {
+  /** Web Locks stand-in: grants on demand, reports what is held. */
+  class FakeLocks {
+    held = new Set<string>();
+    autoGrant = true;
+    private pending: (() => void)[] = [];
+
+    request(name: string, callback: () => Promise<void>): Promise<void> {
+      return new Promise<void>((resolve) => {
+        const grant = (): void => {
+          this.held.add(name);
+          void callback().then(() => {
+            this.held.delete(name);
+            resolve();
+          });
+        };
+        if (this.autoGrant) grant();
+        else this.pending.push(grant);
+      });
+    }
+
+    query(): Promise<{ held: { name: string }[] }> {
+      return Promise.resolve({ held: [...this.held].map((name) => ({ name })) });
+    }
+
+    grantPending(): void {
+      const grants = this.pending;
+      this.pending = [];
+      for (const grant of grants) grant();
+    }
+  }
+
+  let locks: FakeLocks;
+
+  beforeEach(() => {
+    locks = new FakeLocks();
+    vi.stubGlobal('navigator', { ...globalThis.navigator, locks });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('holds the lock named after its owner, and release() frees it', async () => {
+    const download = acquireLocalHeavyWork('download');
+    expect(download.ok).toBe(true);
+    if (!download.ok) return;
+    expect(locks.held.has(leaseLockName(download.lease.ownerId))).toBe(true);
+
+    download.release();
+    await Promise.resolve();
+    expect(locks.held.size).toBe(0);
+  });
+
+  it('pagehide frees the lock along with the row', async () => {
+    const download = acquireLocalHeavyWork('download');
+    expect(download.ok).toBe(true);
+
+    window.dispatchEvent(new Event('pagehide'));
+    await Promise.resolve();
+
+    expect(localStorage.getItem(DOWNLOAD_KEY)).toBeNull();
+    expect(locks.held.size).toBe(0);
+    if (download.ok) download.release();
+  });
+
+  it('a runtime lease takes no lock', () => {
+    const generation = acquireLocalHeavyWork('generation');
+    expect(generation.ok).toBe(true);
+    expect(locks.held.size).toBe(0);
+    if (generation.ok) generation.release();
+  });
+
+  it('a release before the lock is granted does not leave the lock held', async () => {
+    locks.autoGrant = false;
+    const download = acquireLocalHeavyWork('download');
+    expect(download.ok).toBe(true);
+    if (download.ok) download.release();
+
+    locks.grantPending();
+    await Promise.resolve();
+
+    expect(locks.held.size).toBe(0);
   });
 });
