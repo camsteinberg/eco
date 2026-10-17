@@ -309,11 +309,52 @@ export async function press(
 ): Promise<boolean> {
   if (!(await chat.session.run(markInPage, css, text, options.scope))) return false;
   if (chat.target === "ios") return chat.session.run(clickMarkedInPage);
+  await ensureInFront(chat, true);
   const element = await chat.session.find("[data-eco-lane-mark]");
   if (element === null) return false;
   if (options.hoverFirst) await chat.session.hover(element);
   await chat.session.click(element);
   return true;
+}
+
+/** Whether the page is on screen, and whether it has focus (so a real click on it will land). */
+export function frontStateInPage(): { visible: boolean; focused: boolean } {
+  return { visible: document.visibilityState === "visible", focused: document.hasFocus() };
+}
+
+/** How long a walk waits for its Safari window to come back to the front. */
+const FRONT_WAIT_MS = 15 * 60_000;
+
+/**
+ * Wait until the walk's page is in front: on screen and, for a click, focused.
+ * Safari drops a click on a page whose window is not the active one, silently,
+ * and runs a hidden page differently, so a reading taken behind another app
+ * says nothing about the app. Someone using this Mac during a run takes the
+ * front; the walk then waits (and says so) rather than record a wrong row,
+ * and stops with a plain reason if the window never comes back.
+ */
+export async function ensureInFront(chat: SafariChat, needFocus: boolean): Promise<void> {
+  const ok = (state: { visible: boolean; focused: boolean }) => state.visible && (!needFocus || state.focused);
+  if (ok(await chat.session.run(frontStateInPage))) return;
+  await chat.session.focus();
+  const deadline = Date.now() + FRONT_WAIT_MS;
+  let said = false;
+  for (;;) {
+    const state = await chat.session.run(frontStateInPage);
+    if (ok(state)) return;
+    if (!said) {
+      console.log(`  waiting: the Safari window is not in front (${JSON.stringify(state)}); leave the Mac to the walk`);
+      said = true;
+    }
+    if (Date.now() > deadline) {
+      throw new Error(
+        `the Safari window stayed out of the front for ${FRONT_WAIT_MS / 60_000} min, so the walk cannot click `
+          + "or read the page (is someone using this Mac, or a window in the way?)",
+      );
+    }
+    await sleep(5_000);
+    await chat.session.focus();
+  }
 }
 
 /**
@@ -502,6 +543,7 @@ async function collectOutcome(
   prompt: string,
   generationIdBefore: string | null,
 ): Promise<TurnOutcome> {
+  await ensureInFront(chat, false);
   const receipts = await chat.session.run(receiptsOfNewGenerationInPage, generationIdBefore);
   const toolCardText = await chat.session.run(lastToolCardInPage);
   const stored = await chat.session.run(readLatestExchangeInPage);

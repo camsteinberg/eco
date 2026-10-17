@@ -93,6 +93,12 @@ export type SafariSession = {
   click: (element: string) => Promise<void>;
   /** Move the pointer over an element, as a person's hover does (it reveals hover-only controls). */
   hover: (element: string) => Promise<void>;
+  /**
+   * Bring the current tab's window to the front. Safari delivers a real click
+   * only to the active window: in a window behind another app the click
+   * returns without error and the page never sees it.
+   */
+  focus: () => Promise<void>;
   windowHandle: () => Promise<string>;
   /** Open a new tab and return its handle. The current tab stays current. */
   newTab: () => Promise<string>;
@@ -181,6 +187,12 @@ export async function createSession(
       await call(driverUrl, "POST", at(`/element/${element}/click`), {});
     },
     hover: async (element) => {
+      // A pointer move is refused ("move target out of bounds") for an element
+      // scrolled out of view, so bring it into view first, as a person scrolls.
+      await call(driverUrl, "POST", at("/execute/sync"), {
+        script: "arguments[0].scrollIntoView({ block: 'center' });",
+        args: [{ [ELEMENT_KEY]: element }],
+      });
       await call(driverUrl, "POST", at("/actions"), {
         actions: [
           {
@@ -192,6 +204,11 @@ export async function createSession(
         ],
       });
       await call(driverUrl, "DELETE", at("/actions"));
+    },
+    focus: async () => {
+      // Switching to the tab already current is how WebDriver activates its window.
+      const handle = String(await call(driverUrl, "GET", at("/window")));
+      await call(driverUrl, "POST", at("/window"), { handle });
     },
     windowHandle: async () => String(await call(driverUrl, "GET", at("/window"))),
     newTab: async () => {
