@@ -56,6 +56,13 @@ export type OnLifecycleEvent = (event: LifecycleEvent) => void;
 export type LoadOptions = {
   /** Force WASM regardless of WebGPU availability. */
   forceWasm?: boolean;
+  /**
+   * Fail with `webgpu-unavailable` rather than fall back to the CPU when no
+   * WebGPU adapter is usable. The lifecycle sets it after this page lost a
+   * device: a page reload gets a fresh one. Adapters that are WebGPU-only by
+   * construction ignore it.
+   */
+  requireWebGpu?: boolean;
   /** Progress callback fired during model weight loading. 0..1. */
   onLoadProgress?: (progress: number) => void;
   /** AbortSignal cancels load partway through. */

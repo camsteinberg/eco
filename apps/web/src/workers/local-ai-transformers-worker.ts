@@ -76,6 +76,7 @@ import {
 import { classifyGenerationError } from './classify-generation-error';
 import { ABORTED_GENERATION_SETTLE_MS, GenerationSlot } from './single-flight';
 import { ortWasmPaths, clampThreads, type OrtArtifact } from '../local-ai/runtime/ort-artifact';
+import { chooseBackend, ortWebGpuDevice } from './ort-webgpu-device';
 
 // ─── Local self typing ─────────────────────────────────────────────────────
 
@@ -278,6 +279,11 @@ self.addEventListener('message', async (event: MessageEvent<WorkerInbound>) => {
       case 'countTokens':
         await handleCountTokens(msg);
         break;
+      case 'harness-lose-device':
+        // Validation harness only (`eco-force-gpu-loss`): lose the device the
+        // way the browser does, so the runtime's own handling runs.
+        if (loaded?.backend === 'webgpu') (await ortWebGpuDevice(env.backends.onnx))?.destroy();
+        break;
     }
   } catch (err) {
     post({
@@ -342,8 +348,20 @@ async function handleInit(msg: Extract<WorkerInbound, { type: 'init' }>): Promis
   // crossOriginIsolated-keyed numThreads) — a byte-for-byte-unchanged default.
   applyOrtRuntimeOverrides(msg.ortArtifact, msg.numThreads);
 
-  const wantsWasm = msg.forceWasm === true || !(await hasUsableWebGPU());
-  const backend: 'webgpu' | 'wasm' = wantsWasm ? 'wasm' : 'webgpu';
+  const choice = chooseBackend({
+    forceWasm: msg.forceWasm === true,
+    requireWebGpu: msg.requireWebGpu === true,
+    webGpuUsable: msg.forceWasm !== true && msg.denyAdapter !== true && (await hasUsableWebGPU()),
+  });
+  if (choice === 'webgpu-unavailable') {
+    post({
+      type: 'error',
+      code: 'webgpu-unavailable',
+      message: `${msg.modelFriendlyName} needs WebGPU, and this page cannot get a WebGPU adapter.`,
+    });
+    return;
+  }
+  const backend: 'webgpu' | 'wasm' = choice;
 
   // TJS options are structurally typed and version-volatile; pass through
   // as a loosely-typed object to keep the worker resilient to v4.x patches.
@@ -532,6 +550,7 @@ async function handleInit(msg: Extract<WorkerInbound, { type: 'init' }>): Promis
       startsInThinkBlock,
     };
     post({ type: 'ready', backend });
+    if (backend === 'webgpu') void watchDeviceLoss(model);
 
     // ── CJK vocab scan (opt-in models only) ───────────────────────────
     // Started AFTER ready so it never delays the load signal; the chunked
@@ -556,6 +575,23 @@ async function handleInit(msg: Extract<WorkerInbound, { type: 'init' }>): Promis
   } finally {
     tjsEnv.fetch = originalFetch;
   }
+}
+
+/**
+ * Tell the main thread once if the loaded model's WebGPU device is lost (the
+ * browser reclaimed it, e.g. while the page sat in the background), so the
+ * model is replaced before the next message rather than failing it. A device
+ * lost after this model was replaced or unloaded is not reported; an unload
+ * also ends with the main thread terminating this worker.
+ */
+async function watchDeviceLoss(model: unknown): Promise<void> {
+  const device = await ortWebGpuDevice(env.backends.onnx);
+  if (!device) return;
+  void device.lost.then((info) => {
+    if (loaded?.model !== model) return;
+    const message = (info as { message?: unknown } | null)?.message;
+    post({ type: 'device-lost', message: typeof message === 'string' ? message : '' });
+  });
 }
 
 /**

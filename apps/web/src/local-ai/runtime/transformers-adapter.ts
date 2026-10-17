@@ -49,6 +49,7 @@ import {
   type OrtGraphOptLevel,
 } from '../device/profile';
 import type { OrtArtifact } from './ort-artifact';
+import { isValidationAdapterDenied, subscribeValidationGpuLoss } from '../../lib/validation-harness';
 
 // ─── Worker message protocol ───────────────────────────────────────────────
 
@@ -68,6 +69,12 @@ export type WorkerInbound =
       dtype: 'q4' | 'q4f16' | 'q2f16' | 'int8';
       modelFriendlyName: string;
       forceWasm?: boolean;
+      /**
+       * Never fall back to the WASM EP: with no usable WebGPU adapter, fail with
+       * `webgpu-unavailable` instead. Set for a model that cannot run on the CPU
+       * EP, and after this page lost a device (a page reload gets a new one).
+       */
+      requireWebGpu?: boolean;
       /**
        * Force a specific onnxruntime-web WASM artifact (measurement lever). When
        * present the worker points `env.backends.onnx.wasm.wasmPaths` at the
@@ -96,11 +103,19 @@ export type WorkerInbound =
       revision?: string;
       cjkSuppression?: boolean;
       skipModelProgressPreflight?: boolean;
+      /**
+       * Validation harness only: the page's WebGPU adapter has been taken away
+       * (`eco-force-gpu-loss`), so the worker must act as if its own
+       * `requestAdapter()` resolved null. Absent outside the harness.
+       */
+      denyAdapter?: boolean;
     }
   | { type: 'generate'; generationId: string; messages: ChatMessage[]; options?: WorkerGenerateOptions; systemRoleStrategy?: SystemRoleSupport }
   | { type: 'abort'; generationId: string }
   | { type: 'unload' }
-  | { type: 'countTokens'; requestId: string; text: string };
+  | { type: 'countTokens'; requestId: string; text: string }
+  /** Validation harness only: destroy the loaded model's WebGPU device. */
+  | { type: 'harness-lose-device' };
 
 export type WorkerOutbound =
   | { type: 'ready'; backend: RuntimeBackend }
@@ -108,7 +123,9 @@ export type WorkerOutbound =
   | { type: 'token'; generationId: string; text: string; seq: number }
   | { type: 'done'; generationId: string; finishReason?: 'eos' | 'length' | 'abort'; promptTokens?: number; completionTokens?: number; tokenizerName?: string; kvReuse?: KvReuseTelemetry; cjkSuppression?: CjkSuppressionTelemetry; confidence?: ConfidenceSummary }
   | { type: 'error'; generationId?: string; code: ErrorCode; message: string; details?: Record<string, unknown> }
-  | { type: 'tokenCount'; requestId: string; count: number };
+  | { type: 'tokenCount'; requestId: string; count: number }
+  /** The loaded model's WebGPU device was lost (posted once, after ready). */
+  | { type: 'device-lost'; message: string };
 
 type ErrorCode = 'webgpu-unavailable' | 'oom' | 'device-lost' | 'init-failed' | 'model-files-missing' | 'generation-failed' | 'timeout' | 'template-missing';
 
@@ -258,6 +275,8 @@ export class TransformersAdapter implements RuntimeAdapter {
   private currentModel: ModelConfig | null = null;
   private currentBackend: RuntimeBackend | null = null;
   private currentGeneration: { id: string; controller: AsyncGenerationController } | null = null;
+  private stopHarnessGpuLoss: (() => void) | null = null;
+  private lost = false;
   private readonly options: TransformersAdapterOptions;
 
   constructor(options: TransformersAdapterOptions) {
@@ -274,6 +293,10 @@ export class TransformersAdapter implements RuntimeAdapter {
 
   get activeModel(): ModelConfig | null {
     return this.currentModel;
+  }
+
+  get deviceLost(): boolean {
+    return this.lost;
   }
 
   async load(model: ModelConfig, options?: LoadOptions): Promise<void> {
@@ -294,7 +317,8 @@ export class TransformersAdapter implements RuntimeAdapter {
 
     emit?.({ phase: 'runtime-import', at: now(), note: 'transformers-worker-factory' });
 
-    this.worker = factory();
+    const worker = factory();
+    this.worker = worker;
     this.currentModel = model;
 
     emit?.({ phase: 'load-start', at: now(), note: model.id });
@@ -366,8 +390,25 @@ export class TransformersAdapter implements RuntimeAdapter {
         const msg = event.data;
         if (msg.type === 'ready') {
           this.currentBackend = msg.backend;
+          // The harness's GPU-loss seam destroys devices on the page's main
+          // thread; this model's device lives in the worker, so pass it on.
+          if (msg.backend === 'webgpu') {
+            this.stopHarnessGpuLoss = subscribeValidationGpuLoss(() => {
+              worker.postMessage({ type: 'harness-lose-device' });
+            });
+          }
           emit?.({ phase: 'load-finish', at: now(), note: `backend=${msg.backend}` });
           settleResolve();
+          return;
+        }
+        // The browser took the loaded model's device (a phone locked for a few
+        // minutes). The worker cannot serve another request; reporting it now
+        // lets the lifecycle replace the model before the next message instead
+        // of failing it. Our own unload removes this listener first.
+        if (msg.type === 'device-lost') {
+          if (this.worker !== worker || this.lost) return;
+          this.lost = true;
+          options?.onDeviceLost?.();
           return;
         }
         if (msg.type === 'progress') {
@@ -447,6 +488,11 @@ export class TransformersAdapter implements RuntimeAdapter {
         // Explicit caller intent wins; otherwise the ?eco-force-wasm override
         // applies so the CPU path can be exercised on any device.
         forceWasm: options?.forceWasm ?? (readForcedWasm() || undefined),
+        requireWebGpu:
+          options?.requireWebGpu === true
+          || model.compat?.requireWebgpu === true
+          || model.compat?.cpuEpIncompatible === true
+          || undefined,
         // Measurement levers (?eco-force-ort-artifact / ?eco-force-threads /
         // ?eco-force-ort-{arena,mem-pattern,graph-opt}), read on the main
         // thread and threaded across the worker boundary — absent ⇒ the worker
@@ -464,6 +510,7 @@ export class TransformersAdapter implements RuntimeAdapter {
         // the conversation (runtime/cjk-suppression.ts).
         cjkSuppression: isCjkSuppressionEnabled(model.id) ? true : undefined,
         skipModelProgressPreflight: shouldSkipModelProgressPreflight(model) ? true : undefined,
+        denyAdapter: isValidationAdapterDenied() || undefined,
       });
     });
   }
@@ -471,6 +518,12 @@ export class TransformersAdapter implements RuntimeAdapter {
   async *generate(messages: ChatMessage[], options?: GenerateOptions): AsyncIterable<TokenEvent> {
     if (!this.worker || !this.currentModel) {
       throw new AdapterError('Not loaded', 'init-failed', false);
+    }
+    // Its worker's device is gone; a request could only fail. No strike: the
+    // lifecycle replaces a lost adapter on the next load.
+    if (this.lost) {
+      yield { kind: 'error', reason: 'The WebGPU device was lost.', code: 'device-reclaimed' };
+      return;
     }
 
     const emit = options?.onLifecycleEvent;
@@ -658,6 +711,8 @@ export class TransformersAdapter implements RuntimeAdapter {
   }
 
   async unload(): Promise<void> {
+    this.stopHarnessGpuLoss?.();
+    this.stopHarnessGpuLoss = null;
     if (!this.worker) return;
     try {
       this.worker.postMessage({ type: 'unload' });
@@ -680,6 +735,7 @@ export class TransformersAdapter implements RuntimeAdapter {
     this.workerListener = null;
     this.currentModel = null;
     this.currentBackend = null;
+    this.lost = false;
     if (this.currentGeneration) {
       this.currentGeneration.controller.close();
       this.currentGeneration = null;

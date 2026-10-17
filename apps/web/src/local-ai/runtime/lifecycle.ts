@@ -304,6 +304,7 @@ export async function loadModel(
     const adapter = adapterFactory(model);
     const loadPromise = adapter.load(model, {
       ...options,
+      ...(gpuLostThisPage ? { requireWebGpu: true } : {}),
       onDeviceLost: () => {
         options?.onDeviceLost?.();
         if (state.activeAdapter === adapter) noteDeviceLost();
