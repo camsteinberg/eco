@@ -49,6 +49,7 @@ import {
   type OrtGraphOptLevel,
 } from '../device/profile';
 import type { OrtArtifact } from './ort-artifact';
+import { isValidationAdapterDenied, subscribeValidationGpuLoss } from '../../lib/validation-harness';
 
 // ─── Worker message protocol ───────────────────────────────────────────────
 
@@ -96,11 +97,19 @@ export type WorkerInbound =
       revision?: string;
       cjkSuppression?: boolean;
       skipModelProgressPreflight?: boolean;
+      /**
+       * Validation harness only: the page's WebGPU adapter has been taken away
+       * (`eco-force-gpu-loss`), so the worker must act as if its own
+       * `requestAdapter()` resolved null. Absent outside the harness.
+       */
+      denyAdapter?: boolean;
     }
   | { type: 'generate'; generationId: string; messages: ChatMessage[]; options?: WorkerGenerateOptions; systemRoleStrategy?: SystemRoleSupport }
   | { type: 'abort'; generationId: string }
   | { type: 'unload' }
-  | { type: 'countTokens'; requestId: string; text: string };
+  | { type: 'countTokens'; requestId: string; text: string }
+  /** Validation harness only: destroy the loaded model's WebGPU device. */
+  | { type: 'harness-lose-device' };
 
 export type WorkerOutbound =
   | { type: 'ready'; backend: RuntimeBackend }
@@ -258,6 +267,7 @@ export class TransformersAdapter implements RuntimeAdapter {
   private currentModel: ModelConfig | null = null;
   private currentBackend: RuntimeBackend | null = null;
   private currentGeneration: { id: string; controller: AsyncGenerationController } | null = null;
+  private stopHarnessGpuLoss: (() => void) | null = null;
   private readonly options: TransformersAdapterOptions;
 
   constructor(options: TransformersAdapterOptions) {
@@ -366,6 +376,14 @@ export class TransformersAdapter implements RuntimeAdapter {
         const msg = event.data;
         if (msg.type === 'ready') {
           this.currentBackend = msg.backend;
+          // The harness's GPU-loss seam destroys devices on the page's main
+          // thread; this model's device lives in the worker, so pass it on.
+          if (msg.backend === 'webgpu') {
+            const worker = this.worker;
+            this.stopHarnessGpuLoss = subscribeValidationGpuLoss(() => {
+              worker?.postMessage({ type: 'harness-lose-device' });
+            });
+          }
           emit?.({ phase: 'load-finish', at: now(), note: `backend=${msg.backend}` });
           settleResolve();
           return;
@@ -464,6 +482,7 @@ export class TransformersAdapter implements RuntimeAdapter {
         // the conversation (runtime/cjk-suppression.ts).
         cjkSuppression: isCjkSuppressionEnabled(model.id) ? true : undefined,
         skipModelProgressPreflight: shouldSkipModelProgressPreflight(model) ? true : undefined,
+        denyAdapter: isValidationAdapterDenied() || undefined,
       });
     });
   }
@@ -658,6 +677,8 @@ export class TransformersAdapter implements RuntimeAdapter {
   }
 
   async unload(): Promise<void> {
+    this.stopHarnessGpuLoss?.();
+    this.stopHarnessGpuLoss = null;
     if (!this.worker) return;
     try {
       this.worker.postMessage({ type: 'unload' });

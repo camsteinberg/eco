@@ -13,6 +13,12 @@
  *   ECO_GPU_LOSS_WALK=1 pnpm --filter @eco/web exec playwright test \
  *     -c playwright.acceptance.config.ts gpu-loss-walk
  *
+ * `ECO_GPU_LOSS_RUNTIME=onnx` runs the same walks on ONNX instead: the LFM2.5
+ * 1.2B (Android's pick on a GPU with shader-f16) in Chrome under its own user
+ * agent, in the Chrome acceptance profile (`.browser-profile`, or
+ * `ECO_ACCEPTANCE_PROFILE_DIR`) with that model downloaded. ONNX's device lives
+ * in its worker; the harness seam reaches it through the transformers adapter.
+ *
  * The loss comes from the harness seam `eco-force-gpu-loss` (localStorage,
  * read at bootstrap; see `installValidationGpuLoss`): when the tab is next
  * hidden it destroys every WebGPU device the page made, and optionally makes
@@ -36,8 +42,8 @@
  *                                 automatic reload, then an honest error card —
  *                                 no reload loop.
  *
- * Every walk runs on Eco Mobile (the iPhone's model), on WebLLM, in real
- * Chrome presenting desktop Safari's user agent.
+ * By default every walk runs on Eco Mobile (the iPhone's model), on WebLLM, in
+ * real Chrome presenting desktop Safari's user agent.
  */
 
 import { chromium, expect, test, type BrowserContext, type Page } from "@playwright/test";
@@ -54,22 +60,28 @@ import {
 } from "./lib/walk";
 
 const BASE_URL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3120";
+const ONNX = process.env.ECO_GPU_LOSS_RUNTIME === "onnx";
 const PROFILE_DIR =
-  process.env.ECO_ACCEPTANCE_PROFILE_DIR ?? join(__dirname, ".browser-profile-webllm");
+  process.env.ECO_ACCEPTANCE_PROFILE_DIR
+  ?? join(__dirname, ONNX ? ".browser-profile" : ".browser-profile-webllm");
 const DESKTOP_SAFARI_USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
   + "(KHTML, like Gecko) Version/26.4 Safari/605.1.15";
 
-const MODEL_ID = "candidate/qwen2.5-0.5b-mlc";
+const MODEL_ID = ONNX ? "candidate/lfm2.5-1.2b-instruct-onnx" : "candidate/qwen2.5-0.5b-mlc";
 const SLOT = "eco-fast";
 const GPU_LOSS_KEY = "eco-force-gpu-loss";
 
 /** How long the tab stays in the background. The loss is immediate; this only lets it land. */
 const HIDDEN_MS = 3_000;
-/** Time for an invisible model reload (a cached load plus a one-token check) after the tab returns. */
-const RECOVERY_SETTLE_MS = 20_000;
+/**
+ * Time for an invisible model reload (a cached load plus a one-token check)
+ * after the tab returns. The ONNX 1.2B is larger than Eco Mobile; its cached
+ * load time on this Mac is UNMEASURED, so its window is doubled.
+ */
+const RECOVERY_SETTLE_MS = ONNX ? 40_000 : 20_000;
 /** A page reload, then the model loading from the browser's cache. */
-const RELOAD_TIMEOUT_MS = 60_000;
+const RELOAD_TIMEOUT_MS = ONNX ? 90_000 : 60_000;
 
 const PROMPT_1 = "How far is the Moon from Earth, roughly?";
 const PROMPT_2 = "And how long does light take to cover that distance?";
@@ -88,7 +100,7 @@ test.beforeAll(async () => {
     channel: "chrome",
     headless: false,
     viewport: null,
-    userAgent: DESKTOP_SAFARI_USER_AGENT,
+    ...(ONNX ? {} : { userAgent: DESKTOP_SAFARI_USER_AGENT }),
   });
   await stubAuth(context);
 });

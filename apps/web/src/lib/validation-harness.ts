@@ -683,8 +683,12 @@ const GPU_LOSS_KEY = 'eco-force-gpu-loss';
  *     the walk removes it.
  *
  * WebLLM asks for its device on the page's main thread, so wrapping
- * `navigator.gpu` here reaches it; a worker's WebGPU is untouched. NEVER active
- * on production hosts — gated by `isValidationHarnessEnabled()`.
+ * `navigator.gpu` here reaches it. A worker's WebGPU is out of its reach: the
+ * ONNX runtime's device lives in its worker, so the transformers adapter reads
+ * `isValidationAdapterDenied()` when it starts a worker and, through
+ * `subscribeValidationGpuLoss`, asks the worker to destroy its device when this
+ * seam destroys the page's. NEVER active on production hosts — gated by
+ * `isValidationHarnessEnabled()`.
  *
  * Also installs `window.__ecoHarnessVisibility` (see `installVisibilityControl`),
  * which a walk uses to put the page in the background.
@@ -707,11 +711,11 @@ export function installValidationGpuLoss(): void {
   if (!gpu) return;
   if (value === 'hide' || value === 'hide-no-adapter') safeStorage.remove(GPU_LOSS_KEY);
 
-  let denyAdapter = value === 'no-adapter';
+  validationAdapterDenied = value === 'no-adapter';
   const devices: GPUDevice[] = [];
   const requestAdapter = gpu.requestAdapter.bind(gpu);
   gpu.requestAdapter = async (options?: GPURequestAdapterOptions): Promise<GPUAdapter | null> => {
-    if (denyAdapter) return null;
+    if (validationAdapterDenied) return null;
     const adapter = await requestAdapter(options);
     if (adapter) {
       const requestDevice = adapter.requestDevice.bind(adapter);
@@ -728,11 +732,35 @@ export function installValidationGpuLoss(): void {
   const onHidden = (): void => {
     if (document.visibilityState !== 'hidden') return;
     document.removeEventListener('visibilitychange', onHidden);
-    if (value !== 'hide') denyAdapter = true;
+    if (value !== 'hide') validationAdapterDenied = true;
     if (value === 'hide-no-adapter-sticky') safeStorage.set(GPU_LOSS_KEY, 'no-adapter');
     for (const device of devices) device.destroy();
+    for (const listener of validationGpuLossListeners) listener();
   };
   document.addEventListener('visibilitychange', onHidden);
+}
+
+let validationAdapterDenied = false;
+const validationGpuLossListeners = new Set<() => void>();
+
+/**
+ * Harness-only: whether `eco-force-gpu-loss` has taken this page's WebGPU
+ * adapter away. Always false off the harness (the seam never installs).
+ */
+export function isValidationAdapterDenied(): boolean {
+  return validationAdapterDenied;
+}
+
+/**
+ * Harness-only: `listener` runs when `eco-force-gpu-loss` destroys this page's
+ * devices, so a runtime whose device lives in a worker can lose it too. Never
+ * called off the harness. Returns an unsubscribe function.
+ */
+export function subscribeValidationGpuLoss(listener: () => void): () => void {
+  validationGpuLossListeners.add(listener);
+  return () => {
+    validationGpuLossListeners.delete(listener);
+  };
 }
 
 declare global {

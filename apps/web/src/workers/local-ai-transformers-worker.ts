@@ -76,6 +76,7 @@ import {
 import { classifyGenerationError } from './classify-generation-error';
 import { ABORTED_GENERATION_SETTLE_MS, GenerationSlot } from './single-flight';
 import { ortWasmPaths, clampThreads, type OrtArtifact } from '../local-ai/runtime/ort-artifact';
+import { ortWebGpuDevice } from './ort-webgpu-device';
 
 // ─── Local self typing ─────────────────────────────────────────────────────
 
@@ -278,6 +279,11 @@ self.addEventListener('message', async (event: MessageEvent<WorkerInbound>) => {
       case 'countTokens':
         await handleCountTokens(msg);
         break;
+      case 'harness-lose-device':
+        // Validation harness only (`eco-force-gpu-loss`): lose the device the
+        // way the browser does, so the runtime's own handling runs.
+        if (loaded?.backend === 'webgpu') (await ortWebGpuDevice(env.backends.onnx))?.destroy();
+        break;
     }
   } catch (err) {
     post({
@@ -342,7 +348,7 @@ async function handleInit(msg: Extract<WorkerInbound, { type: 'init' }>): Promis
   // crossOriginIsolated-keyed numThreads) — a byte-for-byte-unchanged default.
   applyOrtRuntimeOverrides(msg.ortArtifact, msg.numThreads);
 
-  const wantsWasm = msg.forceWasm === true || !(await hasUsableWebGPU());
+  const wantsWasm = msg.forceWasm === true || msg.denyAdapter === true || !(await hasUsableWebGPU());
   const backend: 'webgpu' | 'wasm' = wantsWasm ? 'wasm' : 'webgpu';
 
   // TJS options are structurally typed and version-volatile; pass through
