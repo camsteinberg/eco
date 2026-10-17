@@ -5,7 +5,8 @@
  * Eco Service Worker
  *
  * Caching strategies:
- * - CacheFirst for successful immutable static assets (_next/static/*)
+ * - CacheFirst for successful immutable static assets (_next/static/*); a
+ *   worker script is re-served as a fresh response (see servedAsWorkerScript)
  * - CacheFirst for reviewed ONNX Runtime assets needed by prepared local models
  * - NetworkOnly for API routes (/v1/*, /api/*)
  * - NetworkFirst for the chat routes' app shell, falling back to the captured
@@ -19,6 +20,11 @@
  * be stored, the capture stores neither the HTML nor its manifest — the tab
  * keeps the previous complete shell, or the offline document, and never a
  * shell pointing at a chunk that is not there.
+ *
+ * The capture does NOT include the model worker. Its loader and chunks are
+ * named only inside the page's JavaScript, never in the HTML, so offline they
+ * come from the runtime static cache below, which a previous online load
+ * filled.
  */
 
 const CACHE_NAME = "eco-v5";
@@ -59,6 +65,28 @@ function isCacheableOrtAsset(url) {
 
 function isStaticAsset(url) {
   return new URL(url).pathname.startsWith("/_next/static/");
+}
+
+// Turbopack's worker loader has the same name in every build and reads the
+// build's chunk list from its own location.href (#params=…). A worker takes
+// its location from the response's URL, and a stored response keeps the URL
+// of the request that first fetched it — Cache matching ignores the fragment —
+// so handing it back as-is runs the chunks of whichever build cached it first.
+// A constructed response has no URL, so the browser gives the worker the
+// request's own, fragment included. The loader's bytes are the same in every
+// build; only the URL ever differed. The path test covers a browser that does
+// not report the destination.
+const WORKER_LOADER_PATTERN = /\/turbopack-worker-[^/]+\.js$/;
+
+function servedAsWorkerScript(request, response) {
+  const isWorkerScript = request.destination === "worker"
+    || WORKER_LOADER_PATTERN.test(new URL(request.url).pathname);
+  if (!isWorkerScript) return response;
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
 }
 
 // The only two chat routes — app/(app)/chat/page.tsx and .../chat/new/page.tsx.
@@ -486,13 +514,15 @@ self.addEventListener("fetch", (event) => {
     return; // Let the browser handle it normally (no event.respondWith)
   }
 
-  // CacheFirst — static assets are content-hashed, but only cache successful
-  // responses. Caching a 400/404 chunk response can permanently poison refresh.
+  // CacheFirst — static asset names are content-hashed (the worker loader's
+  // per-build state lives in its URL fragment, handled by servedAsWorkerScript),
+  // but only cache successful responses. Caching a 400/404 chunk response can
+  // permanently poison refresh.
   if (request.method === "GET" && isStaticAsset(request.url)) {
     event.respondWith(
       caches.match(request).then((cached) => {
         if (cached) {
-          return cached;
+          return servedAsWorkerScript(request, cached);
         }
 
         return fetch(request).then((response) => {
@@ -503,7 +533,7 @@ self.addEventListener("fetch", (event) => {
               evictOldEntries(cache, 150);
             });
           }
-          return response;
+          return servedAsWorkerScript(request, response);
         });
       })
     );

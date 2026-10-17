@@ -32,14 +32,22 @@ function resetHandlers() {
 // (existing cases reach into mockCacheStore directly); the shell cache is a
 // second, name-keyed store whose keys are absolute URLs, matching how a real
 // Cache normalizes a string key against the scope origin.
+// Both stores drop the fragment from their keys, as a real Cache does when it
+// matches: an entry stored from `loader.js#params=A` answers `#params=B`.
+function withoutFragment(url: string): string {
+  const parsed = new URL(url, ORIGIN);
+  parsed.hash = '';
+  return parsed.toString();
+}
+
 const mockCacheStore = new Map<string, Response>();
 const mockCache = {
   put: vi.fn(async (req: Request | string, res: Response) => {
-    const key = typeof req === 'string' ? req : req.url;
+    const key = withoutFragment(typeof req === 'string' ? req : req.url);
     mockCacheStore.set(key, res);
   }),
   match: vi.fn(async (req: Request | string) => {
-    const key = typeof req === 'string' ? req : req.url;
+    const key = withoutFragment(typeof req === 'string' ? req : req.url);
     return mockCacheStore.get(key) ?? undefined;
   }),
   addAll: vi.fn(async () => {}),
@@ -47,7 +55,7 @@ const mockCache = {
 
 const shellStore = new Map<string, Response>();
 function shellKey(req: Request | string): string {
-  return new URL(typeof req === 'string' ? req : req.url, ORIGIN).toString();
+  return withoutFragment(typeof req === 'string' ? req : req.url);
 }
 // Lets a test stall one specific write, which is how the interleaving of two
 // concurrent captures is made deterministic rather than timing-dependent.
@@ -484,6 +492,70 @@ describe('Service worker offline interception', () => {
     expect(respondedWith!.status).toBe(200);
     expect(mockCache.put).toHaveBeenCalledTimes(1);
     expect(mockCacheStore.get(request.url)).toBeTruthy();
+
+    globalThis.fetch = originalFetch;
+  });
+
+  // Turbopack's worker loader has one name in every build and reads its chunk
+  // list from location.href's #params=. A worker takes its location from the
+  // response's URL, and a stored response keeps the URL of the build that first
+  // fetched it, so handing that response back runs the old build's chunks.
+  // Response.url is read-only, so the stored URL is set by hand here.
+  it('serves a worker script as a new response, so the worker runs under the page\'s URL', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn().mockRejectedValue(new Error('offline'));
+
+    const loader = `${ORIGIN}/_next/static/chunks/turbopack-worker-2ru9m5gbh1na6.js`;
+    const stored = new Response('/* loader */', {
+      status: 200,
+      headers: { 'Content-Type': 'application/javascript' },
+    });
+    Object.defineProperty(stored, 'url', { value: `${loader}#params=A` });
+    mockCacheStore.set(loader, stored);
+
+    const request = new Request(`${loader}#params=B`);
+    Object.defineProperty(request, 'destination', { value: 'worker' });
+    expect(request.url).toContain('#params=B');
+
+    let respondedWith: Response | null = null;
+    fetchHandler!({
+      request,
+      respondWith: (r: Response | Promise<Response>) => {
+        void Promise.resolve(r).then((res) => { respondedWith = res; });
+      },
+    });
+    await vi.waitFor(() => expect(respondedWith).not.toBeNull());
+
+    expect(respondedWith).not.toBe(stored);
+    expect(respondedWith!.url).toBe('');
+    expect(respondedWith!.status).toBe(200);
+    expect(respondedWith!.headers.get('Content-Type')).toBe('application/javascript');
+    expect(await respondedWith!.text()).toBe('/* loader */');
+
+    globalThis.fetch = originalFetch;
+  });
+
+  it('serves an ordinary cached chunk as the stored response', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn().mockRejectedValue(new Error('offline'));
+
+    const chunk = `${ORIGIN}/_next/static/chunks/31-n8quoj9i82.js`;
+    const stored = new Response('/* chunk */', {
+      status: 200,
+      headers: { 'Content-Type': 'application/javascript' },
+    });
+    mockCacheStore.set(chunk, stored);
+
+    let respondedWith: Response | null = null;
+    fetchHandler!({
+      request: new Request(chunk),
+      respondWith: (r: Response | Promise<Response>) => {
+        void Promise.resolve(r).then((res) => { respondedWith = res; });
+      },
+    });
+    await vi.waitFor(() => expect(respondedWith).not.toBeNull());
+
+    expect(respondedWith).toBe(stored);
 
     globalThis.fetch = originalFetch;
   });
