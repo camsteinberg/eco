@@ -77,6 +77,8 @@ export type SafariSession = {
   /** What the driver reported about the browser it started. */
   capabilities: Record<string, unknown>;
   navigate: (url: string) => Promise<void>;
+  /** Reload the current page, as a person's reload does. */
+  refresh: () => Promise<void>;
   /**
    * Run `fn` inside the page with `args`, and return its (awaited) result.
    *
@@ -89,6 +91,8 @@ export type SafariSession = {
   find: (css: string) => Promise<string | null>;
   /** A real WebDriver click on an element reference. */
   click: (element: string) => Promise<void>;
+  /** Move the pointer over an element, as a person's hover does (it reveals hover-only controls). */
+  hover: (element: string) => Promise<void>;
   windowHandle: () => Promise<string>;
   /** Open a new tab and return its handle. The current tab stays current. */
   newTab: () => Promise<string>;
@@ -145,6 +149,9 @@ export async function createSession(
     navigate: async (url) => {
       await call(driverUrl, "POST", at("/url"), { url }, 300_000);
     },
+    refresh: async () => {
+      await call(driverUrl, "POST", at("/refresh"), {}, 300_000);
+    },
     run: async <A extends unknown[], R>(fn: (...args: A) => R | Promise<R>, ...args: A) => {
       const value = await call(
         driverUrl,
@@ -172,6 +179,19 @@ export async function createSession(
     },
     click: async (element) => {
       await call(driverUrl, "POST", at(`/element/${element}/click`), {});
+    },
+    hover: async (element) => {
+      await call(driverUrl, "POST", at("/actions"), {
+        actions: [
+          {
+            type: "pointer",
+            id: "mouse",
+            parameters: { pointerType: "mouse" },
+            actions: [{ type: "pointerMove", duration: 100, origin: { [ELEMENT_KEY]: element }, x: 0, y: 0 }],
+          },
+        ],
+      });
+      await call(driverUrl, "DELETE", at("/actions"));
     },
     windowHandle: async () => String(await call(driverUrl, "GET", at("/window"))),
     newTab: async () => {

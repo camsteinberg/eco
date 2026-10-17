@@ -39,20 +39,53 @@ import {
   type PickReport,
 } from "../lib/report";
 import {
+  AFTER_RETRY_PROMPT,
   AFTER_STOP_PROMPT,
   BUDGET_TURNS,
+  CONTEXT_MAX_TURNS,
+  CONTEXT_PROMPT,
   ECO_COMPACT_WEBLLM,
   ECO_MOBILE_WEBLLM,
+  EDIT_LATER_PROMPT,
+  EDIT_ORIGINAL_PROMPT,
+  EDIT_REPLACEMENT_PROMPT,
+  EMAIL_BRIEF,
+  FAULT_PROMPT,
   FIRST_RUN_PROMPT,
+  KILL_NOT_STARTED,
+  KILL_PROMPT,
   LONG_TURN_TIMEOUT_MS,
+  LOOKUP_QUESTION,
+  RECALL_PROMPT,
+  REOPEN_PROMPT,
+  SEARCH_QUESTION,
+  SHORTER_PROMPT,
   STOPPED_RECEIPT_TIMEOUT_MS,
   STOP_PROMPT,
+  SUMMARY_PROMPT,
+  TOOL_CASES,
   judgeAnswered,
   judgeBudgetTurn,
+  judgeContextNeverShown,
+  judgeContextTurn,
+  judgeDraft,
+  judgeEdit,
   judgeFirstReply,
   judgeFollowUp,
+  judgeInjectedFailure,
+  judgeLookupsOff,
+  judgeLookupsOn,
+  judgeRecall,
+  judgeReopened,
+  judgeRetry,
+  judgeSearchChip,
+  judgeSearchOff,
+  judgeSearchRequest,
+  judgeShorter,
   judgeStopNotPressed,
   judgeStopped,
+  judgeSummary,
+  judgeToolCard,
   kvReasonOf,
   outcomeReceipt,
   type Pick,
@@ -63,14 +96,30 @@ import { checkModelFilesServed } from "../lib/walk";
 import { guardDisk, quitSafari, safariRunning } from "./host";
 import { identityFromCapabilities, readIdentity, writeIdentity } from "./identity";
 import {
+  ASSISTANT_MESSAGES,
+  CHAT_LOG,
+  USER_MESSAGES,
+  allTextsInPage,
+  armGenerationFault,
   beginTurn,
+  count,
+  countInPage,
+  editUserMessage,
   finishGeneration,
   firstRun,
+  firstTextInPage,
+  generationFaultArmed,
+  lastAttributeInPage,
   lastReply,
+  lookupRequestsInPage,
   newestGenerationId,
+  pressTryAgain,
   reopenChat,
   replaceTab,
+  resetResourceTimingsInPage,
   sendTurn,
+  setWebLookupsInTab,
+  setWebSearchInTab,
   startNewConversation,
   stopMidReply,
   type SafariChat,
@@ -96,6 +145,22 @@ const REPORT_OPTIONS = () => ({
 });
 
 const log = (line: string) => console.log(`  ${line}`);
+
+/**
+ * What task 9's request count is: the page's own resource timings. The Chrome
+ * lane watches the network; Safari offers no observer, so the row says which
+ * witness it rests on.
+ */
+const LOOKUP_WITNESS = "lookup requests read from the page's own resource timings, not a network observer";
+
+/** The same verdict, with a note on how its evidence was gathered. */
+const noting = (verdict: Verdict, note: string): Verdict => ({ ...verdict, evidence: `${verdict.evidence}; ${note}` });
+
+const SOURCE_CARDS = `${CHAT_LOG} [data-testid="grounding-citation"]`;
+const WEB_SEARCH_CHIPS = `${CHAT_LOG} [data-testid="web-search-citation"]`;
+const NO_LIVE_DATA_NOTES = `${CHAT_LOG} [data-testid="uncertainty-note"][data-status="no-live-data"]`;
+const CONTEXT_DIVIDER = `${CHAT_LOG} [role="note"][aria-label="Context window boundary"]`;
+const CONTEXT_NOTICE = '[data-testid="context-window-notice"]';
 
 /**
  * The same file check the Chrome lane's WebLLM run makes before it waits on a
@@ -324,6 +389,179 @@ test.describe("Safari acceptance walk", () => {
         }
       });
 
+      // ── 3. Paste ~2 pages, ask for a summary ────────────────────────────
+      await task(3, "summarise a pasted document", async () => {
+        await open();
+        const outcome = await sendTurn(chat, SUMMARY_PROMPT, LONG_TURN_TIMEOUT_MS);
+        push(rowFor(3, 1, "summary of a ~4,400-character paste", outcome, judgeSummary(outcome)));
+      });
+
+      // ── 4. The exact-answer tools ───────────────────────────────────────
+      await task(4, "tool cards show the right answer", async () => {
+        await open();
+        for (const [index, item] of TOOL_CASES.entries()) {
+          const outcome = await sendTurn(chat, item.prompt);
+          push(
+            rowFor(4, index + 1, `tool card for "${item.prompt}"`, outcome, judgeToolCard(outcome, item.expect)),
+          );
+        }
+      });
+
+      // ── 5. Draft an email, then shorten it ──────────────────────────────
+      await task(5, "draft an email, then shorten it", async () => {
+        await open();
+        const first = await sendTurn(chat, EMAIL_BRIEF, LONG_TURN_TIMEOUT_MS);
+        push(rowFor(5, 1, "draft from three bullet points", first, judgeDraft(first)));
+        const second = await sendTurn(chat, SHORTER_PROMPT, LONG_TURN_TIMEOUT_MS);
+        push(rowFor(5, 2, "shortened on request", second, judgeShorter(first, second)));
+      });
+
+      // ── 6. Long chat until the context boundary is admitted ─────────────
+      await task(6, "context boundary is shown honestly", async () => {
+        await open();
+        const maxTurns = CONTEXT_MAX_TURNS;
+        let announced = false;
+        for (let turn = 1; turn <= maxTurns && !announced; turn++) {
+          const outcome = await sendTurn(chat, CONTEXT_PROMPT, LONG_TURN_TIMEOUT_MS);
+          const dividerCount = await count(chat, CONTEXT_DIVIDER);
+          const noticeCount = await count(chat, CONTEXT_NOTICE);
+          announced = dividerCount > 0 || noticeCount > 0;
+          const copy = announced
+            ? ((await chat.session.run(firstTextInPage, dividerCount > 0 ? CONTEXT_DIVIDER : CONTEXT_NOTICE)) ?? "")
+            : "";
+          push(
+            rowFor(
+              6,
+              turn,
+              `paste turn ${turn} of at most ${maxTurns}`,
+              outcome,
+              judgeContextTurn(outcome, announced, copy),
+            ),
+          );
+        }
+        if (!announced) {
+          push({
+            task: 6,
+            turn: maxTurns + 1,
+            label: "context boundary never appeared",
+            modelId: PICK.modelId,
+            firstTokenMs: null,
+            kvReason: null,
+            ...judgeContextNeverShown(maxTurns),
+          });
+        }
+      });
+
+      // ── 9. A factual question, lookups off then on ──────────────────────
+      // The Chrome lane counts lookup requests on the network. Safari has no
+      // observer, so the page's own resource timings are the witness, and
+      // each row says so.
+      await task(9, "web lookups off, then on", async () => {
+        await open();
+        await chat.session.run(resetResourceTimingsInPage);
+        const off = await sendTurn(chat, LOOKUP_QUESTION);
+        const firedOff = (await count(chat, SOURCE_CARDS)) > 0;
+        const offRequests = await chat.session.run(lookupRequestsInPage);
+        push(
+          rowFor(
+            9,
+            1,
+            "lookups off: nothing should fire",
+            off,
+            noting(judgeLookupsOff(off, firedOff, offRequests), LOOKUP_WITNESS),
+          ),
+        );
+
+        // Flip it in THIS tab and read it back after a reload (see page.ts).
+        // Returning to chat lands /chat again, so the timings start empty.
+        const lookupsOn = await setWebLookupsInTab(chat, true, PICK);
+        await startNewConversation(chat);
+        await chat.session.run(resetResourceTimingsInPage);
+        const on = await sendTurn(chat, LOOKUP_QUESTION, LONG_TURN_TIMEOUT_MS);
+        const sourceCard = await count(chat, SOURCE_CARDS);
+        const onRequests = await chat.session.run(lookupRequestsInPage);
+        push(
+          rowFor(
+            9,
+            2,
+            "lookups on: a source card should appear",
+            on,
+            noting(judgeLookupsOn(on, sourceCard, lookupsOn, onRequests), LOOKUP_WITNESS),
+          ),
+        );
+
+        // Leave the device as we found it — lookups are off by default.
+        await setWebLookupsInTab(chat, false, PICK);
+      });
+
+      // ── 10. Close the tab mid-generation, reopen ────────────────────────
+      // As in the Chrome lane the walk's own tab is closed mid-reply. A
+      // spare tab is opened first, because closing a session's only tab
+      // ends the session; the walk then opens chat in the spare.
+      await task(10, "no wedge after a tab dies mid-reply", async () => {
+        await open();
+        await beginTurn(chat, KILL_PROMPT, KILL_NOT_STARTED);
+        await retireWalkTab();
+        await open();
+        const outcome = await sendTurn(chat, REOPEN_PROMPT, LONG_TURN_TIMEOUT_MS);
+        push(rowFor(10, 1, "chat works after a mid-reply tab kill", outcome, judgeReopened(outcome)));
+      });
+
+      // ── 11. A live question, Web search off then on ─────────────────────
+      // The relay is the lane's stub, behind the app's own /v1 proxy, for both
+      // arms; a request the OFF arm should never have made lands there too.
+      await task(11, "a live question, Web search off then on", async () => {
+        await open();
+        const settledOff = await setWebSearchInTab(chat, false, PICK);
+        stub.reset();
+        const off = await sendTurn(chat, SEARCH_QUESTION, LONG_TURN_TIMEOUT_MS);
+        const offNotes = await count(chat, NO_LIVE_DATA_NOTES);
+        const offCalls = stub.calls();
+        const offChips = await count(chat, WEB_SEARCH_CHIPS);
+        push(
+          rowFor(
+            11,
+            1,
+            "Web search off: the honest note, and nothing sent",
+            off,
+            judgeSearchOff(off, { notes: offNotes, calls: offCalls, chips: offChips, settledOff }),
+          ),
+        );
+
+        const settledOn = await setWebSearchInTab(chat, true, PICK);
+        const composerSwitch =
+          (await chat.session.run(lastAttributeInPage, '[data-testid="web-search-toggle"]', "aria-checked"))
+          ?? "(absent)";
+        await startNewConversation(chat);
+        stub.reset();
+        const on = await sendTurn(chat, SEARCH_QUESTION, LONG_TURN_TIMEOUT_MS);
+        push(
+          rowFor(
+            11,
+            2,
+            "Web search on: one request, carrying only the question as typed",
+            on,
+            judgeSearchRequest({ calls: stub.calls(), settledOn, composerSwitch }),
+          ),
+        );
+
+        const chipCount = await count(chat, WEB_SEARCH_CHIPS);
+        const fetchedAt =
+          chipCount > 0 ? await chat.session.run(lastAttributeInPage, WEB_SEARCH_CHIPS, "data-fetched-at") : null;
+        push(
+          rowFor(
+            11,
+            3,
+            "Web search on: the reply is marked with a fetched-at chip",
+            on,
+            judgeSearchChip(off, on, { chipCount, fetchedAt, settledOn }),
+          ),
+        );
+
+        // Leave the device as we found it — Web search is off by default.
+        await setWebSearchInTab(chat, false, PICK);
+      });
+
       // ── 12. Stop mid-reply, then send the next message ──────────────────
       await task(12, "Stop mid-reply, then the next message answers", async () => {
         await open();
@@ -366,6 +604,74 @@ test.describe("Safari acceptance walk", () => {
         const check = await answered(next);
         push(rowFor(12, 2, "the next message after a Stop answers", next, judgeFollowUp(next, check)));
         if (!check.ok) await retireWalkTab();
+      });
+
+      // ── 13. A reply fails part-way; Try again answers ───────────────────
+      await task(13, "a failed reply, then Try again answers", async () => {
+        await open();
+        const prompt = FAULT_PROMPT;
+        await armGenerationFault(chat);
+        const failed = await sendTurn(chat, prompt, LONG_TURN_TIMEOUT_MS);
+        const stillArmed = await generationFaultArmed(chat);
+        const reply = await lastReply(chat);
+        const offered = reply.tryAgainOffered;
+        const card = offered ? clip(reply.text, 120) : "";
+        const failure = judgeInjectedFailure(failed, { stillArmed, offered, card });
+        push(rowFor(13, 1, "a reply fails part-way, and Try again is offered", failed, failure));
+        if (!failure.ourFault || !offered) {
+          await retireWalkTab();
+          return;
+        }
+
+        const assistantBubbles = await count(chat, ASSISTANT_MESSAGES);
+        const before = await newestGenerationId(chat);
+        if (!(await pressTryAgain(chat))) throw new Error("Try again was offered but could not be pressed");
+        const retried = await finishGeneration(chat, prompt, before, LONG_TURN_TIMEOUT_MS);
+        const check = await answered(retried);
+        const askedOnce =
+          (await chat.session.run(allTextsInPage, USER_MESSAGES)).filter((text) => text.includes(prompt)).length === 1;
+        const replacedInPlace = (await count(chat, ASSISTANT_MESSAGES)) === assistantBubbles;
+        push(rowFor(13, 2, "Try again answers", retried, judgeRetry(retried, check, { askedOnce, replacedInPlace })));
+        if (!check.ok) {
+          await retireWalkTab();
+          return;
+        }
+
+        const after = await sendTurn(chat, AFTER_RETRY_PROMPT, LONG_TURN_TIMEOUT_MS);
+        const afterCheck = await answered(after);
+        push(
+          rowFor(13, 3, "the conversation carries on after the retry", after, judgeFollowUp(after, afterCheck)),
+        );
+      });
+
+      // ── 14. Edit an earlier message and resend ──────────────────────────
+      // The same witness as the Chrome lane: the reply to the edited message
+      // itself, then a recall (see `judgeEdit` and `judgeRecall`).
+      await task(14, "edit an earlier message and resend", async () => {
+        await open();
+        await sendTurn(chat, EDIT_ORIGINAL_PROMPT);
+        await sendTurn(chat, EDIT_LATER_PROMPT);
+
+        const before = await newestGenerationId(chat);
+        await editUserMessage(chat, 0, EDIT_REPLACEMENT_PROMPT);
+        const edited = await finishGeneration(chat, EDIT_REPLACEMENT_PROMPT, before, LONG_TURN_TIMEOUT_MS);
+        const check = await answered(edited);
+        const userTexts = await chat.session.run(allTextsInPage, USER_MESSAGES);
+        const oneReply = (await count(chat, ASSISTANT_MESSAGES)) === 1;
+        const versionsShown =
+          (await chat.session.run(countInPage, 'button[aria-label="Previous version"]', USER_MESSAGES, 0)) > 0;
+        push(
+          rowFor(
+            14,
+            1,
+            "the edited message is resent and answered",
+            edited,
+            judgeEdit(edited, check, { userTexts, oneReply, versionsShown }),
+          ),
+        );
+
+        const recall = await sendTurn(chat, RECALL_PROMPT);
+        push(rowFor(14, 2, "the conversation continues from the edit", recall, judgeRecall(recall)));
       });
     } finally {
       if (session !== null) await session.end();

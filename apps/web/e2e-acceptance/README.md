@@ -168,8 +168,9 @@ WebDriver. It uses the same tasks, prompts and verdict rules (`lib/tasks.ts`)
 and writes its report in the same format to its own files. Playwright is only
 the test runner here; no Playwright browser starts.
 
-It walks tasks 1, 2 and 12 for now (`safari/target.ts` lists them), on the
-model the app serves desktop Safari (Eco Compact, Qwen3 0.6B on WebLLM).
+It walks every task except 7 (offline reload) and 8 (switching models) for
+now (`safari/target.ts` lists them), on the model the app serves desktop
+Safari (Eco Compact, Qwen3 0.6B on WebLLM).
 `ECO_ACCEPTANCE_TASKS` narrows the list, and asking for a task it cannot walk
 yet is an error, never a silent skip.
 
@@ -202,6 +203,17 @@ What is different from the Chrome lane:
   Buttons get a real WebDriver click. A new conversation is the app's own
   new-chat shortcut, dispatched to the page, so Safari's own Cmd+N never
   fires.
+- **Task 9 counts lookup requests from the page's own resource timings.**
+  Safari offers no network observer, so the walk raises the page's
+  resource-timing buffer, clears it before each turn and reads the
+  Wikipedia/Wikidata entries afterwards. Both rows say that this is their
+  witness.
+- **Task 10 closes the tab, not the process.** The walk opens a spare tab,
+  closes its own tab mid-reply, and opens chat in the spare: closing a
+  session's only tab would end the session, and killing a Safari tab's
+  process ends it too.
+- **Task 14 hovers before pressing Edit**, as a person does on a desktop,
+  because the message's actions are hidden until then.
 - **Nothing reaches Eco's real api.** The app's same-origin auth and `/v1`
   proxy forward to `API_URL`. The stub there answers the signed-in session
   and the search relay with the Chrome lane's own fixed payloads, and records

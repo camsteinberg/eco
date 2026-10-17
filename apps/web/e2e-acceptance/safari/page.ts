@@ -108,13 +108,27 @@ export function typeIntoComposerInPage(text: string): number {
  * Mark the first element matching `css` whose text (or accessible label)
  * contains `text`, so a real WebDriver click can find it by
  * `[data-eco-lane-mark]`. Returns whether one was found.
+ *
+ * `scope` narrows the search to one element of a list — the newest reply
+ * (`index: -1`), say, or the person's first message (`index: 0`) — the way a
+ * Playwright locator chained off `.last()` or `.nth(i)` does.
  */
-export function markInPage(css: string, text: string): boolean {
+export function markInPage(
+  css: string,
+  text: string,
+  scope?: { css: string; index: number },
+): boolean {
   for (const old of Array.from(document.querySelectorAll("[data-eco-lane-mark]"))) {
     old.removeAttribute("data-eco-lane-mark");
   }
+  let root: ParentNode | undefined = document;
+  if (scope) {
+    const all = Array.from(document.querySelectorAll(scope.css));
+    root = all[scope.index < 0 ? all.length + scope.index : scope.index];
+  }
+  if (!root) return false;
   const needle = text.toLowerCase();
-  const found = Array.from(document.querySelectorAll<HTMLElement>(css)).find((element) =>
+  const found = Array.from(root.querySelectorAll<HTMLElement>(css)).find((element) =>
     `${element.getAttribute("aria-label") ?? ""} ${element.innerText}`.toLowerCase().includes(needle),
   );
   if (!found) return false;
@@ -132,6 +146,77 @@ export function clickMarkedInPage(): boolean {
     element.click();
   }
   return true;
+}
+
+/**
+ * How many elements match `css` — optionally inside one element of `within`:
+ * the `index`-th, or counting back from the end when negative (-1 = newest).
+ */
+export function countInPage(css: string, within?: string, index = -1): number {
+  if (within === undefined) return document.querySelectorAll(css).length;
+  const scopes = Array.from(document.querySelectorAll(within));
+  const scope = scopes[index < 0 ? scopes.length + index : index];
+  return scope ? scope.querySelectorAll(css).length : 0;
+}
+
+/** An attribute of the LAST element matching `css`, or null. */
+export function lastAttributeInPage(css: string, name: string): string | null {
+  const all = Array.from(document.querySelectorAll(css));
+  return all[all.length - 1]?.getAttribute(name) ?? null;
+}
+
+/** The text of the FIRST element matching `css`, or null. */
+export function firstTextInPage(css: string): string | null {
+  return document.querySelector<HTMLElement>(css)?.innerText ?? null;
+}
+
+/** Every element's text matching `css`, in document order. */
+export function allTextsInPage(css: string): string[] {
+  return Array.from(document.querySelectorAll<HTMLElement>(css)).map((element) => element.innerText);
+}
+
+/** Set a text field's value as \`fill\` does (native setter plus \`input\`), and say how long it now is. */
+export function fillInPage(css: string, text: string): number {
+  const field = document.querySelector<HTMLTextAreaElement | HTMLInputElement>(css);
+  if (!field) return -1;
+  field.focus();
+  const proto = field instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+  Object.getOwnPropertyDescriptor(proto, "value")?.set?.call(field, text);
+  field.dispatchEvent(new Event("input", { bubbles: true }));
+  return field.value.length;
+}
+
+/** Write (or, with null, remove) one localStorage key. */
+export function setStorageInPage(key: string, value: string | null): void {
+  if (value === null) window.localStorage.removeItem(key);
+  else window.localStorage.setItem(key, value);
+}
+
+/** Whether a localStorage key is set. */
+export function storageHasInPage(key: string): boolean {
+  return window.localStorage.getItem(key) !== null;
+}
+
+/**
+ * Start a fresh record of the page's resource timings: a buffer large enough
+ * that a turn's requests are never dropped, emptied of what came before.
+ */
+export function resetResourceTimingsInPage(): void {
+  performance.setResourceTimingBufferSize(10_000);
+  performance.clearResourceTimings();
+}
+
+/**
+ * The lookup requests the page made to Wikipedia/Wikidata since the last
+ * reset, read from its OWN resource timings — not a network observer, so a
+ * request the page never issued, or one made outside this page, is not here.
+ */
+export function lookupRequestsInPage(): string[] {
+  return performance
+    .getEntriesByType("resource")
+    .map((entry) => entry.name)
+    .filter((name) => /wikipedia|wikidata|wikimedia/i.test(name))
+    .map((name) => name.slice(0, 140));
 }
 
 /** The app's new-chat shortcut (Cmd/Ctrl+N, `useKeyboardShortcuts`), dispatched to the page. */
@@ -216,13 +301,48 @@ export async function until(
  * Press the element matching `css` whose text or label contains `text`, the
  * way this device lets a person press it. Returns false when there is none.
  */
-export async function press(chat: SafariChat, css: string, text: string): Promise<boolean> {
-  if (!(await chat.session.run(markInPage, css, text))) return false;
+export async function press(
+  chat: SafariChat,
+  css: string,
+  text: string,
+  options: { scope?: { css: string; index: number }; hoverFirst?: boolean } = {},
+): Promise<boolean> {
+  if (!(await chat.session.run(markInPage, css, text, options.scope))) return false;
   if (chat.target === "ios") return chat.session.run(clickMarkedInPage);
   const element = await chat.session.find("[data-eco-lane-mark]");
   if (element === null) return false;
+  if (options.hoverFirst) await chat.session.hover(element);
   await chat.session.click(element);
   return true;
+}
+
+/**
+ * Poll an in-page reading until `ready` accepts it, or fail with `message`
+ * and the last value seen. A reading that cannot be taken (mid-navigation)
+ * counts as not ready; a dead session throws.
+ */
+export async function pollInPage<A extends unknown[], R>(
+  chat: SafariChat,
+  ready: (value: R) => boolean,
+  timeoutMs: number,
+  message: string,
+  fn: (...args: A) => R | Promise<R>,
+  ...args: A
+): Promise<R> {
+  const deadline = Date.now() + timeoutMs;
+  let last: R | undefined;
+  for (;;) {
+    try {
+      last = await chat.session.run(fn, ...args);
+      if (ready(last)) return last;
+    } catch (error) {
+      if (isSessionDeath(error)) throw error;
+    }
+    if (Date.now() > deadline) {
+      throw new Error(`${message} (after ${Math.round(timeoutMs / 1000)} s; last seen ${JSON.stringify(last ?? null).slice(0, 300)})`);
+    }
+    await sleep(250);
+  }
 }
 
 /** The trigger names the model, and the runtime holds it. */
@@ -318,6 +438,11 @@ export async function firstRun(chat: SafariChat, pick: Pick): Promise<number> {
   await expectModelInUse(chat, pick, "the first run");
   return Date.now() - startedAt;
 }
+
+/** The chat transcript, the log every message selector is scoped to (`chatLog` in e2e-perf). */
+export const CHAT_LOG = '[role="log"][aria-label="Chat messages"]';
+export const ASSISTANT_MESSAGES = `${CHAT_LOG} [data-message-role="assistant"]`;
+export const USER_MESSAGES = `${CHAT_LOG} [data-message-role="user"]`;
 
 /** Land on /chat again in this tab (after the tab was replaced) and wait for the model. */
 export async function reopenChat(chat: SafariChat, pick: Pick): Promise<void> {
@@ -485,4 +610,122 @@ export async function finishGeneration(
 /** The newest reply's DOM: its text, "stopped" notice, Try again and error card. */
 export async function lastReply(chat: SafariChat): Promise<ReturnType<typeof lastReplyInPage>> {
   return chat.session.run(lastReplyInPage);
+}
+
+/** The Eco tab of Settings, where both web switches live (`components/settings/settingsNavigation`). */
+const SETTINGS_MODELS_PATH = "/settings?tab=models";
+
+/**
+ * Turn a Settings switch on or off in THIS tab, read it back after a reload,
+ * and return to chat — walk.ts `setSettingSwitchInTab`, step for step: the
+ * preference is hydrated per tab at mount and written encrypted and
+ * asynchronously, so "the switch moved" and "the setting is on" are two
+ * claims, and only the reload's read-back makes the next turn mean anything.
+ * A read-back that never settles is reported, not thrown.
+ */
+async function setSettingSwitchInTab(
+  chat: SafariChat,
+  enabled: boolean,
+  pick: Pick,
+  control: { switchName: string; describe: string },
+): Promise<boolean> {
+  const want = String(enabled);
+  const css = `[role="switch"][aria-label="${control.switchName}"]`;
+  const checked = () =>
+    pollInPage(chat, () => true, READY_TIMEOUT_MS, `${control.describe} could not be read`, lastAttributeInPage, css, "aria-checked");
+
+  await chat.session.navigate(`${chat.baseUrl}${SETTINGS_MODELS_PATH}`);
+  await pollInPage(
+    chat,
+    (count) => count > 0,
+    READY_TIMEOUT_MS,
+    `${control.describe} was not on the Eco tab of Settings`,
+    countInPage,
+    css,
+  );
+  if ((await checked()) !== want) {
+    await press(chat, css, "");
+  }
+  await pollInPage(
+    chat,
+    (value) => value === want,
+    READY_TIMEOUT_MS,
+    `${control.describe} never read ${want}`,
+    lastAttributeInPage,
+    css,
+    "aria-checked",
+  );
+
+  await chat.session.refresh();
+  await pollInPage(chat, (count) => count > 0, READY_TIMEOUT_MS, `${control.describe} did not come back after a reload`, countInPage, css);
+  await pollInPage(chat, (value) => value === want, 30_000, "", lastAttributeInPage, css, "aria-checked").catch(
+    (error: unknown) => {
+      // Not an error here: the caller's row reports what the setting actually is.
+      if (isSessionDeath(error)) throw error;
+    },
+  );
+  const settled = (await checked()) === "true";
+
+  await reopenChat(chat, pick);
+  return settled;
+}
+
+/** Web fact lookups (Wikipedia, straight from the browser), set in this tab. */
+export function setWebLookupsInTab(chat: SafariChat, enabled: boolean, pick: Pick): Promise<boolean> {
+  return setSettingSwitchInTab(chat, enabled, pick, {
+    switchName: "Toggle web fact lookups",
+    describe: "the web-lookups switch",
+  });
+}
+
+/** Web search (the question as typed, to Eco's relay), set in this tab. */
+export function setWebSearchInTab(chat: SafariChat, enabled: boolean, pick: Pick): Promise<boolean> {
+  return setSettingSwitchInTab(chat, enabled, pick, {
+    switchName: "Toggle web search",
+    describe: "the Web search switch",
+  });
+}
+
+/**
+ * Edit one of the person's own messages the way they would: hover it to
+ * reveal its actions, press Edit, replace the text, press Save & Submit —
+ * walk.ts `editUserMessage`.
+ */
+export async function editUserMessage(chat: SafariChat, index: number, text: string): Promise<void> {
+  const scope = { css: USER_MESSAGES, index };
+  if (!(await press(chat, 'button[aria-label="Edit message"]', "Edit message", { scope, hoverFirst: true }))) {
+    throw new Error(`user message ${index} offered no Edit button`);
+  }
+  const box = `${USER_MESSAGES} textarea[aria-label="Edit message"]`;
+  await pollInPage(chat, (count) => count > 0, 10_000, "pressing Edit did not open the message for editing", countInPage, box);
+  const length = await chat.session.run(fillInPage, box, text);
+  if (length !== text.length) {
+    throw new Error(`the edit box holds ${length} characters after filling ${text.length}`);
+  }
+  if (!(await press(chat, 'button[aria-label="Save & Submit"]', "Save & Submit", { scope }))) {
+    throw new Error("the edit offered no Save & Submit button");
+  }
+}
+
+/** Press Try again on the newest reply. */
+export async function pressTryAgain(chat: SafariChat): Promise<boolean> {
+  return press(chat, "button", "Try again", { scope: { css: ASSISTANT_MESSAGES, index: -1 } });
+}
+
+/** The localStorage key of the harness's one-shot reply fault (walk.ts `armGenerationFault`). */
+const GENERATION_FAULT_KEY = "eco-force-generation-fault";
+
+/** Make the next reply fail after its first word. It fires once, then clears itself. */
+export async function armGenerationFault(chat: SafariChat): Promise<void> {
+  await chat.session.run(setStorageInPage, GENERATION_FAULT_KEY, "mid-reply");
+}
+
+/** Whether the fault is still waiting to fire — it should not be, once a reply has run. */
+export async function generationFaultArmed(chat: SafariChat): Promise<boolean> {
+  return chat.session.run(storageHasInPage, GENERATION_FAULT_KEY);
+}
+
+/** Count matching elements, optionally inside the newest reply. */
+export async function count(chat: SafariChat, css: string, inLastReply = false): Promise<number> {
+  return chat.session.run(countInPage, css, inLastReply ? ASSISTANT_MESSAGES : undefined);
 }
