@@ -117,7 +117,7 @@ describe('admit — LFM2.5 1.2B (proven on high-memory)', () => {
   });
 
   it('with-warning on Chromium 4 GB (compat floor is now 4 GB — recovered band, unseeded)', () => {
-    // The 1.2B floor dropped 8→4: a 4-7GB WebGPU device (reports device-memory 4)
+    // The 1.2B floor dropped 8→4: a WebGPU device reporting device-memory 4 (roughly 3-6 GB)
     // now runs the 1.2B. It has no seed row for the low-memory-laptop class, so it is
     // admitted with-warning (proven elsewhere) and gated by the first-use smoke test,
     // rather than denied outright.

@@ -7,6 +7,7 @@ import { AdapterError, type TokenEvent } from '../../runtime/types';
 import {
   _resetSmokeForTesting,
   computeSmokeLoadBudgetMs,
+  computeSmokeTokenDeadlineMs,
   hasSmokeGenerationFn,
   isSmokeActive,
   runSmoke,
@@ -170,6 +171,77 @@ describe('computeSmokeLoadBudgetMs', () => {
     });
     expect(budget).toBeGreaterThanOrEqual(240_000);
     expect(budget).toBeLessThanOrEqual(SMOKE_LOAD_BUDGET_MAX_MS);
+  });
+});
+
+// ─── First-token deadline ────────────────────────────────────────────────────
+// A flat 15s first-token deadline failed a slow-but-working phone GPU, and a
+// failed smoke hides the model for 30 days. A weak device (the load budget's
+// own rule) now gets the chat's 90s; a strong one keeps 15s.
+
+describe('computeSmokeTokenDeadlineMs', () => {
+  const STRONG = { deviceMemoryGB: 8, hardwareConcurrency: 12, isMobile: false };
+
+  it('keeps 15s for a strong device', () => {
+    expect(computeSmokeTokenDeadlineMs(STRONG)).toBe(15_000);
+  });
+
+  it.each([
+    ['mobile', { ...STRONG, isMobile: true }],
+    ['4 or fewer cores', { ...STRONG, hardwareConcurrency: 4 }],
+    ['4 GB or less reported', { ...STRONG, deviceMemoryGB: 4 }],
+  ])('gives a weak device (%s) 90s', (_label, input) => {
+    expect(computeSmokeTokenDeadlineMs(input)).toBe(90_000);
+  });
+
+  it('does not count unknown signals as weak', () => {
+    expect(computeSmokeTokenDeadlineMs({ deviceMemoryGB: 0, hardwareConcurrency: null, isMobile: false })).toBe(15_000);
+  });
+});
+
+describe('runSmoke — the default first-token deadline follows the device', () => {
+  const FIRST_TOKEN_AFTER_LOAD_MS = 20_000;
+  const originalCores = navigator.hardwareConcurrency;
+
+  /** Loads at once, then needs 20s to its first token — and gives up when aborted. */
+  const slowFirstToken: SmokeGenerationFn = async function* (_, __, opts): AsyncIterable<TokenEvent> {
+    opts.onLoadComplete?.();
+    await new Promise<void>((resolve, reject) => {
+      const t = setTimeout(resolve, FIRST_TOKEN_AFTER_LOAD_MS);
+      opts.signal.addEventListener('abort', () => {
+        clearTimeout(t);
+        reject(new Error('aborted'));
+      });
+    });
+    yield { kind: 'token', text: 'OK' };
+    yield { kind: 'done' };
+  };
+
+  async function smokeOn(search: string, cores: number): Promise<boolean> {
+    window.history.replaceState({}, '', `/${search}`);
+    Object.defineProperty(navigator, 'hardwareConcurrency', { value: cores, configurable: true });
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const pending = runSmoke('eco-fast', MODEL, {
+      generationFn: slowFirstToken,
+      loadTimeoutMs: 300_000,
+      skipDiagnostics: true,
+    });
+    await vi.advanceTimersByTimeAsync(FIRST_TOKEN_AFTER_LOAD_MS + 1_000);
+    return (await pending).passed;
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+    window.history.replaceState({}, '', '/');
+    Object.defineProperty(navigator, 'hardwareConcurrency', { value: originalCores, configurable: true });
+  });
+
+  it('waits past 15s for a phone', async () => {
+    expect(await smokeOn('?eco-force-platform=mobile&eco-force-device-memory=8', 8)).toBe(true);
+  });
+
+  it('still fails a strong desktop at 15s', async () => {
+    expect(await smokeOn('?eco-force-platform=desktop&eco-force-device-memory=8', 12)).toBe(false);
   });
 });
 

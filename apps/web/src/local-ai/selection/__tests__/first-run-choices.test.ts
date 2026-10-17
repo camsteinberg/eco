@@ -72,7 +72,7 @@ describe('deriveFirstRunChoices', () => {
 
   it('drops a deeper pick that is SMALLER than the everyday pick (no downgrade-as-upgrade)', () => {
     // A memory-constrained device can resolve eco-smart to a floor model smaller
-    // than the everyday fast pick — e.g. a 4-7GB WebGPU device recovers the 1.2B
+    // than the everyday fast pick — e.g. a WebGPU device reporting 4 GB recovers the 1.2B
     // (0.76GB) for eco-fast but eco-smart still floors to the 0.57GB qwen3-0.6b.
     // Offering that as "deeper" would be a downgrade; the size guard suppresses it.
     mockRecommend.mockImplementation((slot: Slot) =>

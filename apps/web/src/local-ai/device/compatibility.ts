@@ -32,16 +32,16 @@ export type CompatibilityResult = 'supported' | 'unsupported' | 'with-warning';
 
 /**
  * Conservative memory assumed for a device that reports no memory value
- * (`deviceMemoryGB === 0`). Real Chrome always reports one of {0.25,0.5,1,2,4,8}
- * (never 0), so a 0 reading is a Chromium fork that strips the reported-memory
- * API. Skipping the floor for such a device let it be offered a premium
+ * (`deviceMemoryGB === 0`). Real Chrome always reports a power of two, 1-8 GB
+ * on Android and 2-32 GB elsewhere (never 0), so a 0 reading is a Chromium fork
+ * that strips the reported-memory API. Skipping the floor for such a device let it be offered a premium
  * ≥8 GB-floor download it cannot be trusted to run. We instead assume 4 GB —
  * chosen to equal the 1.2B family's floor, so an unreported device keeps the same
  * good everyday model a real 4 GB device gets (not locked out) while the ≥8 GB
  * premium tier is declined. A genuinely-tiny fork is still backstopped by the
  * first-use smoke gate and the ≥2-download-fail demotion. No #176 regression: a
- * real 5-7 GB laptop reports a NON-zero 4 (the reading caps at 8 and rounds down),
- * so its value is used as-is and the recovered band is untouched.
+ * real device with roughly 3-6 GB reports a NON-zero 4 (Chrome rounds to the
+ * nearest power of two, ties going down), so its value is used as-is and the recovered band is untouched.
  */
 const UNREPORTED_MEMORY_ASSUMED_GB = 4;
 
@@ -244,8 +244,8 @@ export function isCompatible(model: ModelConfig, profile: DeviceProfile): Compat
   }
 
   // Mobile cap: a phone or tablet is offered nothing larger than the 1.2B. No
-  // Android device has been measured and Chrome caps reported memory at 8 GB, so
-  // a phone cannot be told from a laptop by memory — the decline is precautionary
+  // Android device has been measured and Chrome on Android caps reported memory at
+  // 8 GB, so a phone cannot be told from a laptop by memory — the decline is precautionary
   // (owner ruling 2026-09-22), set per entry in `compat.declineOnMobile`.
   if (rule.declineOnMobile && profile.isMobile) {
     return 'unsupported';

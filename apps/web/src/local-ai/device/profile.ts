@@ -545,6 +545,11 @@ async function probeWebgpuCapability(): Promise<WebgpuCapability> {
       const adapter = await Promise.race([gpu.requestAdapter(), timeout]);
       if (adapter === 'timeout') {
         support = detectWebgpuSupport();
+        // On a phone, an unknown shader-f16 counts as absent. The f16-free build
+        // runs on either adapter; the f16 one would download, then die on the
+        // first f16 op if the adapter lacks it (the smoke fails, the model is
+        // hidden for 30 days). A wrong guess costs a slightly larger download.
+        if (support === 'webgpu' && getDeviceProfile().isMobile) shaderF16 = false;
       } else if (adapter) {
         support = 'webgpu';
         shaderF16 = adapter.features.has('shader-f16');
