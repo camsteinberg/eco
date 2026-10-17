@@ -356,6 +356,72 @@ describe('non-iOS controls keep the profile and picks they had before the in-app
   });
 });
 
+// Android's "Request desktop site", and Android tablets, send the desktop Linux
+// user agent: no `Android` token, nothing mobile in it. Touch tells them apart
+// from a Linux desktop (0 touch points). ChromeOS also sends `X11; …` but is a
+// laptop, touch screen or not.
+const DESKTOP_LINUX_CHROME_UA =
+  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36';
+
+const DESKTOP_MODE_CASES: readonly ControlCase[] = [
+  {
+    label: 'Android Chrome, desktop site requested',
+    ua: DESKTOP_LINUX_CHROME_UA,
+    maxTouchPoints: 5,
+    deviceMemory: 8,
+    source: 'Chrome for Android desktop-site user agent (the desktop Linux reduced UA); touch points kept from the phone, not captured on a device here',
+    expected: { browserClass: 'chromium', isMobile: true, picks: MOBILE_CHROMIUM_8GB_PICKS },
+  },
+  {
+    label: 'Android Samsung Internet, desktop site requested',
+    ua: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/28.0 Chrome/130.0.0.0 Safari/537.36',
+    maxTouchPoints: 5,
+    deviceMemory: 8,
+    source: 'constructed: the Samsung Internet tokens on the desktop Linux UA; not captured on a device here',
+    expected: { browserClass: 'chromium', isMobile: true, picks: MOBILE_CHROMIUM_8GB_PICKS },
+  },
+  {
+    // The accepted cost of the rule: a Linux laptop with a touch screen (or a
+    // Steam Deck) is capped like a phone.
+    label: 'Linux laptop with a touch screen (Chrome)',
+    ua: DESKTOP_LINUX_CHROME_UA,
+    maxTouchPoints: 10,
+    deviceMemory: 8,
+    source: 'Chrome reduced UA on Linux, documented format',
+    expected: { browserClass: 'chromium', isMobile: true, picks: MOBILE_CHROMIUM_8GB_PICKS },
+  },
+  {
+    label: 'desktop Chrome (Linux, no touch)',
+    ua: DESKTOP_LINUX_CHROME_UA,
+    maxTouchPoints: 0,
+    deviceMemory: 8,
+    source: 'Chrome reduced UA on Linux, documented format',
+    expected: { browserClass: 'chromium', isMobile: false, picks: DESKTOP_CHROMIUM_8GB_PICKS },
+  },
+  {
+    label: 'ChromeOS Chrome with a touch screen',
+    ua: 'Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
+    maxTouchPoints: 10,
+    deviceMemory: 8,
+    source: 'ChromeOS reduced UA, documented format',
+    expected: { browserClass: 'chromium', isMobile: false, picks: DESKTOP_CHROMIUM_8GB_PICKS },
+  },
+];
+
+describe('desktop-mode Android and Linux touch devices', () => {
+  it.each(DESKTOP_MODE_CASES)('$label', (uaCase) => {
+    const { expected } = uaCase;
+    const base = profileFor(uaCase, 'webgpu');
+    expect(base.browserClass).toBe(expected.browserClass);
+    expect(base.isMobile).toBe(expected.isMobile);
+    expect(isWebKitMobile(base)).toBe(false);
+    for (const arm of ARM_NAMES) {
+      const profile = profileFor(uaCase, arm);
+      expect([pick('eco-fast', profile), pick('eco-smart', profile)], arm).toEqual(expected.picks[arm]);
+    }
+  });
+});
+
 // A Mac app's embedded WKWebView is WebKit on a Mac, so it now routes exactly
 // like Safari on that Mac. Before the in-app fix it read 'unknown'; the picks
 // were the same on every arm except WebGPU + shader-f16, where it got the ONNX
