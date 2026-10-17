@@ -692,10 +692,11 @@ describe('listCatalog — bound-but-unassignable model stays switchable (FH-2)',
   });
 });
 
-describe('recommend — 4-7GB WebGPU recovers the good 1.2B (device-coverage audit 2026-08-17)', () => {
-  // navigator.deviceMemory caps at 8 and rounds DOWN, so every real 5-7GB laptop
-  // reports 4. The 1.2B fast floor is now 4 (was 8), so this whole band gets the
-  // good 1.2B for eco-fast instead of the weak qwen3-0.6b / 350m floor.
+describe('recommend — a WebGPU device reporting 4 GB recovers the good 1.2B (device-coverage audit 2026-08-17)', () => {
+  // Chrome reports device memory as the nearest power of two (ties go down), so a
+  // device with roughly 3-6 GB reports 4. The 1.2B fast floor is now 4 (was 8), so
+  // this whole band gets the good 1.2B for eco-fast instead of the weak
+  // qwen3-0.6b / 350m floor.
   const PROFILE_CHROMIUM_4GB_F16: DeviceProfile = {
     browserClass: 'chromium',
     webgpuSupport: 'webgpu',
@@ -705,7 +706,7 @@ describe('recommend — 4-7GB WebGPU recovers the good 1.2B (device-coverage aud
     override: 'auto',
   };
 
-  it('recovers the good 1.2B (q4f16) for eco-fast on a 4-7GB f16 WebGPU device (floor 8→4)', () => {
+  it('recovers the good 1.2B (q4f16) for eco-fast on an f16 WebGPU device reporting 4 GB (floor 8→4)', () => {
     // Was qwen3-0.6b under the old 8GB floor; the 0.76GB 1.2B is the right fast pick,
     // with the first-use smoke gate backstopping a genuine-4GB device.
     expect(recommend('eco-fast', PROFILE_CHROMIUM_4GB_F16).id).toBe(
@@ -713,7 +714,7 @@ describe('recommend — 4-7GB WebGPU recovers the good 1.2B (device-coverage aud
     );
   });
 
-  it('recovers the good 1.2B (q4) for eco-fast on a 4-7GB f16-less WebGPU device', () => {
+  it('recovers the good 1.2B (q4) for eco-fast on an f16-less WebGPU device reporting 4 GB', () => {
     // Was the 350m extraction-type model; the plain-int4 1.2B now reaches this band.
     const f16less: DeviceProfile = { ...PROFILE_CHROMIUM_4GB_F16, webgpuShaderF16: false };
     expect(recommend('eco-fast', f16less).id).toBe('candidate/lfm2.5-1.2b-instruct-q4-onnx');

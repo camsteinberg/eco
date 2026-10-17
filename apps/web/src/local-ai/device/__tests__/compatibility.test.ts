@@ -473,8 +473,8 @@ describe('device/compatibility — WebKit-mobile gate (D1 designed tier)', () =>
 
 // Owner ruling 2026-09-22: a phone on Android Chromium is offered nothing larger
 // than the 1.2B. PREDICTED, not measured — no Android device has been tested; the
-// cap is precautionary, since Chrome caps reported memory at 8 GB and a phone
-// reading 8 cannot be told from a laptop.
+// cap is precautionary, since Chrome on Android caps reported memory at 8 GB and
+// a phone reading 8 cannot be told from a laptop reading 8.
 describe('device/compatibility — mobile Chromium is capped at the 1.2B', () => {
   const ONE_POINT_TWO_B_IDS = [
     'candidate/lfm2.5-1.2b-instruct-onnx',

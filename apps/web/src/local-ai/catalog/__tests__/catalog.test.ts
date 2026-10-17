@@ -372,10 +372,11 @@ describe('local-ai catalog (Phase C)', () => {
     expect(getModel('candidate/bitnet-b158')).toBeNull();
   });
 
-  // MC-2 (2026-08-15): Phi-3 Mini was retired — never-reachable dead wiring (its
-  // 16GB-memory + Chromium-only compatibility rule can never be met, because
-  // navigator.deviceMemory is spec-clamped to <=8GB on Chromium and absent on the
-  // non-Chromium browsers the rule already excluded). This guard proves the
+  // MC-2 (2026-08-15): Phi-3 Mini was retired as never-reachable dead wiring (its
+  // 16GB-memory + Chromium-only compatibility rule was taken to be unmeetable, on
+  // the belief that Chromium clamps navigator.deviceMemory to <=8GB; desktop Chrome
+  // in fact reports up to 32 — Chromium source, read 2026-10-17 — so the rule was
+  // reachable there. The retirement stands as a catalog decision). This guard proves the
   // catalog, its artifact metadata, and the proxy-facing HF repo are all clear so
   // it can never silently return.
   it('has retired Phi-3 Mini (MC-2) — absent from the catalog and its artifact metadata', () => {

@@ -63,8 +63,8 @@ export function deriveFirstRunChoices(slot: Slot, profile: DeviceProfile): First
     const smart = recommend('eco-smart', profile);
     // Only offer the deeper tile when it is a genuine step UP from the everyday
     // pick. On a memory-constrained device the eco-smart slot can fall back to a
-    // floor model SMALLER than the everyday fast pick — e.g. a 4-7GB WebGPU device
-    // now recovers the 1.2B (0.76GB) for eco-fast, but eco-smart still floors to the
+    // floor model SMALLER than the everyday fast pick — e.g. a WebGPU device
+    // reporting 4 GB now recovers the 1.2B (0.76GB) for eco-fast, but eco-smart still floors to the
     // 0.57GB qwen3-0.6b; offering that as "deeper" would be a downgrade wearing an
     // upgrade's clothes. This is now the ONLY size-step-up guard: the popup that
     // carried the other one is retired, and what the tiles show is what can be
