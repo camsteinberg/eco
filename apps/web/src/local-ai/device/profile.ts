@@ -235,10 +235,18 @@ function detectIsMobile(userAgent: string, maxTouchPoints: number | undefined): 
   // Mac. Touch support tells them apart: Safari on a Mac reports
   // `maxTouchPoints` 0, an iPad reports 5. (Documented browser behaviour, not
   // measured on a device here.) An iPad then routes like an iPhone.
-  return detectBrowserClass(userAgent) === 'safari'
-    && /macintosh/i.test(userAgent)
-    && typeof maxTouchPoints === 'number'
-    && maxTouchPoints > 1;
+  const touch = typeof maxTouchPoints === 'number' ? maxTouchPoints : 0;
+  if (detectBrowserClass(userAgent) === 'safari' && /macintosh/i.test(userAgent)) return touch > 1;
+  // The same for Android: "Request desktop site", and Android tablets, send the
+  // desktop Linux user agent, with no `Android` token. A Linux desktop reports 0
+  // touch points; the phone keeps its own. (Documented browser behaviour, not
+  // measured on a device here.) ChromeOS sends `X11; CrOS` and is a laptop, touch
+  // screen or not. The cost: a Linux laptop with a touch screen, or a Steam Deck,
+  // is capped like a phone too.
+  return detectBrowserClass(userAgent) === 'chromium'
+    && /linux/i.test(userAgent)
+    && !/cros/i.test(userAgent)
+    && touch > 0;
 }
 
 const PROBE_TIMEOUT_MS = 4_000;
