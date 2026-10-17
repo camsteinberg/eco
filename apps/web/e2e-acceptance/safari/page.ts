@@ -321,6 +321,11 @@ export async function press(
   return true;
 }
 
+/** Where the page is and how it begins, for an error message. */
+export function pageSummaryInPage(): string {
+  return `${location.pathname}${location.search} — ${document.body.innerText.replace(/\s+/g, " ").slice(0, 240)}`;
+}
+
 /** Whether the page is on screen, and whether it has focus (so a real click on it will land). */
 export function frontStateInPage(): { visible: boolean; focused: boolean } {
   return { visible: document.visibilityState === "visible", focused: document.hasFocus() };
@@ -688,7 +693,12 @@ async function setSettingSwitchInTab(
     `${control.describe} was not on the Eco tab of Settings`,
     countInPage,
     css,
-  );
+  ).catch(async (error: unknown) => {
+    if (isSessionDeath(error)) throw error;
+    // Say what the page showed instead, so a miss here can be read from the row.
+    const seen = await chat.session.run(pageSummaryInPage).catch(() => "(unreadable)");
+    throw new Error(`${error instanceof Error ? error.message : String(error)}; the page showed: ${seen}`);
+  });
   if ((await checked()) !== want) {
     await press(chat, css, "");
   }
