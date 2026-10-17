@@ -34,6 +34,7 @@ import {
   subscribeDeviceProfile,
 } from '../profile';
 import type { DeviceProfile } from '../../types';
+import { recommend } from '../../selection/recommend';
 
 const ORIGINAL_USER_AGENT = navigator.userAgent;
 const ORIGINAL_LOCATION_SEARCH = window.location.search;
@@ -474,6 +475,45 @@ describe('resolveSetupProfile — shader-f16 capability', () => {
     const profile = await resolveSetupProfile();
 
     expect(profile.webgpuShaderF16).toBe(true);
+  });
+});
+
+describe('resolveSetupProfile — an adapter probe that times out', () => {
+  const ANDROID_CHROME_UA =
+    'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Mobile Safari/537.36';
+
+  async function probeThatNeverAnswers(): Promise<DeviceProfile> {
+    setGpu({ requestAdapter: () => new Promise(() => undefined) });
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const pending = resolveSetupProfile();
+      await vi.advanceTimersByTimeAsync(4_000);
+      return await pending;
+    } finally {
+      vi.useRealTimers();
+    }
+  }
+
+  it('on a phone, counts shader-f16 as absent, so the build that runs either way is picked', async () => {
+    setUserAgent(ANDROID_CHROME_UA);
+    setMaxTouchPoints(5);
+    setDeviceMemory(8);
+
+    const profile = await probeThatNeverAnswers();
+
+    expect(profile.webgpuSupport).toBe('webgpu');
+    expect(profile.webgpuShaderF16).toBe(false);
+    expect(recommend('eco-fast', profile).id).toBe('candidate/lfm2.5-1.2b-instruct-q4-onnx');
+  });
+
+  it('on a desktop, leaves shader-f16 unknown, as before', async () => {
+    setUserAgent(CHROME_UA);
+    setDeviceMemory(8);
+
+    const profile = await probeThatNeverAnswers();
+
+    expect(profile.webgpuSupport).toBe('webgpu');
+    expect(profile.webgpuShaderF16).toBeUndefined();
   });
 });
 

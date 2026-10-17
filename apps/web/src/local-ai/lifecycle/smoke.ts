@@ -10,7 +10,7 @@
  * Behavior:
  *   - `runSmoke(slot, model)` calls into a generation seam (defaults to
  *     lifecycle.generate / runtime.loadModel) and waits for the first
- *     token or a 15s deadline.
+ *     token or a first-token deadline (15s, or 90s on a weak device).
  *   - On success: returns { passed: true, firstTokenMs }.
  *   - On error / timeout: returns { passed: false, reason }.
  *   - Never throws unless cancelled via signal.
@@ -81,8 +81,18 @@ export function isSmokeActive(slot: Slot): boolean {
 // ─── Smoke runner ──────────────────────────────────────────────────────────
 
 const SMOKE_PROMPT = 'Say only the word OK and stop.';
-/** Token deadline — starts AFTER the model load completes. */
-const SMOKE_TIMEOUT_MS = 15_000;
+/**
+ * First-token deadline — starts AFTER the model load completes. A strong device
+ * keeps 15s (INHERITED: in the code since the first public release, no recorded
+ * measurement). A weak device (`isWeakDevice`, the load budget's own rule) gets
+ * 90s (INHERITED: equal to the chat's own first-token deadline,
+ * `TTFT_DEADLINE_MS` in hooks/useChat/run-generation.ts, and to the background
+ * readiness smoke) — setup must not judge a model failed sooner than chat would
+ * wait for it, since a failed smoke hides the model for 30 days. Falsifier: a
+ * weak device's smoke-pass `firstTokenMs`.
+ */
+const SMOKE_TOKEN_DEADLINE_MS = 15_000;
+const WEAK_DEVICE_TOKEN_DEADLINE_MS = 90_000;
 /**
  * Cold-load budget floor — a strong device loading a small model. A first-time
  * visitor's load reads the full weights from Cache API, creates the
@@ -128,17 +138,37 @@ export type SmokeLoadBudgetInput = {
  * strong device with a stingy `navigator` never over-waits.
  */
 export function computeSmokeLoadBudgetMs(input: SmokeLoadBudgetInput): number {
-  const { deviceMemoryGB, hardwareConcurrency, isMobile, modelSizeGB } = input;
-
-  const lowCores = hardwareConcurrency !== null && hardwareConcurrency <= 4;
-  const lowMemory = deviceMemoryGB > 0 && deviceMemoryGB <= 4;
-  const isWeakDevice = isMobile || lowCores || lowMemory;
-
   let budget = SMOKE_LOAD_BUDGET_MIN_MS;
-  if (isWeakDevice) budget += WEAK_DEVICE_LOAD_BONUS_MS;
-  if ((modelSizeGB ?? 0) >= LARGE_MODEL_GB) budget += LARGE_MODEL_LOAD_BONUS_MS;
+  if (isWeakDevice(input)) budget += WEAK_DEVICE_LOAD_BONUS_MS;
+  if ((input.modelSizeGB ?? 0) >= LARGE_MODEL_GB) budget += LARGE_MODEL_LOAD_BONUS_MS;
 
   return Math.min(Math.max(budget, SMOKE_LOAD_BUDGET_MIN_MS), SMOKE_LOAD_BUDGET_MAX_MS);
+}
+
+function isWeakDevice({ deviceMemoryGB, hardwareConcurrency, isMobile }: SmokeLoadBudgetInput): boolean {
+  const lowCores = hardwareConcurrency !== null && hardwareConcurrency <= 4;
+  const lowMemory = deviceMemoryGB > 0 && deviceMemoryGB <= 4;
+  return isMobile || lowCores || lowMemory;
+}
+
+/** First-token deadline for this device — see `SMOKE_TOKEN_DEADLINE_MS`. */
+export function computeSmokeTokenDeadlineMs(input: SmokeLoadBudgetInput): number {
+  return isWeakDevice(input) ? WEAK_DEVICE_TOKEN_DEADLINE_MS : SMOKE_TOKEN_DEADLINE_MS;
+}
+
+/** The device signals both smoke budgets read, through `device/profile.ts`. */
+function currentDeviceSignals(): SmokeLoadBudgetInput {
+  let deviceMemoryGB = 0;
+  let isMobile = false;
+  try {
+    const profile = getDeviceProfile();
+    deviceMemoryGB = profile.deviceMemoryGB;
+    isMobile = profile.isMobile;
+  } catch {
+    // Fall through to conservative defaults — a profile read should never
+    // break smoke, and unknown signals resolve to the strong-device values.
+  }
+  return { deviceMemoryGB, hardwareConcurrency: getHardwareConcurrency(), isMobile };
 }
 
 /**
@@ -151,22 +181,7 @@ export function computeSmokeLoadBudgetMs(input: SmokeLoadBudgetInput): number {
  * wedge with a live crash-evidence marker.
  */
 export function defaultLoadBudgetMs(model: ModelConfig): number {
-  let deviceMemoryGB = 0;
-  let isMobile = false;
-  try {
-    const profile = getDeviceProfile();
-    deviceMemoryGB = profile.deviceMemoryGB;
-    isMobile = profile.isMobile;
-  } catch {
-    // Fall through to conservative defaults — a profile read should never
-    // break smoke, and unknown signals resolve to the MIN floor.
-  }
-  return computeSmokeLoadBudgetMs({
-    deviceMemoryGB,
-    hardwareConcurrency: getHardwareConcurrency(),
-    isMobile,
-    modelSizeGB: model.sizeGB,
-  });
+  return computeSmokeLoadBudgetMs({ ...currentDeviceSignals(), modelSizeGB: model.sizeGB });
 }
 
 export type SmokeOptions = {
@@ -208,7 +223,7 @@ export async function runSmoke(
   options?: SmokeOptions,
 ): Promise<SmokeResult> {
   const now = options?.now ?? (() => Date.now());
-  const tokenTimeoutMs = options?.timeoutMs ?? SMOKE_TIMEOUT_MS;
+  const tokenTimeoutMs = options?.timeoutMs ?? computeSmokeTokenDeadlineMs(currentDeviceSignals());
   const loadTimeoutMs =
     options?.loadTimeoutMs ?? options?.timeoutMs ?? defaultLoadBudgetMs(model);
   const fn = options?.generationFn ?? generationFn;
@@ -333,7 +348,7 @@ export async function runSmoke(
   // ── Early exit when model artifacts are not downloaded ───────────────
   // If the cache namespace is empty (0 files) or doesn't exist, the model
   // hasn't been downloaded yet. Running smoke would trigger a cold download
-  // of potentially hundreds of MB into the 15s timeout budget — that's not
+  // of potentially hundreds of MB into the smoke's time budget — that's not
   // a smoke failure, it's an orchestration state. Return early with a
   // specific reason so callers can distinguish "needs download" from "model
   // is broken."
