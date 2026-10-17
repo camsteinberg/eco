@@ -154,13 +154,69 @@ function describeTasks(tasks: readonly number[] | undefined, models: string): st
   return `${models}, ${list} only,`;
 }
 
+/** How the lane's own Chrome run works, as its report's Method section says. */
+const CHROME_METHOD: readonly string[] = [
+  "Real inference on this machine's GPU against a production build, one row",
+  "per turn. `PASS`/`FAIL` come from a mechanical check, `EXPECTED-FAIL` names",
+  "a known gap, and `RECORDED` is a turn only a person can judge — its",
+  "evidence carries the reply.",
+  "",
+  "Each model is walked in ONE tab, starting a fresh conversation between",
+  "tasks, because a tab per task asks the machine for a copy of the model per",
+  "task. Web lookups and Web search are switched on and off in that same tab:",
+  "each preference is hydrated per tab when it mounts, so flipping it in a",
+  "second tab leaves an already-open chat still believing what it believed",
+  "when it loaded. That is a product nuance the walk works with, not a defect",
+  "it reports.",
+  "",
+  "The Web search task (11) never reaches a real relay. Its request is",
+  "intercepted and answered with a fixed payload, so `data-fetched-at` and the",
+  "request body are mechanical checks rather than a bet on what a live search",
+  "engine returned. A request in the switch-OFF arm is caught by the same",
+  "interception and reported, never sent.",
+  "",
+];
+
+/** How a run in real Safari works: the same tasks and verdict rules, driven over WebDriver. */
+const SAFARI_METHOD: readonly string[] = [
+  "Real inference in real Safari on the device's own GPU, against a production",
+  "build with the validation harness, driven over WebDriver (`safaridriver`), one",
+  "row per turn. The tasks, prompts and verdict rules are the Chrome lane's own",
+  "(`lib/tasks`). `PASS`/`FAIL` come from a mechanical check, `EXPECTED-FAIL`",
+  "names a known gap, and `RECORDED` is a turn only a person can judge — its",
+  "evidence carries the reply.",
+  "",
+  "A WebDriver session starts with an empty Safari profile, so every run is a",
+  "genuine first run: the app picks and downloads this device's model itself,",
+  "and task 1's time includes that download. Turns are typed by setting the",
+  "composer's value, as a paste does, and sent by pressing Send. The model is",
+  "walked in ONE tab, starting a fresh conversation between tasks with the",
+  "app's own new-chat shortcut.",
+  "",
+  "Nothing reaches Eco's real api. The build's `API_URL` points at a stub the",
+  "lane runs, behind the app's own same-origin proxy: it answers the signed-in",
+  "session and the Web search relay (task 11) with fixed payloads, and records",
+  "each search request's body as the proxy forwarded it.",
+  "",
+];
+
 export function renderMarkdown(report: AcceptanceReport): string {
   const parts = [
     "# Acceptance run",
     "",
     `Started ${report.startedAt}, finished ${report.finishedAt}.`,
     "",
-    ...(report.smoke
+    ...(report.smoke && report.browser
+      ? [
+          `**Subset run (\`ECO_ACCEPTANCE_TASKS\`, or only the tasks this lane can walk in Safari so far): ${describeTasks(
+            report.tasks,
+            "one model",
+          )} in a fresh Safari profile.** This run is not an acceptance verdict — read it`,
+          "as \"these tasks held\", never as \"the product passed\".",
+          "",
+        ]
+      : []),
+    ...(report.smoke && !report.browser
       ? [
           `**Subset run (\`ECO_ACCEPTANCE_SMOKE=1\`, \`ECO_ACCEPTANCE_TASKS\` or a WebLLM run): ${describeTasks(
             report.tasks,
@@ -189,25 +245,7 @@ export function renderMarkdown(report: AcceptanceReport): string {
       : []),
     "## Method",
     "",
-    "Real inference on this machine's GPU against a production build, one row",
-    "per turn. `PASS`/`FAIL` come from a mechanical check, `EXPECTED-FAIL` names",
-    "a known gap, and `RECORDED` is a turn only a person can judge — its",
-    "evidence carries the reply.",
-    "",
-    "Each model is walked in ONE tab, starting a fresh conversation between",
-    "tasks, because a tab per task asks the machine for a copy of the model per",
-    "task. Web lookups and Web search are switched on and off in that same tab:",
-    "each preference is hydrated per tab when it mounts, so flipping it in a",
-    "second tab leaves an already-open chat still believing what it believed",
-    "when it loaded. That is a product nuance the walk works with, not a defect",
-    "it reports.",
-    "",
-    "The Web search task (11) never reaches a real relay. Its request is",
-    "intercepted and answered with a fixed payload, so `data-fetched-at` and the",
-    "request body are mechanical checks rather than a bet on what a live search",
-    "engine returned. A request in the switch-OFF arm is caught by the same",
-    "interception and reported, never sent.",
-    "",
+    ...(report.browser ? SAFARI_METHOD : CHROME_METHOD),
   ];
   for (const pick of report.picks) {
     const on = report.browser ? ` — ${describeBrowser(report.browser)}` : "";

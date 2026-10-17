@@ -69,6 +69,18 @@ describe("a run in another browser", () => {
     );
   });
 
+  it("says how a Safari run differs, and never the Chrome lane's profile or interception wording", () => {
+    const markdown = renderMarkdown(buildReport([...FIXTURE_PICKS], { smoke: true, tasks: [1, 2, 12], browser: MAC }));
+    expect(markdown).toContain(
+      "one model, tasks 1, 2 and 12 only, in a fresh Safari profile.** This run is not an acceptance verdict",
+    );
+    expect(markdown).toContain("driven over WebDriver (`safaridriver`)");
+    expect(markdown).toContain("task 1's time includes that download");
+    expect(markdown).toContain("The build's `API_URL` points at a stub the");
+    expect(markdown).not.toContain("on whatever the profile already had");
+    expect(markdown).not.toContain("Its request is\nintercepted");
+  });
+
   it("writes to its own artefacts, so it never overwrites the Chrome report", () => {
     const chrome = reportArtefacts();
     const safari = reportArtefacts("safari-ios");

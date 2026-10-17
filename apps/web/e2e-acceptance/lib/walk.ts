@@ -318,7 +318,7 @@ export async function beginTurn(
 }
 
 /** How long the reply runs after its first words before Stop is pressed. */
-const STOP_AFTER_FIRST_WORDS_MS = 1_000;
+export const STOP_AFTER_FIRST_WORDS_MS = 1_000;
 
 /**
  * How long the app gets to hand the composer back after Stop. Stop is meant to
