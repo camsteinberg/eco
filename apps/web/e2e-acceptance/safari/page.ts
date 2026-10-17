@@ -151,9 +151,13 @@ export function clickMarkedInPage(): boolean {
 /**
  * How many elements match `css` — optionally inside one element of `within`:
  * the `index`-th, or counting back from the end when negative (-1 = newest).
+ *
+ * An argument left out arrives as `null`, not `undefined`: WebDriver carries
+ * the arguments as JSON, which has no `undefined`. Treating that null as a
+ * selector counted nothing, so every unscoped count read 0.
  */
-export function countInPage(css: string, within?: string, index = -1): number {
-  if (within === undefined) return document.querySelectorAll(css).length;
+export function countInPage(css: string, within?: string | null, index = -1): number {
+  if (within === undefined || within === null) return document.querySelectorAll(css).length;
   const scopes = Array.from(document.querySelectorAll(within));
   const scope = scopes[index < 0 ? scopes.length + index : index];
   return scope ? scope.querySelectorAll(css).length : 0;
