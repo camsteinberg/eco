@@ -1264,3 +1264,83 @@ describe('TransformersAdapter — the validation harness reaches the worker\'s G
     expect(worker.inbox[0]).not.toHaveProperty('denyAdapter', true);
   });
 });
+
+describe('TransformersAdapter — a WebGPU device lost while loaded', () => {
+  async function loadWatching(onDeviceLost: () => void): Promise<void> {
+    const loading = adapter.load(MODEL, { onDeviceLost });
+    await Promise.resolve();
+    worker.emit({ type: 'ready', backend: 'webgpu' });
+    await loading;
+  }
+
+  it('reports the worker\'s loss once, and is then lost', async () => {
+    const onDeviceLost = vi.fn();
+    await loadWatching(onDeviceLost);
+    expect(adapter.deviceLost).toBe(false);
+
+    worker.emit({ type: 'device-lost', message: 'GPU process was lost' });
+    worker.emit({ type: 'device-lost', message: 'GPU process was lost' });
+
+    expect(adapter.deviceLost).toBe(true);
+    expect(onDeviceLost).toHaveBeenCalledTimes(1);
+  });
+
+  it('a request on a lost device fails at once as reclaimed (no strike), without reaching the worker', async () => {
+    await loadWatching(() => undefined);
+    worker.emit({ type: 'device-lost', message: '' });
+    const posted = worker.inbox.length;
+
+    const events: import('../types').TokenEvent[] = [];
+    for await (const event of adapter.generate([{ role: 'user', content: 'hi' }])) events.push(event);
+
+    expect(events).toEqual([{ kind: 'error', reason: 'The WebGPU device was lost.', code: 'device-reclaimed' }]);
+    expect(worker.inbox).toHaveLength(posted);
+  });
+
+  it('ignores a loss reported after unload, and a reload starts healthy', async () => {
+    const onDeviceLost = vi.fn();
+    await loadWatching(onDeviceLost);
+    worker.emit({ type: 'device-lost', message: '' });
+    await adapter.unload();
+    expect(adapter.deviceLost).toBe(false);
+
+    const second = vi.fn();
+    await loadWatching(second);
+    expect(adapter.deviceLost).toBe(false);
+    expect(second).not.toHaveBeenCalled();
+    expect(onDeviceLost).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('TransformersAdapter — when a load must not fall back to the CPU', () => {
+  const firstInit = (): WorkerInbound | undefined => worker.inbox.find((m) => m.type === 'init');
+
+  it.each([
+    ['a WebGPU-only build', { requireWebgpu: true }],
+    ['a build the CPU EP cannot run', { requireWebgpu: false, cpuEpIncompatible: true }],
+  ])('requires WebGPU for %s', async (_label, compat) => {
+    const model = { ...MODEL, compat: { ...compat } } as ModelConfig;
+    void adapter.load(model).catch(() => undefined);
+    await Promise.resolve();
+    expect(firstInit()).toMatchObject({ requireWebGpu: true });
+  });
+
+  it('requires WebGPU when the caller says so (a page that lost its device)', async () => {
+    void adapter.load(MODEL, { requireWebGpu: true }).catch(() => undefined);
+    await Promise.resolve();
+    expect(firstInit()).toMatchObject({ requireWebGpu: true });
+  });
+
+  it('leaves it out for a model the CPU can run, on a page that never lost a device', async () => {
+    void adapter.load(MODEL).catch(() => undefined);
+    await Promise.resolve();
+    expect(firstInit()).not.toHaveProperty('requireWebGpu', true);
+  });
+
+  it("passes the worker's webgpu-unavailable through as its own code (not a crash)", async () => {
+    const loading = adapter.load(MODEL, { requireWebGpu: true });
+    await Promise.resolve();
+    worker.emit({ type: 'error', code: 'webgpu-unavailable', message: 'Qwen3 needs WebGPU, and this page cannot get a WebGPU adapter.' });
+    await expect(loading).rejects.toMatchObject({ name: 'AdapterError', code: 'webgpu-unavailable', recoverable: true });
+  });
+});

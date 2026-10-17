@@ -53,9 +53,11 @@ class FakeAdapter implements RuntimeAdapter {
   failOnGenerateEvent: { code: import('../types').AdapterErrorCode; reason: string } | null = null;
   throwOnGenerate: AdapterError | null = null;
   deviceLost = false;
+  loadOptions: Array<import('../types').LoadOptions | undefined> = [];
 
-  async load(model: ModelConfig): Promise<void> {
+  async load(model: ModelConfig, options?: import('../types').LoadOptions): Promise<void> {
     this.loadCalls++;
+    this.loadOptions.push(options);
     if (this.failOnLoad) {
       throw this.failOnLoad;
     }
@@ -708,5 +710,23 @@ describe('GPU device lost while loaded', () => {
     setAdapterFactory(() => new FakeAdapter());
     await loadModel(MODEL_A);
     expect(wasGpuLostThisPage()).toBe(false);
+  });
+
+  it('after a loss, every later load requires WebGPU (a page reload gets a fresh adapter; the CPU path would not)', async () => {
+    const adapters: FakeAdapter[] = [];
+    setAdapterFactory(() => {
+      const adapter = new FakeAdapter();
+      adapters.push(adapter);
+      return adapter;
+    });
+    await loadModel(MODEL_A);
+    expect(adapters[0]!.loadOptions[0]?.requireWebGpu).toBeUndefined();
+
+    adapters[0]!.deviceLost = true;
+    await loadModel(MODEL_A);
+    await loadModel(MODEL_B);
+
+    expect(adapters[1]!.loadOptions[0]?.requireWebGpu).toBe(true);
+    expect(adapters[2]!.loadOptions[0]?.requireWebGpu).toBe(true);
   });
 });

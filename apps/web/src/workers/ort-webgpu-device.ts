@@ -2,8 +2,9 @@
 // Copyright (C) 2026 Bos Computing LLC
 
 /**
- * The WebGPU device onnxruntime-web runs the loaded model on, read from ORT's
- * env inside the Transformers.js worker.
+ * WebGPU for the Transformers.js worker: which execution provider a load uses
+ * (`chooseBackend`), and the device onnxruntime-web runs the loaded model on,
+ * read from ORT's env (`ortWebGpuDevice`).
  *
  * onnxruntime-web 1.26 (the build Transformers.js 4.2.0 imports, as
  * `onnxruntime-web/webgpu`) stores the device it created on `env.webgpu.device`
@@ -42,4 +43,24 @@ export async function ortWebGpuDevice(onnxEnv: unknown): Promise<WorkerGpuDevice
   } catch {
     return null;
   }
+}
+
+export type BackendChoice = 'webgpu' | 'wasm' | 'webgpu-unavailable';
+
+/**
+ * Which execution provider a load uses. With no usable WebGPU adapter the WASM
+ * EP is the fallback — unless the load requires WebGPU (a model the CPU EP
+ * cannot run, or a page that lost its device), where falling back would only
+ * fail later ("Kernel not found", read as a crash) or answer slowly on the CPU
+ * when a page reload would get a fresh adapter. An explicit `forceWasm` (the
+ * measurement lever) wins.
+ */
+export function chooseBackend(input: {
+  forceWasm: boolean;
+  requireWebGpu: boolean;
+  webGpuUsable: boolean;
+}): BackendChoice {
+  if (input.forceWasm) return 'wasm';
+  if (input.webGpuUsable) return 'webgpu';
+  return input.requireWebGpu ? 'webgpu-unavailable' : 'wasm';
 }

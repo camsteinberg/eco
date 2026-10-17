@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Bos Computing LLC
 
 import { describe, expect, it } from 'vitest';
-import { ortWebGpuDevice } from '../ort-webgpu-device';
+import { chooseBackend, ortWebGpuDevice } from '../ort-webgpu-device';
 
 function fakeDevice(): { lost: Promise<unknown>; destroy: () => void } {
   return { lost: new Promise(() => undefined), destroy: () => undefined };
@@ -30,5 +30,17 @@ describe('ortWebGpuDevice', () => {
 
   it('is null when reading the device fails', async () => {
     expect(await ortWebGpuDevice({ webgpu: { device: Promise.reject(new Error('no adapter')) } })).toBeNull();
+  });
+});
+
+describe('chooseBackend', () => {
+  it.each([
+    [{ forceWasm: false, requireWebGpu: false, webGpuUsable: true }, 'webgpu'],
+    [{ forceWasm: false, requireWebGpu: true, webGpuUsable: true }, 'webgpu'],
+    [{ forceWasm: false, requireWebGpu: false, webGpuUsable: false }, 'wasm'],
+    [{ forceWasm: false, requireWebGpu: true, webGpuUsable: false }, 'webgpu-unavailable'],
+    [{ forceWasm: true, requireWebGpu: true, webGpuUsable: true }, 'wasm'],
+  ] as const)('%o → %s', (input, expected) => {
+    expect(chooseBackend(input)).toBe(expected);
   });
 });

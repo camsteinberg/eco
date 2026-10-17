@@ -43,7 +43,10 @@
  *                                 no reload loop.
  *
  * By default every walk runs on Eco Mobile (the iPhone's model), on WebLLM, in
- * real Chrome presenting desktop Safari's user agent.
+ * real Chrome presenting desktop Safari's user agent. W4 expects the same end on
+ * ONNX: the 1.2B is a WebGPU-only build, so with no adapter its worker refuses
+ * the CPU path (`webgpu-unavailable`) and the load fails as WebLLM's does,
+ * rather than failing in session init as a crash with a five-minute cooldown.
  */
 
 import { chromium, expect, test, type BrowserContext, type Page } from "@playwright/test";
