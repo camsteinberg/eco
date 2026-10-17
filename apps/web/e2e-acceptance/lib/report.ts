@@ -77,8 +77,39 @@ export type AcceptanceReport = {
    * walk, which keeps its artefacts unchanged.
    */
   runtime?: "webllm";
+  /**
+   * Present only on a run in a real browser other than the lane's Chrome —
+   * today, real Safari driven over WebDriver — so the header names the browser
+   * and device the tables describe. Absent on every Chrome run, which keeps
+   * its artefacts unchanged.
+   */
+  browser?: BrowserIdentity;
   picks: PickReport[];
 };
+
+/** The real browser and device a non-Chrome run walked, as its driver reported them. */
+export type BrowserIdentity = {
+  engine: "safari";
+  device: "mac" | "ios";
+  /** The browser's own version string. */
+  version: string;
+  /** The device's name, when the driver reports one (an iPhone does). */
+  deviceName?: string;
+  /** The operating system's version, when the driver reports one. */
+  osVersion?: string;
+};
+
+/** "Safari 26.4 on Mac", or "Safari 26.4 on iPhone (Cam's iPhone, iOS 26.1)". */
+export function describeBrowser(browser: BrowserIdentity): string {
+  const where = browser.device === "mac" ? "Mac" : "iPhone";
+  const details = [
+    browser.deviceName,
+    browser.osVersion === undefined
+      ? undefined
+      : `${browser.device === "mac" ? "macOS" : "iOS"} ${browser.osVersion}`,
+  ].filter((part): part is string => part !== undefined && part !== "");
+  return `Safari ${browser.version} on ${where}${details.length > 0 ? ` (${details.join(", ")})` : ""}`;
+}
 
 function cell(value: string | number | null): string {
   if (value === null) return "—";
@@ -141,6 +172,13 @@ export function renderMarkdown(report: AcceptanceReport): string {
           "",
         ]
       : []),
+    ...(report.browser
+      ? [
+          `**Real browser: ${describeBrowser(report.browser)}.** Driven over WebDriver, not`,
+          "Playwright; every row's model id is the one the runtime held.",
+          "",
+        ]
+      : []),
     ...(report.runtime === "webllm"
       ? [
           "**WebLLM run (`ECO_ACCEPTANCE_RUNTIME=webllm`).** Chrome presents desktop",
@@ -172,7 +210,8 @@ export function renderMarkdown(report: AcceptanceReport): string {
     "",
   ];
   for (const pick of report.picks) {
-    parts.push(`## ${pick.label} (\`${pick.modelId}\`, slot \`${pick.slot}\`)`, "");
+    const on = report.browser ? ` — ${describeBrowser(report.browser)}` : "";
+    parts.push(`## ${pick.label} (\`${pick.modelId}\`, slot \`${pick.slot}\`)${on}`, "");
     if (pick.abortedAt) {
       parts.push(
         `**Stopped at task ${pick.abortedAt.task}:** ${pick.abortedAt.reason}`,
@@ -207,6 +246,32 @@ export const REPORT_JSON_PATH = join(
 );
 
 /**
+ * Where one run's report and its in-progress fragments live.
+ *
+ * The lane's own Chrome run uses the default names. A run in another browser
+ * passes a name (`safari-mac`, say), so its report never overwrites the Chrome
+ * one and its fragments never mix into the Chrome assembly.
+ */
+export type ReportArtefacts = {
+  jsonPath: string;
+  markdownPath: string;
+  /** See `writePickFragment` for why the rows live on disk while the run is going. */
+  fragmentDir: string;
+};
+
+export function reportArtefacts(name?: string): ReportArtefacts {
+  const suffix = name === undefined ? "" : `-${name}`;
+  const jsonPath = REPORT_JSON_PATH.replace(/\.json$/, `${suffix}.json`);
+  return {
+    jsonPath,
+    markdownPath: jsonPath.replace(/\.json$/, ".md"),
+    fragmentDir: join(dirname(REPORT_JSON_PATH), `acceptance-picks${suffix}`),
+  };
+}
+
+const DEFAULT_ARTEFACTS = reportArtefacts();
+
+/**
  * Where each walk's rows are kept while the run is in progress.
  *
  * The report cannot live in module memory. Playwright starts a FRESH WORKER
@@ -220,31 +285,34 @@ export const REPORT_JSON_PATH = join(
  * report is assembled from every fragment present. Any worker can assemble it,
  * at any point, and get the whole run.
  */
-const FRAGMENT_DIR = join(dirname(REPORT_JSON_PATH), "acceptance-picks");
-
-function fragmentPath(pick: PickReport): string {
+function fragmentPath(pick: PickReport, artefacts: ReportArtefacts): string {
   const slug = pick.modelId.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
-  return join(FRAGMENT_DIR, `${String(pick.order).padStart(2, "0")}-${slug}.json`);
+  return join(artefacts.fragmentDir, `${String(pick.order).padStart(2, "0")}-${slug}.json`);
 }
 
 /** Persist one walk's rows so far. Safe to call after every row. */
-export function writePickFragment(pick: PickReport): void {
-  mkdirSync(FRAGMENT_DIR, { recursive: true });
-  writeFileSync(fragmentPath(pick), `${JSON.stringify(pick, null, 2)}\n`);
+export function writePickFragment(
+  pick: PickReport,
+  artefacts: ReportArtefacts = DEFAULT_ARTEFACTS,
+): void {
+  mkdirSync(artefacts.fragmentDir, { recursive: true });
+  writeFileSync(fragmentPath(pick, artefacts), `${JSON.stringify(pick, null, 2)}\n`);
 }
 
 /** Every walk's fragment on disk, in declaration order. */
-export function readPickFragments(): PickReport[] {
+export function readPickFragments(artefacts: ReportArtefacts = DEFAULT_ARTEFACTS): PickReport[] {
   let names: string[];
   try {
-    names = readdirSync(FRAGMENT_DIR).filter((name) => name.endsWith(".json"));
+    names = readdirSync(artefacts.fragmentDir).filter((name) => name.endsWith(".json"));
   } catch {
     return [];
   }
   const picks: PickReport[] = [];
   for (const name of names.sort()) {
     try {
-      picks.push(JSON.parse(readFileSync(join(FRAGMENT_DIR, name), "utf8")) as PickReport);
+      picks.push(
+        JSON.parse(readFileSync(join(artefacts.fragmentDir, name), "utf8")) as PickReport,
+      );
     } catch {
       // A fragment written mid-crash is not worth failing the assembly over.
     }
@@ -253,25 +321,25 @@ export function readPickFragments(): PickReport[] {
 }
 
 /** Clear the previous run's fragments and report. Called once, before the run. */
-export function resetReportArtefacts(): void {
-  rmSync(FRAGMENT_DIR, { recursive: true, force: true });
-  rmSync(REPORT_JSON_PATH, { force: true });
-  rmSync(REPORT_JSON_PATH.replace(/\.json$/, ".md"), { force: true });
+export function resetReportArtefacts(artefacts: ReportArtefacts = DEFAULT_ARTEFACTS): void {
+  rmSync(artefacts.fragmentDir, { recursive: true, force: true });
+  rmSync(artefacts.jsonPath, { force: true });
+  rmSync(artefacts.markdownPath, { force: true });
 }
 
+export type ReportOptions = {
+  smoke?: boolean;
+  tasks?: readonly number[];
+  runtime?: "onnx" | "webllm";
+  browser?: BrowserIdentity;
+};
+
 /**
- * Assemble every fragment into the report and write both artefacts.
- * Idempotent, so every worker can call it as it finishes.
+ * The report a set of walks adds up to. Pure, so its shape is unit-tested;
+ * `assembleReport` is this plus the disk.
  */
-export function assembleReport(
-  options: { smoke?: boolean; tasks?: readonly number[]; runtime?: "onnx" | "webllm" } = {},
-): {
-  report: AcceptanceReport;
-  jsonPath: string;
-  markdownPath: string;
-} {
-  const picks = readPickFragments();
-  const report: AcceptanceReport = {
+export function buildReport(picks: PickReport[], options: ReportOptions = {}): AcceptanceReport {
+  return {
     startedAt: picks.map((pick) => pick.startedAt).sort()[0] ?? new Date().toISOString(),
     finishedAt:
       picks.map((pick) => pick.finishedAt).filter(Boolean).sort().pop()
@@ -279,11 +347,26 @@ export function assembleReport(
     // Omitted rather than set false, so a full run's JSON is byte-identical.
     ...(options.smoke ? { smoke: true as const, tasks: [...options.tasks ?? []] } : {}),
     ...(options.runtime === "webllm" ? { runtime: "webllm" as const } : {}),
+    ...(options.browser ? { browser: options.browser } : {}),
     picks,
   };
-  const markdownPath = REPORT_JSON_PATH.replace(/\.json$/, ".md");
-  mkdirSync(dirname(REPORT_JSON_PATH), { recursive: true });
-  writeFileSync(REPORT_JSON_PATH, `${JSON.stringify(report, null, 2)}\n`);
-  writeFileSync(markdownPath, renderMarkdown(report));
-  return { report, jsonPath: REPORT_JSON_PATH, markdownPath };
+}
+
+/**
+ * Assemble every fragment into the report and write both artefacts.
+ * Idempotent, so every worker can call it as it finishes.
+ */
+export function assembleReport(
+  options: ReportOptions = {},
+  artefacts: ReportArtefacts = DEFAULT_ARTEFACTS,
+): {
+  report: AcceptanceReport;
+  jsonPath: string;
+  markdownPath: string;
+} {
+  const report = buildReport(readPickFragments(artefacts), options);
+  mkdirSync(dirname(artefacts.jsonPath), { recursive: true });
+  writeFileSync(artefacts.jsonPath, `${JSON.stringify(report, null, 2)}\n`);
+  writeFileSync(artefacts.markdownPath, renderMarkdown(report));
+  return { report, jsonPath: artefacts.jsonPath, markdownPath: artefacts.markdownPath };
 }

@@ -64,13 +64,13 @@ import {
   modelFileUrl,
   sampleFiles,
 } from "./lib/model-host";
+import { shellCapturedInPage } from "./lib/in-page";
 import {
   assembleReport,
   clip,
   writePickFragment,
   type AcceptanceRow,
   type PickReport,
-  type RowResult,
 } from "./lib/report";
 import {
   acceptancePlan,
@@ -78,7 +78,63 @@ import {
   planWalksTask,
 } from "./lib/subset";
 import {
-  INJECTED_FAULT_MESSAGE,
+  AFTER_RETRY_PROMPT,
+  AFTER_STOP_PROMPT,
+  BUDGET_TURNS,
+  CONTEXT_MAX_TURNS,
+  CONTEXT_PROMPT,
+  ECO_COMPACT_WEBLLM,
+  ECO_DEEPER,
+  ECO_FAST,
+  ECO_MOBILE_WEBLLM,
+  EDIT_LATER_PROMPT,
+  EDIT_ORIGINAL_PROMPT,
+  EDIT_REPLACEMENT_PROMPT,
+  EMAIL_BRIEF,
+  FAULT_PROMPT,
+  FIRST_RUN_PROMPT,
+  KILL_NOT_STARTED,
+  KILL_PROMPT,
+  LONG_TURN_TIMEOUT_MS,
+  LOOKUP_QUESTION,
+  OFFLINE_PROMPT,
+  RECALL_PROMPT,
+  REOPEN_PROMPT,
+  SEARCH_QUESTION,
+  SHORTER_PROMPT,
+  STOPPED_RECEIPT_TIMEOUT_MS,
+  STOP_PROMPT,
+  SUMMARY_PROMPT,
+  SWITCH_BACK_PROMPT,
+  SWITCH_PROMPT,
+  TOOL_CASES,
+  judgeAnswered,
+  judgeBudgetTurn,
+  judgeContextNeverShown,
+  judgeContextTurn,
+  judgeDraft,
+  judgeEdit,
+  judgeFirstReply,
+  judgeFollowUp,
+  judgeInjectedFailure,
+  judgeLookupsOff,
+  judgeLookupsOn,
+  judgeOfflineReload,
+  judgeRecall,
+  judgeReopened,
+  judgeRetry,
+  judgeSearchChip,
+  judgeSearchOff,
+  judgeSearchRequest,
+  judgeShorter,
+  judgeStopNotPressed,
+  judgeStopped,
+  judgeSummary,
+  judgeSwitch,
+  judgeToolCard,
+  type Verdict,
+} from "./lib/tasks";
+import {
   armGenerationFault,
   beginTurn,
   checkModelFilesServed,
@@ -111,7 +167,6 @@ import {
   webSearchToggle,
   welcomeCard,
   wipeOrigin,
-  WEB_SEARCH_STUB_FETCHED_AT,
   type Pick,
   type TurnOutcome,
 } from "./lib/walk";
@@ -164,59 +219,8 @@ const DESKTOP_SAFARI_USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
   + "(KHTML, like Gecko) Version/26.4 Safari/605.1.15";
 
-/** A long generation, so there is time to kill the tab mid-reply (task 10). */
-const LONG_TURN_TIMEOUT_MS = 480_000;
-
-/**
- * The slowest first token a reply after a Stop or a retry may take and still
- * count as answered. Measured after the fix, those first tokens arrive in well
- * under two seconds; the defect this guards against never produced one, and
- * the chat gave up after 90 s. Thirty seconds separates the two with room.
- */
-const FIRST_TOKEN_CEILING_MS = 30_000;
-
-/** How long a stopped turn gets to record its receipt. */
-const STOPPED_RECEIPT_TIMEOUT_MS = 30_000;
-
-/**
- * The two shipping picks, one per slot. Ids and slots come from the catalog
- * (`local-ai/catalog/catalog-data.json`); the tile names are the curated
- * welcome copy the switcher shows, and the friendly names are the branded
- * names the switcher's accessible label uses — the catalog's `display`
- * block, not its raw `friendlyName`, which is the model's technical name and
- * never reaches the UI.
- */
-const ECO_FAST: Pick = {
-  modelId: "candidate/lfm2.5-1.2b-instruct-onnx",
-  slot: "eco-fast",
-  tileName: "Eco Fast",
-  friendlyName: "Eco Fast (Liquid)",
-};
-const ECO_DEEPER: Pick = {
-  modelId: "candidate/lfm2-2.6b-onnx",
-  slot: "eco-smart",
-  tileName: "Eco Deeper",
-  friendlyName: "Eco Deeper (Liquid)",
-};
-
-/**
- * The two models the app serves desktop Safari, both on WebLLM: Eco Compact
- * first, Eco Mobile as its fallback. Each is walked alone in the everyday slot,
- * the slot a desktop-Safari device fills first.
- */
-const ECO_COMPACT_WEBLLM: Pick = {
-  modelId: "candidate/qwen3-0.6b-mlc-q0f16",
-  slot: "eco-fast",
-  tileName: "Eco Compact",
-  friendlyName: "Eco Compact (Qwen)",
-};
-const ECO_MOBILE_WEBLLM: Pick = {
-  modelId: "candidate/qwen2.5-0.5b-mlc",
-  slot: "eco-fast",
-  tileName: "Eco Mobile",
-  friendlyName: "Eco Mobile (Qwen)",
-};
-
+// The picks themselves (ids, slots, tile and friendly names) live in
+// `lib/tasks`, shared with every walk that judges by the same rules.
 const PICKS: readonly Pick[] = WEBLLM
   ? [ECO_COMPACT_WEBLLM, ECO_MOBILE_WEBLLM]
   : [ECO_FAST, ECO_DEEPER];
@@ -249,71 +253,6 @@ const WALK_LABEL = (process.env.ECO_ACCEPTANCE_TASKS?.trim() || WEBLLM)
 const WALK_PICKS: readonly Pick[] = SLOT_FILTER
   ? PICKS.filter((pick) => pick.slot === SLOT_FILTER)
   : planPicks(PLAN, PICKS);
-
-/**
- * The numeric side of one turn, for the evidence column: what the prompt and
- * reply cost, what the KV gate saw, and where the history window started.
- *
- * A ten-turn chat that loses a figure is only diagnosable with these: the same
- * `windowStart` as the previous turn with an `equal-or-shorter` miss is
- * re-tokenization, a moved `windowStart` is eviction, and the decoded
- * divergence says which tokens differed. Missing fields print as `?` rather
- * than being omitted, so the columns line up across turns.
- */
-function turnCounts(outcome: TurnOutcome): string {
-  const receipt = outcomeReceipt(outcome);
-  const kv = receipt?.kvReuse;
-  const parts = [
-    `prompt=${receipt?.promptTokens ?? "?"}`,
-    `completion=${receipt?.completionTokens ?? "?"}`,
-    `cachedLen=${kv?.cachedLen ?? "?"}`,
-    `promptLen=${kv?.promptLen ?? "?"}`,
-    `commonPrefix=${kv?.commonPrefixLen ?? "-"}`,
-    `durationMs=${receipt?.durationMs ?? "?"}`,
-    `windowStart=${receipt?.windowStartIndex ?? "?"}`,
-  ];
-  const divergence = kv?.divergence;
-  if (divergence) {
-    parts.push(
-      `DIV cached=${JSON.stringify(clip(divergence.cached, 80))}`,
-      `next=${JSON.stringify(clip(divergence.next, 80))}`,
-    );
-  }
-  return parts.join(" ");
-}
-
-/** ~4,400 chars ≈ 1,100 estimator-tokens. Plain prose, not a token-stuffer. */
-const PASTE_BLOCK = (
-  "The greenhouse effect of a well-tended garden is easy to underestimate. "
-  + "Raised beds warm earlier in the year than open ground, and a gardener who "
-  + "plans the season around that difference can start harvesting weeks ahead of "
-  + "the almanac. Companion planting matters too: beans fix nitrogen that heavy "
-  + "feeders like squash consume, while marigolds keep certain pests away from "
-  + "tomatoes. Water management is the quiet discipline underneath all of it — "
-  + "deep, infrequent watering trains roots downward, while daily sprinkling "
-  + "keeps them shallow and fragile. "
-).repeat(8);
-
-/** The ten-turn budgeting conversation. Turn 5 checks a running total, turn 10 a recall. */
-const BUDGET_TURNS: readonly string[] = [
-  "I want to get my monthly budget under control.",
-  "My rent is $1,450 a month and I take home about $3,200.",
-  "Groceries run me around $400, and I spend $120 on transit.",
-  "My phone and internet come to $95 together.",
-  "Adding those up, what am I spending each month so far?",
-  "I'd like to put $300 into savings every month.",
-  "Does that still leave me anything?",
-  "What would you cut first?",
-  "Give me one habit that would help me stick to this.",
-  "What was my rent again?",
-];
-
-/** Turn numbers inside task 2 that carry a mechanical check. */
-const RUNNING_TOTAL_TURN = 5;
-const RENT_RECALL_TURN = 10;
-
-const contains = (text: string, ...needles: string[]): boolean =>
-  needles.some((needle) => text.includes(needle));
 
 /**
  * Deliberately NOT `mode: "serial"`. The lane runs one worker with parallelism
@@ -501,8 +440,7 @@ test.describe("acceptance walk", () => {
         turn: number,
         label: string,
         outcome: TurnOutcome,
-        result: RowResult,
-        evidence: string,
+        { result, evidence }: Verdict,
       ): AcceptanceRow => {
         const receipt = outcomeReceipt(outcome);
         return {
@@ -602,52 +540,19 @@ test.describe("acceptance walk", () => {
       const answered = async (
         page: Page,
         outcome: TurnOutcome,
-      ): Promise<{ ok: boolean; why: string }> => {
-        const receipt = outcomeReceipt(outcome);
-        const problems: string[] = [];
-        if (!receipt) {
-          problems.push("no generation ran");
-        } else {
-          if (receipt.status !== "complete") {
-            problems.push(
-              `the reply ended '${receipt.status}'${
-                receipt.errorCode ? ` (${clip(receipt.errorCode, 90)})` : ""
-              }`,
-            );
-          }
-          if (receipt.firstTokenMs == null) {
-            problems.push("no first word ever arrived");
-          } else if (receipt.firstTokenMs > FIRST_TOKEN_CEILING_MS) {
-            problems.push(
-              `the first word took ${Math.round(receipt.firstTokenMs)} ms (ceiling ${FIRST_TOKEN_CEILING_MS} ms)`,
-            );
-          }
-        }
-        if ((await assistantMessages(page).last().getByRole("alert").count()) > 0) {
-          problems.push("an error card is showing");
-        }
-        if (outcome.replyText.trim().length === 0) problems.push("the reply is empty");
-        return { ok: problems.length === 0, why: problems.join("; ") };
-      };
+      ): Promise<{ ok: boolean; why: string }> =>
+        judgeAnswered(
+          outcome,
+          (await assistantMessages(page).last().getByRole("alert").count()) > 0,
+        );
 
       // ── 1. Cold first run to first reply, no dead ends ────────────────────
       await task(1, "cold first run to a first reply", async () => {
         const startedAt = Date.now();
         const page = await open();
         const toChatMs = Date.now() - startedAt;
-        const outcome = await sendTurn(page, "Hi — what can you help me with?");
-        push(
-          rowFor(
-            1,
-            1,
-            "first reply on a cold start",
-            outcome,
-            outcome.replyText.trim().length > 0 ? "PASS" : "FAIL",
-            `chat usable in ${toChatMs} ms, no setup error surface; reply: ${clip(
-              outcome.replyText,
-            )}`,
-          ),
-        );
+        const outcome = await sendTurn(page, FIRST_RUN_PROMPT);
+        push(rowFor(1, 1, "first reply on a cold start", outcome, judgeFirstReply(outcome, toChatMs)));
       });
 
       // ── 2. Ten-turn budgeting chat: a running total and a recall ──────────
@@ -656,79 +561,26 @@ test.describe("acceptance walk", () => {
         for (const [index, prompt] of BUDGET_TURNS.entries()) {
           const turn = index + 1;
           const outcome = await sendTurn(page, prompt);
-          const stored = outcome.storedUserText;
-          // The input can be the defect. A reply is only evidence about the
-          // model if the app stored the sentence we meant to send.
-          const inputIntact = stored === null || stored.trim() === prompt.trim();
-          let result: RowResult = "RECORDED";
-          // The counts are the point of this task as an instrument: a lost
-          // figure is diagnosable only alongside what the window held and
-          // whether the cache was reused on the turn that lost it.
-          const counts = turnCounts(outcome);
-          let evidence = `${counts}; reply: ${clip(outcome.replyText)}`;
-          if (!inputIntact) {
-            result = "FAIL";
-            evidence = `stored input differs from what was typed: ${clip(stored ?? "")}`;
-          } else if (turn === RUNNING_TOTAL_TURN) {
-            const ok = contains(outcome.replyText, "2,065", "2065");
-            result = ok ? "PASS" : "FAIL";
-            evidence = `${counts}; running total 2,065 ${ok ? "present" : "absent"}; reply: ${clip(
-              outcome.replyText,
-            )}`;
-          } else if (turn === RENT_RECALL_TURN) {
-            const ok = contains(outcome.replyText, "1,450", "1450");
-            result = ok ? "PASS" : "FAIL";
-            evidence = `${counts}; rent figure from turn 2 ${ok ? "recalled" : "lost"}; reply: ${clip(
-              outcome.replyText,
-            )}`;
-          }
-          push(rowFor(2, turn, `turn ${turn}: ${clip(prompt, 48)}`, outcome, result, evidence));
+          push(
+            rowFor(2, turn, `turn ${turn}: ${clip(prompt, 48)}`, outcome, judgeBudgetTurn(turn, prompt, outcome)),
+          );
         }
       });
 
       // ── 3. Paste ~2 pages, ask for a summary ──────────────────────────────
       await task(3, "summarise a pasted document", async () => {
         const page = await open();
-        const document = `${PASTE_BLOCK}\n\nSummarise the text above in a few sentences.`;
-        const outcome = await sendTurn(page, document, LONG_TURN_TIMEOUT_MS);
-        const shorter = outcome.replyText.length < PASTE_BLOCK.length;
-        push(
-          rowFor(
-            3,
-            1,
-            "summary of a ~4,400-character paste",
-            outcome,
-            shorter && outcome.replyText.trim().length > 0 ? "RECORDED" : "FAIL",
-            `${outcome.replyText.length} chars back from ${PASTE_BLOCK.length} in; summary: ${clip(
-              outcome.replyText,
-              240,
-            )}`,
-          ),
-        );
+        const outcome = await sendTurn(page, SUMMARY_PROMPT, LONG_TURN_TIMEOUT_MS);
+        push(rowFor(3, 1, "summary of a ~4,400-character paste", outcome, judgeSummary(outcome)));
       });
 
       // ── 4. The exact-answer tools ─────────────────────────────────────────
       await task(4, "tool cards show the right answer", async () => {
         const page = await open();
-        const cases: { prompt: string; expect: string }[] = [
-          { prompt: "What's 18% of $62.50", expect: "= 11.25" },
-          { prompt: "what date is 6 weeks from today", expect: "6 weeks from today is" },
-        ];
-        for (const [index, item] of cases.entries()) {
+        for (const [index, item] of TOOL_CASES.entries()) {
           const outcome = await sendTurn(page, item.prompt);
-          const card = outcome.toolCardText ?? "";
-          const ok = outcome.toolAnswered && card.includes(item.expect);
           push(
-            rowFor(
-              4,
-              index + 1,
-              `tool card for "${item.prompt}"`,
-              outcome,
-              ok ? "PASS" : "FAIL",
-              outcome.toolAnswered
-                ? `card: ${clip(card)}${card.includes(item.expect) ? "" : ` (expected "${item.expect}")`}`
-                : `no tool fired — the model answered instead: ${clip(outcome.replyText)}`,
-            ),
+            rowFor(4, index + 1, `tool card for "${item.prompt}"`, outcome, judgeToolCard(outcome, item.expect)),
           );
         }
       });
@@ -736,44 +588,19 @@ test.describe("acceptance walk", () => {
       // ── 5. Draft an email, then shorten it ────────────────────────────────
       await task(5, "draft an email, then shorten it", async () => {
         const page = await open();
-        const brief = [
-          "Draft a short email to my landlord from these three points:",
-          "- the kitchen tap has been dripping for a week",
-          "- I am home on Thursday afternoon",
-          "- ask when a plumber can come",
-        ].join("\n");
-        const first = await sendTurn(page, brief, LONG_TURN_TIMEOUT_MS);
-        push(
-          rowFor(5, 1, "draft from three bullet points", first, "RECORDED", `draft (${first.replyText.length} chars): ${clip(first.replyText, 240)}`),
-        );
-        const second = await sendTurn(page, "Can you make that shorter?", LONG_TURN_TIMEOUT_MS);
-        const shorter = second.replyText.length < first.replyText.length;
-        push(
-          rowFor(
-            5,
-            2,
-            "shortened on request",
-            second,
-            shorter ? "PASS" : "FAIL",
-            `${second.replyText.length} chars vs ${first.replyText.length}; reply: ${clip(
-              second.replyText,
-              240,
-            )}`,
-          ),
-        );
+        const first = await sendTurn(page, EMAIL_BRIEF, LONG_TURN_TIMEOUT_MS);
+        push(rowFor(5, 1, "draft from three bullet points", first, judgeDraft(first)));
+        const second = await sendTurn(page, SHORTER_PROMPT, LONG_TURN_TIMEOUT_MS);
+        push(rowFor(5, 2, "shortened on request", second, judgeShorter(first, second)));
       });
 
       // ── 6. Long chat until the context boundary is admitted ───────────────
       await task(6, "context boundary is shown honestly", async () => {
         const page = await open();
-        const maxTurns = 6;
+        const maxTurns = CONTEXT_MAX_TURNS;
         let announced = false;
         for (let turn = 1; turn <= maxTurns && !announced; turn++) {
-          const outcome = await sendTurn(
-            page,
-            `${PASTE_BLOCK}\nBriefly, what is this text about?`,
-            LONG_TURN_TIMEOUT_MS,
-          );
+          const outcome = await sendTurn(page, CONTEXT_PROMPT, LONG_TURN_TIMEOUT_MS);
           const dividerCount = await contextDivider(page).count();
           const noticeCount = await contextWindowNotice(page).count();
           announced = dividerCount > 0 || noticeCount > 0;
@@ -788,12 +615,7 @@ test.describe("acceptance walk", () => {
               turn,
               `paste turn ${turn} of at most ${maxTurns}`,
               outcome,
-              announced ? "PASS" : "RECORDED",
-              announced
-                ? `the app says: ${clip(copy)}`
-                : `no boundary shown yet; promptTokens=${
-                    outcomeReceipt(outcome)?.promptTokens ?? "?"
-                  }`,
+              judgeContextTurn(outcome, announced, copy),
             ),
           );
         }
@@ -805,8 +627,7 @@ test.describe("acceptance walk", () => {
             modelId: pick.modelId,
             firstTokenMs: null,
             kvReason: null,
-            result: "RECORDED",
-            evidence: `${maxTurns} pastes of ${PASTE_BLOCK.length} chars did not surface a divider or notice`,
+            ...judgeContextNeverShown(maxTurns),
           });
         }
       });
@@ -816,46 +637,18 @@ test.describe("acceptance walk", () => {
         const page = await open();
         for (const other of others) {
           const label = await switchTo(page, other);
-          const outcome = await sendTurn(page, "In one line, say hello.", LONG_TURN_TIMEOUT_MS);
-          const receipt = outcomeReceipt(outcome);
-          const truthful =
-            label.includes(other.friendlyName) && receipt?.modelId === other.modelId;
-          push(
-            rowFor(
-              8,
-              1,
-              `switched to ${other.tileName}`,
-              outcome,
-              truthful ? "PASS" : "FAIL",
-              `switcher says "${clip(label, 80)}"; the receipt says ${
-                receipt?.modelId ?? "no generation"
-              }`,
-            ),
-          );
+          const outcome = await sendTurn(page, SWITCH_PROMPT, LONG_TURN_TIMEOUT_MS);
+          push(rowFor(8, 1, `switched to ${other.tileName}`, outcome, judgeSwitch(label, outcome, other)));
 
           const backLabel = await switchTo(page, pick);
-          const back = await sendTurn(page, "In one line, say hello again.", LONG_TURN_TIMEOUT_MS);
-          const backReceipt = outcomeReceipt(back);
-          const backTruthful =
-            backLabel.includes(pick.friendlyName) && backReceipt?.modelId === pick.modelId;
-          push(
-            rowFor(
-              8,
-              2,
-              `switched back to ${pick.tileName}`,
-              back,
-              backTruthful ? "PASS" : "FAIL",
-              `switcher says "${clip(backLabel, 80)}"; the receipt says ${
-                backReceipt?.modelId ?? "no generation"
-              }`,
-            ),
-          );
+          const back = await sendTurn(page, SWITCH_BACK_PROMPT, LONG_TURN_TIMEOUT_MS);
+          push(rowFor(8, 2, `switched back to ${pick.tileName}`, back, judgeSwitch(backLabel, back, pick)));
         }
       });
 
       // ── 9. A factual question, lookups off then on ────────────────────────
       await task(9, "web lookups off, then on", async () => {
-        const question = "Who wrote the novel Frankenstein?";
+        const question = LOOKUP_QUESTION;
 
         const offPage = await open();
         lookups.reset();
@@ -863,20 +656,7 @@ test.describe("acceptance walk", () => {
         const firedOff = (await citations(offPage).count()) > 0;
         const offRequests = lookups.urls();
         push(
-          rowFor(
-            9,
-            1,
-            "lookups off: nothing should fire",
-            off,
-            firedOff || offRequests.length > 0 ? "FAIL" : "RECORDED",
-            firedOff || offRequests.length > 0
-              ? `lookups are off, yet ${offRequests.length} request(s) left the device and `
-                + `${firedOff ? "a source card appeared" : "no card appeared"}`
-              : `no source card, no request left the device; the answer reads: ${clip(
-                  off.replyText,
-                  220,
-                )}`,
-          ),
+          rowFor(9, 1, "lookups off: nothing should fire", off, judgeLookupsOff(off, firedOff, offRequests)),
         );
 
         // Flip it in THIS tab, and read it back after a reload. Both halves
@@ -892,20 +672,13 @@ test.describe("acceptance walk", () => {
         const on = await sendTurn(onPage, question, LONG_TURN_TIMEOUT_MS);
         const sourceCard = await citations(onPage).count();
         const onRequests = lookups.urls();
-        const witness =
-          `setting read back as ${lookupsOn ? "ON" : "OFF"}; `
-          + `${onRequests.length} lookup request(s)`
-          + (onRequests[0] ? ` (first: ${clip(onRequests[0], 70)})` : "");
         push(
           rowFor(
             9,
             2,
             "lookups on: a source card should appear",
             on,
-            sourceCard > 0 ? "PASS" : lookupsOn ? "FAIL" : "RECORDED",
-            sourceCard > 0
-              ? `${sourceCard} source card(s); ${witness}; answer: ${clip(on.replyText, 160)}`
-              : `NO source card. ${witness}; answer: ${clip(on.replyText, 160)}`,
+            judgeLookupsOn(on, sourceCard, lookupsOn, onRequests),
           ),
         );
 
@@ -918,25 +691,12 @@ test.describe("acceptance walk", () => {
         // The walk's own tab is the one that dies — that is the scenario.
         // Closing it makes `open()` build a new one, which is the reopening.
         const victim = await open();
-        await beginTurn(
-          victim,
-          "Write a detailed paragraph about the history of the bicycle.",
-          "generation never started, so nothing was killed mid-reply",
-        );
+        await beginTurn(victim, KILL_PROMPT, KILL_NOT_STARTED);
         await victim.close();
 
         const revived = await open();
-        const outcome = await sendTurn(revived, "Are you still there?", LONG_TURN_TIMEOUT_MS);
-        push(
-          rowFor(
-            10,
-            1,
-            "chat works after a mid-reply tab kill",
-            outcome,
-            outcome.replyText.trim().length > 0 ? "PASS" : "FAIL",
-            `reply after reopening: ${clip(outcome.replyText)}`,
-          ),
-        );
+        const outcome = await sendTurn(revived, REOPEN_PROMPT, LONG_TURN_TIMEOUT_MS);
+        push(rowFor(10, 1, "chat works after a mid-reply tab kill", outcome, judgeReopened(outcome)));
       });
 
       // ── 11. A live question, Web search off then on ───────────────────────
@@ -946,7 +706,7 @@ test.describe("acceptance walk", () => {
       // asked about. The off arm goes through the stub too, so a request the
       // switch should have prevented is caught here rather than sent.
       await task(11, "a live question, Web search off then on", async () => {
-        const question = "is it raining in Chicago right now";
+        const question = SEARCH_QUESTION;
         const relay = await stubSearchRelay(context);
         try {
           // ── off ──────────────────────────────────────────────────────────
@@ -957,20 +717,13 @@ test.describe("acceptance walk", () => {
           const offNotes = await uncertaintyNotes(page, "no-live-data").count();
           const offCalls = relay.calls();
           const offChips = await webSearchCitations(page).count();
-          const offClean = offNotes > 0 && offCalls.length === 0 && offChips === 0;
           push(
             rowFor(
               11,
               1,
               "Web search off: the honest note, and nothing sent",
               off,
-              offClean ? "PASS" : "FAIL",
-              offClean
-                ? "no-live-data note shown, 0 search requests, no chip; setting read back as "
-                  + `${settledOff ? "ON (wrong)" : "OFF"}; answer: ${clip(off.replyText, 160)}`
-                : `expected the no-live-data note and no request: ${offNotes} note(s), `
-                  + `${offCalls.length} search request(s), ${offChips} chip(s); `
-                  + `answer: ${clip(off.replyText, 160)}`,
+              judgeSearchOff(off, { notes: offNotes, calls: offCalls, chips: offChips, settledOff }),
             ),
           );
 
@@ -983,38 +736,14 @@ test.describe("acceptance walk", () => {
           const on = await sendTurn(page, question, LONG_TURN_TIMEOUT_MS);
 
           // The privacy claim, as a mechanical check: exactly one POST, and its
-          // body carries the question as typed and NOTHING else. A body that grew a
-          // second key is what this row exists to catch.
-          const calls = relay.calls();
-          const [call] = calls;
-          let bodyKeys: string[] = [];
-          let parsed = false;
-          try {
-            const json: unknown = JSON.parse(call?.body ?? "");
-            if (json !== null && typeof json === "object") {
-              bodyKeys = Object.keys(json as Record<string, unknown>).sort();
-              parsed = true;
-            }
-          } catch {
-            parsed = false;
-          }
-          const onlyQuery =
-            calls.length === 1
-            && call?.method === "POST"
-            && parsed
-            && bodyKeys.length === 1
-            && bodyKeys[0] === "q";
+          // body carries the question as typed and NOTHING else.
           push(
             rowFor(
               11,
               2,
               "Web search on: one request, carrying only the question as typed",
               on,
-              onlyQuery ? "PASS" : settledOn ? "FAIL" : "RECORDED",
-              `${calls.length} request(s) to the relay; method ${call?.method ?? "(none)"}; `
-                + `body keys [${bodyKeys.join(", ")}]${parsed ? "" : " (unparsed)"}; `
-                + `setting read back as ${settledOn ? "ON" : "OFF"}, `
-                + `composer switch aria-checked=${composerSwitch}`,
+              judgeSearchRequest({ calls: relay.calls(), settledOn, composerSwitch }),
             ),
           );
 
@@ -1024,26 +753,13 @@ test.describe("acceptance walk", () => {
           const chipCount = await chips.count();
           const fetchedAt =
             chipCount > 0 ? await chips.last().getAttribute("data-fetched-at") : null;
-          // A receipt carries no prompt TEXT — only `systemPromptHash` — so
-          // "the snippet note reached the prompt" is witnessed by that hash
-          // differing from the unsearched turn's, not by reading the note back.
-          const offHash = outcomeReceipt(off)?.systemPromptHash ?? null;
-          const onHash = outcomeReceipt(on)?.systemPromptHash ?? null;
-          const promptMoved =
-            offHash !== null && onHash !== null && offHash !== onHash
-              ? "changed, so the searched turn carried a different system prompt"
-              : "unchanged or unknown";
-          const chipOk = chipCount > 0 && fetchedAt === WEB_SEARCH_STUB_FETCHED_AT;
           push(
             rowFor(
               11,
               3,
               "Web search on: the reply is marked with a fetched-at chip",
               on,
-              chipOk ? "PASS" : settledOn ? "FAIL" : "RECORDED",
-              `${chipCount} chip(s), data-fetched-at ${fetchedAt ?? "(absent)"}; `
-                + `system prompt hash ${offHash ?? "?"} → ${onHash ?? "?"} (${promptMoved}); `
-                + `answer: ${clip(on.replyText, 160)}`,
+              judgeSearchChip(off, on, { chipCount, fetchedAt, settledOn }),
             ),
           );
 
@@ -1061,8 +777,7 @@ test.describe("acceptance walk", () => {
       // walk got far enough to ask.
       await task(12, "Stop mid-reply, then the next message answers", async () => {
         const page = await open();
-        const prompt =
-          "Write a long, detailed essay on the history of the Roman Empire, at least 1500 words.";
+        const prompt = STOP_PROMPT;
         const before = await newestGenerationId(page);
         await beginTurn(page, prompt);
         const stop = await stopMidReply(page);
@@ -1074,50 +789,30 @@ test.describe("acceptance walk", () => {
             modelId: pick.modelId,
             firstTokenMs: null,
             kvReason: null,
-            result: "FAIL",
-            evidence: `${stop.reason}; nothing was stopped, so this task says nothing about Stop`,
+            ...judgeStopNotPressed(stop.reason),
           });
           return;
         }
 
         const stopped = await finishGeneration(page, prompt, before, STOPPED_RECEIPT_TIMEOUT_MS);
-        const stoppedReceipt = outcomeReceipt(stopped);
         const bubble = assistantMessages(page).last();
         const notice = bubble.getByRole("status").filter({ hasText: /stopped/i });
         const noticeText = (await notice.count()) > 0 ? await notice.first().innerText() : "";
         const kept = (await bubble.innerText()).replace(noticeText, "").trim();
-        const recordedAsStopped = stoppedReceipt?.status === "aborted";
-        const stopOk =
-          recordedAsStopped && noticeText !== "" && (await tryAgainOn(bubble).count()) > 0 && kept !== "";
+        const tryAgainOffered = (await tryAgainOn(bubble).count()) > 0;
         push(
           rowFor(
             12,
             1,
             "Stop pressed mid-reply",
             stopped,
-            stopOk ? "PASS" : "FAIL",
-            `composer back ${stop.settledMs} ms after Stop; recorded as '${
-              stoppedReceipt?.status ?? "(no receipt)"
-            }'${recordedAsStopped ? "" : " (a stopped reply should be 'aborted')"}; notice: ${
-              noticeText ? JSON.stringify(clip(noticeText, 60)) : "MISSING"
-            }; ${kept ? `${kept.length} chars kept on screen` : "the partial reply is GONE"}`,
+            judgeStopped(stopped, { settledMs: stop.settledMs, noticeText, tryAgainOffered, kept }),
           ),
         );
 
-        const next = await sendTurn(page, "Give me some tips for better sleep.", LONG_TURN_TIMEOUT_MS);
+        const next = await sendTurn(page, AFTER_STOP_PROMPT, LONG_TURN_TIMEOUT_MS);
         const check = await answered(page, next);
-        push(
-          rowFor(
-            12,
-            2,
-            "the next message after a Stop answers",
-            next,
-            check.ok ? "PASS" : "FAIL",
-            `${check.ok ? "answered" : `did NOT answer: ${check.why}`}; ${turnCounts(next)}; reply: ${clip(
-              next.replyText,
-            )}`,
-          ),
-        );
+        push(rowFor(12, 2, "the next message after a Stop answers", next, judgeFollowUp(next, check)));
         if (!check.ok) await retireWalkPage();
       });
 
@@ -1128,36 +823,18 @@ test.describe("acceptance walk", () => {
       // free, even though the failed reply stopped reading it part-way.
       await task(13, "a failed reply, then Try again answers", async () => {
         const page = await open();
-        const prompt = "Give me three ideas for a quiet weekend at home.";
+        const prompt = FAULT_PROMPT;
         await armGenerationFault(page);
         const failed = await sendTurn(page, prompt, LONG_TURN_TIMEOUT_MS);
-        const failedReceipt = outcomeReceipt(failed);
-        const ourFault =
-          failedReceipt?.status === "error"
-          && (failedReceipt.errorCode ?? "").startsWith(INJECTED_FAULT_MESSAGE.slice(0, 80));
         const stillArmed = await generationFaultArmed(page);
         const bubble = assistantMessages(page).last();
         const offered = (await tryAgainOn(bubble).count()) > 0;
         const card = offered ? clip(await bubble.innerText(), 120) : "";
+        const failure = judgeInjectedFailure(failed, { stillArmed, offered, card });
         push(
-          rowFor(
-            13,
-            1,
-            "a reply fails part-way, and Try again is offered",
-            failed,
-            ourFault && offered && !stillArmed ? "PASS" : "FAIL",
-            [
-              ourFault
-                ? "failed with the injected fault"
-                : `expected the injected fault, got '${failedReceipt?.status ?? "no receipt"}'${
-                    failedReceipt?.errorCode ? ` (${clip(failedReceipt.errorCode, 80)})` : ""
-                  }`,
-              stillArmed ? "the fault is STILL armed (it should fire once)" : "fault fired once",
-              offered ? `the person sees: ${JSON.stringify(card)}` : "NO Try again is offered",
-            ].join("; "),
-          ),
+          rowFor(13, 1, "a reply fails part-way, and Try again is offered", failed, failure),
         );
-        if (!ourFault || !offered) {
+        if (!failure.ourFault || !offered) {
           await retireWalkPage();
           return;
         }
@@ -1169,41 +846,16 @@ test.describe("acceptance walk", () => {
         const check = await answered(page, retried);
         const askedOnce = (await userMessages(page).filter({ hasText: prompt }).count()) === 1;
         const replacedInPlace = (await assistantMessages(page).count()) === assistantBubbles;
-        const retryOk = check.ok && askedOnce && replacedInPlace;
-        push(
-          rowFor(
-            13,
-            2,
-            "Try again answers",
-            retried,
-            retryOk ? "PASS" : "FAIL",
-            [
-              check.ok ? "answered" : `did NOT answer: ${check.why}`,
-              askedOnce ? "the question shows once" : "the question is DUPLICATED in the transcript",
-              replacedInPlace ? "the answer replaced the failed reply" : "the failed reply was NOT replaced",
-              turnCounts(retried),
-              `reply: ${clip(retried.replyText)}`,
-            ].join("; "),
-          ),
-        );
+        push(rowFor(13, 2, "Try again answers", retried, judgeRetry(retried, check, { askedOnce, replacedInPlace })));
         if (!check.ok) {
           await retireWalkPage();
           return;
         }
 
-        const after = await sendTurn(page, "Thanks. One more idea, please.", LONG_TURN_TIMEOUT_MS);
+        const after = await sendTurn(page, AFTER_RETRY_PROMPT, LONG_TURN_TIMEOUT_MS);
         const afterCheck = await answered(page, after);
         push(
-          rowFor(
-            13,
-            3,
-            "the conversation carries on after the retry",
-            after,
-            afterCheck.ok ? "PASS" : "FAIL",
-            `${afterCheck.ok ? "answered" : `did NOT answer: ${afterCheck.why}`}; ${turnCounts(after)}; reply: ${clip(
-              after.replyText,
-            )}`,
-          ),
+          rowFor(13, 3, "the conversation carries on after the retry", after, judgeFollowUp(after, afterCheck)),
         );
       });
 
@@ -1220,84 +872,31 @@ test.describe("acceptance walk", () => {
       // name puts the name in the edited turn's own reply.
       await task(14, "edit an earlier message and resend", async () => {
         const page = await open();
-        const original = "My name is Priya. Say hello to me by name, in one short sentence.";
-        const edit = "My name is Tomas. Say hello to me by name, in one short sentence.";
-        await sendTurn(page, original);
-        await sendTurn(page, "Suggest one name for a pet goldfish.");
+        await sendTurn(page, EDIT_ORIGINAL_PROMPT);
+        await sendTurn(page, EDIT_LATER_PROMPT);
 
         const before = await newestGenerationId(page);
-        await editUserMessage(page, 0, edit);
-        const edited = await finishGeneration(page, edit, before, LONG_TURN_TIMEOUT_MS);
+        await editUserMessage(page, 0, EDIT_REPLACEMENT_PROMPT);
+        const edited = await finishGeneration(page, EDIT_REPLACEMENT_PROMPT, before, LONG_TURN_TIMEOUT_MS);
         const check = await answered(page, edited);
         const userTexts = await userMessages(page).allInnerTexts();
-        const showsEdit = userTexts.length === 1 && (userTexts[0] ?? "").includes("Tomas");
-        const laterTurnGone = !userTexts.some((text) => text.includes("goldfish"));
         const oneReply = (await assistantMessages(page).count()) === 1;
         const versionsShown =
           (await userMessages(page).first().getByRole("button", { name: "Previous version" }).count()) > 0;
-        // Null means nothing could be read from storage; only a mismatch fails.
-        const storedEdit = edited.storedUserText === null || edited.storedUserText.trim() === edit;
-        // The reply's own words: the original name means the edited turn was
-        // generated from the discarded text — the edit is broken whatever the
-        // screen shows. Neither name leaves the content unchecked, not failed.
-        const replyLeakedOriginal = edited.replyText.includes("Priya");
-        const replyUsedEdit = edited.replyText.includes("Tomas");
-        const editOk =
-          check.ok
-          && showsEdit
-          && laterTurnGone
-          && oneReply
-          && versionsShown
-          && storedEdit
-          && !replyLeakedOriginal;
         push(
           rowFor(
             14,
             1,
             "the edited message is resent and answered",
             edited,
-            editOk ? "PASS" : "FAIL",
-            [
-              check.ok ? "answered" : `did NOT answer: ${check.why}`,
-              showsEdit ? "the transcript shows the edited message" : `the transcript shows ${JSON.stringify(userTexts.map((text) => clip(text, 40)))}`,
-              laterTurnGone ? "the later exchange left the transcript" : "the later exchange is STILL showing",
-              oneReply ? "one reply" : "more than one reply is showing",
-              versionsShown ? "the earlier version is one tap away" : "NO way back to the earlier version",
-              storedEdit ? "storage holds the edit" : `storage holds ${JSON.stringify(clip(edited.storedUserText ?? "", 60))}`,
-              replyLeakedOriginal
-                ? "the reply uses the name from BEFORE the edit, so it was generated from the discarded text"
-                : replyUsedEdit
-                  ? "the reply uses the edited name"
-                  : "the reply did not use a name — the edit's content is unchecked on this run",
-              `reply: ${clip(edited.replyText)}`,
-            ].join("; "),
+            judgeEdit(edited, check, { userTexts, oneReply, versionsShown }),
           ),
         );
 
-        // Three outcomes, judged in this order. The original name in the reply
-        // means the discarded text reached the model — the edit itself is
-        // broken, so that FAILs. The edited name PASSes. Neither name (a
-        // small model saying it doesn't know) is RECORDED: a reading on the
-        // model's recall, not evidence about the edit.
-        const recall = await sendTurn(page, "What is my name?");
-        const leakedOriginal = recall.replyText.includes("Priya");
-        const recalled = recall.replyText.includes("Tomas");
-        push(
-          rowFor(
-            14,
-            2,
-            "the conversation continues from the edit",
-            recall,
-            leakedOriginal ? "FAIL" : recalled ? "PASS" : "RECORDED",
-            `${
-              leakedOriginal
-                ? "the reply uses the name from BEFORE the edit, so the discarded text reached the model"
-                : recalled
-                  ? "the reply uses the edited name"
-                  : "the model did not recall either name — a recall reading, not an edit failure"
-            }; ${turnCounts(recall)}; reply: ${clip(recall.replyText)}`,
-          ),
-        );
+        // The reply to "What is my name?" is judged the same three ways on
+        // both runtimes; see `judgeRecall`.
+        const recall = await sendTurn(page, RECALL_PROMPT);
+        push(rowFor(14, 2, "the conversation continues from the edit", recall, judgeRecall(recall)));
       });
 
       // ── 7. Offline reload — LAST, because it ends the page ────────────────
@@ -1333,10 +932,7 @@ test.describe("acceptance walk", () => {
           // so it resolves at once and reports a capture that never happened.
           const pollStartedAt = Date.now();
           while (!captured && Date.now() - pollStartedAt < 30_000) {
-            captured = await page.evaluate(async () => {
-              const cache = await caches.open("eco-shell-v1");
-              return (await cache.match(location.pathname)) !== undefined;
-            });
+            captured = await page.evaluate(shellCapturedInPage);
             if (!captured) await page.waitForTimeout(1_000);
           }
           capturedAfterS = Math.round((Date.now() - pollStartedAt) / 1_000);
@@ -1344,7 +940,7 @@ test.describe("acceptance walk", () => {
           await context.setOffline(true);
           await page.reload({ waitUntil: "commit", timeout: 120_000 });
           await expect(composer(page)).toBeVisible({ timeout: 120_000 });
-          const outcome = await sendTurn(page, "Still working offline?", LONG_TURN_TIMEOUT_MS);
+          const outcome = await sendTurn(page, OFFLINE_PROMPT, LONG_TURN_TIMEOUT_MS);
           usable = outcome.replyText.trim().length > 0;
           detail = `reply offline: ${clip(outcome.replyText)}`;
         } catch (error) {
@@ -1352,8 +948,6 @@ test.describe("acceptance walk", () => {
         } finally {
           await context.setOffline(false);
         }
-        const state = `worker controlling: ${controlling ? "yes" : "no"}; `
-          + `shell captured: ${captured ? `yes (${capturedAfterS} s)` : "no (30 s timeout)"}`;
         push({
           task: 7,
           turn: 1,
@@ -1361,10 +955,7 @@ test.describe("acceptance walk", () => {
           modelId: pick.modelId,
           firstTokenMs: null,
           kvReason: null,
-          result: usable ? "PASS" : "FAIL",
-          evidence: usable
-            ? `${state}; ${detail}`
-            : `offline reload did not reach a working chat (${state}): ${detail}`,
+          ...judgeOfflineReload({ usable, detail, controlling, captured, capturedAfterS }),
         });
       });
 

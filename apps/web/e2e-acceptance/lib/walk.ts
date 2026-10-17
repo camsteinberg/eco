@@ -14,9 +14,22 @@
  */
 
 import { expect, type BrowserContext, type Locator, type Page } from "@playwright/test";
-import type { GenerationReceipt } from "../../src/local-ai/lifecycle/generation-receipt";
-import { VALIDATION_GENERATION_FAULT_MESSAGE } from "../../src/lib/validation-harness";
+import {
+  activeModelIdInPage,
+  newGenerationStartedInPage,
+  newestGenerationIdInPage,
+  readLatestExchangeInPage,
+  receiptsOfNewGenerationInPage,
+  receiptsSettledInPage,
+} from "./in-page";
 import { judgeFileSources, type FileProbe } from "./model-host";
+import {
+  WEB_SEARCH_STUB_FETCHED_AT,
+  WEB_SEARCH_STUB_RESULTS,
+  type Pick,
+  type SearchRelayCall,
+  type TurnOutcome,
+} from "./tasks";
 import {
   FORCED_DESKTOP_PROFILE,
   READY_TIMEOUT_MS,
@@ -46,18 +59,16 @@ export const RESIDENCY_SETTLE_MS = 180_000;
  */
 export const DEFAULT_TURN_TIMEOUT_MS = 300_000;
 
-export type SlotName = "eco-fast" | "eco-smart";
-
-export type Pick = {
-  /** Catalog id. */
-  modelId: string;
-  /** The slot this model is the shipping choice for. */
-  slot: SlotName;
-  /** The name on its tile in the model switcher. */
-  tileName: string;
-  /** The name the switcher trigger's accessible label uses. */
-  friendlyName: string;
-};
+// The pure half of the lane — picks, turn outcomes, the relay stub's payload —
+// lives in `./tasks`; re-exported so the walks keep importing it from here.
+export {
+  INJECTED_FAULT_MESSAGE,
+  WEB_SEARCH_STUB_FETCHED_AT,
+  WEB_SEARCH_STUB_RESULTS,
+  kvReasonOf,
+  outcomeReceipt,
+} from "./tasks";
+export type { Pick, SearchRelayCall, SlotName, TurnOutcome } from "./tasks";
 
 export const setupErrorSurface = (page: Page) =>
   page.locator("[data-eco-setup-error-surface]");
@@ -153,7 +164,7 @@ export async function openChatOnModel(
   // legibly, not to wait out a slow machine.
   await expectTriggerNames(page, pick);
   await expect
-    .poll(() => page.evaluate(() => window.__ecoPerf?.activeModelId() ?? null), {
+    .poll(() => page.evaluate(activeModelIdInPage), {
       timeout: RESIDENCY_SETTLE_MS,
       message: `chat did not leave ${pick.modelId} resident in the runtime`,
     })
@@ -197,31 +208,6 @@ export async function waitForUsableChat(
     "chat opened onto a setup error surface — a first-run dead end",
   ).toHaveCount(0);
   await requireBridge(page);
-}
-
-export type TurnOutcome = {
-  prompt: string;
-  /** What the app STORED as the user's message. Judge a reply only against this. */
-  storedUserText: string | null;
-  replyText: string;
-  replySource: "indexeddb" | "dom";
-  /** Every receipt this turn produced, in execution order. Empty on a tool answer. */
-  receipts: GenerationReceipt[];
-  /** True when the turn was answered by a deterministic tool, not by generation. */
-  toolAnswered: boolean;
-  /** The exact-answer card's text when the turn produced one. */
-  toolCardText: string | null;
-};
-
-/** The receipt whose output the person saw, or null on a tool-answered turn. */
-export function outcomeReceipt(outcome: TurnOutcome): GenerationReceipt | null {
-  return outcome.receipts[outcome.receipts.length - 1] ?? null;
-}
-
-export function kvReasonOf(receipt: GenerationReceipt | null): string | null {
-  const kv = receipt?.kvReuse;
-  if (!kv) return null;
-  return kv.reason ? `${kv.decision}/${kv.reason}` : kv.decision;
 }
 
 /**
@@ -273,7 +259,7 @@ async function submitPrompt(page: Page, prompt: string): Promise<void> {
  * generation, so the generation that action starts can be told from the last.
  */
 export async function newestGenerationId(page: Page): Promise<string | null> {
-  return page.evaluate(() => window.__ecoPerf?.receipts(1)[0]?.generationId ?? null);
+  return page.evaluate(newestGenerationIdInPage);
 }
 
 /** The turn is over: the composer is back, Stop is gone, and no receipt is still being recorded. */
@@ -282,11 +268,10 @@ async function settleTurn(page: Page, timeoutMs: number): Promise<void> {
     message: "turn never finalized — the composer stayed disabled",
   }).toBeEnabled({ timeout: timeoutMs });
   await expect(stopButton(page)).toHaveCount(0, { timeout: timeoutMs });
-  await page.waitForFunction(
-    () => (window.__ecoPerf?.pendingReceipts() ?? 1) === 0,
-    undefined,
-    { timeout: timeoutMs, polling: 50 },
-  );
+  await page.waitForFunction(receiptsSettledInPage, undefined, {
+    timeout: timeoutMs,
+    polling: 50,
+  });
 }
 
 /** Read back everything about the generation that started after `generationIdBefore`. */
@@ -295,12 +280,7 @@ async function collectOutcome(
   prompt: string,
   generationIdBefore: string | null,
 ): Promise<TurnOutcome> {
-  const receipts = await page.evaluate((previousId) => {
-    const all = window.__ecoPerf?.receipts() ?? [];
-    const newest = all[0];
-    if (!newest || newest.generationId === previousId) return [];
-    return all.filter((r) => r.generationId === newest.generationId).reverse();
-  }, generationIdBefore);
+  const receipts = await page.evaluate(receiptsOfNewGenerationInPage, generationIdBefore);
 
   const card = canonicalToolAnswers(page).last();
   const toolCardText =
@@ -412,23 +392,16 @@ export async function finishGeneration(
   generationIdBefore: string | null,
   timeoutMs: number = DEFAULT_TURN_TIMEOUT_MS,
 ): Promise<TurnOutcome> {
-  await page.waitForFunction(
-    (previousId) => {
-      const newest = window.__ecoPerf?.receipts(1)[0];
-      return newest !== undefined && newest.generationId !== previousId;
-    },
-    generationIdBefore,
-    { timeout: timeoutMs, polling: 100 },
-  );
+  await page.waitForFunction(newGenerationStartedInPage, generationIdBefore, {
+    timeout: timeoutMs,
+    polling: 100,
+  });
   await settleTurn(page, timeoutMs);
   return collectOutcome(page, prompt, generationIdBefore);
 }
 
 /** The localStorage key of the harness's one-shot reply fault (`consumeValidationGenerationFault`). */
 const GENERATION_FAULT_KEY = "eco-force-generation-fault";
-
-/** The text a reply failed by the harness carries, so its receipt can be told from a genuine failure. */
-export const INJECTED_FAULT_MESSAGE = VALIDATION_GENERATION_FAULT_MESSAGE;
 
 /** Make the next reply fail after its first word. It fires once, then clears itself. */
 export async function armGenerationFault(page: Page): Promise<void> {
@@ -592,49 +565,7 @@ export async function provisionBySeeding(
 export async function readLatestExchange(
   page: Page,
 ): Promise<{ user?: string; assistant?: string } | null> {
-  return page.evaluate(async () => {
-    type Row = {
-      role: string;
-      content: string;
-      createdAt: number;
-      conversationId: string;
-    };
-    const open = (): Promise<IDBDatabase | null> =>
-      new Promise((resolve) => {
-        const request = indexedDB.open("eco-chat");
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => resolve(null);
-        request.onupgradeneeded = () => {
-          // The database does not exist yet; abandon rather than create one.
-          request.transaction?.abort();
-          resolve(null);
-        };
-      });
-    const db = await open();
-    if (!db) return null;
-    try {
-      if (!db.objectStoreNames.contains("messages")) return null;
-      const rows = await new Promise<Row[]>((resolve) => {
-        const tx = db.transaction("messages", "readonly");
-        const req = tx.objectStore("messages").getAll();
-        req.onsuccess = () => resolve(req.result as Row[]);
-        req.onerror = () => resolve([]);
-      });
-      if (rows.length === 0) return null;
-      const newest = rows.reduce((a, b) => (a.createdAt >= b.createdAt ? a : b));
-      const inConversation = rows
-        .filter((r) => r.conversationId === newest.conversationId)
-        .sort((a, b) => a.createdAt - b.createdAt);
-      const assistant = [...inConversation].reverse().find((r) => r.role === "assistant");
-      const user = [...inConversation].reverse().find((r) => r.role === "user");
-      const result: { user?: string; assistant?: string } = {};
-      if (user) result.user = user.content;
-      if (assistant) result.assistant = assistant.content;
-      return result;
-    } finally {
-      db.close();
-    }
-  });
+  return page.evaluate(readLatestExchangeInPage);
 }
 
 /**
@@ -862,7 +793,7 @@ export async function returnToChat(page: Page, pick: Pick): Promise<void> {
   await waitForUsableChat(page);
   await expectTriggerNames(page, pick);
   await expect
-    .poll(() => page.evaluate(() => window.__ecoPerf?.activeModelId() ?? null), {
+    .poll(() => page.evaluate(activeModelIdInPage), {
       timeout: RESIDENCY_SETTLE_MS,
       message: `returning to chat did not leave ${pick.modelId} resident`,
     })
@@ -891,46 +822,6 @@ export async function startNewConversation(page: Page): Promise<void> {
   });
   await expect(composer(page)).toBeEnabled({ timeout: 30_000 });
 }
-
-/**
- * Count the lookup requests a turn sent straight to the sources.
- *
- * Grounding is the one path that leaves the device, so "did a source card
- * appear" deserves a second, independent witness: whether any request actually
- * went to Wikipedia. A card with no request, or a request with no card, are
- * different findings and the row should be able to tell them apart.
- */
-/** The fetched-at the stubbed relay reports, so the chip's value is checkable. */
-export const WEB_SEARCH_STUB_FETCHED_AT = "2026-09-11T14:32:00.000Z";
-
-/** Three results in the relay's own shape (`apps/api/src/routes/search.ts`). */
-export const WEB_SEARCH_STUB_RESULTS = [
-  {
-    title: "Chicago weather — current conditions",
-    url: "https://example.invalid/chicago-weather",
-    snippet: "Light rain is falling across the Chicago area this afternoon.",
-    domain: "example.invalid",
-  },
-  {
-    title: "Chicago radar",
-    url: "https://example.invalid/chicago-radar",
-    snippet: "Radar shows a band of showers moving east over the city.",
-    domain: "example.invalid",
-  },
-  {
-    title: "Illinois forecast",
-    url: "https://example.invalid/illinois-forecast",
-    snippet: "Showers taper off this evening with clearing overnight.",
-    domain: "example.invalid",
-  },
-] as const;
-
-/** One call the app made to the relay, as the route handler saw it. */
-export type SearchRelayCall = {
-  method: string;
-  /** The raw request body, so a task can assert what was in it, not just that it went. */
-  body: string | null;
-};
 
 /**
  * Stand in for the search relay, and record every call to it.
@@ -973,6 +864,14 @@ export async function stubSearchRelay(context: BrowserContext): Promise<{
   };
 }
 
+/**
+ * Count the lookup requests a turn sent straight to the sources.
+ *
+ * Grounding is the one path that leaves the device, so "did a source card
+ * appear" deserves a second, independent witness: whether any request actually
+ * went to Wikipedia. A card with no request, or a request with no card, are
+ * different findings and the row should be able to tell them apart.
+ */
 export function watchLookupRequests(context: BrowserContext): {
   reset: () => void;
   urls: () => string[];
