@@ -17,6 +17,7 @@
 
 import { expect, type BrowserContext, type Page } from "@playwright/test";
 import type { GenerationReceipt } from "../../src/local-ai/lifecycle/generation-receipt";
+import { STUB_AUTH_SESSION } from "./stub-session";
 
 /**
  * The perf lane's own production port. A lane that serves elsewhere calls
@@ -60,21 +61,7 @@ export async function stubAuth(context: BrowserContext): Promise<void> {
     route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({
-        session: {
-          id: "perf-session",
-          userId: "perf-user-id",
-          expiresAt: "2099-01-01T00:00:00.000Z",
-        },
-        user: {
-          id: "perf-user-id",
-          email: "perf@eco.network",
-          name: "Perf User",
-          emailVerified: true,
-          createdAt: "2026-01-01T00:00:00.000Z",
-          updatedAt: "2026-01-01T00:00:00.000Z",
-        },
-      }),
+      body: JSON.stringify(STUB_AUTH_SESSION),
     }),
   );
   await context.route("**/api/auth/**", (route) =>

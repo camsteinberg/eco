@@ -160,6 +160,69 @@ ever reaches a real search engine: the fixed payload is what makes the chip's
 fetched-at time and the request body checkable, and the interception is also what
 catches a request the OFF arm should never have made.
 
+## The Safari run
+
+The WebLLM run above is still Chrome underneath. This one is real Safari,
+desktop Safari on this Mac, driven through Apple's `safaridriver` over
+WebDriver. It uses the same tasks, prompts and verdict rules (`lib/tasks.ts`)
+and writes its report in the same format to its own files. Playwright is only
+the test runner here; no Playwright browser starts.
+
+It walks tasks 1, 2 and 12 for now (`safari/target.ts` lists them), on the
+model the app serves desktop Safari (Eco Compact, Qwen3 0.6B on WebLLM).
+`ECO_ACCEPTANCE_TASKS` narrows the list, and asking for a task it cannot walk
+yet is an error, never a silent skip.
+
+You start the server yourself: a harness build, with `API_URL` pointing at
+the stub api the lane runs on 127.0.0.1:3131.
+
+```bash
+# build with the same flags as the Chrome lane (playwright.acceptance.config.ts)
+NEXT_PUBLIC_ECO_VALIDATION_HARNESS=true NEXT_PUBLIC_API_URL=http://127.0.0.1:3001 \
+NEXT_PUBLIC_ECO_MODEL_CDN_BASE=https://models.econetwork.ai \
+NEXT_PUBLIC_ENABLE_SERVICE_WORKER=true NEXT_PUBLIC_ENABLE_LOCAL_SW=true \
+  pnpm --filter @eco/web build
+API_URL=http://127.0.0.1:3131 PORT=3132 pnpm --filter @eco/web start
+
+# then, with safaridriver listening (`safaridriver -p 4444`) and Safari NOT running:
+ECO_SAFARI_TARGET=mac ECO_SAFARI_BASE_URL=http://127.0.0.1:3132 \
+  pnpm --filter @eco/web test:acceptance:safari
+```
+
+What is different from the Chrome lane:
+
+- **Every run is a genuine first run.** A WebDriver session starts with an
+  empty Safari profile. The walk opens chat, answers the first-run choice and
+  waits for the app to download and load its model, so task 1's time includes
+  the download. If the app sets up any model other than this device's pick,
+  the walk stops there.
+- **Typing and pressing.** A prompt is put into the composer the way a paste
+  does it: the value is set and an `input` event fires, as Playwright's
+  `insertText` does. WebDriver's send-keys would turn a newline into Enter.
+  Buttons get a real WebDriver click. A new conversation is the app's own
+  new-chat shortcut, dispatched to the page, so Safari's own Cmd+N never
+  fires.
+- **Nothing reaches Eco's real api.** The app's same-origin auth and `/v1`
+  proxy forward to `API_URL`. The stub there answers the signed-in session
+  and the search relay with the Chrome lane's own fixed payloads, and records
+  each search body. Before launching, the walk checks that a request to
+  `/v1/search` reaches the stub.
+
+Safety rules it keeps on this Mac (`safari/host.ts`):
+
+- If Safari is already running, it stops before touching anything, with exit
+  status 3. Those windows may be someone's own browsing, and `safaridriver`
+  has to launch Safari itself.
+- It ends the WebDriver session and then checks that Safari really quit,
+  using a plain `quit app` and never a script that closes windows. A Safari
+  that won't quit is a FAIL row.
+- It waits when the disk has under 12 GB free and stops under 8 GB, before
+  launch and before every task.
+
+The report is
+`test-results/acceptance-report-safari-mac.{json,md}`; its header names the
+Safari version, and its Method section says how this run differs.
+
 ## What it reports
 
 `test-results/acceptance-report.json` and `.md`: one table per model, one row
