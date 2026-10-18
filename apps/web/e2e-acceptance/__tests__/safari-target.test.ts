@@ -60,6 +60,12 @@ describe("safariLaneConfig", () => {
 
   it("refuses a task it has no Safari mechanism for, by number", () => {
     expect(() => safariLaneConfig({ ...MAC, [TASKS_ENV_VAR]: "1,7" })).toThrow(/task\(s\) 7/);
+    expect(() => safariLaneConfig({ ...MAC, [TASKS_ENV_VAR]: "8" })).toThrow(/task\(s\) 8/);
+  });
+
+  it("walks every task but the offline reload and the model switch, in the walk's order", () => {
+    expect(SAFARI_TASKS).toEqual([1, 2, 3, 4, 5, 6, 9, 10, 11, 12, 13, 14]);
+    expect(safariLaneConfig({ ...MAC, [TASKS_ENV_VAR]: "14,9,3" }).tasks).toEqual([3, 9, 14]);
   });
 
   it("reads the stub port, and refuses a bad one", () => {

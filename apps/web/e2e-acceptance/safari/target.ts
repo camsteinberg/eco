@@ -31,7 +31,7 @@ export const DEFAULT_STUB_PORT = 3131;
  * listed here has no Safari mechanism yet; asking for one is an error rather
  * than a silent skip, so a run never claims a task it did not walk.
  */
-export const SAFARI_TASKS: readonly number[] = [1, 2, 12];
+export const SAFARI_TASKS: readonly number[] = [1, 2, 3, 4, 5, 6, 9, 10, 11, 12, 13, 14];
 
 export type SafariTarget = "mac" | "ios";
 
