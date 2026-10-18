@@ -8,6 +8,7 @@ import { useState, useCallback, useEffect, useId, useLayoutEffect, useRef } from
 import { resolveActiveModelId } from "../../lib/active-model";
 import { copyTextWithFallback } from "../../lib/clipboard";
 import { normalizeStreamMarkdown } from "../../lib/stream-markdown-normalizer";
+import { splitThinkBlock } from "../../lib/think-block";
 import { canDeepen, SHORTER_MIN_COMPLETION_TOKENS } from "../../lib/reply-controls";
 import type { ReplyRegenerateControl } from "../../lib/reply-controls";
 import { useChatStore } from "../../stores/chatStore";
@@ -53,7 +54,7 @@ type MessageActionsProps = {
 export type AssistantReplyControl = "continue" | "check-source" | ReplyRegenerateControl;
 
 export function MessageActions({
-  content,
+  content: storedContent,
   role,
   onEdit,
   onRegenerate,
@@ -65,6 +66,8 @@ export function MessageActions({
   hasCitation = false,
   lookupsEnabled = true,
 }: MessageActionsProps) {
+  // What the person sees is the answer, never the think block stored ahead of it.
+  const content = role === "assistant" ? splitThinkBlock(storedContent).displayContent : storedContent;
   const [copied, setCopied] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);

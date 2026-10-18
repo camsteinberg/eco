@@ -4,6 +4,7 @@
 import { openEcoDB, getActiveBranch } from "./db";
 import type { DbConversation, DbMessage } from "./db";
 import { normalizeStreamMarkdown } from "./stream-markdown-normalizer";
+import { splitThinkBlock } from "./think-block";
 
 /**
  * The conversation record is not in this device's database.
@@ -105,7 +106,9 @@ export async function exportConversationAsMarkdown(
     // Assistant bodies are stored as the model wrote them (the prompt re-render
     // must match the KV cache byte for byte); clean them here, as the renderer does.
     lines.push(
-      msg.role === "assistant" ? normalizeStreamMarkdown(msg.content, { complete: true }) : msg.content,
+      msg.role === "assistant"
+        ? normalizeStreamMarkdown(splitThinkBlock(msg.content).displayContent, { complete: true })
+        : msg.content,
     );
     if (msg.citations && msg.citations.length > 0) {
       // A grounded answer without its sources is indistinguishable from one the

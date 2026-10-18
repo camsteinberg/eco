@@ -176,6 +176,19 @@ describe("generateShareableHTML", () => {
     expect(html).not.toContain("*   Track");
   });
 
+  it("leaves out the empty think block a reasoning model writes before its answer", async () => {
+    mockDb.get.mockResolvedValue(mockConversation);
+    vi.mocked(getActiveBranch).mockResolvedValue([
+      { ...mockMessages[0]!, role: "user", content: "hi" },
+      { ...mockMessages[1]!, role: "assistant", content: "<think> </think>\n\nHello back" },
+    ]);
+
+    const html = await generateShareableHTML("conv-1");
+
+    expect(html).toContain("Hello back");
+    expect(html).not.toContain("think&gt;");
+  });
+
   it("includes conversation title", async () => {
     mockDb.get.mockResolvedValue(mockConversation);
     vi.mocked(getActiveBranch).mockResolvedValue(mockMessages);

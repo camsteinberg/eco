@@ -41,6 +41,7 @@ import type { ToolCallDisplay } from "../../lib/tool-parser";
 import type { Citation } from "../../lib/citation-parser";
 import type { GroundingVerification } from "../../lib/tools";
 import type { MessageReaction } from "../../lib/db";
+import { splitThinkBlock } from "../../lib/think-block";
 
 type MessageBubbleProps = {
   role: "user" | "assistant" | "system";
@@ -225,17 +226,10 @@ export function MessageBubble({
     citations?.some((c) => c.source === "Web search") ? "web-search" : "direct";
 
   // Parse <think>...</think> blocks from assistant content
-  const { thinkContent, displayContent } = useMemo(() => {
-    if (isUser) return { thinkContent: null, displayContent: content };
-    const match = /^<think>([\s\S]*?)<\/think>\s*/.exec(content);
-    if (match) {
-      return {
-        thinkContent: match[1]?.trim() ?? null,
-        displayContent: content.slice(match[0].length),
-      };
-    }
-    return { thinkContent: null, displayContent: content };
-  }, [isUser, content]);
+  const { thinkContent, displayContent } = useMemo(
+    () => (isUser ? { thinkContent: null, displayContent: content } : splitThinkBlock(content)),
+    [isUser, content],
+  );
 
   // Parse file blocks from user messages
   const parsedContent = useMemo(() => {

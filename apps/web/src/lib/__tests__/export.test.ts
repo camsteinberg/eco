@@ -167,6 +167,21 @@ describe("exportConversationAsMarkdown", () => {
     expect(result).toContain("keep  my  spacing");
   });
 
+  it("leaves out the empty think block a reasoning model writes before its answer", async () => {
+    // Qwen3's template stores "<think> </think>" ahead of every reply; the chat
+    // hides it (MessageBubble), so the export must not print it either.
+    mockDb.get.mockResolvedValue(mockConversation);
+    vi.mocked(getActiveBranch).mockResolvedValue([
+      mockMessages[0]!,
+      { ...mockMessages[1]!, content: "<think> </think>\n\nHi there" },
+    ]);
+
+    const result = await exportConversationAsMarkdown("conv-1");
+
+    expect(result).toContain("Hi there");
+    expect(result).not.toContain("think>");
+  });
+
   it("states that the file holds the active branch only", async () => {
     mockDb.get.mockResolvedValue(mockConversation);
     vi.mocked(getActiveBranch).mockResolvedValue(branchMessages);

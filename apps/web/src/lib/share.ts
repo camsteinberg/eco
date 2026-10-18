@@ -5,6 +5,7 @@ import { openEcoDB, getActiveBranch } from "./db";
 import { ConversationNotFoundError, exportConversationAsMarkdown, downloadFile } from "./export";
 import { copyTextWithFallback } from "./clipboard";
 import { normalizeStreamMarkdown } from "./stream-markdown-normalizer";
+import { splitThinkBlock } from "./think-block";
 
 const CLIPBOARD_WRITE_TIMEOUT_MS = 1500;
 
@@ -70,7 +71,9 @@ export async function generateShareableHTML(
       const roleClass = msg.role === "user" ? "user" : "assistant";
       const timestamp = new Date(msg.createdAt).toLocaleString();
       const content = escapeHtml(
-        msg.role === "assistant" ? normalizeStreamMarkdown(msg.content, { complete: true }) : msg.content,
+        msg.role === "assistant"
+          ? normalizeStreamMarkdown(splitThinkBlock(msg.content).displayContent, { complete: true })
+          : msg.content,
       );
 
       return `      <div class="message ${roleClass}">

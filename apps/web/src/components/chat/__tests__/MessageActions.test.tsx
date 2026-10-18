@@ -93,6 +93,20 @@ describe("MessageActions", () => {
     });
   });
 
+  it("copies a reply without the empty think block stored ahead of it, in both forms", async () => {
+    render(<MessageActions content={"<think> </think>\n\nPlain answer"} role="assistant" />);
+    fireEvent.click(screen.getByRole("button", { name: /copy message/i }));
+    await waitFor(() => {
+      expect(writeTextMock).toHaveBeenCalledWith("Plain answer");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /more actions/i }));
+    fireEvent.click(screen.getByText("Copy as Markdown"));
+    await waitFor(() => {
+      expect(writeTextMock).toHaveBeenLastCalledWith("Plain answer");
+    });
+  });
+
   it("copies a canonical exact-answer VERBATIM (plainText) — never strip-markdown, so `*` survives", async () => {
     // The launch-bar regression: a computed value "17 * 23 = 391" run through
     // strip-markdown loses its `*` (remark parses it as emphasis). A canonical
