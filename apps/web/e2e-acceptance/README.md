@@ -220,6 +220,11 @@ What is different from the Chrome lane:
   each search body. Before launching, the walk checks that a request to
   `/v1/search` reaches the stub.
 
+Give the run the Mac to itself. Safari drops a real click on a page whose
+window is not in front, and runs a hidden page differently, so the walk waits
+(and says so) while someone else holds the front. A locked screen hides the
+page too, so start it under `caffeinate -di` when nobody will be watching.
+
 Safety rules it keeps on this Mac (`safari/host.ts`):
 
 - If Safari is already running, it stops before touching anything, with exit
