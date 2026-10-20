@@ -48,6 +48,22 @@ export default tseslint.config(
     },
   },
   {
+    // Browser code only; tests run under Node, where native async generators
+    // are fine. A method (`async *name()`) is a FunctionExpression.
+    files: ["src/**/*.{ts,tsx}", "app/**/*.{ts,tsx}"],
+    ignores: ["**/*.test.{ts,tsx}", "**/__tests__/**"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        ...["FunctionDeclaration", "FunctionExpression"].map((node) => ({
+          selector: `${node}[async=true][generator=true]`,
+          message:
+            "Native async generators crash Safari 27 tabs (JavaScriptCore) when they resume one another — use asyncStream() from src/local-ai/runtime/async-stream.ts.",
+        })),
+      ],
+    },
+  },
+  {
     files: ["public/sw.js"],
     languageOptions: {
       globals: {
