@@ -41,6 +41,7 @@
 
 import type { LogitProcessor } from '@mlc-ai/web-llm';
 import type { ModelConfig } from '../types';
+import { asyncStream, wait, type StreamBody } from './async-stream';
 import { StreamLogprobAccumulator } from './confidence';
 import {
   AdapterError,
@@ -403,7 +404,12 @@ export class WebLLMAdapter implements RuntimeAdapter {
     emit?.({ phase: 'load-finish', at: now(), note: 'backend=webgpu' });
   }
 
-  async *generate(messages: ChatMessage[], options?: GenerateOptions): AsyncIterable<TokenEvent> {
+  generate(messages: ChatMessage[], options?: GenerateOptions): AsyncIterable<TokenEvent> {
+    return asyncStream(() => this.generateBody(messages, options));
+  }
+
+  /** `generate()`'s body; `yield* wait(p)` is its `await p` (see `async-stream.ts`). */
+  private *generateBody(messages: ChatMessage[], options?: GenerateOptions): StreamBody<TokenEvent> {
     if (!this.engine) {
       throw new AdapterError('Not loaded', 'init-failed', false);
     }
@@ -442,7 +448,7 @@ export class WebLLMAdapter implements RuntimeAdapter {
     // A stopped or abandoned previous reply still holds the engine's request
     // lock until its stream is read to the end, and its end also stores the
     // reply in the conversation the KV gate reads below.
-    await this.finishOpenStream(engine);
+    yield* wait(this.finishOpenStream(engine));
     if (aborted) {
       yield stopped;
       return;
@@ -474,7 +480,7 @@ export class WebLLMAdapter implements RuntimeAdapter {
       // conversation here and the whole `messages` array is prefilled. A
       // failure here shares the create() failure path below: it means the
       // engine cannot serve this request either.
-      if (!kvGate?.prepare(messages)) await engine.resetChat();
+      if (!kvGate?.prepare(messages)) yield* wait(engine.resetChat());
       if (aborted) {
         yield stopped;
         return;
@@ -502,7 +508,7 @@ export class WebLLMAdapter implements RuntimeAdapter {
           : undefined;
       if (pipeline) pipeline.logitProcessor = promptPenalty;
 
-      chunks = await engine.chat.completions.create({
+      chunks = yield* wait(engine.chat.completions.create({
         messages,
         stream: true,
         max_tokens: options?.maxTokens ?? 512,
@@ -540,7 +546,7 @@ export class WebLLMAdapter implements RuntimeAdapter {
         // The drain loop below tolerates that final empty-choices chunk (no
         // token, no early break); see the finish_reason NOTE.
         stream_options: { include_usage: true },
-      });
+      }));
     } catch (err) {
       emit?.({
         phase: 'generation-fail',
@@ -569,7 +575,7 @@ export class WebLLMAdapter implements RuntimeAdapter {
     let lastFinishReason: string | undefined;
     try {
       while (!aborted) {
-        const step = await stream.next();
+        const step = yield* wait(stream.next());
         if (step.done) {
           if (this.openStream === stream) this.openStream = null;
           break;

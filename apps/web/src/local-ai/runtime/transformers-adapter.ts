@@ -34,6 +34,7 @@ import {
   type RuntimeBackend,
   type TokenEvent,
 } from './types';
+import { asyncStream, wait, type StreamBody } from './async-stream';
 import type { SystemRoleSupport } from './chat-template-adapter';
 import type { CjkSuppressionTelemetry } from './cjk-suppression';
 import type { ConfidenceSummary } from './confidence';
@@ -515,7 +516,12 @@ export class TransformersAdapter implements RuntimeAdapter {
     });
   }
 
-  async *generate(messages: ChatMessage[], options?: GenerateOptions): AsyncIterable<TokenEvent> {
+  generate(messages: ChatMessage[], options?: GenerateOptions): AsyncIterable<TokenEvent> {
+    return asyncStream(() => this.generateBody(messages, options));
+  }
+
+  /** `generate()`'s body; `yield* wait(p)` is its `await p` (see `async-stream.ts`). */
+  private *generateBody(messages: ChatMessage[], options?: GenerateOptions): StreamBody<TokenEvent> {
     if (!this.worker || !this.currentModel) {
       throw new AdapterError('Not loaded', 'init-failed', false);
     }
@@ -666,8 +672,12 @@ export class TransformersAdapter implements RuntimeAdapter {
     armWatchdog(firstTokenMs); // start the first-token window as soon as generate is posted
 
     try {
-      for await (const event of controller.iterate()) {
-        yield event;
+      // `iterate()` has no `return()`, so leaving this loop early closes nothing.
+      const events = controller.iterate()[Symbol.asyncIterator]();
+      for (;;) {
+        const step = yield* wait(events.next());
+        if (step.done) break;
+        yield step.value;
       }
     } finally {
       clearWatchdog();
