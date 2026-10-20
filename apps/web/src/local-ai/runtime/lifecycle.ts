@@ -41,6 +41,7 @@ import type {
   TokenEvent,
 } from './types';
 import { AdapterError } from './types';
+import { asyncStream, wait, type StreamBody } from './async-stream';
 import { acquireGpuOwnership, releaseGpuOwnership } from './gpu-ownership';
 import {
   beginLoadMark,
@@ -377,10 +378,18 @@ export async function loadModel(
  * Generate through the currently-active adapter. Throws if no adapter is
  * loaded — callers must call `loadModel` first.
  */
-export async function* generate(
+export function generate(
   messages: ChatMessage[],
   options?: GenerateOptions,
 ): AsyncIterable<TokenEvent> {
+  return asyncStream(() => generateBody(messages, options));
+}
+
+/** `generate()`'s body; `yield* wait(p)` is its `await p` (see `async-stream.ts`). */
+function* generateBody(
+  messages: ChatMessage[],
+  options?: GenerateOptions,
+): StreamBody<TokenEvent> {
   const adapter = state.activeAdapter;
   if (!adapter) {
     throw new AdapterError(
@@ -397,22 +406,44 @@ export async function* generate(
   let firstTokenMark = state.firstTokenMark;
   state.firstTokenMark = null;
   try {
-    for await (const event of adapter.generate(messages, options)) {
-      if (firstTokenMark && event.kind === 'token') {
-        recordLoadPass(firstTokenMark.modelId);
-        firstTokenMark.clear();
-        firstTokenMark = null;
+    // Read by hand, closing the adapter's stream as `for await` would: left
+    // while still open (a throw here, or the consumer's `return()`), it is
+    // closed with `return()` and waited for, so the adapter's `finally` (WebLLM
+    // hands its stream to `finishOpenStream` there) runs before this one. A
+    // throw keeps its own error over a failed close.
+    const events = adapter.generate(messages, options)[Symbol.asyncIterator]();
+    let open = false;
+    try {
+      for (;;) {
+        open = false;
+        const step = yield* wait(events.next());
+        if (step.done) break;
+        open = true;
+        const event = step.value;
+        if (firstTokenMark && event.kind === 'token') {
+          recordLoadPass(firstTokenMark.modelId);
+          firstTokenMark.clear();
+          firstTokenMark = null;
+        }
+        if (event.kind === 'error' && event.code && COOLDOWN_TRIGGER_CODES.has(event.code)) {
+          crashedCode = event.code;
+        }
+        if (event.kind === 'error' && event.code && FAULT_UNLOAD_CODES.has(event.code)) {
+          faultCode = event.code;
+        }
+        if (event.kind === 'error' && (event.code === 'device-reclaimed' || event.code === 'device-lost')) {
+          gpuLostThisPage = true;
+        }
+        yield event;
       }
-      if (event.kind === 'error' && event.code && COOLDOWN_TRIGGER_CODES.has(event.code)) {
-        crashedCode = event.code;
+    } catch (err) {
+      if (open && events.return) {
+        open = false;
+        yield* wait(Promise.resolve(events.return()).catch(() => undefined));
       }
-      if (event.kind === 'error' && event.code && FAULT_UNLOAD_CODES.has(event.code)) {
-        faultCode = event.code;
-      }
-      if (event.kind === 'error' && (event.code === 'device-reclaimed' || event.code === 'device-lost')) {
-        gpuLostThisPage = true;
-      }
-      yield event;
+      throw err;
+    } finally {
+      if (open && events.return) yield* wait(events.return());
     }
   } catch (err) {
     const code = errorCode(err);

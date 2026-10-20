@@ -58,6 +58,8 @@ import {
 } from './runtime/lifecycle';
 import { selectRuntime } from './runtime/runtime-router';
 import { getDeviceProfile } from './device/profile';
+import type { TokenEvent } from './runtime/types';
+import { asyncStream, wait, type StreamBody } from './runtime/async-stream';
 import { setSmokeGenerationFn, hasSmokeGenerationFn } from './lifecycle/smoke';
 import { reconcilePreparingSlots, reconcileReadySlots, runSelfHeal } from './lifecycle/self-heal';
 import { pickStorage } from './download/storage';
@@ -248,16 +250,30 @@ export async function bootstrapLocalAi(options?: BootstrapOptions): Promise<void
 
   // ── Smoke generation seam ───────────────────────────────────────────────
   if (!hasSmokeGenerationFn()) {
-    setSmokeGenerationFn(async function* (model, messages, opts) {
-      await loadModelInLifecycle(model, { signal: opts.signal });
+    setSmokeGenerationFn((model, messages, opts) => asyncStream(function* (): StreamBody<TokenEvent> {
+      yield* wait(loadModelInLifecycle(model, { signal: opts.signal }));
       // Hand the smoke runner the load/generation boundary so the token
       // deadline starts now — not during the (slow, cold) load above.
       opts.onLoadComplete?.();
-      yield* generateThroughLifecycle(messages, {
+      const events = generateThroughLifecycle(messages, {
         signal: opts.signal,
         maxTokens: opts.maxTokens,
-      });
-    });
+      })[Symbol.asyncIterator]();
+      // The smoke runner stops reading with a `break`; close the lifecycle's
+      // stream then, as the `yield*` this replaces did.
+      let open = false;
+      try {
+        for (;;) {
+          open = false;
+          const step = yield* wait(events.next());
+          if (step.done) break;
+          open = true;
+          yield step.value;
+        }
+      } finally {
+        if (open && events.return) yield* wait(events.return());
+      }
+    }));
   }
 
   // ── Self-heal at boot ──────────────────────────────────────────────────
