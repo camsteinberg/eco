@@ -13,7 +13,8 @@
  *
  *   - free → acquire immediately.
  *   - held by readiness/warmup → WAIT (bounded, abortable). Mount-time
- *     warmup holds 'readiness' for up to ~90s and users type immediately;
+ *     warmup holds 'readiness' for its load (up to the five-minute cold-load
+ *     budget on a slow device) plus a 90s first word, and users type immediately;
  *     before the lease those sends queued behind the lifecycle lock and
  *     succeeded, so failing fast here would be a regression. The chat UI
  *     already shows the honest "loading" phase during this window.
@@ -38,13 +39,15 @@ import {
   isLocalHeavyWorkLeaseOwnedByThisContext,
   type LocalHeavyWorkKind,
 } from '../../lib/local-heavy-work-owner';
+import { SMOKE_LOAD_BUDGET_MAX_MS } from '../../local-ai/lifecycle/smoke';
 
 /**
- * Wait budget: outlasts the longest waitable holder (the 90s mount-warmup
- * smoke) with a little slack, so a send during warmup waits it out rather
+ * Wait budget: outlasts the longest waitable holder — the mount-warmup smoke,
+ * whose load can take the whole cold-load budget and whose first word then
+ * gets 90s — with a little slack, so a send during warmup waits it out rather
  * than erroring seconds before the runtime frees up.
  */
-export const GENERATION_LEASE_WAIT_MS = 100_000;
+export const GENERATION_LEASE_WAIT_MS = SMOKE_LOAD_BUDGET_MAX_MS + 100_000;
 const POLL_INTERVAL_MS = 250;
 
 /** Holder kinds worth waiting for: transient prep that releases on its own. */

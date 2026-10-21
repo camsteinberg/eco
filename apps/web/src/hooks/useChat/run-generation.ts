@@ -33,7 +33,9 @@ import type { TokenEvent } from "../../local-ai/runtime/types";
  * Time-to-first-token deadline. A generation that streams no first token within
  * this window is treated as wedged rather than left to hang unbounded. Only the
  * FIRST token is bounded; once a model is producing tokens the read loop is
- * unbounded again.
+ * unbounded again. The clock starts when the model is loaded
+ * (`TokenStream.loaded`), so it bounds the prefill and first token only; the
+ * load has its own, longer budget inside `stream()`.
  */
 const TTFT_DEADLINE_MS = 90_000;
 
@@ -70,7 +72,8 @@ export type RunGenerationParams = {
 };
 
 /**
- * Await the next event, but bound the wait for the FIRST token by `deadlineMs`.
+ * Await the next event, but bound the wait for the FIRST token by `deadlineMs`,
+ * counted from when the model is loaded.
  *
  * The deadline must WIN the race, not merely signal — a bare `setTimeout →
  * cancel()` can silently never take effect if the underlying iterator never
@@ -85,24 +88,31 @@ async function readFirstEventWithDeadline(
   deadlineMs: number,
 ): Promise<IteratorResult<TokenEvent>> {
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let settled = false;
   const deadline = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => {
-      // Reject FIRST so the race settles as a timeout, THEN cancel the stream to
-      // release the runtime. Cancelling first would resolve the pending next()
-      // as `done` and win the race, silently masking the timeout as a clean end.
-      reject(
-        new LocalInferenceStreamError(
-          "TIMEOUT",
-          `No first token within ${deadlineMs}ms — treating the generation as timed out.`,
-          true,
-        ),
-      );
-      stream.cancel();
-    }, deadlineMs);
+    void stream.loaded.then(() => {
+      // The read may already be over (a token, an error, a Stop mid-load).
+      if (settled) return;
+      timer = setTimeout(() => {
+        // Reject FIRST so the race settles as a timeout, THEN cancel the stream
+        // to release the runtime. Cancelling first would resolve the pending
+        // next() as `done` and win the race, silently masking the timeout as a
+        // clean end.
+        reject(
+          new LocalInferenceStreamError(
+            "TIMEOUT",
+            `No first token within ${deadlineMs}ms — treating the generation as timed out.`,
+            true,
+          ),
+        );
+        stream.cancel();
+      }, deadlineMs);
+    });
   });
   try {
     return await Promise.race([iterator.next(), deadline]);
   } finally {
+    settled = true;
     if (timer !== undefined) clearTimeout(timer);
   }
 }

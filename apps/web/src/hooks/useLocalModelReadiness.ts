@@ -109,7 +109,8 @@ async function warmSelectedModel(): Promise<boolean> {
   try {
     // probeCache early-exit in runSmoke is the backstop if the cache was
     // cleared between the 'ready' gate and here — it returns
-    // { passed: false } without starting a download.
+    // { passed: false } without starting a download. The 90s bounds the first
+    // word only; the load gets the budget setup proved for this model.
     const result = await runSmoke(slot, warmModel, { timeoutMs: 90_000 });
     // A model answered in this page: a later lost device may reload it again.
     if (result.passed) clearGpuReloadGuard();

@@ -8,7 +8,10 @@
  * offline-continue) calls this and nothing else. It is the whole distance
  * between "here is a prompt and a model id" and an `AsyncIterable<TokenEvent>`:
  *
- *   - Bootstrap (idempotent) and `loadModel` are called on EVERY stream.
+ *   - Bootstrap (idempotent) and `loadModel` are called on EVERY stream,
+ *     together bounded by the cold-load budget setup proved for the model on
+ *     this device (`defaultLoadBudgetMs`). `loaded` settles when they finish,
+ *     which is where the chat's first-token clock starts.
  *     `runtime/lifecycle` is the single source of truth for "which model is
  *     loaded"; it serializes load/unload under a lock and no-ops a repeat load
  *     of the active model. We delegate rather than keep a parallel cache that
@@ -47,6 +50,7 @@
 import { bootstrapLocalAi } from '../bootstrap';
 import { getModel } from '../catalog/catalog';
 import { getEvalCandidateModel } from '../eval/eval-candidates';
+import { defaultLoadBudgetMs } from '../lifecycle/smoke';
 import {
   generate as lifecycleGenerate,
   loadModel as lifecycleLoadModel,
@@ -130,6 +134,13 @@ export function replyReserve(model: ModelConfig, requested: number | undefined):
 export type TokenStream = AsyncIterable<TokenEvent> & {
   /** Abort the load and the generation. Synchronous, idempotent. */
   cancel(): void;
+  /**
+   * Settles once the model is loaded and the reply is about to be prepared —
+   * straight away when it was already loaded. Never rejects: a failed or
+   * cancelled load surfaces through the iterator instead. The chat's
+   * first-token clock starts here, so it never counts the load.
+   */
+  readonly loaded: Promise<void>;
 };
 
 /**
@@ -175,6 +186,17 @@ export function stream(
   options: StreamOptions = {},
 ): TokenStream {
   const abortController = new AbortController();
+  // The load's own signal. `cancel()` aborts it with the stream; the load
+  // budget aborts it ALONE, so a load that ran out of time fails as an error
+  // instead of ending like a cancelled stream (see `abortableIterator`).
+  const loadController = new AbortController();
+  abortController.signal.addEventListener('abort', () => {
+    loadController.abort();
+  }, { once: true });
+  let markLoaded!: () => void;
+  const loaded = new Promise<void>((resolve) => {
+    markLoaded = resolve;
+  });
 
   // An `asyncStream` body: `yield* wait(p)` is its `await p` (see `async-stream.ts`).
   function* run(): StreamBody<TokenEvent> {
@@ -188,7 +210,7 @@ export function stream(
     // progress/lifecycle callbacks are omitted when the caller didn't supply
     // them (house spread-omit style).
     const loadOptions: LoadOptions = {
-      signal: abortController.signal,
+      signal: loadController.signal,
       ...(options.onLoadProgress != null ? { onLoadProgress: options.onLoadProgress } : {}),
       ...(options.onLifecycleEvent != null ? { onLifecycleEvent: options.onLifecycleEvent } : {}),
     };
@@ -196,6 +218,7 @@ export function stream(
     try {
       const validationFixture = getValidationLocalGenerationFixture(model.id);
       if (validationFixture) {
+        markLoaded();
         for (const chunk of validationFixture.chunks) {
           if (abortController.signal.aborted) return;
           yield { kind: 'token', text: chunk };
@@ -212,13 +235,37 @@ export function stream(
       }
 
       let adapter: RuntimeAdapter;
+      // The load gets the budget setup proved for this model on this device. A
+      // later visit's cached load can take minutes on a slow laptop; bounding
+      // it by the 90s first-token clock failed every visit after setup. The
+      // race (not just the signal) makes the budget win even while the load
+      // waits on the lifecycle's lock, which no signal can interrupt.
+      const loadBudgetMs = defaultLoadBudgetMs(model);
+      let loadTimer: ReturnType<typeof setTimeout> | undefined;
+      const loadDeadline = new Promise<never>((_, reject) => {
+        loadTimer = setTimeout(() => {
+          reject(
+            new LocalInferenceStreamError(
+              'TIMEOUT',
+              `The model did not finish loading within ${String(Math.round(loadBudgetMs / 1000))}s.`,
+              true,
+            ),
+          );
+          loadController.abort();
+        }, loadBudgetMs);
+      });
       try {
         // Both are safe to call repeatedly: bootstrap is idempotent, and
         // lifecycle.loadModel returns the active adapter without re-loading
         // when the same model id is already active.
-        yield* wait(bootstrapLocalAi());
-        adapter = yield* wait(lifecycleLoadModel(model, loadOptions));
+        adapter = yield* wait(Promise.race([
+          bootstrapLocalAi().then(() => lifecycleLoadModel(model, loadOptions)),
+          loadDeadline,
+        ]));
       } catch (err) {
+        // The load's signal aborted while the stream's did not: the budget ran
+        // out. Out of time is not a missing file, so skip the presence check.
+        if (loadController.signal.aborted && !abortController.signal.aborted) throw err;
         // A load-phase OOM means the model doesn't fit this device right now —
         // a different problem (and different advice) from a mid-reply OOM,
         // which is usually the prompt's size.
@@ -246,8 +293,11 @@ export function stream(
           );
         }
         throw err;
+      } finally {
+        clearTimeout(loadTimer);
       }
       if (abortController.signal.aborted) return;
+      markLoaded();
 
       // ── History window ────────────────────────────────────────────────────
       // Picked HERE, with the loaded adapter's real tokenizer, rather than in
@@ -356,6 +406,7 @@ export function stream(
   return {
     [Symbol.asyncIterator]: () => abortableIterator(asyncStream(run), abortController.signal),
     cancel: () => abortController.abort(),
+    loaded,
   };
 }
 
