@@ -17,6 +17,7 @@ import {
   type SmokeGenerationFn,
 } from '../smoke';
 import { loadDiagnostics, clearDiagnostics } from '../../diagnostics/capture';
+import { getDeviceProfile, probeWebgpuSupport, resetProbedWebgpuCapability } from '../../device/profile';
 
 const webllmModelInCacheMock = vi.hoisted(() => vi.fn());
 vi.mock('../../runtime/webllm-cache-bridge', () => ({
@@ -113,6 +114,11 @@ describe('computeSmokeLoadBudgetMs', () => {
     expect(weak).toBeGreaterThan(SMOKE_LOAD_BUDGET_MIN_MS);
   });
 
+  it('treats a desktop with no usable GPU (the CPU path) as weak', () => {
+    const weak = computeSmokeLoadBudgetMs({ ...STRONG, webgpuSupport: 'wasm-only', modelSizeGB: 0.5 });
+    expect(weak).toBeGreaterThan(SMOKE_LOAD_BUDGET_MIN_MS);
+  });
+
   it('treats mobile as weak', () => {
     const weak = computeSmokeLoadBudgetMs({
       deviceMemoryGB: 8,
@@ -190,12 +196,19 @@ describe('computeSmokeTokenDeadlineMs', () => {
     ['mobile', { ...STRONG, isMobile: true }],
     ['4 or fewer cores', { ...STRONG, hardwareConcurrency: 4 }],
     ['4 GB or less reported', { ...STRONG, deviceMemoryGB: 4 }],
+    ['no usable GPU (the CPU path)', { ...STRONG, webgpuSupport: 'wasm-only' as const }],
+    ['a GPU without shader-f16', { ...STRONG, webgpuSupport: 'webgpu' as const, webgpuShaderF16: false }],
   ])('gives a weak device (%s) 90s', (_label, input) => {
     expect(computeSmokeTokenDeadlineMs(input)).toBe(90_000);
   });
 
   it('does not count unknown signals as weak', () => {
     expect(computeSmokeTokenDeadlineMs({ deviceMemoryGB: 0, hardwareConcurrency: null, isMobile: false })).toBe(15_000);
+  });
+
+  it('keeps 15s for a GPU with shader-f16, or one not probed yet', () => {
+    expect(computeSmokeTokenDeadlineMs({ ...STRONG, webgpuSupport: 'webgpu', webgpuShaderF16: true })).toBe(15_000);
+    expect(computeSmokeTokenDeadlineMs({ ...STRONG, webgpuSupport: 'webgpu' })).toBe(15_000);
   });
 });
 
@@ -241,7 +254,30 @@ describe('runSmoke — the default first-token deadline follows the device', () 
   });
 
   it('still fails a strong desktop at 15s', async () => {
-    expect(await smokeOn('?eco-force-platform=desktop&eco-force-device-memory=8', 12)).toBe(false);
+    expect(
+      await smokeOn('?eco-force-platform=desktop&eco-force-device-memory=8&eco-force-capability=webgpu', 12),
+    ).toBe(false);
+  });
+
+  it('waits past 15s for a desktop with no usable GPU (the CPU path)', async () => {
+    expect(
+      await smokeOn('?eco-force-platform=desktop&eco-force-device-memory=8&eco-force-capability=wasm', 12),
+    ).toBe(true);
+  });
+
+  it('waits past 15s for a desktop whose GPU lacks shader-f16', async () => {
+    Object.defineProperty(navigator, 'gpu', {
+      value: { requestAdapter: async () => ({ features: new Set<string>(), limits: {} }) },
+      configurable: true,
+    });
+    try {
+      expect(await probeWebgpuSupport()).toBe('webgpu');
+      expect(getDeviceProfile().webgpuShaderF16).toBe(false);
+      expect(await smokeOn('?eco-force-platform=desktop&eco-force-device-memory=8', 12)).toBe(true);
+    } finally {
+      delete (navigator as { gpu?: unknown }).gpu;
+      resetProbedWebgpuCapability();
+    }
   });
 });
 
