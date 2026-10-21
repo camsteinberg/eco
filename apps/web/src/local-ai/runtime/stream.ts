@@ -63,6 +63,7 @@ import {
 } from './types';
 import type { ModelConfig } from '../types';
 import { LocalInferenceStreamError } from './errors';
+import { asyncStream, wait, type EventStream, type StreamBody } from './async-stream';
 import {
   GPU_RECONNECT_MESSAGE,
   LOAD_INTERRUPTED_CHAT_MESSAGE,
@@ -174,7 +175,8 @@ export function stream(
 ): TokenStream {
   const abortController = new AbortController();
 
-  async function* run(): AsyncGenerator<TokenEvent> {
+  // An `asyncStream` body: `yield* wait(p)` is its `await p` (see `async-stream.ts`).
+  function* run(): StreamBody<TokenEvent> {
     const model = getRuntimeModel(modelId);
     if (!model) {
       throw new LocalInferenceStreamError('NOT_IN_CATALOG', NOT_IN_CATALOG_MESSAGE, true);
@@ -213,8 +215,8 @@ export function stream(
         // Both are safe to call repeatedly: bootstrap is idempotent, and
         // lifecycle.loadModel returns the active adapter without re-loading
         // when the same model id is already active.
-        await bootstrapLocalAi();
-        adapter = await lifecycleLoadModel(model, loadOptions);
+        yield* wait(bootstrapLocalAi());
+        adapter = yield* wait(lifecycleLoadModel(model, loadOptions));
       } catch (err) {
         // A load-phase OOM means the model doesn't fit this device right now —
         // a different problem (and different advice) from a mid-reply OOM,
@@ -236,9 +238,11 @@ export function stream(
           && !abortController.signal.aborted
           && (!(err instanceof AdapterError) || err.code === 'generation-failed')
         ) {
-          await import('../lifecycle/self-heal')
-            .then(({ demoteWebllmSlotsWithMissingFiles }) => demoteWebllmSlotsWithMissingFiles(model))
-            .catch(() => undefined);
+          yield* wait(
+            import('../lifecycle/self-heal')
+              .then(({ demoteWebllmSlotsWithMissingFiles }) => demoteWebllmSlotsWithMissingFiles(model))
+              .catch(() => undefined),
+          );
         }
         throw err;
       }
@@ -250,14 +254,14 @@ export function stream(
       // even the final user turn alone does not fit — the same terminal
       // condition WebLLM and Chrome's Prompt API raise.
       const countTokens = adapter.countTokens?.bind(adapter);
-      const selection = await selectWindow(messages, {
+      const selection = yield* wait(selectWindow(messages, {
         contextTokens: model.capabilities.contextTokens,
         maxNewTokens: replyReserve(model, options.maxTokens),
         ...(countTokens ? { countTokens } : {}),
         ...(options.evictionQuantumFraction !== undefined
           ? { evictionQuantumFraction: options.evictionQuantumFraction }
           : {}),
-      });
+      }));
       if (!selection.fits) {
         throw new LocalInferenceStreamError(
           'CONTEXT_WINDOW_EXCEEDED',
@@ -288,27 +292,48 @@ export function stream(
         ...(options.onLifecycleEvent != null ? { onLifecycleEvent: options.onLifecycleEvent } : {}),
       });
 
-      for await (const event of iter) {
-        if (event.kind === 'error') {
-          throw translateAdapterError(event.code, event.reason);
+      // Read by hand, closing the lifecycle's stream as `for await` would (see
+      // `lifecycle.generate`): left while still open, it is closed with
+      // `return()` and waited for before the catch below; a throw keeps its
+      // own error over a failed close.
+      const events = iter[Symbol.asyncIterator]();
+      let open = false;
+      try {
+        for (;;) {
+          open = false;
+          const step = yield* wait(events.next());
+          if (step.done) break;
+          open = true;
+          const event = step.value;
+          if (event.kind === 'error') {
+            throw translateAdapterError(event.code, event.reason);
+          }
+          if (event.kind === 'done') {
+            logDoneTelemetry(event);
+            // The window is this layer's decision, so this layer reports it —
+            // adapters know nothing about it.
+            yield {
+              ...event,
+              windowStartIndex: selection.windowStartIndex,
+              countedWithTokenizer: selection.countedWithTokenizer,
+            };
+            continue;
+          }
+          yield event;
+          if (fault === 'mid-reply') {
+            // Leaving the loop by throwing closes the runtime's stream part-way,
+            // as a real mid-reply fault does.
+            throw new LocalInferenceStreamError('LOCAL_INFERENCE_FAILED', VALIDATION_GENERATION_FAULT_MESSAGE);
+          }
         }
-        if (event.kind === 'done') {
-          logDoneTelemetry(event);
-          // The window is this layer's decision, so this layer reports it —
-          // adapters know nothing about it.
-          yield {
-            ...event,
-            windowStartIndex: selection.windowStartIndex,
-            countedWithTokenizer: selection.countedWithTokenizer,
-          };
-          continue;
+      } catch (err) {
+        if (open && events.return) {
+          open = false;
+          yield* wait(Promise.resolve(events.return()).catch(() => undefined));
         }
-        yield event;
-        if (fault === 'mid-reply') {
-          // Leaving the loop by throwing closes the runtime's stream part-way,
-          // as a real mid-reply fault does.
-          throw new LocalInferenceStreamError('LOCAL_INFERENCE_FAILED', VALIDATION_GENERATION_FAULT_MESSAGE);
-        }
+        throw err;
+      } finally {
+        if (open && events.return) yield* wait(events.return());
       }
     } catch (err) {
       // A cancelled stream ends cleanly. The consumer already unwound (see
@@ -325,7 +350,7 @@ export function stream(
   }
 
   return {
-    [Symbol.asyncIterator]: () => abortableIterator(run(), abortController.signal),
+    [Symbol.asyncIterator]: () => abortableIterator(asyncStream(run), abortController.signal),
     cancel: () => abortController.abort(),
   };
 }
@@ -337,12 +362,12 @@ export function stream(
  * This is the property `ReadableStream.cancel()` gave us for free before R4b,
  * and the stop button depends on it: a runtime that takes a while to notice its
  * abort signal must not hold the UI, the generation lease, or the
- * time-to-first-token watchdog's unwind. The inner generator is left to finish
+ * time-to-first-token watchdog's unwind. The inner stream is left to finish
  * its own protocol in the background — the adapter has the signal and ends
  * properly (WebLLM's `interruptGenerate`); we simply stop waiting.
  */
 function abortableIterator(
-  inner: AsyncGenerator<TokenEvent>,
+  inner: EventStream<TokenEvent>,
   signal: AbortSignal,
 ): AsyncIterator<TokenEvent> {
   const done: IteratorResult<TokenEvent> = { done: true, value: undefined };
@@ -357,7 +382,7 @@ function abortableIterator(
     next: () => Promise.race([inner.next(), aborted]),
     return: async () => {
       // `for await (... of stream)` with a `break` lands here. Ask the inner
-      // generator to unwind, but never await it (same reason as above).
+      // stream to unwind, but never await it (same reason as above).
       void inner.return(undefined).catch(() => undefined);
       return done;
     },

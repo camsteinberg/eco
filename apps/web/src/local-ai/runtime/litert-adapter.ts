@@ -46,6 +46,7 @@ import {
   type RuntimeBackend,
   type TokenEvent,
 } from './types';
+import { asyncStream, wait, type StreamBody } from './async-stream';
 
 // ─── Engine interface (minimal slice of @litert-lm/core) ────────────────────
 //
@@ -347,10 +348,15 @@ export class LiteRTAdapter implements RuntimeAdapter {
     }
   }
 
-  async *generate(
+  generate(messages: ChatMessage[], options?: GenerateOptions): AsyncIterable<TokenEvent> {
+    return asyncStream(() => this.generateBody(messages, options));
+  }
+
+  /** `generate()`'s body; `yield* wait(p)` is its `await p` (see `async-stream.ts`). */
+  private *generateBody(
     messages: ChatMessage[],
     options?: GenerateOptions,
-  ): AsyncIterable<TokenEvent> {
+  ): StreamBody<TokenEvent> {
     if (!this.engine) {
       throw new AdapterError('Not loaded', 'init-failed', false);
     }
@@ -411,7 +417,7 @@ export class LiteRTAdapter implements RuntimeAdapter {
 
     try {
       try {
-        conversation = await engine.createConversation(config);
+        conversation = yield* wait(engine.createConversation(config));
       } catch (err) {
         emit?.({ phase: 'generation-fail', at: now(), error: errorInfo(err) });
         yield { kind: 'error', reason: message(err), code: classifyLiteRTError(err) };
@@ -431,7 +437,7 @@ export class LiteRTAdapter implements RuntimeAdapter {
 
       try {
         for (;;) {
-          const { done, value } = await reader.read();
+          const { done, value } = yield* wait(reader.read());
           if (done) break;
           if (aborted) {
             yield { kind: 'error', reason: 'Generation aborted', code: 'aborted' };
@@ -492,7 +498,7 @@ export class LiteRTAdapter implements RuntimeAdapter {
         options.signal.removeEventListener('abort', onAbort);
       }
       if (conversation) {
-        await conversation.delete().catch(() => undefined);
+        yield* wait(conversation.delete().catch(() => undefined));
       }
     }
   }
