@@ -78,6 +78,7 @@ import {
 import { logger } from '../../lib/logger';
 import { CONTEXT_WINDOW_REFUSAL_MESSAGE } from '../../lib/context-window';
 import { selectWindow } from './window';
+import { recordSentMessages } from '../diagnostics/sent-messages';
 
 const NOT_IN_CATALOG_MESSAGE =
   "That model isn't available on this device. Choose an available model in Settings → Eco.";
@@ -275,6 +276,9 @@ export function stream(
       // first word (see `consumeValidationGenerationFault`). Read here, once a
       // generation is certain to run, so a refusal above never swallows it.
       const fault = consumeValidationGenerationFault();
+      // Harness-only: what the runtime is handed, for a walk to check (see
+      // `diagnostics/sent-messages`).
+      recordSentMessages(model.id, selection.messages);
 
       const iter = lifecycleGenerate(selection.messages, {
         signal: abortController.signal,

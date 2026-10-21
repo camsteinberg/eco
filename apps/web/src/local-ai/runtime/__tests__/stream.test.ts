@@ -23,6 +23,7 @@ import * as lifecycle from '../lifecycle';
 import { AdapterError, type LoadOptions, type TokenEvent } from '../types';
 import * as bootstrap from '../../bootstrap';
 import type { ModelConfig } from '../../types';
+import { clearSentMessages } from '../../diagnostics/sent-messages';
 // LocalInferenceStreamError is the error type `stream()` translates AdapterError
 // into — asserted via name matching in the tests, no direct import needed.
 
@@ -828,5 +829,70 @@ describe('stream()', () => {
     expect(loadSignal?.aborted).toBe(true);
     // Load never completed, so generation was never started.
     expect(mockGenerate).not.toHaveBeenCalled();
+  });
+});
+
+describe('stream() — the harness record of what the runtime is handed', () => {
+  beforeEach(() => {
+    clearSentMessages();
+    mockIsValidationHarnessEnabled.mockReturnValue(true);
+  });
+
+  it('records the windowed list it hands the runtime, not the list it was given', async () => {
+    let sent: Array<{ role: string; content: string }> = [];
+    mockGenerate.mockImplementation((messages: Array<{ role: string; content: string }>) => {
+      sent = messages;
+      return asyncIterable([{ kind: 'done', promptTokens: 1, completionTokens: 1 }]);
+    });
+    const long: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+      { role: 'system', content: 'system prompt' },
+    ];
+    for (let i = 0; i < 60; i++) {
+      long.push({
+        role: i % 2 === 0 ? 'user' : 'assistant',
+        content: `turn ${i} ${'word '.repeat(120).trim()}`,
+      });
+    }
+
+    await readAll(stream(long, FAKE_MODEL.id, { maxTokens: 512 }));
+
+    const records = window.__ecoHarnessSent?.() ?? [];
+    expect(records).toHaveLength(1);
+    expect(records[0]).toEqual({ seq: 1, modelId: FAKE_MODEL.id, messages: sent });
+    expect(records[0]!.messages.length).toBeLessThan(long.length);
+  });
+
+  it('records nothing for a validation fixture, which hands no runtime anything', async () => {
+    mockGetValidationLocalGenerationFixture.mockReturnValueOnce({
+      mode: 'smoke-ready',
+      modelId: FAKE_MODEL.id,
+      slot: 'eco-fast',
+      chunks: ['Fixture complete.'],
+    });
+
+    await readAll(stream([{ role: 'user', content: 'x' }], FAKE_MODEL.id));
+
+    expect(window.__ecoHarnessSent).toBeUndefined();
+  });
+
+  it('records nothing when the window refuses the turn', async () => {
+    const huge = [
+      { role: 'system' as const, content: 'system prompt' },
+      { role: 'user' as const, content: 'word '.repeat(9000).trim() },
+    ];
+
+    await expect(firstEvent(stream(huge, FAKE_MODEL.id, { maxTokens: 512 }))).rejects.toMatchObject(
+      { code: 'CONTEXT_WINDOW_EXCEEDED' },
+    );
+    expect(window.__ecoHarnessSent).toBeUndefined();
+  });
+
+  it('records nothing off the harness', async () => {
+    mockIsValidationHarnessEnabled.mockReturnValue(false);
+    mockGenerate.mockReturnValueOnce(asyncIterable([{ kind: 'done', promptTokens: 1, completionTokens: 1 }]));
+
+    await readAll(stream([{ role: 'user', content: 'hi' }], FAKE_MODEL.id));
+
+    expect(window.__ecoHarnessSent).toBeUndefined();
   });
 });
