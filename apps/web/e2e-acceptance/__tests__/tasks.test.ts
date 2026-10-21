@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Bos Computing LLC
 
 import { describe, expect, it } from "vitest";
+import type { SentMessages } from "../../src/local-ai/diagnostics/sent-messages";
 import type { GenerationReceipt } from "../../src/local-ai/lifecycle/generation-receipt";
 import {
   BUDGET_TURNS,
@@ -89,6 +90,7 @@ function outcome(overrides: Partial<TurnOutcome> = {}): TurnOutcome {
     receipts: [receipt()],
     toolAnswered: false,
     toolCardText: null,
+    sent: null,
     ...overrides,
   };
 }
@@ -535,13 +537,20 @@ describe("task 13 — a failed reply, then Try again", () => {
 
 describe("task 14 — edit an earlier message", () => {
   const clean = { userTexts: [EDIT_REPLACEMENT_PROMPT], oneReply: true, versionsShown: true };
+  const SYSTEM = { role: "system" as const, content: "You are Eco." };
+  /** The harness record of what the model was sent, system prompt first. */
+  const sentOf = (...messages: { role: "user" | "assistant"; content: string }[]): SentMessages => ({
+    seq: 3,
+    modelId: "local/model",
+    messages: [SYSTEM, ...messages],
+  });
 
   it("passes an edit answered from the edited text", () => {
     const edited = outcome({ storedUserText: EDIT_REPLACEMENT_PROMPT, replyText: "Hello, Tomas!" });
     expect(judgeEdit(edited, { ok: true, why: "" }, clean)).toEqual({
       result: "PASS",
       evidence:
-        "answered; the transcript shows the edited message; the later exchange left the transcript; one reply; the earlier version is one tap away; storage holds the edit; the reply uses the edited name; reply: Hello, Tomas!",
+        "answered; the transcript shows the edited message; the later exchange left the transcript; one reply; the earlier version is one tap away; storage holds the edit; what was sent could not be read; the reply uses the edited name; reply: Hello, Tomas!",
     });
   });
 
@@ -555,7 +564,7 @@ describe("task 14 — edit an earlier message", () => {
     expect(judgeEdit(outcome({ replyText: "Hello, Priya!" }), { ok: true, why: "" }, clean)).toEqual({
       result: "FAIL",
       evidence:
-        "answered; the transcript shows the edited message; the later exchange left the transcript; one reply; the earlier version is one tap away; storage holds the edit; the reply uses the name from BEFORE the edit, so it was generated from the discarded text; reply: Hello, Priya!",
+        "answered; the transcript shows the edited message; the later exchange left the transcript; one reply; the earlier version is one tap away; storage holds the edit; what was sent could not be read; the reply uses the name from BEFORE the edit, so it was generated from the discarded text; reply: Hello, Priya!",
     });
   });
 
@@ -569,22 +578,125 @@ describe("task 14 — edit an earlier message", () => {
     expect(judgeEdit(edited, { ok: true, why: "" }, observed)).toEqual({
       result: "FAIL",
       evidence:
-        'answered; the transcript shows ["My name is Priya. Say hello to me by na…","Suggest one name for a pet goldfish."]; the later exchange is STILL showing; more than one reply is showing; NO way back to the earlier version; storage holds "My name is Priya. Say hello to me by name, in one short sen…"; the reply uses the edited name; reply: Hello, Tomas!',
+        'answered; the transcript shows ["My name is Priya. Say hello to me by na…","Suggest one name for a pet goldfish."]; the later exchange is STILL showing; more than one reply is showing; NO way back to the earlier version; storage holds "My name is Priya. Say hello to me by name, in one short sen…"; what was sent could not be read; the reply uses the edited name; reply: Hello, Tomas!',
+    });
+  });
+
+  it("passes an edit the model was sent, and no longer calls a nameless reply unchecked", () => {
+    const edited = outcome({
+      storedUserText: EDIT_REPLACEMENT_PROMPT,
+      replyText: "Hello there!",
+      sent: sentOf({ role: "user", content: EDIT_REPLACEMENT_PROMPT }),
+    });
+    const verdict = judgeEdit(edited, { ok: true, why: "" }, clean);
+    expect(verdict.result).toBe("PASS");
+    expect(verdict.evidence).toContain(
+      "storage holds the edit; the model was sent the edit and nothing from before it; the reply did not use a name; reply: Hello there!",
+    );
+  });
+
+  it("fails an edit whose model was sent the text from before it, though the reply uses no name", () => {
+    // The planted "edit ignored" defect: the screen and storage show the edit,
+    // the model is sent the original, and the reply names nobody.
+    const edited = outcome({
+      storedUserText: EDIT_REPLACEMENT_PROMPT,
+      replyText: "Hello there!",
+      sent: sentOf({ role: "user", content: EDIT_ORIGINAL_PROMPT }),
+    });
+    const verdict = judgeEdit(edited, { ok: true, why: "" }, clean);
+    expect(verdict.result).toBe("FAIL");
+    expect(verdict.evidence).toContain("the model was sent the text from before the edit");
+  });
+
+  it("fails when the original reaches the model in an earlier message, even with the edit last", () => {
+    const edited = outcome({
+      storedUserText: EDIT_REPLACEMENT_PROMPT,
+      replyText: "Hello, Tomas!",
+      sent: sentOf(
+        { role: "user", content: EDIT_ORIGINAL_PROMPT },
+        { role: "assistant", content: "Hello, Priya!" },
+        { role: "user", content: EDIT_REPLACEMENT_PROMPT },
+      ),
+    });
+    const verdict = judgeEdit(edited, { ok: true, why: "" }, clean);
+    expect(verdict.result).toBe("FAIL");
+    expect(verdict.evidence).toContain("the model was sent the text from before the edit");
+  });
+
+  it("fails when the model was sent something other than the edit", () => {
+    const edited = outcome({
+      storedUserText: EDIT_REPLACEMENT_PROMPT,
+      replyText: "Hello, Tomas!",
+      sent: sentOf({ role: "user", content: "Suggest one name for a pet goldfish." }),
+    });
+    const verdict = judgeEdit(edited, { ok: true, why: "" }, clean);
+    expect(verdict.result).toBe("FAIL");
+    expect(verdict.evidence).toContain('the model was sent "Suggest one name for a pet goldfish.", not the edit');
+  });
+
+  it("accepts the edit with a directive or recap after a blank line", () => {
+    const edited = outcome({
+      storedUserText: EDIT_REPLACEMENT_PROMPT,
+      replyText: "Hello, Tomas!",
+      sent: sentOf({ role: "user", content: `${EDIT_REPLACEMENT_PROMPT}\n\nKeep it short.` }),
+    });
+    const verdict = judgeEdit(edited, { ok: true, why: "" }, clean);
+    expect(verdict.result).toBe("PASS");
+    expect(verdict.evidence).toContain("the model was sent the edit and nothing from before it");
+  });
+
+  it("fails the recall when its model was sent the name from before the edit", () => {
+    const recall = outcome({
+      replyText: "I don't know your name.",
+      sent: sentOf(
+        { role: "user", content: EDIT_REPLACEMENT_PROMPT },
+        { role: "assistant", content: "Hello, Priya!" },
+        { role: "user", content: "What is my name?" },
+      ),
+    });
+    expect(judgeRecall(recall)).toEqual({
+      result: "FAIL",
+      evidence: `the model was sent the name from BEFORE the edit, so the discarded text reached the model; the model did not recall either name — a recall reading, not an edit failure; ${COUNTS}; reply: I don't know your name.`,
+    });
+  });
+
+  it("fails the recall when what it was sent does not carry the edit", () => {
+    const recall = outcome({
+      replyText: "I don't know your name.",
+      sent: sentOf({ role: "user", content: "What is my name?" }),
+    });
+    const verdict = judgeRecall(recall);
+    expect(verdict.result).toBe("FAIL");
+    expect(verdict.evidence).toContain("the conversation sent for the recall does not carry the edit");
+  });
+
+  it("records a recall that was sent the edit and named nobody", () => {
+    const recall = outcome({
+      replyText: "I don't know your name.",
+      sent: sentOf(
+        { role: "user", content: EDIT_REPLACEMENT_PROMPT },
+        { role: "assistant", content: "Hello, Tomas!" },
+        { role: "user", content: "What is my name?" },
+      ),
+    });
+    expect(judgeRecall(recall)).toEqual({
+      result: "RECORDED",
+      evidence: `what was sent carries the edit; the model did not recall either name — a recall reading, not an edit failure; ${COUNTS}; reply: I don't know your name.`,
     });
   });
 
   it("judges the recall three ways", () => {
     expect(judgeRecall(outcome({ replyText: "Your name is Tomas." }))).toEqual({
       result: "PASS",
-      evidence: `the reply uses the edited name; ${COUNTS}; reply: Your name is Tomas.`,
+      evidence: `what was sent could not be read; the reply uses the edited name; ${COUNTS}; reply: Your name is Tomas.`,
     });
     expect(judgeRecall(outcome({ replyText: "Your name is Priya." }))).toEqual({
       result: "FAIL",
-      evidence: `the reply uses the name from BEFORE the edit, so the discarded text reached the model; ${COUNTS}; reply: Your name is Priya.`,
+      evidence: `what was sent could not be read; the reply uses the name from BEFORE the edit, so the discarded text reached the model; ${COUNTS}; reply: Your name is Priya.`,
     });
     expect(judgeRecall(outcome({ replyText: "I don't know your name." }))).toEqual({
       result: "RECORDED",
-      evidence: `the model did not recall either name — a recall reading, not an edit failure; ${COUNTS}; reply: I don't know your name.`,
+      evidence: `what was sent could not be read; the model did not recall either name — a recall reading, not an edit failure; ${COUNTS}; reply: I don't know your name.`,
     });
   });
 });

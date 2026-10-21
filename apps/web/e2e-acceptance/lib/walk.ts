@@ -18,6 +18,7 @@ import {
   activeModelIdInPage,
   newGenerationStartedInPage,
   newestGenerationIdInPage,
+  newestSentMessagesInPage,
   readLatestExchangeInPage,
   receiptsOfNewGenerationInPage,
   receiptsSettledInPage,
@@ -288,6 +289,9 @@ async function collectOutcome(
 
   const stored = await readLatestExchange(page);
   const domReply = await assistantMessages(page).last().innerText();
+  // Only a `complete` final receipt proves this turn's generation recorded
+  // what it was sent; otherwise the newest record may be an earlier turn's.
+  const sent = receipts.at(-1)?.status === "complete" ? await page.evaluate(newestSentMessagesInPage) : null;
 
   return {
     prompt,
@@ -297,6 +301,7 @@ async function collectOutcome(
     receipts,
     toolAnswered: receipts.length === 0,
     toolCardText,
+    sent,
   };
 }
 
