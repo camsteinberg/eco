@@ -506,7 +506,7 @@ export const chatSurfaceStates: StateEntry[] = [
     "battery-reduced-notice",
     "Low-battery notice above the composer",
     "conversation-basic",
-    [{ text: "Low battery mode" }],
+    [{ text: "Low battery" }],
     {
       search: `${READY_CHAT_SEARCH}&eco-force-protection=battery-reduced`,
       notes:
