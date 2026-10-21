@@ -121,6 +121,7 @@ function pushableTokenStream(): {
       ended = true;
       wake();
     },
+    loaded: Promise.resolve(),
   };
   return {
     stream,

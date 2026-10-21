@@ -17,7 +17,7 @@
  * as `LocalInferenceStreamError`, so the existing branch logic keeps matching.
  */
 
-import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { stream } from '../stream';
 import * as lifecycle from '../lifecycle';
 import { AdapterError, type LoadOptions, type TokenEvent } from '../types';
@@ -45,6 +45,12 @@ const FAKE_MODEL: ModelConfig = {
   // Other required fields filled by spread for parity with catalog-data.json.
 } as unknown as ModelConfig;
 
+const FAKE_WEBLLM_MODEL: ModelConfig = {
+  ...FAKE_MODEL,
+  id: 'local/qwen3-0.6b-mlc',
+  runtime: 'webllm',
+} as unknown as ModelConfig;
+
 const FAKE_EVAL_MODEL: ModelConfig = {
   id: 'candidate/gemma-4-e2b-litert',
   friendlyName: 'Gemma 4 E2B (LiteRT)',
@@ -64,7 +70,20 @@ vi.mock('../../bootstrap', () => ({
 }));
 
 vi.mock('../../catalog/catalog', () => ({
-  getModel: (id: string): ModelConfig | null => (id === FAKE_MODEL.id ? FAKE_MODEL : null),
+  getModel: (id: string): ModelConfig | null =>
+    id === FAKE_MODEL.id ? FAKE_MODEL : id === FAKE_WEBLLM_MODEL.id ? FAKE_WEBLLM_MODEL : null,
+}));
+
+// The cold-load budget setup proved for a model; fixed here so the load
+// deadline is deterministic.
+const LOAD_BUDGET_MS = 300_000;
+vi.mock('../../lifecycle/smoke', () => ({
+  defaultLoadBudgetMs: vi.fn(() => LOAD_BUDGET_MS),
+}));
+
+const demoteWebllmSlotsWithMissingFilesMock = vi.hoisted(() => vi.fn(async () => undefined));
+vi.mock('../../lifecycle/self-heal', () => ({
+  demoteWebllmSlotsWithMissingFiles: demoteWebllmSlotsWithMissingFilesMock,
 }));
 
 vi.mock('../../eval/eval-candidates', () => ({
@@ -829,6 +848,121 @@ describe('stream()', () => {
     expect(loadSignal?.aborted).toBe(true);
     // Load never completed, so generation was never started.
     expect(mockGenerate).not.toHaveBeenCalled();
+  });
+});
+
+describe('stream() — loaded and the load budget', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** A load that waits until it is aborted, then rejects as the adapters do. */
+  function loadUntilAborted(onSignal: (signal: AbortSignal | undefined) => void) {
+    return (_model: unknown, options?: LoadOptions): Promise<never> => {
+      onSignal(options?.signal);
+      return new Promise((_resolve, reject) => {
+        options?.signal?.addEventListener('abort', () => {
+          reject(new AdapterError('Load aborted', 'aborted', true));
+        });
+      });
+    };
+  }
+
+  it('settles loaded only once the model has loaded', async () => {
+    let finishLoad!: (adapter: unknown) => void;
+    mockLoad.mockImplementationOnce(
+      () => new Promise((resolve) => {
+        finishLoad = resolve;
+      }),
+    );
+    mockGenerate.mockReturnValue(asyncIterable([{ kind: 'token', text: 'hi' }]));
+
+    const tokens = stream([{ role: 'user', content: 'x' }], FAKE_MODEL.id);
+    let loaded = false;
+    void tokens.loaded.then(() => {
+      loaded = true;
+    });
+    const pending = firstEvent(tokens);
+    for (let i = 0; i < 20 && !finishLoad; i++) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    }
+    expect(finishLoad).toBeDefined();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(loaded).toBe(false);
+
+    finishLoad({ countTokens: async () => 1 });
+    await expect(pending).resolves.toEqual({ done: false, value: { kind: 'token', text: 'hi' } });
+    expect(loaded).toBe(true);
+  });
+
+  it('settles loaded for a model that is already loaded', async () => {
+    mockGenerate.mockReturnValue(asyncIterable([{ kind: 'token', text: 'hi' }]));
+    const tokens = stream([{ role: 'user', content: 'x' }], FAKE_MODEL.id);
+    await firstEvent(tokens);
+    await expect(tokens.loaded).resolves.toBeUndefined();
+  });
+
+  it('settles loaded for a validation fixture, which loads nothing', async () => {
+    mockGetValidationLocalGenerationFixture.mockReturnValueOnce({
+      mode: 'smoke-ready',
+      modelId: FAKE_MODEL.id,
+      slot: 'eco-fast',
+      chunks: ['ok'],
+    });
+    const tokens = stream([{ role: 'user', content: 'x' }], FAKE_MODEL.id);
+    await firstEvent(tokens);
+    await expect(tokens.loaded).resolves.toBeUndefined();
+    expect(mockLoad).not.toHaveBeenCalled();
+  });
+
+  it('fails a load that outlasts its budget as TIMEOUT, and aborts the load', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    let loadSignal: AbortSignal | undefined;
+    mockLoad.mockImplementationOnce(loadUntilAborted((signal) => {
+      loadSignal = signal;
+    }));
+
+    const tokens = stream([{ role: 'user', content: 'x' }], FAKE_MODEL.id);
+    let outcome: unknown = 'pending';
+    void firstEvent(tokens).then(
+      (step) => {
+        outcome = step;
+      },
+      (err: unknown) => {
+        outcome = err;
+      },
+    );
+
+    await vi.advanceTimersByTimeAsync(LOAD_BUDGET_MS - 1_000);
+    expect(outcome).toBe('pending');
+    expect(loadSignal?.aborted).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(2_000);
+    // An error, not a clean end: a timed-out load must never read as an empty reply.
+    expect(outcome).toMatchObject({ name: 'LocalInferenceStreamError', code: 'TIMEOUT' });
+    expect(loadSignal?.aborted).toBe(true);
+    expect(mockGenerate).not.toHaveBeenCalled();
+  });
+
+  it('does not probe for missing WebLLM files when the load only ran out of time', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    demoteWebllmSlotsWithMissingFilesMock.mockClear();
+    mockLoad.mockImplementationOnce(loadUntilAborted(() => undefined));
+
+    const tokens = stream([{ role: 'user', content: 'x' }], FAKE_WEBLLM_MODEL.id);
+    let outcome: unknown = 'pending';
+    void firstEvent(tokens).then(
+      (step) => {
+        outcome = step;
+      },
+      (err: unknown) => {
+        outcome = err;
+      },
+    );
+
+    await vi.advanceTimersByTimeAsync(LOAD_BUDGET_MS + 1_000);
+    expect(outcome).toMatchObject({ name: 'LocalInferenceStreamError', code: 'TIMEOUT' });
+    expect(demoteWebllmSlotsWithMissingFilesMock).not.toHaveBeenCalled();
   });
 });
 

@@ -209,13 +209,14 @@ export function defaultLoadBudgetMs(model: ModelConfig): number {
 }
 
 export type SmokeOptions = {
-  /** Override the token deadline. Tests pass small values. */
-  timeoutMs?: number;
   /**
-   * Override the cold-load budget. When omitted but `timeoutMs` is provided,
-   * falls back to `timeoutMs` (legacy combined-deadline semantics so older
-   * tests and callers keep one knob).
+   * Override the first-token deadline, which starts once the load finishes.
+   * It never bounds the load itself: the chat's warm-up passes 90s here, and
+   * when this also capped the load, a device whose cached load takes longer
+   * passed setup and then failed every later warm-up.
    */
+  timeoutMs?: number;
+  /** Override the cold-load budget (default `defaultLoadBudgetMs`). Tests pass small values. */
   loadTimeoutMs?: number;
   /** Override the clock — for fake-timer tests. */
   now?: () => number;
@@ -248,8 +249,7 @@ export async function runSmoke(
 ): Promise<SmokeResult> {
   const now = options?.now ?? (() => Date.now());
   const tokenTimeoutMs = options?.timeoutMs ?? computeSmokeTokenDeadlineMs(currentDeviceSignals());
-  const loadTimeoutMs =
-    options?.loadTimeoutMs ?? options?.timeoutMs ?? defaultLoadBudgetMs(model);
+  const loadTimeoutMs = options?.loadTimeoutMs ?? defaultLoadBudgetMs(model);
   const fn = options?.generationFn ?? generationFn;
 
   if (!fn) {
