@@ -27,7 +27,7 @@
  * to guarantee capture even on unexpected throws.
  */
 
-import type { ModelConfig, Slot } from '../types';
+import type { ModelConfig, Slot, WebGPUSupport } from '../types';
 import type { ChatMessage, TokenEvent, AdapterErrorCode } from '../runtime/types';
 import { AdapterError } from '../runtime/types';
 import type { DiagnosticPhase, LocalAiDiagnostic } from '../diagnostics/capture';
@@ -122,6 +122,10 @@ export type SmokeLoadBudgetInput = {
   /** Logical CPU core count; null when the browser doesn't expose it. */
   hardwareConcurrency: number | null;
   isMobile: boolean;
+  /** The device's WebGPU tier (`DeviceProfile.webgpuSupport`); undefined when unknown. */
+  webgpuSupport?: WebGPUSupport;
+  /** Whether the WebGPU adapter has `shader-f16`; undefined until setup probes it. */
+  webgpuShaderF16?: boolean;
   /** Model download size in GB (`ModelConfig.sizeGB`); undefined when unknown. */
   modelSizeGB?: number;
 };
@@ -132,8 +136,10 @@ export type SmokeLoadBudgetInput = {
  * Bonsai load at exactly 120003ms (2026-07-01). A weak device and/or a large
  * model gets more headroom, bounded to [MIN, MAX].
  *
- * "Weak" = ANY of: mobile, ≤4 logical cores, or ≤4GB reported RAM. Unknown
- * signals (RAM 0 = unreported, cores null) do NOT count as weak on their own —
+ * "Weak" = ANY of: mobile, ≤4 logical cores, ≤4GB reported RAM, no usable
+ * WebGPU (the model runs on the CPU), or a WebGPU adapter without shader-f16
+ * (the class that tracks older integrated GPUs). Unknown signals (RAM 0 =
+ * unreported, cores null, f16 not probed) do NOT count as weak on their own —
  * we only widen when we have positive evidence the device is modest, so a
  * strong device with a stingy `navigator` never over-waits.
  */
@@ -145,10 +151,18 @@ export function computeSmokeLoadBudgetMs(input: SmokeLoadBudgetInput): number {
   return Math.min(Math.max(budget, SMOKE_LOAD_BUDGET_MIN_MS), SMOKE_LOAD_BUDGET_MAX_MS);
 }
 
-function isWeakDevice({ deviceMemoryGB, hardwareConcurrency, isMobile }: SmokeLoadBudgetInput): boolean {
+function isWeakDevice({
+  deviceMemoryGB,
+  hardwareConcurrency,
+  isMobile,
+  webgpuSupport,
+  webgpuShaderF16,
+}: SmokeLoadBudgetInput): boolean {
   const lowCores = hardwareConcurrency !== null && hardwareConcurrency <= 4;
   const lowMemory = deviceMemoryGB > 0 && deviceMemoryGB <= 4;
-  return isMobile || lowCores || lowMemory;
+  const cpuOnly = webgpuSupport === 'wasm-only' || webgpuSupport === 'none';
+  const noShaderF16 = webgpuSupport === 'webgpu' && webgpuShaderF16 === false;
+  return isMobile || lowCores || lowMemory || cpuOnly || noShaderF16;
 }
 
 /** First-token deadline for this device — see `SMOKE_TOKEN_DEADLINE_MS`. */
@@ -160,15 +174,25 @@ export function computeSmokeTokenDeadlineMs(input: SmokeLoadBudgetInput): number
 function currentDeviceSignals(): SmokeLoadBudgetInput {
   let deviceMemoryGB = 0;
   let isMobile = false;
+  let webgpuSupport: WebGPUSupport | undefined;
+  let webgpuShaderF16: boolean | undefined;
   try {
     const profile = getDeviceProfile();
     deviceMemoryGB = profile.deviceMemoryGB;
     isMobile = profile.isMobile;
+    webgpuSupport = profile.webgpuSupport;
+    webgpuShaderF16 = profile.webgpuShaderF16;
   } catch {
     // Fall through to conservative defaults — a profile read should never
     // break smoke, and unknown signals resolve to the strong-device values.
   }
-  return { deviceMemoryGB, hardwareConcurrency: getHardwareConcurrency(), isMobile };
+  return {
+    deviceMemoryGB,
+    hardwareConcurrency: getHardwareConcurrency(),
+    isMobile,
+    webgpuSupport,
+    webgpuShaderF16,
+  };
 }
 
 /**
