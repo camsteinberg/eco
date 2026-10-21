@@ -84,6 +84,14 @@ const MOBILE_CHROMIUM_8GB_PICKS: PicksByArm = {
   wasmOnly: ['candidate/smollm2-360m-instruct-onnx', 'candidate/granite-4.0-350m-onnx'],
   none: [null, null],
 };
+// Recorded from main at 38f1117: a desktop that reports 4 GB keeps the 1.2B for
+// Fast but steps Deeper down to Qwen3 0.6B (the 2.6B and Gemma floors are 8).
+const DESKTOP_CHROMIUM_4GB_PICKS: PicksByArm = {
+  webgpu: ['candidate/lfm2.5-1.2b-instruct-onnx', 'local/qwen3-0.6b'],
+  webgpuNoF16: ['candidate/lfm2.5-1.2b-instruct-q4-onnx', 'candidate/lfm2.5-1.2b-instruct-q4-onnx'],
+  wasmOnly: ['candidate/smollm2-360m-instruct-onnx', 'candidate/granite-4.0-350m-onnx'],
+  none: [null, null],
+};
 const FIREFOX_PICKS: PicksByArm = {
   webgpu: ['local/qwen3-0.6b', 'local/qwen3-0.6b'],
   webgpuNoF16: ['candidate/lfm2.5-350m-onnx', null],
@@ -464,4 +472,94 @@ it('an Android WebKit UA with neither a Chrome nor a Safari token stays generic 
   expect(profile.browserClass).toBe('mobile');
   expect(profile.isMobile).toBe(true);
   expect(isWebKitMobile(profile)).toBe(false);
+});
+
+// Desktop shapes the Windows-laptop and Firefox readiness reviews found no test
+// for. Each routes on the desktop path with the picks its engine's memory reading
+// gives; nothing here changed when they were added.
+const WINDOWS_CHROME_UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36';
+const WINDOWS_FIREFOX_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0';
+
+const REVIEWED_DESKTOP_CASES: readonly ControlCase[] = [
+  {
+    label: 'Windows laptop with a touch screen (Chrome)',
+    ua: WINDOWS_CHROME_UA,
+    maxTouchPoints: 10,
+    deviceMemory: 8,
+    source: 'Chrome reduced UA, documented format; touch-screen laptops report 10 touch points',
+    expected: { browserClass: 'chromium', isMobile: false, picks: DESKTOP_CHROMIUM_8GB_PICKS },
+  },
+  {
+    label: 'desktop Chrome (Windows) reporting 4 GB',
+    ua: WINDOWS_CHROME_UA,
+    maxTouchPoints: 0,
+    deviceMemory: 4,
+    source: 'Chrome reduced UA; an 8 GB laptop that reserves memory for graphics can read 4',
+    expected: { browserClass: 'chromium', isMobile: false, picks: DESKTOP_CHROMIUM_4GB_PICKS },
+  },
+  {
+    label: 'desktop Chrome (Windows) reporting 16 GB',
+    ua: WINDOWS_CHROME_UA,
+    maxTouchPoints: 0,
+    deviceMemory: 16,
+    source: 'Chrome reduced UA; Chrome reports up to 32 since its deviceMemory change',
+    expected: { browserClass: 'chromium', isMobile: false, picks: DESKTOP_CHROMIUM_8GB_PICKS },
+  },
+  {
+    label: 'desktop Chrome (Windows) reporting 32 GB',
+    ua: WINDOWS_CHROME_UA,
+    maxTouchPoints: 0,
+    deviceMemory: 32,
+    source: 'Chrome reduced UA; Chrome reports up to 32 since its deviceMemory change',
+    expected: { browserClass: 'chromium', isMobile: false, picks: DESKTOP_CHROMIUM_8GB_PICKS },
+  },
+  {
+    label: 'desktop Firefox (Mac)',
+    ua: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:140.0) Gecko/20100101 Firefox/140.0',
+    maxTouchPoints: 0,
+    source: 'Firefox desktop documented format (MDN UA reference)',
+    expected: { browserClass: 'firefox', isMobile: false, picks: FIREFOX_PICKS },
+  },
+  {
+    label: 'desktop Firefox (Linux)',
+    ua: 'Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0',
+    maxTouchPoints: 0,
+    source: 'Firefox desktop documented format (MDN UA reference)',
+    expected: { browserClass: 'firefox', isMobile: false, picks: FIREFOX_PICKS },
+  },
+  {
+    label: 'Windows laptop with a touch screen (Firefox)',
+    ua: WINDOWS_FIREFOX_UA,
+    maxTouchPoints: 10,
+    source: 'Firefox desktop documented format; touch-screen laptops report 10 touch points',
+    expected: { browserClass: 'firefox', isMobile: false, picks: FIREFOX_PICKS },
+  },
+];
+
+describe('desktop shapes the readiness reviews named', () => {
+  it.each(REVIEWED_DESKTOP_CASES)('$label', (uaCase) => {
+    const { expected } = uaCase;
+    const base = profileFor(uaCase, 'webgpu');
+    expect(base.browserClass).toBe(expected.browserClass);
+    expect(base.isMobile).toBe(expected.isMobile);
+    for (const arm of ARM_NAMES) {
+      const profile = profileFor(uaCase, arm);
+      expect([pick('eco-fast', profile), pick('eco-smart', profile)], arm).toEqual(expected.picks[arm]);
+    }
+  });
+});
+
+// A desktop adapter probe that never answered leaves shader-f16 unknown, which
+// the catalog treats as capable: the desktop gets the picks a capable adapter
+// gets. (A phone counts unknown as absent instead; see profile.test.ts.)
+describe('a desktop whose adapter probe never answered routes like a capable adapter', () => {
+  const desktops = [
+    ...CONTROL_CASES.filter((c) => !c.expected.isMobile),
+    ...REVIEWED_DESKTOP_CASES,
+  ];
+  it.each(desktops)('$label', (uaCase) => {
+    const unprobed: DeviceProfile = { ...profileFor(uaCase, 'webgpu'), webgpuShaderF16: undefined };
+    expect([pick('eco-fast', unprobed), pick('eco-smart', unprobed)]).toEqual(uaCase.expected.picks.webgpu);
+  });
 });

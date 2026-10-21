@@ -487,12 +487,43 @@ describe('resolveSetupProfile — an adapter probe that times out', () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     try {
       const pending = resolveSetupProfile();
-      await vi.advanceTimersByTimeAsync(4_000);
+      await vi.advanceTimersByTimeAsync(30_000);
       return await pending;
     } finally {
       vi.useRealTimers();
     }
   }
+
+  /** A desktop adapter that answers after 10 s — slow, but it does answer. */
+  async function slowDesktopProbe(features: Set<string>): Promise<DeviceProfile> {
+    setUserAgent(CHROME_UA);
+    setGpu({
+      requestAdapter: () => new Promise((resolve) => {
+        setTimeout(() => resolve({ features, limits: {} }), 10_000);
+      }),
+    });
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const pending = resolveSetupProfile();
+      await vi.advanceTimersByTimeAsync(10_000);
+      return await pending;
+    } finally {
+      vi.useRealTimers();
+    }
+  }
+
+  it('waits for a slow desktop adapter that lacks shader-f16, so the f16 builds are not picked', async () => {
+    const profile = await slowDesktopProbe(new Set());
+
+    expect(profile.webgpuSupport).toBe('webgpu');
+    expect(profile.webgpuShaderF16).toBe(false);
+  });
+
+  it('waits for a slow desktop adapter that has shader-f16, so it keeps the f16 builds', async () => {
+    const profile = await slowDesktopProbe(new Set(['shader-f16']));
+
+    expect(profile.webgpuShaderF16).toBe(true);
+  });
 
   it('on a phone, counts shader-f16 as absent, so the build that runs either way is picked', async () => {
     setUserAgent(ANDROID_CHROME_UA);
