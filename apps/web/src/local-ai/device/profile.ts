@@ -249,7 +249,16 @@ function detectIsMobile(userAgent: string, maxTouchPoints: number | undefined): 
     && touch > 0;
 }
 
-const PROBE_TIMEOUT_MS = 4_000;
+/**
+ * How long setup waits for `requestAdapter()`. Only setup awaits the probe, right
+ * before it picks a model to download, and a guess at shader-f16 picks the wrong
+ * builds: an f16 build on an adapter without it downloads, then dies on the first
+ * f16 op and is hidden for 30 days. So a slow adapter (a cold driver start) gets
+ * time to answer; only one that never answers falls back to the guess below.
+ * INHERITED: 4 s from the first public release, raised in s78 without a
+ * measurement. Falsifier: a probe that answers after 30 s on a real device.
+ */
+const PROBE_TIMEOUT_MS = 30_000;
 
 /** WASM execution tier when WebGPU is unavailable. SIMD is the practical floor. */
 function detectWasmTier(): 'wasm-only' | 'none' {
@@ -518,7 +527,8 @@ function notifyDeviceProfileChanged(): void {
  * f16 op — observed on Chrome 149 / Windows iGPU).
  *
  * Never throws. A hang is bounded by PROBE_TIMEOUT_MS, after which we fall
- * back to the optimistic sync verdict (no worse than today's behavior).
+ * back to the optimistic sync verdict (no worse than today's behavior); a slow
+ * adapter that answers within it is read as it answers.
  */
 async function probeWebgpuCapability(): Promise<WebgpuCapability> {
   if (typeof window === 'undefined' || typeof navigator === 'undefined') {
@@ -537,12 +547,15 @@ async function probeWebgpuCapability(): Promise<WebgpuCapability> {
   } else {
     try {
       const gpu = navigator.gpu as GPU;
+      let timer: ReturnType<typeof setTimeout> | undefined;
       const timeout = new Promise<'timeout'>((resolve) => {
-        setTimeout(() => {
+        timer = setTimeout(() => {
           resolve('timeout');
         }, PROBE_TIMEOUT_MS);
       });
-      const adapter = await Promise.race([gpu.requestAdapter(), timeout]);
+      const adapter = await Promise.race([gpu.requestAdapter(), timeout]).finally(() => {
+        clearTimeout(timer);
+      });
       if (adapter === 'timeout') {
         support = detectWebgpuSupport();
         // On a phone, an unknown shader-f16 counts as absent. The f16-free build
