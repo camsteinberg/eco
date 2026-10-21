@@ -750,9 +750,8 @@ function readSent(outcome: TurnOutcome): {
  * The edited message is resent and answered. Two witnesses: what the model
  * was SENT (the harness record), and the reply's own words. Either one
  * carrying the original name means the edited turn was generated from the
- * discarded text — the edit is broken whatever the screen shows. When what
- * was sent cannot be read and the reply uses neither name, the content is
- * unchecked, not failed.
+ * discarded text — the edit is broken whatever the screen shows. The record
+ * is required: without it the edit's content is unchecked, and that fails.
  */
 export function judgeEdit(
   edited: TurnOutcome,
@@ -766,8 +765,10 @@ export function judgeEdit(
   const storedEdit =
     edited.storedUserText === null || edited.storedUserText.trim() === EDIT_REPLACEMENT_PROMPT;
   const sent = readSent(edited);
-  // Null means the record could not be read; only what it shows can fail.
-  const sentOk = sent === null || (sent.sentEdit && !sent.sentOriginal);
+  // Both lanes run harness builds, so a complete turn always leaves a record:
+  // an unreadable one means the witness broke, and the row cannot vouch for
+  // the edit's content — it fails rather than passing unchecked.
+  const sentOk = sent !== null && sent.sentEdit && !sent.sentOriginal;
   const replyLeakedOriginal = edited.replyText.includes(ORIGINAL_NAME);
   const replyUsedEdit = edited.replyText.includes(EDITED_NAME);
   const editOk =
@@ -789,7 +790,7 @@ export function judgeEdit(
       versionsShown ? "the earlier version is one tap away" : "NO way back to the earlier version",
       storedEdit ? "storage holds the edit" : `storage holds ${JSON.stringify(clip(edited.storedUserText ?? "", 60))}`,
       sent === null
-        ? "what was sent could not be read"
+        ? "what the model was sent could NOT be read, so the edit's content is unchecked"
         : sent.sentOriginal
           ? "the model was sent the text from before the edit"
           : !sent.sentEdit
@@ -799,9 +800,7 @@ export function judgeEdit(
         ? "the reply uses the name from BEFORE the edit, so it was generated from the discarded text"
         : replyUsedEdit
           ? "the reply uses the edited name"
-          : sent === null
-            ? "the reply did not use a name — the edit's content is unchecked on this run"
-            : "the reply did not use a name",
+          : "the reply did not use a name",
       `reply: ${clip(edited.replyText)}`,
     ].join("; "),
   };

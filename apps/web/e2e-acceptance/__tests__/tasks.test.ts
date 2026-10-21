@@ -546,25 +546,32 @@ describe("task 14 — edit an earlier message", () => {
   });
 
   it("passes an edit answered from the edited text", () => {
-    const edited = outcome({ storedUserText: EDIT_REPLACEMENT_PROMPT, replyText: "Hello, Tomas!" });
+    const edited = outcome({
+      storedUserText: EDIT_REPLACEMENT_PROMPT,
+      replyText: "Hello, Tomas!",
+      sent: sentOf({ role: "user", content: EDIT_REPLACEMENT_PROMPT }),
+    });
     expect(judgeEdit(edited, { ok: true, why: "" }, clean)).toEqual({
       result: "PASS",
       evidence:
-        "answered; the transcript shows the edited message; the later exchange left the transcript; one reply; the earlier version is one tap away; storage holds the edit; what was sent could not be read; the reply uses the edited name; reply: Hello, Tomas!",
+        "answered; the transcript shows the edited message; the later exchange left the transcript; one reply; the earlier version is one tap away; storage holds the edit; the model was sent the edit and nothing from before it; the reply uses the edited name; reply: Hello, Tomas!",
     });
   });
 
-  it("passes on the rest, and says the content is unchecked, when the reply uses no name", () => {
-    const verdict = judgeEdit(outcome({ replyText: "Hello!" }), { ok: true, why: "" }, clean);
-    expect(verdict.result).toBe("PASS");
-    expect(verdict.evidence).toContain("the reply did not use a name — the edit's content is unchecked on this run");
+  it("fails when what the model was sent could not be read, though everything else holds", () => {
+    // The blind spot this witness closes: a nameless reply used to pass with
+    // the edit's content unchecked. A missing record now fails the row.
+    const edited = outcome({ storedUserText: EDIT_REPLACEMENT_PROMPT, replyText: "Hello!" });
+    const verdict = judgeEdit(edited, { ok: true, why: "" }, clean);
+    expect(verdict.result).toBe("FAIL");
+    expect(verdict.evidence).toContain("what the model was sent could NOT be read, so the edit's content is unchecked");
   });
 
   it("fails a reply generated from the discarded text, whatever the screen shows", () => {
     expect(judgeEdit(outcome({ replyText: "Hello, Priya!" }), { ok: true, why: "" }, clean)).toEqual({
       result: "FAIL",
       evidence:
-        "answered; the transcript shows the edited message; the later exchange left the transcript; one reply; the earlier version is one tap away; storage holds the edit; what was sent could not be read; the reply uses the name from BEFORE the edit, so it was generated from the discarded text; reply: Hello, Priya!",
+        "answered; the transcript shows the edited message; the later exchange left the transcript; one reply; the earlier version is one tap away; storage holds the edit; what the model was sent could NOT be read, so the edit's content is unchecked; the reply uses the name from BEFORE the edit, so it was generated from the discarded text; reply: Hello, Priya!",
     });
   });
 
@@ -578,7 +585,7 @@ describe("task 14 — edit an earlier message", () => {
     expect(judgeEdit(edited, { ok: true, why: "" }, observed)).toEqual({
       result: "FAIL",
       evidence:
-        'answered; the transcript shows ["My name is Priya. Say hello to me by na…","Suggest one name for a pet goldfish."]; the later exchange is STILL showing; more than one reply is showing; NO way back to the earlier version; storage holds "My name is Priya. Say hello to me by name, in one short sen…"; what was sent could not be read; the reply uses the edited name; reply: Hello, Tomas!',
+        'answered; the transcript shows ["My name is Priya. Say hello to me by na…","Suggest one name for a pet goldfish."]; the later exchange is STILL showing; more than one reply is showing; NO way back to the earlier version; storage holds "My name is Priya. Say hello to me by name, in one short sen…"; what the model was sent could NOT be read, so the edit\'s content is unchecked; the reply uses the edited name; reply: Hello, Tomas!',
     });
   });
 
