@@ -20,6 +20,7 @@
  */
 
 import { VALIDATION_GENERATION_FAULT_MESSAGE } from "../../src/lib/validation-harness";
+import type { SentMessages } from "../../src/local-ai/diagnostics/sent-messages";
 import type { GenerationReceipt } from "../../src/local-ai/lifecycle/generation-receipt";
 import { clip, type RowResult } from "./report";
 
@@ -87,6 +88,11 @@ export type TurnOutcome = {
   toolAnswered: boolean;
   /** The exact-answer card's text when the turn produced one. */
   toolCardText: string | null;
+  /**
+   * What the chat handed the runtime for this turn's final generation. Null
+   * when it was not read (the final receipt is not `complete`) or could not be.
+   */
+  sent: SentMessages | null;
 };
 
 /** The receipt whose output the person saw, or null on a tool-answered turn. */
@@ -716,10 +722,36 @@ export type EditObservation = {
 };
 
 /**
- * The edited message is resent and answered. The reply's own words are the
- * witness: the original name means the edited turn was generated from the
- * discarded text — the edit is broken whatever the screen shows. Neither
- * name leaves the content unchecked, not failed.
+ * What a turn's model was sent, when the harness record was read: the last
+ * user message, and whether any message carries the name from before the edit.
+ * The last user message may carry a directive or recap after a blank line
+ * (`appendTurnDirective`, the detail recaps), so the edit is the text up to it.
+ */
+function readSent(outcome: TurnOutcome): {
+  lastUser: string | null;
+  sentEdit: boolean;
+  sentOriginal: boolean;
+  sentEditedName: boolean;
+} | null {
+  const sent = outcome.sent;
+  if (sent === null) return null;
+  const lastUser = [...sent.messages].reverse().find((m) => m.role === "user")?.content ?? null;
+  return {
+    lastUser,
+    sentEdit:
+      lastUser !== null
+      && (lastUser === EDIT_REPLACEMENT_PROMPT || lastUser.startsWith(`${EDIT_REPLACEMENT_PROMPT}\n\n`)),
+    sentOriginal: sent.messages.some((m) => m.content.includes(ORIGINAL_NAME)),
+    sentEditedName: sent.messages.some((m) => m.content.includes(EDITED_NAME)),
+  };
+}
+
+/**
+ * The edited message is resent and answered. Two witnesses: what the model
+ * was SENT (the harness record), and the reply's own words. Either one
+ * carrying the original name means the edited turn was generated from the
+ * discarded text — the edit is broken whatever the screen shows. The record
+ * is required: without it the edit's content is unchecked, and that fails.
  */
 export function judgeEdit(
   edited: TurnOutcome,
@@ -732,6 +764,11 @@ export function judgeEdit(
   // Null means nothing could be read from storage; only a mismatch fails.
   const storedEdit =
     edited.storedUserText === null || edited.storedUserText.trim() === EDIT_REPLACEMENT_PROMPT;
+  const sent = readSent(edited);
+  // Both lanes run harness builds, so a complete turn always leaves a record:
+  // an unreadable one means the witness broke, and the row cannot vouch for
+  // the edit's content — it fails rather than passing unchecked.
+  const sentOk = sent !== null && sent.sentEdit && !sent.sentOriginal;
   const replyLeakedOriginal = edited.replyText.includes(ORIGINAL_NAME);
   const replyUsedEdit = edited.replyText.includes(EDITED_NAME);
   const editOk =
@@ -741,6 +778,7 @@ export function judgeEdit(
     && oneReply
     && versionsShown
     && storedEdit
+    && sentOk
     && !replyLeakedOriginal;
   return {
     result: editOk ? "PASS" : "FAIL",
@@ -751,29 +789,49 @@ export function judgeEdit(
       oneReply ? "one reply" : "more than one reply is showing",
       versionsShown ? "the earlier version is one tap away" : "NO way back to the earlier version",
       storedEdit ? "storage holds the edit" : `storage holds ${JSON.stringify(clip(edited.storedUserText ?? "", 60))}`,
+      sent === null
+        ? "what the model was sent could NOT be read, so the edit's content is unchecked"
+        : sent.sentOriginal
+          ? "the model was sent the text from before the edit"
+          : !sent.sentEdit
+            ? `the model was sent ${JSON.stringify(clip(sent.lastUser ?? "(no user message)", 60))}, not the edit`
+            : "the model was sent the edit and nothing from before it",
       replyLeakedOriginal
         ? "the reply uses the name from BEFORE the edit, so it was generated from the discarded text"
         : replyUsedEdit
           ? "the reply uses the edited name"
-          : "the reply did not use a name — the edit's content is unchecked on this run",
+          : "the reply did not use a name",
       `reply: ${clip(edited.replyText)}`,
     ].join("; "),
   };
 }
 
 /**
- * Three outcomes, judged in this order. The original name in the reply
- * means the discarded text reached the model — the edit itself is
- * broken, so that FAILs. The edited name PASSes. Neither name (a
- * small model saying it doesn't know) is RECORDED: a reading on the
- * model's recall, not evidence about the edit.
+ * Judged in this order. What the recall's model was sent (when the harness
+ * record was read) carrying the original name, or not carrying the edited
+ * one, means the conversation did not continue from the edit — FAIL. The
+ * original name in the reply means the discarded text reached the model —
+ * FAIL. The edited name PASSes. Neither name (a small model saying it
+ * doesn't know) is RECORDED: a reading on the model's recall, not evidence
+ * about the edit.
  */
 export function judgeRecall(recall: TurnOutcome): Verdict {
+  const sent = readSent(recall);
+  const sentLeaked = sent !== null && sent.sentOriginal;
+  const sentLacksEdit = sent !== null && !sent.sentEditedName;
   const leakedOriginal = recall.replyText.includes(ORIGINAL_NAME);
   const recalled = recall.replyText.includes(EDITED_NAME);
   return {
-    result: leakedOriginal ? "FAIL" : recalled ? "PASS" : "RECORDED",
+    result: sentLeaked || sentLacksEdit || leakedOriginal ? "FAIL" : recalled ? "PASS" : "RECORDED",
     evidence: `${
+      sent === null
+        ? "what was sent could not be read"
+        : sentLeaked
+          ? "the model was sent the name from BEFORE the edit, so the discarded text reached the model"
+          : sentLacksEdit
+            ? "the conversation sent for the recall does not carry the edit"
+            : "what was sent carries the edit"
+    }; ${
       leakedOriginal
         ? "the reply uses the name from BEFORE the edit, so the discarded text reached the model"
         : recalled

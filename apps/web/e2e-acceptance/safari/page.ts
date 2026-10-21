@@ -27,6 +27,7 @@ import {
   activeModelIdInPage,
   newGenerationStartedInPage,
   newestGenerationIdInPage,
+  newestSentMessagesInPage,
   readLatestExchangeInPage,
   receiptsOfNewGenerationInPage,
 } from "../lib/in-page";
@@ -557,6 +558,10 @@ async function collectOutcome(
   const toolCardText = await chat.session.run(lastToolCardInPage);
   const stored = await chat.session.run(readLatestExchangeInPage);
   const domReply = (await chat.session.run(lastReplyInPage)).text;
+  // Only a `complete` final receipt proves this turn's generation recorded
+  // what it was sent; otherwise the newest record may be an earlier turn's.
+  const sent =
+    receipts.at(-1)?.status === "complete" ? await chat.session.run(newestSentMessagesInPage) : null;
   return {
     prompt,
     storedUserText: stored?.user ?? null,
@@ -565,6 +570,7 @@ async function collectOutcome(
     receipts,
     toolAnswered: receipts.length === 0,
     toolCardText,
+    sent,
   };
 }
 

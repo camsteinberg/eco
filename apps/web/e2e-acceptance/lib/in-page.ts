@@ -15,6 +15,7 @@
  * Nothing here may import the walk (`./walk`) or the spec.
  */
 
+import type { SentMessages } from "../../src/local-ai/diagnostics/sent-messages";
 import type { GenerationReceipt } from "../../src/local-ai/lifecycle/generation-receipt";
 
 /** The newest generation's id, or null before any generation has run. */
@@ -47,6 +48,14 @@ export function receiptsOfNewGenerationInPage(previousId: string | null): Genera
   const newest = all[0];
   if (!newest || newest.generationId === previousId) return [];
   return all.filter((r) => r.generationId === newest.generationId).reverse();
+}
+
+/**
+ * What the chat handed the runtime for the newest generation (the harness's
+ * `window.__ecoHarnessSent`), or null when it cannot be read.
+ */
+export function newestSentMessagesInPage(): SentMessages | null {
+  return window.__ecoHarnessSent?.()[0] ?? null;
 }
 
 /**
