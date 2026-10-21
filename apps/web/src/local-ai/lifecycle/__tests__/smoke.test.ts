@@ -415,6 +415,8 @@ describe('runSmoke — active flag always released', () => {
 describe('runSmoke — timeout', () => {
   it('aborts after timeoutMs and returns passed:false with timeout reason', async () => {
     const seam: SmokeGenerationFn = async function* (_, __, opts): AsyncIterable<TokenEvent> {
+      // Loaded at once: `timeoutMs` bounds the first token, not the load.
+      opts.onLoadComplete?.();
       await new Promise<void>((_resolve, reject) => {
         opts.signal.addEventListener('abort', () => reject(new Error('aborted')));
       });
@@ -429,6 +431,72 @@ describe('runSmoke — timeout', () => {
     if (!r.passed) {
       expect(r.reason).toMatch(/timed out|smoke produced no tokens|aborted/i);
     }
+  });
+});
+
+// ─── `timeoutMs` alone bounds only the first token ─────────────────────────
+// The chat's background warm-up passes `timeoutMs: 90_000` and nothing else.
+// That used to cap the LOAD at 90s too, so a device whose cached load takes
+// longer than that passed setup and then failed every later warm-up.
+
+describe('runSmoke — timeoutMs alone bounds only the first token', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** Loads in `loadMs`, then answers at once — or gives up when aborted. */
+  function loadsIn(loadMs: number): SmokeGenerationFn {
+    return async function* (_, __, opts): AsyncIterable<TokenEvent> {
+      await new Promise<void>((resolve, reject) => {
+        const t = setTimeout(resolve, loadMs);
+        opts.signal.addEventListener('abort', () => {
+          clearTimeout(t);
+          reject(new Error('Load aborted'));
+        });
+      });
+      opts.onLoadComplete?.();
+      yield { kind: 'token', text: 'OK' };
+      yield { kind: 'done' };
+    };
+  }
+
+  it('passes a 100s load with a 90s token deadline (the warm-up\'s options)', async () => {
+    // 100s: past the 90s token deadline, inside the 120s load-budget floor on
+    // any device.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const pending = runSmoke('eco-fast', MODEL, {
+      generationFn: loadsIn(100_000),
+      timeoutMs: 90_000,
+      skipDiagnostics: true,
+    });
+    await vi.advanceTimersByTimeAsync(101_000);
+    const r = await pending;
+    expect(r.passed).toBe(true);
+  });
+
+  it('still fails a loaded model that gives no first token within timeoutMs', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const seam: SmokeGenerationFn = async function* (_, __, opts): AsyncIterable<TokenEvent> {
+      opts.onLoadComplete?.();
+      await new Promise<void>((_resolve, reject) => {
+        opts.signal.addEventListener('abort', () => reject(new Error('aborted')));
+      });
+      yield { kind: 'token', text: 'never' };
+    };
+    let settled = false;
+    const pending = runSmoke('eco-fast', MODEL, {
+      generationFn: seam,
+      timeoutMs: 90_000,
+      skipDiagnostics: true,
+    }).finally(() => {
+      settled = true;
+    });
+    await vi.advanceTimersByTimeAsync(89_000);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(2_000);
+    const r = await pending;
+    expect(r.passed).toBe(false);
+    if (!r.passed) expect(r.reason).toBe('Smoke timed out before any token');
   });
 });
 

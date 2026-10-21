@@ -36,6 +36,8 @@ export type TokenStreamScript = {
   hang?: boolean;
   /** Fires when the consumer cancels the stream. */
   onCancel?: () => void;
+  /** When the model counts as loaded. Defaults to already loaded. */
+  loaded?: Promise<void>;
 };
 
 export function scriptedTokenStream(script: TokenStreamScript = {}): TokenStream {
@@ -63,5 +65,6 @@ export function scriptedTokenStream(script: TokenStreamScript = {}): TokenStream
       script.onCancel?.();
       controller.abort();
     },
+    loaded: script.loaded ?? Promise.resolve(),
   };
 }
