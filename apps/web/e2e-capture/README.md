@@ -224,7 +224,7 @@ so an entry can un-suppress a first-run surface) → any IndexedDB seed → `moc
 navigate → settle → `prepare` → screenshot.
 
 The battery removal is not cosmetic. Below 30% on a discharging laptop the app
-shows a "Low battery mode" notice above the composer, which then appears in
+shows a "Low battery" notice above the composer, which then appears in
 every chat capture — a run that differs by how charged the machine happened to
 be is not a baseline. Dropping the API is the app's own "battery unavailable"
 path, and the forced battery states still work because the harness override is

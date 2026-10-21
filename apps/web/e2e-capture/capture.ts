@@ -342,7 +342,7 @@ export async function captureState(
   // Hide the capture machine's own battery.
   //
   // `useBatteryAwareness` reads the real Battery Status API, and below 30% on a
-  // discharging laptop the app shows a "Low battery mode" notice above the
+  // discharging laptop the app shows a "Low battery" notice above the
   // composer. That notice then appears in EVERY chat capture, depending on
   // nothing but how charged the machine happened to be — it made two unrelated
   // states come out byte-identical on 2026-08-18 and would make a run

@@ -425,8 +425,8 @@ export function ChatSurface(props: ChatSurfaceProps) {
             >
               <WarningTriangle className="mt-0.5 h-4 w-4 shrink-0" />
               <p className="min-w-0">
-                <span className="font-medium">Low battery mode</span>{" "}
-                <span className="opacity-80">Eco is keeping on-device replies shorter until you plug this device in.</span>
+                <span className="font-medium">Low battery</span>{" "}
+                <span className="opacity-80">Running Eco&apos;s model on this device uses a lot of power. Plug in when you can.</span>
               </p>
             </div>
           )}
