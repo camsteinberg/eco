@@ -66,10 +66,10 @@ describe('BelowFloorScreen — honest device-capability messaging', () => {
     fireEvent.click(screen.getByRole('button', { name: /what works today/i }));
 
     // The disclosed posture is honest about which runtimes work where: WebGPU on
-    // Chrome/Edge, and the slower WebAssembly path (limited models) on Safari/Firefox.
+    // Chrome/Edge, and smaller models on Safari/Firefox.
     expect(screen.getByText(/Chrome \/ Edge.*WebGPU/i)).toBeInTheDocument();
-    expect(screen.getByText(/Safari on a Mac \(limited models, WebAssembly mode\)/i)).toBeInTheDocument();
-    expect(screen.getByText(/Firefox on a desktop \(limited models, WebAssembly mode\)/i)).toBeInTheDocument();
+    expect(screen.getByText(/Safari on a Mac \(smaller models\)/i)).toBeInTheDocument();
+    expect(screen.getByText(/Firefox on a desktop \(smaller models\)/i)).toBeInTheDocument();
   });
 
   it('renders the runtime message even when no device label is available', () => {

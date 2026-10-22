@@ -59,13 +59,14 @@ const GAPS: Record<string, CaptureGap[]> = {
 };
 
 /**
- * URL knobs the validation harness reads (`src/lib/validation-harness.ts`).
+ * URL knobs the validation harness reads (`src/lib/validation-harness.ts`,
+ * and the device-profile overrides in `src/local-ai/device/profile.ts`).
  *
  * A manifest entry may only put these in its `search`. Anything else is either
  * a typo (which would silently capture the un-forced state) or a production
  * query param that does not belong in a forced capture. Kept in sync with the
- * harness by `src/__tests__/capture-manifest.test.ts`, which greps the harness
- * module for each name.
+ * harness by `src/__tests__/capture-manifest.test.ts`, which greps those two
+ * modules for each name.
  */
 export const KNOWN_HARNESS_KEYS: ReadonlySet<string> = new Set([
   "eco-force-download",
@@ -77,6 +78,7 @@ export const KNOWN_HARNESS_KEYS: ReadonlySet<string> = new Set([
   "eco-force-platform",
   "eco-force-device-memory",
   "eco-force-opfs",
+  "eco-force-shader-f16",
   "eco-force-data-saver",
   "eco-force-metered",
   "eco-force-connection",
@@ -170,7 +172,7 @@ function assertEntryIsWellFormed(entry: StateEntry, group: string): void {
       fail(
         entry.id,
         `search param "${key}" is not a known harness knob or route param. `
-          + "Add it to KNOWN_HARNESS_KEYS only if src/lib/validation-harness.ts really reads it",
+          + "Add it to KNOWN_HARNESS_KEYS only if src/lib/validation-harness.ts or src/local-ai/device/profile.ts really reads it",
       );
     }
   }

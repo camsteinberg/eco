@@ -183,7 +183,7 @@ describe('WelcomeSetup', () => {
     );
     expect(
       screen.getByText(
-        /Eco runs best in Chrome or Edge on this device\. In this browser it will work, but replies take longer\./,
+        /Eco runs best in Chrome or Edge on this device\. In this browser Eco uses a smaller model, so answers can be simpler, and on some computers slower\./,
       ),
     ).toBeInTheDocument();
   });

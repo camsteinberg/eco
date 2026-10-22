@@ -37,6 +37,19 @@ describe('toWelcomeChoice', () => {
     expect(c).toMatchObject({ name: 'Eco Deeper', sizeLabel: '~1.7 GB', speed: 2, depth: 4 });
   });
 
+  // The deeper tile where the graphics lack shader-f16. Its copy claims size,
+  // speed and length only: no reasoning or math claim without a measurement.
+  it('maps Gemma (the f16-less deeper pick) to the Eco Deeper card', () => {
+    const c = toWelcomeChoice(base({ id: 'candidate/gemma-4-e2b-litert', sizeGB: 1.87 }));
+    expect(c).toMatchObject({
+      name: 'Eco Deeper',
+      sizeLabel: '~1.9 GB',
+      tagline: 'Bigger and slower. For longer, more detailed answers.',
+      speed: 2,
+      depth: 4,
+    });
+  });
+
   it('falls back for an unmapped model, dropping the vendor suffix and scaling meters by size', () => {
     const c = toWelcomeChoice(
       base({ id: 'candidate/unknown-x', friendlyName: 'Eco Whatever (Acme)', sizeGB: 2.1 }),

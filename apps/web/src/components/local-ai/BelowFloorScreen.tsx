@@ -186,8 +186,8 @@ export function BelowFloorScreen({ deviceLabel, reason = 'runtime' }: BelowFloor
               <p className="mb-3">Eco runs today on:</p>
               <ul className="list-disc pl-5 space-y-1" style={{ color: 'var(--eco-text-secondary)' }}>
                 <li>Chrome / Edge on a desktop with WebGPU (most laptops from 2022 or newer)</li>
-                <li>Safari on a Mac (limited models, WebAssembly mode)</li>
-                <li>Firefox on a desktop (limited models, WebAssembly mode)</li>
+                <li>Safari on a Mac (smaller models)</li>
+                <li>Firefox on a desktop (smaller models)</li>
               </ul>
               <p className="mt-3" style={{ color: 'var(--eco-text-secondary)' }}>
                 We&apos;re working with browser teams to expand this list.
