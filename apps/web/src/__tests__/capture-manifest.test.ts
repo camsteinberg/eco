@@ -66,7 +66,9 @@ describe("capture manifest", () => {
 
   it("only uses search params the validation harness actually reads", () => {
     // vitest runs with cwd = apps/web.
-    const harnessSource = readFileSync(resolve(process.cwd(), "src/lib/validation-harness.ts"), "utf8");
+    const harnessSource = ["src/lib/validation-harness.ts", "src/local-ai/device/profile.ts"]
+      .map((file) => readFileSync(resolve(process.cwd(), file), "utf8"))
+      .join("\n");
 
     for (const key of KNOWN_HARNESS_KEYS) {
       // Slot-scoped knobs are read through a template literal
@@ -74,7 +76,7 @@ describe("capture manifest", () => {
       // verbatim — match the template's literal prefix for those.
       const literalPrefix = key.replace(/(eco-fast|eco-smart)$/, "");
       const isRead = harnessSource.includes(key) || harnessSource.includes(literalPrefix);
-      expect(isRead, `KNOWN_HARNESS_KEYS lists "${key}" but validation-harness.ts never reads it`).toBe(true);
+      expect(isRead, `KNOWN_HARNESS_KEYS lists "${key}" but neither harness module reads it`).toBe(true);
     }
   });
 

@@ -71,6 +71,22 @@ const UNVALIDATED_BROWSER = [
   "eco-force-opfs=true",
 ].join("&");
 
+/**
+ * WebGPU without shader-f16 (older Intel desktops, most Adreno Android). Every
+ * q4f16 build is unassignable, so the pair is the plain-int4 1.2B and Gemma on
+ * LiteRT, whose weights need no f16.
+ */
+const F16_LESS_WEBGPU = `${DESKTOP_WEBGPU}&eco-force-shader-f16=off`;
+
+/** Safari on a Mac: the desktop route where Eco runs smaller models. */
+const DESKTOP_SAFARI = [
+  "eco-force-capability=webgpu",
+  "eco-force-browser=safari",
+  "eco-force-platform=desktop",
+  "eco-force-device-memory=16",
+  "eco-force-opfs=true",
+].join("&");
+
 /** 3 GB with WebGPU — above the floor, but only the smallest model fits. */
 const LOW_MEMORY_WEBGPU = [
   "eco-force-capability=webgpu",
@@ -281,6 +297,21 @@ export const setupGateStates: StateEntry[] = [
     assert: [{ text: "Chosen for your device." }, { text: "Eco Light" }],
     notes: "The last rung above the memory floor — 3 GB still gets a model, 2 GB gets the below-floor screen.",
   },
+  {
+    id: "setup-gate.welcome-f16-less-deeper",
+    group: "setup-gate",
+    title: "Welcome — the deeper tile on graphics without shader-f16",
+    route: "/chat",
+    search: F16_LESS_WEBGPU,
+    seed: { removeLocal: ["eco-onboarding"] },
+    tier: "page",
+    realism: "seeded",
+    assert: [
+      { text: "Pick the model that fits your device" },
+      { text: "Bigger and slower. For longer, more detailed answers." },
+    ],
+    notes: "Gemma on LiteRT is the deeper pick here and carries the same Eco Deeper name as the 2.6B elsewhere; a device is offered one deeper tile at most.",
+  },
 
   // ── WelcomeSetup — the wait ─────────────────────────────────────────────
   {
@@ -318,6 +349,28 @@ export const setupGateStates: StateEntry[] = [
     realism: "seeded",
     assert: [{ text: "Setting up a lighter AI that runs smoothly on this device" }],
     notes: "The only seam into the non-resuming setup surface is a failed prior slot, so the prior-attempt note rides along.",
+  },
+  {
+    id: "setup-gate.setup-slow-browser-safari",
+    group: "setup-gate",
+    title: "Setup — where Eco runs best, on Safari on a Mac",
+    route: "/chat",
+    search: `${resumingSlot(SMALL_WEBGPU_MODEL)}&${DESKTOP_SAFARI}`,
+    tier: "page",
+    realism: "seeded",
+    assert: [{ text: "In this browser Eco uses a smaller model" }],
+    notes: "Safari and Firefox only reach the catalog's small entries, so the wait says so. A resuming slot is the seam into the wait surface.",
+  },
+  {
+    id: "setup-gate.setup-slow-browser-firefox",
+    group: "setup-gate",
+    title: "Setup — where Eco runs best, on Firefox",
+    route: "/chat",
+    search: `${resumingSlot(SMALL_WEBGPU_MODEL)}&${UNVALIDATED_BROWSER}`,
+    tier: "page",
+    realism: "seeded",
+    assert: [{ text: "In this browser Eco uses a smaller model" }],
+    notes: "The same line as on Safari: the copy is about the browser, not the model.",
   },
   {
     id: "setup-gate.setup-reassurance-first",
@@ -452,6 +505,21 @@ export const setupGateStates: StateEntry[] = [
     realism: "seeded",
     assert: [{ text: "We're working with browser vendors to change it." }],
     notes: "No WebGPU and no viable WASM tier. Memory is irrelevant here — the runtime verdict is checked first.",
+  },
+  {
+    id: "setup-gate.below-floor-what-works-today",
+    group: "setup-gate",
+    title: "Below floor — 'What works today' opened",
+    route: "/chat",
+    search: NO_RUNTIME,
+    tier: "component",
+    realism: "seeded",
+    assert: [{ text: "We're working with browser vendors to change it." }],
+    prepare: async (page) => {
+      await page.getByRole("button", { name: /What works today/ }).click();
+      await expect(page.getByText("Safari on a Mac (smaller models)")).toBeVisible();
+    },
+    notes: "The list of where Eco runs: Chrome or Edge with WebGPU, and smaller models on Safari and Firefox.",
   },
   {
     id: "setup-gate.below-floor-memory",

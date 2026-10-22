@@ -497,9 +497,16 @@
         "_rationale": "Gemma 4 E2B via LiteRT (the f16-less C2/C3 answer — model-offering overhaul 2026-06-29). LiteRT is WebGPU-only and Chromium-only by construction (runtime/litert-adapter.ts), so requireWebgpu + chromium. Crucially its `litertlm` format does NOT need shader-f16 (formatRequiresShaderF16 -> false), so the f16 gate keeps it ASSIGNABLE on f16-less adapters where every q4f16 model is filtered out — exactly the desktop-Intel / Adreno-Android hole it fills. 8GB floor matches Bonsai/Qwen (mmap keeps resident weights ~0.8GB of the ~1.9GB download). warnIfMobile: real Android per-tab memory is unvalidated (Track C C3 is provisional) — offered with a caveat, smoke-gated. declineOnMobile (owner ruling 2026-09-22, PREDICTED — no Android device has been measured): declined on every mobile form factor, so a phone on Android Chromium is offered nothing larger than the 1.2B. Precautionary: Chrome on Android caps reported memory at 8 GB, so a phone reading 8 cannot be told from a laptop reading 8. On mobile this supersedes the with-warning note above; lift it only after a real Android phone is measured."
       },
       "display": {
-        "friendlyName": "Eco Capable (Gemma)",
-        "qualityPhrase": "Strong all-round answers · runs on more devices",
-        "provider": "Google"
+        "friendlyName": "Eco Deeper (Gemma)",
+        "qualityPhrase": "Bigger and slower · longer, more detailed answers",
+        "provider": "Google",
+        "welcome": {
+          "name": "Eco Deeper",
+          "tagline": "Bigger and slower. For longer, more detailed answers.",
+          "speed": 2,
+          "depth": 4
+        },
+        "_rationale": "The deeper tile on devices whose graphics lack shader-f16, where the LFM2 2.6B 'Eco Deeper (Liquid)' cannot load; a device is offered one deeper tile at most (first-run-choices.ts), so the two never sit side by side. The copy claims only size, speed and length: no reasoning or math claim until this model is measured on one. Speed 2 / depth 4 are the meters the size heuristic already gave this card."
       },
       "bestFor": "Well-rounded answers for chat, writing, reasoning, and code — and it runs on a wide range of devices.",
       "knownLimitation": "A larger download than the lighter models, so the first setup takes a little longer.",
