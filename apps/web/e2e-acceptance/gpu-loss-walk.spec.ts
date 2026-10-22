@@ -19,6 +19,13 @@
  * `ECO_ACCEPTANCE_PROFILE_DIR`) with that model downloaded. ONNX's device lives
  * in its worker; the harness seam reaches it through the transformers adapter.
  *
+ * `ECO_GPU_LOSS_RUNTIME=litert` runs them on LiteRT: Gemma 4 E2B, Eco Deeper on
+ * a desktop GPU without shader-f16, in the same Chrome profile with that model
+ * set up. LiteRT asks for its device on the main thread, so the seam reaches it
+ * as it reaches WebLLM. LiteRT keeps ONE device for the whole page, so a page
+ * that lost it cannot load the model again in place: for LiteRT, W1 expects the
+ * one automatic page reload that W2 expects, not the quiet in-page reload.
+ *
  * The loss comes from the harness seam `eco-force-gpu-loss` (localStorage,
  * read at bootstrap; see `installValidationGpuLoss`): when the tab is next
  * hidden it destroys every WebGPU device the page made, and optionally makes
@@ -64,15 +71,18 @@ import {
 
 const BASE_URL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3120";
 const ONNX = process.env.ECO_GPU_LOSS_RUNTIME === "onnx";
+const LITERT = process.env.ECO_GPU_LOSS_RUNTIME === "litert";
 const PROFILE_DIR =
   process.env.ECO_ACCEPTANCE_PROFILE_DIR
-  ?? join(__dirname, ONNX ? ".browser-profile" : ".browser-profile-webllm");
+  ?? join(__dirname, ONNX || LITERT ? ".browser-profile" : ".browser-profile-webllm");
 const DESKTOP_SAFARI_USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
   + "(KHTML, like Gecko) Version/26.4 Safari/605.1.15";
 
-const MODEL_ID = ONNX ? "candidate/lfm2.5-1.2b-instruct-onnx" : "candidate/qwen2.5-0.5b-mlc";
-const SLOT = "eco-fast";
+const MODEL_ID = ONNX
+  ? "candidate/lfm2.5-1.2b-instruct-onnx"
+  : LITERT ? "candidate/gemma-4-e2b-litert" : "candidate/qwen2.5-0.5b-mlc";
+const SLOT = LITERT ? "eco-smart" : "eco-fast";
 const GPU_LOSS_KEY = "eco-force-gpu-loss";
 
 /** How long the tab stays in the background. The loss is immediate; this only lets it land. */
@@ -82,9 +92,9 @@ const HIDDEN_MS = 3_000;
  * after the tab returns. The ONNX 1.2B is larger than Eco Mobile; its cached
  * load time on this Mac is UNMEASURED, so its window is doubled.
  */
-const RECOVERY_SETTLE_MS = ONNX ? 40_000 : 20_000;
+const RECOVERY_SETTLE_MS = ONNX || LITERT ? 40_000 : 20_000;
 /** A page reload, then the model loading from the browser's cache. */
-const RELOAD_TIMEOUT_MS = ONNX ? 90_000 : 60_000;
+const RELOAD_TIMEOUT_MS = ONNX || LITERT ? 90_000 : 60_000;
 
 const PROMPT_1 = "How far is the Moon from Earth, roughly?";
 const PROMPT_2 = "And how long does light take to cover that distance?";
@@ -103,7 +113,7 @@ test.beforeAll(async () => {
     channel: "chrome",
     headless: false,
     viewport: null,
-    ...(ONNX ? {} : { userAgent: DESKTOP_SAFARI_USER_AGENT }),
+    ...(ONNX || LITERT ? {} : { userAgent: DESKTOP_SAFARI_USER_AGENT }),
   });
   await stubAuth(context);
 });
@@ -155,8 +165,14 @@ async function expectResident(page: Page): Promise<void> {
     .toBe(MODEL_ID);
 }
 
+/** This tab's page loads. A read that meets the page mid-reload reads as "not yet" (-1), so a poll retries it. */
 const pageLoads = (page: Page): Promise<number> =>
-  page.evaluate(() => Number(window.sessionStorage.getItem("eco-gpu-walk-loads") ?? "0"));
+  page
+    .evaluate(() => Number(window.sessionStorage.getItem("eco-gpu-walk-loads") ?? "0"))
+    .catch((err: unknown) => {
+      if (err instanceof Error && /Execution context was destroyed|because of a navigation/.test(err.message)) return -1;
+      throw err;
+    });
 
 const visibility = (page: Page): Promise<string> =>
   page.evaluate(() => document.visibilityState);
@@ -210,16 +226,27 @@ test("W1 — the device is lost in the background and an adapter is still there:
 
   await hide(page);
   await show(page);
-  await page.waitForTimeout(RECOVERY_SETTLE_MS);
+  if (LITERT) {
+    // The page's one device is gone and cannot be replaced in place.
+    await expect.poll(() => pageLoads(page), { timeout: RELOAD_TIMEOUT_MS, message: "the page never reloaded" }).toBe(2);
+    await waitForUsableChat(page);
+    await expect(userMessages(page).first(), "the conversation did not survive the reload").toContainText(PROMPT_1);
+  } else {
+    await page.waitForTimeout(RECOVERY_SETTLE_MS);
+  }
 
   const second = await sendTurn(page, PROMPT_2);
   const receipt = outcomeReceipt(second);
   expect(receipt?.status, `turn 2 after the loss: ${receipt?.errorCode ?? "no receipt"}`).toBe("complete");
-  expect(
-    receipt?.events?.some((event) => event.phase === "load-start") ?? false,
-    "turn 2 had to load the model itself — recovery did not run when the tab came back",
-  ).toBe(false);
-  expect(await pageLoads(page), "the quiet branch reloaded the page").toBe(1);
+  if (!LITERT) {
+    expect(
+      receipt?.events?.some((event) => event.phase === "load-start") ?? false,
+      "turn 2 had to load the model itself — recovery did not run when the tab came back",
+    ).toBe(false);
+  }
+  expect(await pageLoads(page), LITERT ? "more than one automatic reload" : "the quiet branch reloaded the page").toBe(
+    LITERT ? 2 : 1,
+  );
 
   // What a person does next: stop a reply, then send another message.
   const before = await assistantMessages(page).count();

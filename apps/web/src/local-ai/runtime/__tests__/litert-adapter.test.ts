@@ -6,6 +6,7 @@ import type { ModelConfig } from '../../types';
 import type { CachedEntry, Storage, StorageKey } from '../../download/storage';
 import { AdapterError, type TokenEvent } from '../types';
 import {
+  _resetLiteRTPageDeviceForTesting,
   LiteRTAdapter,
   type LiteRTConversation,
   type LiteRTConversationConfig,
@@ -110,6 +111,7 @@ beforeEach(() => {
 
 afterEach(async () => {
   await adapter.unload().catch(() => undefined);
+  _resetLiteRTPageDeviceForTesting();
 });
 
 // ─── Load ──────────────────────────────────────────────────────────────────
@@ -503,5 +505,56 @@ describe('LiteRTAdapter — unload', () => {
     await adapter.unload();
     expect(adapter.isLoaded).toBe(false);
     expect(adapter.activeModel).toBeNull();
+  });
+});
+
+// ─── Device loss ───────────────────────────────────────────────────────────
+
+describe('LiteRTAdapter — device loss', () => {
+  async function loadLosable(onDeviceLost?: () => void): Promise<{ lose: () => Promise<void>; created: () => number }> {
+    let resolveLost: (info: unknown) => void = () => undefined;
+    let conversations = 0;
+    const base = makeEngine({ onCreateConversation: () => { conversations++; } });
+    engine = { ...base, deviceLost: new Promise((resolve) => { resolveLost = resolve; }) };
+    await adapter.load(MODEL, onDeviceLost ? { onDeviceLost } : undefined);
+    return {
+      lose: async () => {
+        resolveLost({ reason: 'unknown', message: 'lost' });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      },
+      created: () => conversations,
+    };
+  }
+
+  it('reports a lost device once, and answers the next request with device-reclaimed without touching the engine', async () => {
+    let reported = 0;
+    const { lose, created } = await loadLosable(() => { reported++; });
+    expect(adapter.deviceLost).toBe(false);
+
+    await lose();
+    expect(adapter.deviceLost).toBe(true);
+    expect(reported).toBe(1);
+
+    const events: TokenEvent[] = [];
+    for await (const event of adapter.generate([{ role: 'user', content: 'hi' }])) events.push(event);
+    expect(events).toEqual([{ kind: 'error', reason: 'The WebGPU device was lost.', code: 'device-reclaimed' }]);
+    expect(created()).toBe(0);
+  });
+
+  it('refuses every later load in the page with webgpu-unavailable, before creating an engine', async () => {
+    const { lose } = await loadLosable();
+    await lose();
+
+    let factoryCalls = 0;
+    const next = new LiteRTAdapter({ engineFactory: async () => { factoryCalls++; return makeEngine(); } });
+    const err = await next.load(MODEL).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(AdapterError);
+    expect((err as AdapterError).code).toBe('webgpu-unavailable');
+    expect(factoryCalls).toBe(0);
+    expect(next.isLoaded).toBe(false);
+  });
+
+  it('asks recovery for a page reload, not an in-page reload', () => {
+    expect(adapter.deviceLossNeedsPageReload).toBe(true);
   });
 });

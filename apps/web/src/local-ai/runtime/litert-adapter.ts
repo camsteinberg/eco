@@ -102,6 +102,11 @@ export type LiteRTConversation = {
 export type LiteRTEngine = {
   createConversation(config?: LiteRTConversationConfig): Promise<LiteRTConversation>;
   delete(): Promise<void>;
+  /**
+   * Resolves if the WebGPU device the engine runs on is lost (the factory
+   * passes on the device's own `lost` promise). Absent when unknown.
+   */
+  deviceLost?: Promise<unknown>;
 };
 
 export type LiteRTEngineFactory = (options: {
@@ -121,8 +126,22 @@ export type LiteRTEngineFactory = (options: {
 
 let engineFactory: LiteRTEngineFactory | null = null;
 
+/**
+ * LiteRT sets up one WebGPU device for the whole page and its compiled runtime
+ * keeps it: a new engine in the same page runs on the same device, dead or not
+ * (measured 2026-10-22: after a loss, a fresh Engine.create loaded and its
+ * first reply failed with "The Device was lost before mapping"). So once that
+ * device is lost, no LiteRT load in this page can work until the page reloads.
+ */
+let pageDeviceLost = false;
+
 export function setLiteRTEngineFactory(factory: LiteRTEngineFactory | null): void {
   engineFactory = factory;
+}
+
+/** Test-only: forget a lost page device. */
+export function _resetLiteRTPageDeviceForTesting(): void {
+  pageDeviceLost = false;
 }
 
 export function hasLiteRTEngineFactory(): boolean {
@@ -227,9 +246,13 @@ export class LiteRTAdapter implements RuntimeAdapter {
   readonly runtime = 'litert' as const;
   private readonly options: LiteRTAdapterOptions;
 
+  /** See `pageDeviceLost`: a lost device comes back only with a new page. */
+  readonly deviceLossNeedsPageReload = true;
+
   private engine: LiteRTEngine | null = null;
   private currentModel: ModelConfig | null = null;
   private inFlight: { cancel: () => void } | null = null;
+  private lost = false;
 
   constructor(options: LiteRTAdapterOptions = {}) {
     this.options = options;
@@ -248,11 +271,26 @@ export class LiteRTAdapter implements RuntimeAdapter {
     return this.currentModel;
   }
 
+  get deviceLost(): boolean {
+    return this.lost;
+  }
+
   async load(model: ModelConfig, options?: LoadOptions): Promise<void> {
     const emit = options?.onLifecycleEvent;
 
     if (this.engine) {
       await this.unload();
+    }
+
+    // Loading on a lost device "succeeds" and then fails the first reply. Say
+    // so up front: a page that lost its GPU and cannot get it back in place
+    // is the send path's cue to reload the page (`GPU_RECONNECT`).
+    if (pageDeviceLost) {
+      throw new AdapterError(
+        'This page lost its GPU device; LiteRT needs a page reload to get a new one.',
+        'webgpu-unavailable',
+        true,
+      );
     }
 
     const factory = this.options.engineFactory ?? engineFactory;
@@ -309,8 +347,25 @@ export class LiteRTAdapter implements RuntimeAdapter {
 
     this.engine = engine;
     this.currentModel = model;
+    this.watchDeviceLoss(engine, options?.onDeviceLost);
     options?.onLoadProgress?.(1);
     emit?.({ phase: 'load-finish', at: now(), note: 'backend=webgpu' });
+  }
+
+  /**
+   * The device is the page's, so its loss is recorded for the page whichever
+   * engine is current; only the current engine reports it to the lifecycle.
+   */
+  private watchDeviceLoss(engine: LiteRTEngine, onDeviceLost?: () => void): void {
+    engine.deviceLost?.then(
+      () => {
+        pageDeviceLost = true;
+        if (this.engine !== engine || this.lost) return;
+        this.lost = true;
+        onDeviceLost?.();
+      },
+      () => undefined,
+    );
   }
 
   /**
@@ -359,6 +414,12 @@ export class LiteRTAdapter implements RuntimeAdapter {
   ): StreamBody<TokenEvent> {
     if (!this.engine) {
       throw new AdapterError('Not loaded', 'init-failed', false);
+    }
+    // The device was gone before this request: not the model's fault, so no
+    // strike (`device-reclaimed`), and the next load asks for a page reload.
+    if (this.lost || pageDeviceLost) {
+      yield { kind: 'error', reason: 'The WebGPU device was lost.', code: 'device-reclaimed' };
+      return;
     }
     const engine = this.engine;
     const emit = options?.onLifecycleEvent;
@@ -511,6 +572,7 @@ export class LiteRTAdapter implements RuntimeAdapter {
     const engine = this.engine;
     this.engine = null;
     this.currentModel = null;
+    this.lost = false;
     if (this.inFlight) {
       try {
         this.inFlight.cancel();

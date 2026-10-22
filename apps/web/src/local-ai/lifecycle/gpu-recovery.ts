@@ -18,7 +18,9 @@
  *   - The page can still get a WebGPU adapter → reload the model invisibly,
  *     the same way the mount-time warm-up does. A message sent meanwhile waits
  *     behind it (`acquireGenerationLease`) and is answered.
- *   - It cannot → reload the page, once. A fresh page gets a fresh adapter;
+ *   - It cannot, or the runtime cannot use a new device in this page
+ *     (`deviceLossNeedsPageReload`: LiteRT keeps one device per page) →
+ *     reload the page, once. A fresh page gets a fresh adapter;
  *     the chat and the composer draft are already saved, and a turn the send
  *     path could not run is answered after the reload (`GPU_RECONNECT` in
  *     useChat).
@@ -143,10 +145,11 @@ export function installGpuRecovery(options: GpuRecoveryOptions): () => void {
 
   const maybeRecover = async (): Promise<void> => {
     if (running || document.visibilityState !== 'visible') return;
-    if (getActiveAdapter()?.deviceLost !== true || options.isBusy()) return;
+    const adapter = getActiveAdapter();
+    if (adapter?.deviceLost !== true || options.isBusy()) return;
     running = true;
     try {
-      if (await probe()) {
+      if (!adapter.deviceLossNeedsPageReload && (await probe())) {
         await options.warm();
       } else if (!options.isBusy()) {
         reloadPageForGpu({ ...(options.reload ? { reload: options.reload } : {}) });
