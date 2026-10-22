@@ -192,6 +192,12 @@ export type RuntimeAdapter = {
    * Absent on adapters that cannot observe their device.
    */
   readonly deviceLost?: boolean;
+  /**
+   * True when this runtime cannot get a new WebGPU device in the same page
+   * after losing one, so recovery has to reload the page rather than reload
+   * the model in place. Absent means an in-page reload works.
+   */
+  readonly deviceLossNeedsPageReload?: boolean;
 
   load(model: ModelConfig, options?: LoadOptions): Promise<void>;
   generate(messages: ChatMessage[], options?: GenerateOptions): AsyncIterable<TokenEvent>;

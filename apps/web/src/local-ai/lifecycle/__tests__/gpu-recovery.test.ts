@@ -37,6 +37,7 @@ class LosableAdapter implements RuntimeAdapter {
   backend: 'webgpu' | null = null;
   activeModel: ModelConfig | null = null;
   deviceLost = false;
+  deviceLossNeedsPageReload = false;
   private onDeviceLost: (() => void) | undefined;
 
   async load(model: ModelConfig, options?: LoadOptions): Promise<void> {
@@ -143,6 +144,17 @@ describe('installGpuRecovery', () => {
     setVisibility('visible');
     await settle();
     expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it('reloads the page, not the model, when the runtime cannot use a new device in this page', async () => {
+    adapter.deviceLossNeedsPageReload = true;
+    const { warm, reload } = install({ adapterAvailable: true });
+    setVisibility('hidden');
+    adapter.lose();
+    setVisibility('visible');
+    await settle();
+    expect(reload).toHaveBeenCalledTimes(1);
+    expect(warm).not.toHaveBeenCalled();
   });
 
   it('never probes or reloads a page whose device was not lost', async () => {

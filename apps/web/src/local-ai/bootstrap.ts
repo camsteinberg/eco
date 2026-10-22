@@ -182,9 +182,13 @@ export async function bootstrapLocalAi(options?: BootstrapOptions): Promise<void
         model,
         mainExecutorSettings: { maxNumTokens },
       });
+      // LiteRT keeps one WebGPU device for the whole page, set up by the first
+      // Engine.create. Its `lost` promise is how the adapter learns the browser
+      // took the device away.
+      const device = mod.getGlobalLiteRtLm().liteRtLmWasm.preinitializedWebGPUDevice;
       // Cast through `unknown` — the published Engine surface is wider than
       // the narrow slice the adapter's LiteRTEngine contract requires.
-      return engine as unknown as LiteRTEngine;
+      return Object.assign(engine as unknown as LiteRTEngine, device ? { deviceLost: device.lost } : {});
     });
   }
 
