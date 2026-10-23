@@ -52,6 +52,8 @@ import {
   probeBlobStorage,
   setDownloadPlanResolver,
 } from '../download';
+import { setSha256WorkerFactory, type Sha256Worker } from '../sha256-session';
+import { FakeSha256Worker } from './fake-sha256-worker';
 import { recordEvidence } from '../../evidence/ledger';
 import type { ModelConfig } from '../../types';
 
@@ -2585,3 +2587,154 @@ async function drainStream(stream: ReadableStream<Uint8Array>): Promise<Uint8Arr
   }
   return out;
 }
+
+// ─── Hashing as the bytes arrive (sha256-session) ───────────────────────────
+
+/** A copy of `body` with one byte flipped. */
+function corrupted(body: Uint8Array, at: number): Uint8Array {
+  const out = body.slice();
+  out[at] = (out[at] ?? 0) ^ 0xff;
+  return out;
+}
+
+/** Serves ranges, but the FIRST request for the chunk at `dropAt` sends half its bytes then drops. */
+function serveDroppingOnce(body: Uint8Array, dropAt: number): RangeHandler {
+  let dropped = false;
+  return (range) => {
+    if (!range) return new Response(body as unknown as BodyInit, { status: 200 });
+    if (range.start !== dropAt || dropped) return slice206(body, range);
+    dropped = true;
+    const end = range.end == null ? body.byteLength - 1 : Math.min(range.end, body.byteLength - 1);
+    const half = body.slice(range.start, range.start + Math.ceil((end - range.start + 1) / 2));
+    let sent = false;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (!sent) {
+          sent = true;
+          controller.enqueue(half);
+        } else {
+          controller.error(new TypeError('network drop mid-chunk'));
+        }
+      },
+    });
+    return new Response(stream as unknown as BodyInit, {
+      status: 206,
+      headers: {
+        'accept-ranges': 'bytes',
+        'content-length': String(end - range.start + 1),
+        'content-range': `bytes ${range.start}-${end}/${body.byteLength}`,
+      },
+    });
+  };
+}
+
+describe.each([
+  ['in the page', false],
+  ['through a hash worker', true],
+])('downloadByPlan — SHA-256 as the bytes arrive (%s)', (_label, useWorker) => {
+  const URL_A = 'https://test/big.bin';
+  let workers: FakeSha256Worker[] = [];
+
+  beforeEach(() => {
+    workers = [];
+    if (useWorker) {
+      setSha256WorkerFactory(() => {
+        const worker = new FakeSha256Worker();
+        workers.push(worker);
+        return worker as unknown as Sha256Worker;
+      });
+    }
+  });
+  afterEach(() => setSha256WorkerFactory(null));
+
+  const options = (fetcher: typeof fetch) => ({
+    storage,
+    estimateStorage: async () => null,
+    rangeChunkBytes: RESUME_CHUNK,
+    retryBaseDelayMs: NO_RETRY_BACKOFF,
+    fetcher,
+  });
+
+  it('a chunk that drops mid-stream and is fetched again counts its bytes once', async () => {
+    const body = body16();
+    const result = await downloadByPlan(
+      chunkedFile(URL_A, body),
+      options(rangeDispatch([], { [URL_A]: serveDroppingOnce(body, 8) })),
+    );
+    expect(result.filesFetched).toBe(1);
+    expect((await storage.get({ modelId: MODEL_ID, url: URL_A }))!.sizeBytes).toBe(16);
+  });
+
+  it('a corrupt chunk still fails the file and stores nothing under its identity', async () => {
+    const body = body16();
+    const served = corrupted(body, 9);
+    await expect(
+      downloadByPlan(chunkedFile(URL_A, body), options(rangeDispatch([], { [URL_A]: serveRanges(served) }))),
+    ).rejects.toBeInstanceOf(DownloadIntegrityError);
+    expect(await storage.has({ modelId: MODEL_ID, url: URL_A })).toBe(false);
+  });
+
+  it('a resumed download hashes the parts it adopted before the new chunks', async () => {
+    const body = body16();
+    await expect(
+      downloadByPlan(chunkedFile(URL_A, body), options(rangeDispatch([], { [URL_A]: serveThen503(body, 8) }))),
+    ).rejects.toBeInstanceOf(DownloadFailedError);
+    const log: { url: string; range: string }[] = [];
+    const result = await downloadByPlan(
+      chunkedFile(URL_A, body),
+      options(rangeDispatch(log, { [URL_A]: serveRanges(body) })),
+    );
+    expect(result.filesFetched).toBe(1);
+    expect(log.map((e) => e.range)).toEqual(['bytes=8-11', 'bytes=12-15']);
+  });
+
+  it('the single-GET path verifies as it streams, and still rejects a mismatch', async () => {
+    const body = body16();
+    const plan = { modelId: MODEL_ID, files: [{ url: URL_A, sizeBytes: 16, oid: oidOf(body) }] };
+    const wrong = { modelId: MODEL_ID, files: [{ url: URL_A, sizeBytes: 16, oid: oidOf(byteArr(1, 2, 3)) }] };
+    const whole = { ...options(rangeDispatch([], { [URL_A]: serveRanges(body) })), rangeChunkBytes: 64 };
+    await expect(downloadByPlan(wrong, whole)).rejects.toBeInstanceOf(DownloadIntegrityError);
+    await expect(downloadByPlan(plan, whole)).resolves.toMatchObject({ filesFetched: 1 });
+  });
+
+  it.runIf(useWorker)('a worker that dies mid-file is replaced by an in-page check of the stored bytes', async () => {
+    setSha256WorkerFactory(() => {
+      const worker = new FakeSha256Worker();
+      worker.failAtUpdate = 1;
+      workers.push(worker);
+      return worker as unknown as Sha256Worker;
+    });
+    const body = body16();
+    const served = corrupted(body, 3);
+    await expect(
+      downloadByPlan(chunkedFile(URL_A, body), options(rangeDispatch([], { [URL_A]: serveRanges(served) }))),
+    ).rejects.toBeInstanceOf(DownloadIntegrityError);
+    const result = await downloadByPlan(
+      chunkedFile(URL_A, body),
+      options(rangeDispatch([], { [URL_A]: serveRanges(body) })),
+    );
+    expect(result.filesFetched).toBe(1);
+  });
+
+  it.runIf(useWorker)('a worker that dies on the single-GET path is replaced by an in-page check of the blob', async () => {
+    setSha256WorkerFactory(() => {
+      const worker = new FakeSha256Worker();
+      worker.failAtUpdate = 1;
+      workers.push(worker);
+      return worker as unknown as Sha256Worker;
+    });
+    const body = body16();
+    const plan = { modelId: MODEL_ID, files: [{ url: URL_A, sizeBytes: 16, oid: oidOf(body) }] };
+    const whole = (served: Uint8Array) => ({ ...options(rangeDispatch([], { [URL_A]: serveRanges(served) })), rangeChunkBytes: 64 });
+    await expect(downloadByPlan(plan, whole(corrupted(body, 5)))).rejects.toBeInstanceOf(DownloadIntegrityError);
+    await expect(downloadByPlan(plan, whole(body))).resolves.toMatchObject({ filesFetched: 1 });
+    expect(workers.length).toBe(2);
+  });
+
+  it.runIf(useWorker)('stops every hash worker it started', async () => {
+    const body = body16();
+    await downloadByPlan(chunkedFile(URL_A, body), options(rangeDispatch([], { [URL_A]: serveDroppingOnce(body, 4) })));
+    expect(workers.length).toBeGreaterThan(0);
+    expect(workers.every((w) => w.terminated)).toBe(true);
+  });
+});
