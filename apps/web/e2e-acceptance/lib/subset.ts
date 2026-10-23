@@ -37,6 +37,16 @@
  * runtime, both of its models, no origin wipe — so it is never a product
  * verdict either.
  *
+ * `ECO_ACCEPTANCE_PROFILE=f16-less` walks the models an f16-less 8 GB Windows
+ * Chrome device gets: the q4 ONNX and LiteRT Gemma picks instead of the f16
+ * variants. It runs the full fourteen tasks by default, wipes the origin the
+ * way the default walk does, and keeps its own Chrome profile.
+ *
+ * `ECO_ACCEPTANCE_BROWSER=firefox-routed` walks Playwright's Firefox with its
+ * own user agent, so the app routes to the models Firefox actually gets.
+ * Because both slots may hold the same model, task 8 is skipped when there is
+ * nothing to switch to; each row carries the backend the runtime used.
+ *
  * Everything here is pure and env-injected so it can be unit-tested without a
  * browser; the spec reads `process.env` once and passes the plan around.
  */
@@ -63,7 +73,19 @@ export const TASKS_ENV_VAR = "ECO_ACCEPTANCE_TASKS";
 /** `onnx` (the default) or `webllm`. */
 export const RUNTIME_ENV_VAR = "ECO_ACCEPTANCE_RUNTIME";
 
+/** `f16-less` or unset. */
+export const PROFILE_ENV_VAR = "ECO_ACCEPTANCE_PROFILE";
+
+/** `chrome` (default), `firefox`, `webkit`, or `firefox-routed`. */
+export const BROWSER_ENV_VAR = "ECO_ACCEPTANCE_BROWSER";
+
 export type AcceptanceRuntime = "onnx" | "webllm";
+
+/** A device profile the lane can emulate. */
+export type AcceptanceProfile = "f16-less";
+
+/** A browser mode the lane recognizes. */
+export type AcceptanceBrowser = "chrome" | "firefox" | "webkit" | "firefox-routed";
 
 export type AcceptancePlan = {
   /** True when the run is narrowed (smoke, a task list, or WebLLM) rather than the full walk. */
@@ -74,6 +96,10 @@ export type AcceptancePlan = {
   wipesOrigin: boolean;
   /** Which of the app's runtimes the walked models run on. */
   runtime: AcceptanceRuntime;
+  /** A device profile being emulated, or undefined for the default desktop. */
+  profile?: AcceptanceProfile;
+  /** The browser mode, or undefined for the default (chrome). */
+  browser?: AcceptanceBrowser;
 };
 
 const AFFIRMATIVE = new Set(["1", "true", "yes", "on"]);
@@ -109,25 +135,85 @@ function parseRuntime(raw: string | undefined): AcceptanceRuntime {
   );
 }
 
+/** Read the device profile. Unknown values are fatal. */
+function parseProfile(raw: string | undefined): AcceptanceProfile | undefined {
+  const value = (raw ?? "").trim().toLowerCase();
+  if (value === "") return undefined;
+  if (value === "f16-less") return "f16-less";
+  throw new Error(
+    `${PROFILE_ENV_VAR}=${String(raw)} is not a profile this lane walks: use "f16-less" or leave it unset.`,
+  );
+}
+
+/** Read the browser mode. Unknown values are fatal. */
+function parseBrowser(raw: string | undefined): AcceptanceBrowser | undefined {
+  const value = (raw ?? "").trim().toLowerCase();
+  if (value === "" || value === "chrome") return undefined;
+  if (value === "firefox" || value === "webkit" || value === "firefox-routed") {
+    return value as AcceptanceBrowser;
+  }
+  throw new Error(
+    `${BROWSER_ENV_VAR}=${String(raw)} is not a browser mode this lane walks: `
+      + `use "chrome" (default), "firefox", "webkit", or "firefox-routed".`,
+  );
+}
+
+/** Validate that env combinations are not contradictory. */
+function validateCombinations(
+  runtime: AcceptanceRuntime,
+  profile: AcceptanceProfile | undefined,
+  browser: AcceptanceBrowser | undefined,
+): void {
+  if (profile === "f16-less" && runtime === "webllm") {
+    throw new Error(
+      `${PROFILE_ENV_VAR}=f16-less and ${RUNTIME_ENV_VAR}=webllm conflict: `
+        + "the f16-less profile walks ONNX and LiteRT models in Chrome, not WebLLM.",
+    );
+  }
+  if (profile === "f16-less" && browser !== undefined && browser !== "chrome") {
+    throw new Error(
+      `${PROFILE_ENV_VAR}=f16-less requires Chrome (the default browser); `
+        + `${BROWSER_ENV_VAR}=${browser} conflicts.`,
+    );
+  }
+  if (browser === "firefox-routed" && runtime === "webllm") {
+    throw new Error(
+      `${BROWSER_ENV_VAR}=firefox-routed and ${RUNTIME_ENV_VAR}=webllm conflict: `
+        + "the routed-Firefox mode lets Firefox describe itself, not a WebLLM run.",
+    );
+  }
+}
+
 /** Read the plan from an environment. Anything but an affirmative flag is the full walk. */
 export function acceptancePlan(
   env: Record<string, string | undefined> = process.env,
 ): AcceptancePlan {
   const runtime = parseRuntime(env[RUNTIME_ENV_VAR]);
+  const profile = parseProfile(env[PROFILE_ENV_VAR]);
+  const browser = parseBrowser(env[BROWSER_ENV_VAR]);
+  validateCombinations(runtime, profile, browser);
+
   const smoke = AFFIRMATIVE.has((env[SMOKE_ENV_VAR] ?? "").trim().toLowerCase());
   // The explicit list beats the smoke flag: it is the more specific request.
   const only = parseTasks(env[TASKS_ENV_VAR]);
-  if (only.length > 0) return { smoke: true, tasks: only, wipesOrigin: false, runtime };
+  if (only.length > 0) {
+    return { smoke: true, tasks: only, wipesOrigin: false, runtime, profile, browser };
+  }
   // A WebLLM run keeps its own profile and is narrowed by construction, so the
   // smoke flag changes nothing about it.
   if (runtime === "webllm") {
-    return { smoke: true, tasks: WEBLLM_TASKS, wipesOrigin: false, runtime };
+    return { smoke: true, tasks: WEBLLM_TASKS, wipesOrigin: false, runtime, profile, browser };
   }
+  // The f16-less profile runs the full walk by default, same wipe behaviour as
+  // the default path. `ECO_ACCEPTANCE_SMOKE` narrows it the same way.
+  // The firefox-routed mode runs the full walk too.
   return {
     smoke,
     tasks: smoke ? SMOKE_TASKS : ACCEPTANCE_TASKS,
     wipesOrigin: !smoke,
     runtime,
+    profile,
+    browser,
   };
 }
 

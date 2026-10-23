@@ -34,6 +34,13 @@ export type AcceptanceRow = {
   firstTokenMs: number | null;
   /** `kvReuse.decision/reason` from the receipt, or null when there was none. */
   kvReason: string | null;
+  /**
+   * The execution backend the model loaded on (`webgpu` or `wasm`), read from
+   * the diagnostic capture (`eco-local-ai-diagnostics-v1`). Absent on runs
+   * that do not record it; present on f16-less, firefox-routed and the default
+   * when available.
+   */
+  backend?: string | null;
   result: RowResult;
   /** Why the verdict holds: a mechanical check's outcome, or the reply itself. */
   evidence: string;
@@ -77,6 +84,10 @@ export type AcceptanceReport = {
    * walk, which keeps its artefacts unchanged.
    */
   runtime?: "webllm";
+  /** Present on an f16-less or other device-profile run. */
+  profile?: string;
+  /** Present on a routed-Firefox or other acceptance-browser run. */
+  acceptanceBrowser?: string;
   /**
    * Present only on a run in a real browser other than the lane's Chrome —
    * today, real Safari driven over WebDriver — so the header names the browser
@@ -123,23 +134,26 @@ export function clip(text: string, max = 160): string {
 }
 
 function renderTable(pick: PickReport): string {
-  const header =
-    "| task | turn | modelId | firstTokenMs | kvReason | result | evidence |\n"
-    + "| ---: | ---: | --- | ---: | --- | --- | --- |";
+  const hasBackend = pick.rows.some((row) => row.backend !== undefined);
+  const header = hasBackend
+    ? "| task | turn | modelId | backend | firstTokenMs | kvReason | result | evidence |\n"
+      + "| ---: | ---: | --- | --- | ---: | --- | --- | --- |"
+    : "| task | turn | modelId | firstTokenMs | kvReason | result | evidence |\n"
+      + "| ---: | ---: | --- | ---: | --- | --- | --- |";
   const body = pick.rows
-    .map((row) =>
-      [
+    .map((row) => {
+      const cells = [
         row.task,
         row.turn,
         row.modelId,
+        ...(hasBackend ? [row.backend ?? null] : []),
         row.firstTokenMs === null ? null : Math.round(row.firstTokenMs),
         row.kvReason,
         row.result,
         `${row.label} — ${clip(row.evidence)}`,
-      ]
-        .map(cell)
-        .join(" | "),
-    )
+      ];
+      return cells.map(cell).join(" | ");
+    })
     .map((line) => `| ${line} |`)
     .join("\n");
   return `${header}\n${body}`;
@@ -240,6 +254,28 @@ export function renderMarkdown(report: AcceptanceReport): string {
           "**WebLLM run (`ECO_ACCEPTANCE_RUNTIME=webllm`).** Chrome presents desktop",
           "Safari's user agent, so the app routes to the models it serves Safari on",
           "the WebLLM runtime; every row's model id is the one the runtime held.",
+          "",
+        ]
+      : []),
+    ...(report.profile === "f16-less"
+      ? [
+          "**f16-less stand-in (`ECO_ACCEPTANCE_PROFILE=f16-less`).** Real Chrome presents",
+          "a Windows Chrome user agent with `navigator.deviceMemory = 8` and the main-thread",
+          "GPU adapter's `features.has('shader-f16')` shimmed to false. The app routes to its",
+          "f16-less picks: the plain-int4 ONNX build and the LiteRT Gemma build. The ONNX",
+          "worker's own adapter is NOT reached by the shim (init scripts do not propagate to",
+          "Web Workers), so the worker uses whatever the real GPU provides. The `backend`",
+          "column, when present, is read from the diagnostic capture, not per-turn.",
+          "",
+        ]
+      : []),
+    ...(report.acceptanceBrowser === "firefox-routed"
+      ? [
+          "**Routed-Firefox run (`ECO_ACCEPTANCE_BROWSER=firefox-routed`).** Playwright's",
+          "Firefox with its own user agent, so the app routes to the models Firefox actually",
+          "gets. The picks were read from localStorage after setup, not hardcoded. If both",
+          "slots held the same model, task 8 records N/A. Every row's model id is what the",
+          "receipt reported; the `backend` column is read from the diagnostic capture.",
           "",
         ]
       : []),
@@ -370,6 +406,10 @@ export type ReportOptions = {
   tasks?: readonly number[];
   runtime?: "onnx" | "webllm";
   browser?: BrowserIdentity;
+  /** The device profile being emulated (e.g. `f16-less`). */
+  profile?: string;
+  /** The acceptance browser mode (e.g. `firefox-routed`). */
+  acceptanceBrowser?: string;
 };
 
 /**
@@ -386,6 +426,8 @@ export function buildReport(picks: PickReport[], options: ReportOptions = {}): A
     ...(options.smoke ? { smoke: true as const, tasks: [...options.tasks ?? []] } : {}),
     ...(options.runtime === "webllm" ? { runtime: "webllm" as const } : {}),
     ...(options.browser ? { browser: options.browser } : {}),
+    ...(options.profile ? { profile: options.profile } : {}),
+    ...(options.acceptanceBrowser ? { acceptanceBrowser: options.acceptanceBrowser } : {}),
     picks,
   };
 }
