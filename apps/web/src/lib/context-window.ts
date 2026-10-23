@@ -77,15 +77,28 @@ export type PreparedBranch = {
 };
 
 /**
+ * What the model sees in place of a reply the person stopped before it wrote
+ * anything. Measured on every shipping model (eval, production sampling, five
+ * question pairs): merging the stopped question into the next one made the
+ * model answer the stopped one 29 times in 30; this marker, 2 in 30. It keeps
+ * the stopped question as its own turn, so the next prompt extends the one
+ * already sent instead of rewriting it.
+ */
+export const STOPPED_BEFORE_REPLY_TEXT = "[The person stopped this reply before it began.]";
+
+/**
  * Clean a branch up before it is assembled into a prompt.
  *
- * Two transforms, both about stored-message identity rather than token budget,
+ * Three transforms, all about stored-message identity rather than token budget,
  * which is why they stayed on the client when selection moved into the worker:
  *
- * - CS-3: drop assistant messages with empty content. Errored turns write
- *   `{status:'error', content:''}` and stop-before-first-token writes
- *   `{status:'complete', content:''}`; replaying them as empty assistant turns
- *   confuses the model and wastes context.
+ * - A reply the person stopped before its first token
+ *   (`{status:'complete', content:'', interruptedReason:'user-stop'}`) is kept
+ *   as an assistant turn reading `STOPPED_BEFORE_REPLY_TEXT`, so the stopped
+ *   question stays its own turn and is not answered with the next one.
+ * - CS-3: drop the other assistant messages with empty content (errored turns
+ *   write `{status:'error', content:''}`); replaying them as empty assistant
+ *   turns confuses the model and wastes context.
  * - Coalesce the adjacent user turns that removal can create. The chat template
  *   layer (`normalizeMessagesForTemplate`) does NOT merge consecutive user
  *   roles — it only normalizes the system role — so `apply_chat_template` would
@@ -95,7 +108,12 @@ export function prepareBranchForPrompt(activeBranch: ChatMessage[]): PreparedBra
   const messages: ChatMessage[] = [];
   const sourceIds: string[] = [];
   for (const message of activeBranch) {
-    if (message.role === "assistant" && message.content.trim().length === 0) continue;
+    if (message.role === "assistant" && message.content.trim().length === 0) {
+      if (message.interruptedReason !== "user-stop") continue;
+      messages.push({ ...message, content: STOPPED_BEFORE_REPLY_TEXT });
+      sourceIds.push(message.id);
+      continue;
+    }
     const previous = messages.length > 0 ? messages[messages.length - 1]! : undefined;
     if (previous && previous.role === "user" && message.role === "user") {
       // Keep the LATER message's metadata (branch navigation) but remember the

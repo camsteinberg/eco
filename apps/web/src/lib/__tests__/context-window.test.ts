@@ -13,6 +13,7 @@ import { describe, it, expect } from "vitest";
 import type { ChatMessage } from "../../stores/chatStore";
 import {
   CONTEXT_WINDOW_REFUSAL_MESSAGE,
+  STOPPED_BEFORE_REPLY_TEXT,
   coalesceConsecutiveUsers,
   findContextDividerIndex,
   prepareBranchForPrompt,
@@ -56,6 +57,34 @@ describe("prepareBranchForPrompt", () => {
 
     const prepared = prepareBranchForPrompt(branch);
     expect(prepared.messages.map((m) => m.content)).toEqual(["Q1\n\nQ2", "A2"]);
+  });
+
+  it("keeps a reply the person stopped before it began as its own turn", () => {
+    const branch = [
+      msg("user", "Q1", "u1"),
+      msg("assistant", "", "a1"),
+      msg("user", "Q2", "u2"),
+    ];
+    branch[1]!.status = "complete";
+    branch[1]!.streamInterrupted = true;
+    branch[1]!.interruptedReason = "user-stop";
+
+    const prepared = prepareBranchForPrompt(branch);
+    expect(prepared.messages.map((m) => [m.role, m.content])).toEqual([
+      ["user", "Q1"],
+      ["assistant", STOPPED_BEFORE_REPLY_TEXT],
+      ["user", "Q2"],
+    ]);
+    expect(prepared.sourceIds).toEqual(["u1", "a1", "u2"]);
+    // The stored message is untouched: only the prompt sees the marker.
+    expect(branch[1]!.content).toBe("");
+  });
+
+  it("still drops an empty reply that ended without a Stop (a fault)", () => {
+    const branch = [msg("user", "Q1", "u1"), msg("assistant", "", "a1"), msg("user", "Q2", "u2")];
+    branch[1]!.streamInterrupted = true;
+    branch[1]!.interruptedReason = "fault";
+    expect(prepareBranchForPrompt(branch).messages.map((m) => m.content)).toEqual(["Q1\n\nQ2"]);
   });
 
   it("drops a whitespace-only assistant turn too", () => {

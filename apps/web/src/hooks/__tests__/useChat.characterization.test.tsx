@@ -306,6 +306,7 @@ import {
   LOCAL_MODEL_FILES_MISSING_OFFLINE_MESSAGE,
 } from "../../local-ai/adapters/error-messages";
 import { _resetFailureStreakForTesting } from "../useChat/failure-streak";
+import { STOPPED_BEFORE_REPLY_TEXT } from "../../lib/context-window";
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
@@ -837,6 +838,25 @@ describe("useChat — user stop / abort (stopGeneration)", () => {
       await result.current.sendMessage("second try");
     });
     expect(lastAssistant()!.errorMessage).toBe(LOCAL_GENERATION_REPEATED_MESSAGE);
+  });
+
+  it("a question stopped before any reply stays its own turn, so the next send is not answered with it", async () => {
+    const { result } = renderHook(() => useChat());
+    setScripts([{ kind: "hang", tokens: [] }]);
+    await sendAndStop(result, "What is the capital of France?");
+    expect(lastAssistant()).toMatchObject({ content: "", interruptedReason: "user-stop" });
+
+    setScripts([{ kind: "tokens", tokens: ["Hello there, friend!"] }]);
+    await act(async () => {
+      await result.current.sendMessage("Say hello in three words.");
+    });
+
+    const sent = generateCalls.at(-1)!.messages.filter((m) => m.role !== "system");
+    expect(sent.map((m) => [m.role, m.content])).toEqual([
+      ["user", "What is the capital of France?"],
+      ["assistant", STOPPED_BEFORE_REPLY_TEXT],
+      ["user", "Say hello in three words."],
+    ]);
   });
 
   it("saves and shows the stopped reply exactly as before", async () => {
