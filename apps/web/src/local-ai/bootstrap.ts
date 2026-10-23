@@ -31,6 +31,7 @@ import {
   setDownloadPlanResolver,
 } from './download/download';
 import { buildProxyURL, buildModelFileURL, getModelCdnBase } from './download/proxy';
+import { hasSha256WorkerFactory, setSha256WorkerFactory } from './download/sha256-session';
 import { getModel } from './catalog/catalog';
 import {
   hasWorkerFactory as hasTransformersWorkerFactory,
@@ -125,6 +126,15 @@ export async function bootstrapLocalAi(options?: BootstrapOptions): Promise<void
         files: filePlanFromArtifact(artifact, model.sizeGB),
       };
     });
+  }
+
+  // ── Download hash worker factory ────────────────────────────────────────
+  // Model downloads are SHA-256 checked as they arrive; the hash runs in this
+  // worker so it never blocks the page (see download/sha256-session.ts).
+  if (!hasSha256WorkerFactory()) {
+    setSha256WorkerFactory(
+      () => new Worker(new URL('../workers/sha256-worker.ts', import.meta.url), { type: 'module' }),
+    );
   }
 
   // ── Transformers.js worker factory ──────────────────────────────────────

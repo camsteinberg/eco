@@ -35,8 +35,6 @@
  *     on the resolver.
  */
 
-import { sha256 } from '@noble/hashes/sha2.js';
-import { bytesToHex } from '@noble/hashes/utils.js';
 import type { ModelConfig } from '../types';
 import {
   ECO_PART_MARKER,
@@ -51,6 +49,8 @@ import { TRANSIENT_RETRY_BASE_DELAY_MS, withTransientRetry } from './retry';
 import { getDeviceProfile } from '../device/profile';
 import { recordEvidence, type LedgerErrorCode } from '../evidence/ledger';
 import { getValidationDownloadFailure } from '../../lib/validation-harness';
+import { createSha256Session, type Sha256Session } from './sha256-session';
+import { createSha256State } from './sha256-state';
 
 // ─── Plan + options ─────────────────────────────────────────────────────────
 
@@ -773,6 +773,9 @@ async function streamResponseToBlob(
   // The stable storage identity — kept as the structured `url` field so callers
   // and the ledger key on it regardless of transport.
   identityUrl: string,
+  // Hashes the bytes as they stream past (off the main thread), when the file
+  // has an LFS SHA-256 to verify against.
+  hasher: Sha256Session | null = null,
 ): Promise<Blob> {
   const { totalBytes, tracker, signal, modelId } = ctx;
   if (!response.body) {
@@ -780,14 +783,16 @@ async function streamResponseToBlob(
     // We still get progress at the file boundary.
     const blob = await response.blob();
     tracker.reportDownloadProgress(baseLoaded + blob.size, totalBytes);
+    if (hasher) await streamBlobInto(blob, (bytes) => hasher.update(bytes));
     return blob;
   }
 
   let received = 0;
   const progress = new TransformStream<Uint8Array, Uint8Array>({
-    transform(chunk, controller) {
+    async transform(chunk, controller) {
       received += chunk.byteLength;
       tracker.reportDownloadProgress(baseLoaded + received, totalBytes);
+      if (hasher) await hasher.update(chunk);
       controller.enqueue(chunk);
     },
   });
@@ -1233,31 +1238,36 @@ async function downloadFileWhole(
     );
   }
 
-  const blob = await streamResponseToBlob(
-    response,
-    baseLoaded,
-    ctx,
-    source,
-    file.url,
-  );
-
   // Source-agnostic integrity. The proxy performs a full-GET SHA check on
   // whole-file LFS downloads, but a direct CDN fetch has no such server-side
   // guard — so verify the assembled bytes against the reviewed LFS SHA-256
   // here too, mirroring the Range-chunked path. Only LFS oids (64 hex) are
   // content SHA-256s; git-blob oids and the heuristic-fallback plan have no
-  // 64-hex oid and are size-verified only (unchanged from before).
-  if (file.oid?.length === 64) {
-    const digest = await sha256OfBlob(blob);
-    if (digest !== file.oid) {
-      throw new DownloadIntegrityError(
-        `SHA-256 mismatch for ${file.url}: expected ${file.oid}, got ${digest}`,
-        { url: file.url },
-      );
+  // 64-hex oid and are size-verified only (unchanged from before). The bytes
+  // are hashed off the main thread as they stream in (see sha256-session).
+  const hasher = file.oid?.length === 64 ? createSha256Session() : null;
+  try {
+    const blob = await streamResponseToBlob(
+      response,
+      baseLoaded,
+      ctx,
+      source,
+      file.url,
+      hasher,
+    );
+    if (hasher) {
+      const digest = await hasher.digest().catch(() => sha256OfBlob(blob));
+      if (digest !== file.oid) {
+        throw new DownloadIntegrityError(
+          `SHA-256 mismatch for ${file.url}: expected ${file.oid}, got ${digest}`,
+          { url: file.url },
+        );
+      }
     }
+    return { kind: 'whole', blob };
+  } finally {
+    hasher?.dispose();
   }
-
-  return { kind: 'whole', blob };
 }
 
 /**
@@ -1287,8 +1297,10 @@ async function downloadFileWhole(
  * Integrity: Range requests bypass the proxy's full-GET SHA verification, so
  * before returning (BEFORE any whole-file store) the persisted parts are
  * size-checked against the authoritative total (from the first 206
- * Content-Range) and, when an LFS SHA-256 oid is known, hashed by streaming
- * each part through an incremental hasher one at a time — O(chunk) memory. A
+ * Content-Range) and, when an LFS SHA-256 oid is known, checked against it. The
+ * hash runs off the main thread as each chunk streams in (a resume first hashes
+ * the parts it adopted; a retried chunk rolls the hash back to the last
+ * persisted part), holding at most a few MB beside the one chunk in flight. A
  * failed check throws before anything is stored under the file identity, so a
  * corrupt download never stamps a cache entry.
  *
@@ -1301,6 +1313,20 @@ async function downloadFileInChunks(
   file: DownloadFileSpec,
   baseLoaded: number,
   ctx: FetchFileContext,
+): Promise<FetchedFile> {
+  const hasher = file.oid?.length === 64 ? createSha256Session() : null;
+  try {
+    return await downloadFileInChunksHashing(file, baseLoaded, ctx, hasher);
+  } finally {
+    hasher?.dispose();
+  }
+}
+
+async function downloadFileInChunksHashing(
+  file: DownloadFileSpec,
+  baseLoaded: number,
+  ctx: FetchFileContext,
+  hasher: Sha256Session | null,
 ): Promise<FetchedFile> {
   // Storage keys of the persisted parts, in byte order. This is the ONLY thing
   // the loop accumulates — no `parts: Blob[]`, so no chunk's bytes outlive its
@@ -1324,6 +1350,11 @@ async function downloadFileInChunks(
     // clamped, so this neither double-counts nor regresses a later sample.
     ctx.tracker.reportDownloadProgress(baseLoaded + received, ctx.totalBytes);
   }
+  if (hasher && partKeys.length > 0) {
+    // The adopted parts lead the file: hash them before any new chunk.
+    await streamStoredParts(file, ctx, partKeys, (bytes) => hasher.update(bytes));
+    hasher.commit();
+  }
 
   // When every part is already present (received >= total) the while loop is
   // skipped and we fall straight through to the integrity pass — this covers an
@@ -1331,7 +1362,7 @@ async function downloadFileInChunks(
   while (received < total) {
     throwIfAborted(ctx.signal, ctx.modelId);
     const end = Math.min(received + ctx.rangeChunkBytes, total) - 1;
-    const chunk = await fetchRangeChunk(file, received, end, baseLoaded + received, ctx);
+    const chunk = await fetchRangeChunk(file, received, end, baseLoaded + received, ctx, hasher);
 
     if (chunk.status === 416) {
       // The requested range starts at/after the origin's real EOF — the plan's
@@ -1374,6 +1405,7 @@ async function downloadFileInChunks(
         throw err;
       }
       partKeys.push(wholeKey);
+      hasher?.commit();
       received = chunk.blob.size;
       total = chunk.blob.size;
       break;
@@ -1401,6 +1433,7 @@ async function downloadFileInChunks(
       throw err;
     }
     partKeys.push(key);
+    hasher?.commit();
     received += chunk.blob.size;
   }
 
@@ -1415,29 +1448,10 @@ async function downloadFileInChunks(
     );
   }
 
-  if (file.oid?.length === 64) {
-    // Hash the persisted parts one at a time — never materialize the whole
-    // file. Each part is streamed (its own body, or its blob's stream as a
-    // fallback) through the incremental hasher, so peak memory stays O(chunk).
-    const hasher = sha256.create();
-    for (const key of partKeys) {
-      const entry = await ctx.storage.get({ modelId: ctx.modelId, url: key });
-      if (!entry) {
-        await deletePartsBestEffort(ctx.storage, ctx.modelId, partKeys);
-        throw new DownloadFailedError(
-          `Persisted chunk unreadable at ${key} for ${file.url}`,
-          { url: file.url },
-        );
-      }
-      const body = entry.response.body ?? (await entry.response.blob()).stream();
-      const reader = body.getReader();
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        hasher.update(value);
-      }
-    }
-    const digest = bytesToHex(hasher.digest());
+  if (hasher) {
+    // The session hashed every persisted part in order as it arrived. If its
+    // worker died, re-hash the stored parts in the page instead.
+    const digest = await hasher.digest().catch(() => sha256OfStoredParts(file, ctx, partKeys));
     if (digest !== file.oid) {
       // Corrupt persisted bytes — never trust a resume over them. Clean before
       // throwing so the fallback/retry re-downloads instead of re-failing.
@@ -1528,9 +1542,10 @@ function fetchRangeChunk(
   end: number,
   baseLoaded: number,
   ctx: FetchFileContext,
+  hasher: Sha256Session | null,
 ): Promise<RangeChunk> {
   return withDownloadRetry(
-    () => fetchRangeChunkOnce(file, start, end, baseLoaded, ctx),
+    () => fetchRangeChunkOnce(file, start, end, baseLoaded, ctx, hasher),
     ctx,
   );
 }
@@ -1542,7 +1557,10 @@ async function fetchRangeChunkOnce(
   end: number,
   baseLoaded: number,
   ctx: FetchFileContext,
+  hasher: Sha256Session | null,
 ): Promise<RangeChunk> {
+  // A previous attempt at this chunk may have hashed part of its bytes.
+  hasher?.rollback();
   const source = file.fetchUrl ?? file.url;
   let response: Response;
   try {
@@ -1589,6 +1607,7 @@ async function fetchRangeChunkOnce(
     ctx,
     source,
     file.url,
+    hasher,
   );
   return { status: response.status, total, blob };
 }
@@ -1603,18 +1622,67 @@ function parseContentRangeTotal(header: string | null): number | null {
 }
 
 /**
- * SHA-256 a (potentially huge, disk-backed) Blob by streaming it through an
- * incremental hasher — O(chunk) memory, never materializing the whole file.
+ * Stream a (potentially huge, disk-backed) Blob's bytes to `onBytes` — O(chunk)
+ * memory, never materializing the whole file.
  */
-async function sha256OfBlob(blob: Blob): Promise<string> {
-  const hasher = sha256.create();
+async function streamBlobInto(
+  blob: Blob,
+  onBytes: (bytes: Uint8Array) => void | Promise<void>,
+): Promise<void> {
   const reader = blob.stream().getReader();
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
-    hasher.update(value);
+    await onBytes(value);
   }
-  return bytesToHex(hasher.digest());
+}
+
+/**
+ * Stream the persisted parts' bytes to `onBytes`, one part at a time (its own
+ * body, or its blob's stream as a fallback), so peak memory stays O(chunk). A
+ * missing part sweeps them all and fails the file.
+ */
+async function streamStoredParts(
+  file: DownloadFileSpec,
+  ctx: FetchFileContext,
+  partKeys: ReadonlyArray<string>,
+  onBytes: (bytes: Uint8Array) => void | Promise<void>,
+): Promise<void> {
+  for (const key of partKeys) {
+    const entry = await ctx.storage.get({ modelId: ctx.modelId, url: key });
+    if (!entry) {
+      await deletePartsBestEffort(ctx.storage, ctx.modelId, partKeys);
+      throw new DownloadFailedError(
+        `Persisted chunk unreadable at ${key} for ${file.url}`,
+        { url: file.url },
+      );
+    }
+    const body = entry.response.body ?? (await entry.response.blob()).stream();
+    const reader = body.getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      await onBytes(value);
+    }
+  }
+}
+
+/** In-page SHA-256 of a Blob: the fallback when a hash worker dies. */
+async function sha256OfBlob(blob: Blob): Promise<string> {
+  const state = createSha256State();
+  await streamBlobInto(blob, (bytes) => state.update(bytes));
+  return state.digest();
+}
+
+/** In-page SHA-256 of the persisted parts: the fallback when a hash worker dies. */
+async function sha256OfStoredParts(
+  file: DownloadFileSpec,
+  ctx: FetchFileContext,
+  partKeys: ReadonlyArray<string>,
+): Promise<string> {
+  const state = createSha256State();
+  await streamStoredParts(file, ctx, partKeys, (bytes) => state.update(bytes));
+  return state.digest();
 }
 
 function errorMessage(err: unknown): string {
