@@ -149,6 +149,12 @@ type LifecycleState = {
   lockQueue: Promise<unknown>;
   /** The active model's load mark, held until the first token after its load. */
   firstTokenMark: LoadMarkHandle | null;
+  /**
+   * A load we stopped waiting for that is still running (LiteRT's Engine.create
+   * cannot be cancelled), settling once it has finished and been unloaded. The
+   * next load waits for it, so two engines are never in memory at once.
+   */
+  orphanedLoad: Promise<void> | null;
 };
 
 const defaultOptions: ResolvedLifecycleOptions = {
@@ -163,6 +169,7 @@ const state: LifecycleState = {
   activeModel: null,
   lockQueue: Promise.resolve(),
   firstTokenMark: null,
+  orphanedLoad: null,
 };
 
 // A WebGPU device lost in this page. Page-scoped on purpose: a page that lost
@@ -303,7 +310,7 @@ export async function loadModel(
       options?.rollbackModelId ? { rollbackModelId: options.rollbackModelId } : {},
     );
     const adapter = adapterFactory(model);
-    const loadPromise = adapter.load(model, {
+    const startLoad = () => adapter.load(model, {
       ...options,
       ...(gpuLostThisPage ? { requireWebGpu: true } : {}),
       onDeviceLost: () => {
@@ -311,6 +318,19 @@ export async function loadModel(
         if (state.activeAdapter === adapter) noteDeviceLost();
       },
     });
+    // A load we gave up on may still be building its engine: start this one only
+    // once that has finished and been unloaded. The wait is inside the race below,
+    // so this load's own signal (a Stop, its budget) still ends it; a load whose
+    // signal fired while it waited never starts.
+    const orphan = state.orphanedLoad;
+    const loadPromise = orphan
+      ? orphan.then(() => {
+        if (options?.signal?.aborted) {
+          throw new AdapterError('Load cancelled while an earlier load finished.', 'aborted', true);
+        }
+        return startLoad();
+      })
+      : startLoad();
     // The mark follows the LOAD, not this call: a forced timeout below stops
     // waiting, but the load keeps running and can still kill the tab. A rejected
     // load clears it; a load that wins the race hands it to the first generation.
@@ -336,15 +356,19 @@ export async function loadModel(
         // complete afterwards and adopt a fully-loaded engine — potentially
         // GBs of WASM/WebGPU heap — that the lifecycle state machine will
         // never see or unload. Dispose it best-effort on late fulfillment.
-        // Pure resource cleanup: no lifecycle state is touched (the orphan is
-        // dead to the state machine). Rejections are swallowed on both the
+        // The orphan is dead to the state machine; its only trace is
+        // `state.orphanedLoad`, which the next load waits on so it never builds
+        // a second engine beside this one. Rejections are swallowed on both the
         // orphaned load and the unload so no interleaving leaks an unhandled
         // rejection, and this only ever runs on the forced-timeout path — the
         // normal success path resolves the race first and never calls back.
-        void loadPromise.then(
+        const settled: Promise<void> = loadPromise.then(
           () => adapter.unload().catch(() => undefined),
           () => undefined,
-        );
+        ).then(() => {
+          if (state.orphanedLoad === settled) state.orphanedLoad = null;
+        });
+        state.orphanedLoad = settled;
       });
     } catch (err) {
       const code = errorCode(err);
@@ -632,6 +656,7 @@ export function _resetLifecycleForTesting(): void {
   state.activeAdapter = null;
   state.activeModel = null;
   state.lockQueue = Promise.resolve();
+  state.orphanedLoad = null;
   clearFirstTokenMark();
   gpuLostThisPage = false;
   deviceLostListeners.clear();

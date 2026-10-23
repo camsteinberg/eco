@@ -551,6 +551,81 @@ describe('load timeout / cancellation', () => {
     expect(adapter.unloadCalls).toBe(0);
   });
 
+  // An abandoned load that cannot be cancelled is still building its engine.
+  // Starting the next load beside it would hold two engines at once (two Gemma
+  // engines on an 8 GB laptop), so the next load waits for it to finish and be
+  // unloaded first.
+  describe('a load after an orphaned one', () => {
+    function orphanThen(next: FakeAdapter) {
+      const orphan = new FakeAdapter();
+      const order: string[] = [];
+      let settleOrphan!: (ok: boolean) => void;
+      orphan.load = () => new Promise<void>((resolve, reject) => {
+        settleOrphan = (ok) => (ok ? resolve() : reject(new AdapterError('late', 'init-failed', true)));
+      });
+      const orphanUnload = orphan.unload.bind(orphan);
+      orphan.unload = async () => { order.push('orphan unloaded'); await orphanUnload(); };
+      const nextLoad = next.load.bind(next);
+      next.load = async (model, options) => { order.push('next load started'); await nextLoad(model, options); };
+      setAdapterFactory((model) => (model.id === MODEL_A.id ? orphan : next));
+      return { orphan, order, settle: (ok: boolean) => settleOrphan(ok) };
+    }
+
+    async function abandonFirstLoad(): Promise<void> {
+      const controller = new AbortController();
+      const pending = loadModel(MODEL_A, { signal: controller.signal });
+      controller.abort();
+      await expect(pending).rejects.toMatchObject({ code: 'timeout' });
+    }
+
+    it('starts only after the orphaned load has finished and been unloaded', async () => {
+      const next = new FakeAdapter();
+      const { order, settle } = orphanThen(next);
+      await abandonFirstLoad();
+
+      const loading = loadModel(MODEL_B);
+      await flushUnload();
+      expect(next.loadCalls).toBe(0);
+
+      settle(true);
+      await loading;
+      expect(order).toEqual(['orphan unloaded', 'next load started']);
+      expect(getActiveAdapter()).toBe(next);
+    });
+
+    it('starts once an orphaned load fails, with nothing to unload', async () => {
+      const next = new FakeAdapter();
+      const { orphan, order, settle } = orphanThen(next);
+      await abandonFirstLoad();
+
+      const loading = loadModel(MODEL_B);
+      settle(false);
+      await loading;
+      expect(orphan.unloadCalls).toBe(0);
+      expect(order).toEqual(['next load started']);
+    });
+
+    it('a load stopped while it waits never starts, and the one after it does', async () => {
+      const next = new FakeAdapter();
+      const { order, settle } = orphanThen(next);
+      await abandonFirstLoad();
+
+      const controller = new AbortController();
+      const waiting = loadModel(MODEL_B, { signal: controller.signal });
+      await flushUnload();
+      controller.abort();
+      await expect(waiting).rejects.toMatchObject({ code: 'timeout' });
+
+      settle(true);
+      await flushUnload();
+      expect(next.loadCalls).toBe(0);
+
+      await loadModel(MODEL_B);
+      expect(order).toEqual(['orphan unloaded', 'next load started']);
+      expect(getActiveAdapter()).toBe(next);
+    });
+  });
+
   it('adopts the engine and does not dispose when a fast load wins against an already-aborted signal', async () => {
     // The signal is already aborted when the load runs, but the load resolves
     // (a microtask) before the deferred forced-timeout macrotask fires — the
