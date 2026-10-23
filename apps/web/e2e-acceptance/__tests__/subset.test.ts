@@ -4,6 +4,8 @@
 import { describe, expect, it } from "vitest";
 import {
   ACCEPTANCE_TASKS,
+  BROWSER_ENV_VAR,
+  PROFILE_ENV_VAR,
   RUNTIME_ENV_VAR,
   SMOKE_ENV_VAR,
   SMOKE_TASKS,
@@ -165,5 +167,73 @@ describe("acceptancePlan for a WebLLM run", () => {
 
   it("refuses a runtime it does not know, rather than starting the full walk", () => {
     expect(() => acceptancePlan({ [RUNTIME_ENV_VAR]: "webgpu" })).toThrow(/webgpu/);
+  });
+});
+
+describe("acceptancePlan for an f16-less profile", () => {
+  it("runs the full walk with profile set", () => {
+    const plan = acceptancePlan({ [PROFILE_ENV_VAR]: "f16-less" });
+    expect(plan.profile).toBe("f16-less");
+    expect(plan.runtime).toBe("onnx");
+    expect(plan.smoke).toBe(false);
+    expect(plan.tasks).toEqual(ACCEPTANCE_TASKS);
+    expect(plan.wipesOrigin).toBe(true);
+  });
+
+  it("narrows with ECO_ACCEPTANCE_TASKS", () => {
+    const plan = acceptancePlan({ [PROFILE_ENV_VAR]: "f16-less", [TASKS_ENV_VAR]: "1,4" });
+    expect(plan.tasks).toEqual([1, 4]);
+    expect(plan.smoke).toBe(true);
+    expect(plan.profile).toBe("f16-less");
+  });
+
+  it("narrows with ECO_ACCEPTANCE_SMOKE", () => {
+    const plan = acceptancePlan({ [PROFILE_ENV_VAR]: "f16-less", [SMOKE_ENV_VAR]: "1" });
+    expect(plan.smoke).toBe(true);
+    expect(plan.tasks).toEqual(SMOKE_TASKS);
+    expect(plan.wipesOrigin).toBe(false);
+  });
+
+  it("refuses f16-less with webllm", () => {
+    expect(() =>
+      acceptancePlan({ [PROFILE_ENV_VAR]: "f16-less", [RUNTIME_ENV_VAR]: "webllm" }),
+    ).toThrow(/f16-less.*webllm/i);
+  });
+
+  it("refuses f16-less with a non-chrome browser", () => {
+    expect(() =>
+      acceptancePlan({ [PROFILE_ENV_VAR]: "f16-less", [BROWSER_ENV_VAR]: "firefox" }),
+    ).toThrow(/f16-less.*Chrome/i);
+  });
+
+  it("refuses an unknown profile", () => {
+    expect(() => acceptancePlan({ [PROFILE_ENV_VAR]: "unknown" })).toThrow(/unknown/);
+  });
+});
+
+describe("acceptancePlan for firefox-routed", () => {
+  it("runs the full walk with browser set", () => {
+    const plan = acceptancePlan({ [BROWSER_ENV_VAR]: "firefox-routed" });
+    expect(plan.browser).toBe("firefox-routed");
+    expect(plan.runtime).toBe("onnx");
+    expect(plan.smoke).toBe(false);
+    expect(plan.tasks).toEqual(ACCEPTANCE_TASKS);
+    expect(plan.wipesOrigin).toBe(true);
+  });
+
+  it("narrows with ECO_ACCEPTANCE_TASKS", () => {
+    const plan = acceptancePlan({ [BROWSER_ENV_VAR]: "firefox-routed", [TASKS_ENV_VAR]: "1,12" });
+    expect(plan.tasks).toEqual([1, 12]);
+    expect(plan.browser).toBe("firefox-routed");
+  });
+
+  it("refuses firefox-routed with webllm", () => {
+    expect(() =>
+      acceptancePlan({ [BROWSER_ENV_VAR]: "firefox-routed", [RUNTIME_ENV_VAR]: "webllm" }),
+    ).toThrow(/firefox-routed.*webllm/i);
+  });
+
+  it("refuses an unknown browser", () => {
+    expect(() => acceptancePlan({ [BROWSER_ENV_VAR]: "opera" })).toThrow(/opera/);
   });
 });

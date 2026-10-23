@@ -85,7 +85,9 @@ import {
   CONTEXT_PROMPT,
   ECO_COMPACT_WEBLLM,
   ECO_DEEPER,
+  ECO_DEEPER_GEMMA,
   ECO_FAST,
+  ECO_FAST_Q4,
   ECO_MOBILE_WEBLLM,
   EDIT_LATER_PROMPT,
   EDIT_ORIGINAL_PROMPT,
@@ -170,13 +172,16 @@ import {
   type Pick,
   type TurnOutcome,
 } from "./lib/walk";
+import { f16LessInitScript } from "./lib/init-scripts";
 
 const BASE_URL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3120";
 
 /**
  * Full walk, the ten-minute self-test (`ECO_ACCEPTANCE_SMOKE=1`), an explicit
- * task list (`ECO_ACCEPTANCE_TASKS=2,4`), or a WebLLM run
- * (`ECO_ACCEPTANCE_RUNTIME=webllm`).
+ * task list (`ECO_ACCEPTANCE_TASKS=2,4`), a WebLLM run
+ * (`ECO_ACCEPTANCE_RUNTIME=webllm`), an f16-less profile
+ * (`ECO_ACCEPTANCE_PROFILE=f16-less`), or a routed-Firefox run
+ * (`ECO_ACCEPTANCE_BROWSER=firefox-routed`).
  *
  * Both models are still PROVISIONED either way — task 8 needs somewhere to
  * switch to — but a narrowed run walks only `WALK_PICKS` and only the tasks
@@ -184,30 +189,38 @@ const BASE_URL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3120";
  */
 const PLAN = acceptancePlan();
 const WEBLLM = PLAN.runtime === "webllm";
+const F16_LESS = PLAN.profile === "f16-less";
+const FIREFOX_ROUTED = PLAN.browser === "firefox-routed";
 /**
- * `ECO_ACCEPTANCE_BROWSER=chrome|firefox|webkit` picks the engine. Chrome is
- * the shipping path; Firefox and WebKit are Playwright's own builds, read to
- * learn what a non-Chromium browser gets (a notice and a fallback, or a load),
- * not to grade the product. Each engine keeps its own profile so a Chrome
- * model cache never masquerades as a WebKit one.
+ * `ECO_ACCEPTANCE_BROWSER=chrome|firefox|webkit|firefox-routed` picks the engine.
+ * Chrome is the shipping path; Firefox and WebKit are Playwright's own builds,
+ * read to learn what a non-Chromium browser gets (a notice and a fallback, or a
+ * load), not to grade the product. `firefox-routed` uses Playwright's Firefox
+ * but lets it describe itself, routing to the models Firefox actually gets.
+ * Each engine keeps its own profile so a Chrome model cache never masquerades
+ * as a WebKit one.
  */
-const BROWSER = (process.env.ECO_ACCEPTANCE_BROWSER?.trim() || "chrome") as
-  | "chrome"
-  | "firefox"
-  | "webkit";
+const BROWSER_RAW = PLAN.browser ?? (
+  (process.env.ECO_ACCEPTANCE_BROWSER?.trim() || "chrome") as "chrome" | "firefox" | "webkit"
+);
+const BROWSER = BROWSER_RAW === "firefox-routed" ? "firefox" : BROWSER_RAW;
 if (WEBLLM && BROWSER !== "chrome") {
   throw new Error("ECO_ACCEPTANCE_RUNTIME=webllm runs in real Chrome only; unset ECO_ACCEPTANCE_BROWSER.");
 }
-/** The WebLLM run keeps its own profile, so its models never mix with the ONNX walk's cache. */
+/** Each mode keeps its own profile so model caches never mix. */
 const PROFILE_DIR =
   process.env.ECO_ACCEPTANCE_PROFILE_DIR
   ?? join(
     __dirname,
     WEBLLM
       ? ".browser-profile-webllm"
-      : BROWSER === "chrome"
-        ? ".browser-profile"
-        : `.browser-profile-${BROWSER}`,
+      : F16_LESS
+        ? ".browser-profile-f16-less"
+        : FIREFOX_ROUTED
+          ? ".browser-profile-firefox-routed"
+          : BROWSER === "chrome"
+            ? ".browser-profile"
+            : `.browser-profile-${BROWSER}`,
   );
 
 /**
@@ -219,11 +232,31 @@ const DESKTOP_SAFARI_USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
   + "(KHTML, like Gecko) Version/26.4 Safari/605.1.15";
 
+/**
+ * What Chrome presents in an f16-less run: a Windows Chrome user agent. The app
+ * classifies the browser from it; the init script provides `deviceMemory=8` and
+ * a wrapped adapter without `shader-f16`, routing the app to its f16-less picks.
+ */
+const WINDOWS_CHROME_USER_AGENT =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+  + "(KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36";
+
+/** Device memory for the f16-less profile. Override with `ECO_ACCEPTANCE_DEVICE_MEMORY`. */
+const F16_LESS_DEVICE_MEMORY = Number(
+  process.env.ECO_ACCEPTANCE_DEVICE_MEMORY?.trim() || "8",
+);
+
 // The picks themselves (ids, slots, tile and friendly names) live in
 // `lib/tasks`, shared with every walk that judges by the same rules.
-const PICKS: readonly Pick[] = WEBLLM
+// The firefox-routed mode builds its picks at run time from what the app
+// actually routes; `PICKS` is set in the provisioning test.
+let PICKS: readonly Pick[] = WEBLLM
   ? [ECO_COMPACT_WEBLLM, ECO_MOBILE_WEBLLM]
-  : [ECO_FAST, ECO_DEEPER];
+  : F16_LESS
+    ? [ECO_FAST_Q4, ECO_DEEPER_GEMMA]
+    : FIREFOX_ROUTED
+      ? [] // set during provisioning, from what the app actually routes
+      : [ECO_FAST, ECO_DEEPER];
 
 /**
  * The slots a walk binds. The ONNX picks sit in different slots, so both are
@@ -250,9 +283,12 @@ const WALK_LABEL = (process.env.ECO_ACCEPTANCE_TASKS?.trim() || WEBLLM)
   : PLAN.smoke
     ? "smoke subset"
     : "fourteen-task";
-const WALK_PICKS: readonly Pick[] = SLOT_FILTER
-  ? PICKS.filter((pick) => pick.slot === SLOT_FILTER)
-  : planPicks(PLAN, PICKS);
+/** Resolved after provisioning for firefox-routed; immediately for other modes. */
+let WALK_PICKS: readonly Pick[] = FIREFOX_ROUTED
+  ? [] // set once PICKS is known
+  : SLOT_FILTER
+    ? PICKS.filter((pick) => pick.slot === SLOT_FILTER)
+    : planPicks(PLAN, PICKS);
 
 /**
  * Deliberately NOT `mode: "serial"`. The lane runs one worker with parallelism
@@ -263,6 +299,87 @@ const WALK_PICKS: readonly Pick[] = SLOT_FILTER
  * section for it at all. A model that silently vanishes from the report is the
  * same defect as a green run with failures in its table.
  */
+
+/**
+ * Build the walk's picks from what the app actually routed — read from
+ * localStorage after the app has completed its first-run setup.
+ *
+ * The firefox-routed mode cannot hardcode model ids because Playwright's
+ * Firefox may land on the webgpu, webgpuNoF16 or wasmOnly arm depending on
+ * the machine's GPU. This reads the slot model ids the app wrote, looks up
+ * their display names in the catalog, and returns one Pick per populated
+ * slot. If both slots hold the same model, one Pick is returned (task 8 will
+ * record N/A).
+ */
+async function readRoutedPicks(page: Page): Promise<Pick[]> {
+  type SlotInfo = { slot: string; modelId: string | null };
+  const slots: SlotInfo[] = await page.evaluate(() => {
+    const result: { slot: string; modelId: string | null }[] = [];
+    for (const slot of ["eco-fast", "eco-smart"]) {
+      const modelId = window.localStorage.getItem(`eco-local-ai-slot-${slot}`);
+      result.push({ slot, modelId });
+    }
+    return result;
+  });
+
+  const picks: Pick[] = [];
+  const seenModelIds = new Set<string>();
+  for (const { slot, modelId } of slots) {
+    if (!modelId || seenModelIds.has(modelId)) continue;
+    seenModelIds.add(modelId);
+
+    // Look up the catalog entry's display info for the tile name.
+    const catalogEntry = (catalogData as { models: { id: string; display?: { friendlyName?: string; welcome?: { name?: string } } }[] })
+      .models.find((m) => m.id === modelId);
+    const tileName = catalogEntry?.display?.welcome?.name
+      ?? catalogEntry?.display?.friendlyName?.replace(/\s*\([^)]*\)\s*$/, "")
+      ?? modelId;
+    const friendlyName = catalogEntry?.display?.friendlyName ?? modelId;
+
+    picks.push({
+      modelId,
+      slot: slot as "eco-fast" | "eco-smart",
+      tileName,
+      friendlyName,
+    });
+  }
+  return picks;
+}
+
+/**
+ * Read the execution backend from the diagnostic capture in localStorage.
+ *
+ * The receipt's events field drops the `note` that carries `backend=webgpu`
+ * or `backend=wasm`, so the backend is not directly available from the
+ * receipt. The diagnostic capture (`eco-local-ai-diagnostics-v1`) records
+ * `resolvedBackend` per-model during smoke verification. Returns the most
+ * recent entry's backend for the given model id, or null when not found.
+ */
+async function readBackendFromDiagnostics(
+  page: Page,
+  modelId: string,
+): Promise<string | null> {
+  return page.evaluate(
+    ({ key, mid }) => {
+      try {
+        const raw = window.localStorage.getItem(key);
+        if (!raw) return null;
+        const entries = JSON.parse(raw) as { modelId?: string; resolvedBackend?: string | null }[];
+        // Newest entry for this model.
+        for (let i = entries.length - 1; i >= 0; i--) {
+          const entry = entries[i];
+          if (entry?.modelId === mid && entry?.resolvedBackend != null) {
+            return entry.resolvedBackend ?? null;
+          }
+        }
+      } catch {
+        // Malformed or missing — not worth failing the walk over.
+      }
+      return null;
+    },
+    { key: "eco-local-ai-diagnostics-v1", mid: modelId },
+  );
+}
 
 test.describe("acceptance walk", () => {
   let context: BrowserContext;
@@ -280,10 +397,21 @@ test.describe("acceptance walk", () => {
       // renders short and the run looks broken to anyone watching it.
       viewport: null,
       ...(WEBLLM ? { userAgent: DESKTOP_SAFARI_USER_AGENT } : {}),
+      ...(F16_LESS ? { userAgent: WINDOWS_CHROME_USER_AGENT } : {}),
     });
     // The forced profile names the browser class, which would override the
-    // Safari user agent; a WebLLM run lets the browser describe itself.
-    if (WEBLLM) setDeviceQuery("");
+    // Safari/Windows user agent; WebLLM, f16-less and firefox-routed let the
+    // browser describe itself (or present a specific UA).
+    if (WEBLLM || F16_LESS || FIREFOX_ROUTED) setDeviceQuery("");
+
+    // The f16-less init script wraps the main-thread GPU adapter so
+    // `features.has('shader-f16')` returns false, and sets deviceMemory.
+    // NOTE: this only affects the main thread — the ONNX worker creates its
+    // own adapter inside a Web Worker, which does not inherit init scripts.
+    if (F16_LESS) {
+      await context.addInitScript(f16LessInitScript, { deviceMemory: F16_LESS_DEVICE_MEMORY });
+    }
+
     await stubAuth(context);
   });
 
@@ -327,7 +455,7 @@ test.describe("acceptance walk", () => {
   test.afterAll(async () => {
     // Assembled from the fragments on disk, so this is the WHOLE run even when
     // an earlier walk ran in a worker that has since been replaced.
-    const paths = assembleReport({ smoke: PLAN.smoke, tasks: PLAN.tasks, runtime: PLAN.runtime });
+    const paths = assembleReport({ smoke: PLAN.smoke, tasks: PLAN.tasks, runtime: PLAN.runtime, profile: PLAN.profile, acceptanceBrowser: PLAN.browser });
     console.log(`\nacceptance report: ${paths.jsonPath}\n                   ${paths.markdownPath}`);
     await context?.close();
   });
@@ -340,64 +468,101 @@ test.describe("acceptance walk", () => {
    * the path a person takes — and which has to work before the per-model walks
    * can bind a slot and expect the bytes to be there.
    */
-  test(WEBLLM ? "both WebLLM models provisioned" : "cold profile, both shipping models provisioned", async () => {
-    test.setTimeout(3_600_000);
-    if (WEBLLM) {
-      // Each model's files are checked before anything waits on them, by the
-      // app's own rule: the model host first, then — for a file the host is
-      // missing — the app's own proxy, which the app falls back to. Only a file
-      // neither serves fails here, in seconds and by name, rather than as a
-      // download timeout; a file only the proxy serves is noted in the report.
-      const host = acceptanceModelHost();
-      console.log(`  model host: ${host || "(none — the app's own model proxy)"}`);
-      for (const pick of PICKS) {
-        const artifact = artifactFor(catalogData, pick.modelId);
-        if (!artifact) throw new Error(`${pick.modelId} has no artifact in the catalog`);
-        const files = sampleFiles(artifact).map((file) => ({
-          file,
-          hostUrl: host ? modelFileUrl(artifact, file, host, BASE_URL) : null,
-          proxyUrl: modelFileUrl(artifact, file, "", BASE_URL),
-        }));
-        const notes = await checkModelFilesServed(pick, files, MODEL_HOST_REMEDY);
-        notes.push(...(await provisionBySeeding(context, pick, MODEL_HOST_REMEDY)));
-        provisioningNotes.set(pick.modelId, notes);
-        for (const note of notes) console.log(`  ${pick.tileName}: note — ${note}`);
-        console.log(`  ${pick.tileName} (${pick.modelId}): ready`);
+  test(
+    WEBLLM ? "both WebLLM models provisioned"
+      : FIREFOX_ROUTED ? "routed-Firefox profile, models provisioned"
+        : F16_LESS ? "f16-less profile, both models provisioned"
+          : "cold profile, both shipping models provisioned",
+    async () => {
+      test.setTimeout(3_600_000);
+      if (WEBLLM) {
+        // Each model's files are checked before anything waits on them, by the
+        // app's own rule: the model host first, then — for a file the host is
+        // missing — the app's own proxy, which the app falls back to. Only a file
+        // neither serves fails here, in seconds and by name, rather than as a
+        // download timeout; a file only the proxy serves is noted in the report.
+        const host = acceptanceModelHost();
+        console.log(`  model host: ${host || "(none — the app's own model proxy)"}`);
+        for (const pick of PICKS) {
+          const artifact = artifactFor(catalogData, pick.modelId);
+          if (!artifact) throw new Error(`${pick.modelId} has no artifact in the catalog`);
+          const files = sampleFiles(artifact).map((file) => ({
+            file,
+            hostUrl: host ? modelFileUrl(artifact, file, host, BASE_URL) : null,
+            proxyUrl: modelFileUrl(artifact, file, "", BASE_URL),
+          }));
+          const notes = await checkModelFilesServed(pick, files, MODEL_HOST_REMEDY);
+          notes.push(...(await provisionBySeeding(context, pick, MODEL_HOST_REMEDY)));
+          provisioningNotes.set(pick.modelId, notes);
+          for (const note of notes) console.log(`  ${pick.tileName}: note — ${note}`);
+          console.log(`  ${pick.tileName} (${pick.modelId}): ready`);
+        }
+        return;
       }
-      return;
-    }
-    if (PLAN.wipesOrigin) {
-      const bootstrap = await context.newPage();
-      await bootstrap.goto(`${BASE_URL}/`, { waitUntil: "commit" });
-      await wipeOrigin(context, bootstrap);
-      await bootstrap.close();
-    } else {
-      // A smoke run keeps whatever the profile already has: the wipe would
-      // re-download both models, and no ten-minute self-test survives that.
-      console.log("  smoke subset: keeping the existing profile, no origin wipe");
-    }
+      if (PLAN.wipesOrigin) {
+        const bootstrap = await context.newPage();
+        await bootstrap.goto(`${BASE_URL}/`, { waitUntil: "commit" });
+        await wipeOrigin(context, bootstrap);
+        await bootstrap.close();
+      } else {
+        // A smoke run keeps whatever the profile already has: the wipe would
+        // re-download both models, and no ten-minute self-test survives that.
+        console.log("  smoke subset: keeping the existing profile, no origin wipe");
+      }
 
-    // No slot binding here on purpose: this is the app's own first-run setup,
-    // choosing and fetching a model for this device without being told which.
-    const page = await context.newPage();
-    await page.goto(`${BASE_URL}/chat?eco-force-capability=webgpu&eco-force-browser=chromium&eco-force-platform=desktop&eco-force-device-memory=16`, {
-      waitUntil: "commit",
-    });
-    // Answering the first-run choice with the everyday pick keeps the run to
-    // the two downloads it needs: setup fetches Eco Fast, the switcher fetches
-    // Eco Deeper.
-    await waitForUsableChat(page, ECO_FAST.tileName);
-    const afterSetup = await page.evaluate(
-      () => window.__ecoPerf?.activeModelId() ?? null,
-    );
-    console.log(`  first-run setup landed on ${afterSetup ?? "(nothing resident)"}`);
+      // No slot binding here on purpose: this is the app's own first-run setup,
+      // choosing and fetching a model for this device without being told which.
+      const page = await context.newPage();
 
-    for (const pick of PICKS) {
-      const how = await provisionPick(page, pick);
-      console.log(`  ${pick.tileName} (${pick.modelId}): ${how}`);
-    }
-    await page.close();
-  });
+      if (FIREFOX_ROUTED || F16_LESS) {
+        // Let the app route based on its own device profiling (the init script
+        // and/or the browser's real capabilities) rather than a forced query.
+        await page.goto(`${BASE_URL}/chat`, { waitUntil: "commit" });
+      } else {
+        await page.goto(`${BASE_URL}/chat?eco-force-capability=webgpu&eco-force-browser=chromium&eco-force-platform=desktop&eco-force-device-memory=16`, {
+          waitUntil: "commit",
+        });
+      }
+
+      // The first pick's tile name: for f16-less both tiles are "Eco Fast" and
+      // "Eco Deeper" (same welcome names as the default run); for firefox-routed
+      // we don't know yet — let the app choose.
+      const preferredTile = F16_LESS ? ECO_FAST_Q4.tileName : FIREFOX_ROUTED ? undefined : ECO_FAST.tileName;
+      await waitForUsableChat(page, preferredTile);
+      const afterSetup = await page.evaluate(
+        () => window.__ecoPerf?.activeModelId() ?? null,
+      );
+      console.log(`  first-run setup landed on ${afterSetup ?? "(nothing resident)"}`);
+
+      if (FIREFOX_ROUTED) {
+        // Build PICKS from what the app actually routed, not from hardcoded ids.
+        // Read the slot model ids from localStorage.
+        const routedPicks = await readRoutedPicks(page);
+        if (routedPicks.length === 0) {
+          // The app declined every model — an honest unsupported screen.
+          throw new Error(
+            "Playwright's Firefox was declined by the app: no model was routed to "
+              + "either slot. The report would have no table at all.",
+          );
+        }
+        // Assign to the module-level PICKS and WALK_PICKS.
+        PICKS = routedPicks;
+        WALK_PICKS = SLOT_FILTER
+          ? PICKS.filter((pick) => pick.slot === SLOT_FILTER)
+          : planPicks(PLAN, PICKS);
+        console.log(`  firefox-routed: ${PICKS.length} pick(s) from routing:`);
+        for (const pick of PICKS) {
+          console.log(`    ${pick.slot}: ${pick.modelId} (${pick.friendlyName})`);
+        }
+      }
+
+      for (const pick of PICKS) {
+        const how = await provisionPick(page, pick);
+        console.log(`  ${pick.tileName} (${pick.modelId}): ${how}`);
+      }
+      await page.close();
+    },
+  );
 
   // `WALK_PICKS`, not `PICKS`: a smoke run walks one model. `others` stays
   // derived from `PICKS`, because task 8 switches to a model it does not walk.
@@ -434,6 +599,13 @@ test.describe("acceptance walk", () => {
         );
       };
 
+      /**
+       * The execution backend for this model, read from the diagnostic capture
+       * once the model has loaded. `null` when the capture does not carry it.
+       * Set after the first page is opened.
+       */
+      let modelBackend: string | null = null;
+
       /** Record a turn that produced (or failed to produce) a generation. */
       const rowFor = (
         task: number,
@@ -450,6 +622,7 @@ test.describe("acceptance walk", () => {
           modelId: receipt?.modelId ?? pick.modelId,
           firstTokenMs: receipt?.firstTokenMs ?? null,
           kvReason: kvReasonOf(receipt),
+          ...(modelBackend !== null ? { backend: modelBackend } : {}),
           result,
           evidence,
         };
@@ -513,6 +686,10 @@ test.describe("acceptance walk", () => {
       const open = async (): Promise<Page> => {
         if (walkPage === null || walkPage.isClosed()) {
           walkPage = await openChatOnModel(context, pick, bindingsFor(pick));
+          // Read the execution backend once, from the diagnostic capture.
+          if (modelBackend === null) {
+            modelBackend = await readBackendFromDiagnostics(walkPage, pick.modelId);
+          }
           return walkPage;
         }
         await startNewConversation(walkPage);
@@ -634,6 +811,21 @@ test.describe("acceptance walk", () => {
 
       // ── 8. Switch faster ↔ smarter ────────────────────────────────────────
       await task(8, "switch between models truthfully", async () => {
+        if (others.length === 0) {
+          // Only one model on this browser — nothing to switch to. Record an
+          // explicit N/A row rather than a silent skip.
+          push({
+            task: 8,
+            turn: 0,
+            label: "one model on this browser — nothing to switch to",
+            modelId: pick.modelId,
+            firstTokenMs: null,
+            kvReason: null,
+            result: "RECORDED",
+            evidence: `this browser routes both slots to ${pick.modelId}; task 8 is N/A`,
+          });
+          return;
+        }
         const page = await open();
         for (const other of others) {
           const label = await switchTo(page, other);
@@ -984,6 +1176,8 @@ test.describe("acceptance walk", () => {
       smoke: PLAN.smoke,
       tasks: PLAN.tasks,
       runtime: PLAN.runtime,
+      profile: PLAN.profile,
+      acceptanceBrowser: PLAN.browser,
     });
     expect(
       report.picks.length,

@@ -59,6 +59,29 @@ export const ECO_DEEPER: Pick = {
 };
 
 /**
+ * The f16-less Chromium picks: the q4 ONNX build for eco-fast and the LiteRT
+ * Gemma build for eco-smart — what an 8 GB Windows Chrome without shader-f16
+ * gets (`DESKTOP_CHROMIUM_8GB_PICKS.webgpuNoF16` in the routing tests).
+ *
+ * Tile names are from the catalog's `display.welcome.name`: the welcome card
+ * shows "Eco Fast" and "Eco Deeper" because the q4 build carries the same
+ * curated copy as its f16 sibling, and the Gemma build's `display.welcome.name`
+ * is "Eco Deeper" (set by s79 #443).
+ */
+export const ECO_FAST_Q4: Pick = {
+  modelId: "candidate/lfm2.5-1.2b-instruct-q4-onnx",
+  slot: "eco-fast",
+  tileName: "Eco Fast",
+  friendlyName: "Eco Fast (Liquid)",
+};
+export const ECO_DEEPER_GEMMA: Pick = {
+  modelId: "candidate/gemma-4-e2b-litert",
+  slot: "eco-smart",
+  tileName: "Eco Deeper",
+  friendlyName: "Eco Deeper (Gemma)",
+};
+
+/**
  * The two models the app serves desktop Safari, both on WebLLM: Eco Compact
  * first, Eco Mobile as its fallback. Each is walked alone in the everyday slot,
  * the slot a desktop-Safari device fills first.

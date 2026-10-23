@@ -160,6 +160,50 @@ ever reaches a real search engine: the fixed payload is what makes the chip's
 fetched-at time and the request body checkable, and the interception is also what
 catches a request the OFF arm should never have made.
 
+## The f16-less stand-in
+
+```bash
+ECO_ACCEPTANCE_PROFILE=f16-less pnpm --filter @eco/web test:acceptance
+```
+
+Walks the models an f16-less 8 GB Windows Chrome device gets: the plain-int4
+ONNX build (Eco Fast) and the LiteRT Gemma build (Eco Deeper) instead of the
+f16 variants. Real Chrome presents a Windows Chrome user agent; an init script
+sets `navigator.deviceMemory = 8` and wraps the main-thread GPU adapter so
+`features.has('shader-f16')` returns false (including iteration). The app routes
+to the f16-less picks on its own.
+
+It runs the full fourteen tasks by default, wipes the origin the way the default
+walk does, and keeps its own Chrome profile in `.browser-profile-f16-less/`.
+`ECO_ACCEPTANCE_TASKS`, `ECO_ACCEPTANCE_SMOKE`, and `ECO_ACCEPTANCE_SLOT` narrow
+the run the same way they do for the default walk. `ECO_ACCEPTANCE_DEVICE_MEMORY`
+overrides the device memory value (default 8).
+
+The ONNX worker's own `navigator.gpu.requestAdapter` runs inside a Web Worker
+and does NOT inherit the init script. The shim affects the main thread only —
+device profiling and model selection happen there, so the routing decision sees
+the shimmed adapter. The report header states this.
+
+## The routed-Firefox run
+
+```bash
+ECO_ACCEPTANCE_BROWSER=firefox-routed pnpm --filter @eco/web test:acceptance
+```
+
+Walks Playwright's Firefox with its own user agent, so the app routes to the
+models Firefox actually gets rather than the Chromium models the existing
+`firefox` mode forces. The picks are read from localStorage after setup, not
+hardcoded: Playwright's Firefox may land on the webgpu, webgpuNoF16 or wasmOnly
+arm depending on the machine.
+
+If both slots hold the same model (as they do for Firefox with WebGPU today:
+Qwen3 0.6B in both), task 8 records an explicit N/A row. If no model is routed,
+the run stops with a FAIL. Each row carries the `backend` column, read from the
+diagnostic capture in localStorage.
+
+The run keeps its own profile in `.browser-profile-firefox-routed/`. The same
+narrowing envs apply.
+
 ## The Safari run
 
 The WebLLM run above is still Chrome underneath. This one is real Safari,
